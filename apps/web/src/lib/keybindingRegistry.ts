@@ -481,9 +481,11 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
     },
   };
 
+const HIDDEN_KEYBINDING_COMMANDS = new Set<StaticKeybindingCommand>(["terminal.split"]);
+
 export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinition[] =
-  STATIC_KEYBINDING_COMMANDS.map((command) =>
-    Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]),
+  STATIC_KEYBINDING_COMMANDS.filter((command) => !HIDDEN_KEYBINDING_COMMANDS.has(command)).map(
+    (command) => Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]),
   );
 
 export function defaultShortcutLabelForCommand(

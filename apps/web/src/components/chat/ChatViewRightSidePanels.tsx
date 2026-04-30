@@ -23,16 +23,9 @@ import {
   PlusIcon,
   XIcon,
 } from "lucide-react";
-import {
-  Suspense,
-  lazy,
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type MutableRefObject,
-} from "react";
+import { Suspense, lazy, useCallback, useRef, type MutableRefObject } from "react";
 
+import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/session";
 import { cn } from "~/lib/utils";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
@@ -234,8 +227,7 @@ export function RightSidePanelTabStrip(props: {
   onToggleFullscreen: () => void;
 }) {
   const { onBrowserTabReorder } = props;
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const [tabsOverflow, setTabsOverflow] = useState(false);
+  const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
   const browserTabSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -283,47 +275,6 @@ export function RightSidePanelTabStrip(props: {
       suppressBrowserTabClickAfterDragRef.current = false;
     }, 0);
   }, []);
-  const syncTabsOverflow = useCallback(() => {
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip) {
-      setTabsOverflow(false);
-      return;
-    }
-    const nextOverflow = tabStrip.scrollWidth - tabStrip.clientWidth > 1;
-    setTabsOverflow((current) => (current === nextOverflow ? current : nextOverflow));
-  }, []);
-  useLayoutEffect(() => {
-    syncTabsOverflow();
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip || typeof ResizeObserver === "undefined") {
-      return;
-    }
-    let frameId: number | null = null;
-    const scheduleTabsOverflowSync = () => {
-      if (frameId !== null) {
-        return;
-      }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        syncTabsOverflow();
-      });
-    };
-    const resizeObserver = new ResizeObserver(scheduleTabsOverflowSync);
-    resizeObserver.observe(tabStrip);
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-      resizeObserver.disconnect();
-    };
-  }, [
-    props.activeBrowserTabId,
-    props.activeMode,
-    props.browserSession?.tabs.length,
-    props.editorOpen,
-    props.reviewOpen,
-    syncTabsOverflow,
-  ]);
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3">
