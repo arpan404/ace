@@ -1694,6 +1694,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         text={messageText}
         cwd={props.markdownCwd}
         isStreaming={Boolean(props.message.streaming)}
+        deferMarkdownUntilVisible={!props.message.streaming}
         onOpenBrowserUrl={onOpenBrowserUrl}
         onOpenFilePath={onOpenFilePath}
         {...(props.message.streamingTextState
