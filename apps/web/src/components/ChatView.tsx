@@ -4501,7 +4501,7 @@ export default function ChatView({
       storeSetTerminalAutoTitle(
         activeThreadId,
         targetTerminalId,
-        deriveTerminalTitleFromCommand(script.command) ?? script.name,
+        deriveTerminalTitleFromCommand(script.command),
       );
       setTerminalFocusRequestId((value) => value + 1);
 
@@ -7546,15 +7546,16 @@ export default function ChatView({
           activeTerminalId: terminalState.activeTerminalId,
           terminalGroups: terminalState.terminalGroups,
           runningTerminalIds: terminalState.runningTerminalIds,
-          customTerminalTitlesById: terminalState.customTerminalTitlesById,
           autoTerminalTitlesById: terminalState.autoTerminalTitlesById,
           focusRequestId: terminalFocusRequestId,
           onNewTerminal: createNewTerminal,
           newShortcutLabel: newTerminalShortcutLabel ?? undefined,
+          toggleShortcutLabel: terminalToggleShortcutLabel ?? undefined,
           onActiveTerminalChange: activateTerminal,
           onMoveTerminal: moveTerminal,
           onAutoTerminalTitleChange: setTerminalAutoTitle,
           onCloseTerminal: closeTerminal,
+          onToggleTerminal: toggleTerminalVisibility,
           onHeightChange: setTerminalHeight,
           onAddTerminalContext: addTerminalContextToDraft,
         }

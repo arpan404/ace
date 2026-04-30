@@ -33,9 +33,10 @@ import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
   applyTerminalInputToBuffer,
-  buildTerminalFallbackTitle,
   deriveTerminalTitleFromCommand,
   extractTerminalOscTitle,
+  normalizeTerminalDisplayTitle,
+  resolveTerminalDisplayTitle,
 } from "~/lib/terminalPresentation";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
@@ -346,10 +347,6 @@ export function resolveTerminalTabDropTarget(
     }
   }
   return null;
-}
-
-function compactShellLabel(label: string): string {
-  return label.replace(/\s+shell$/i, "").trim();
 }
 
 interface TerminalViewportProps {
@@ -746,7 +743,7 @@ function TerminalViewport({
         });
         if (disposed) return;
         activeTerminal.write("\u001bc");
-        onAutoTerminalTitleChangeRef.current(snapshot.title);
+        onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(snapshot.title));
         if (snapshot.history.length > 0) {
           activeTerminal.write(snapshot.history);
         }
@@ -772,7 +769,7 @@ function TerminalViewport({
       if (event.type === "output") {
         const oscTitle = extractTerminalOscTitle(event.data);
         if (oscTitle) {
-          onAutoTerminalTitleChangeRef.current(oscTitle);
+          onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(oscTitle));
         }
         activeTerminal.write(event.data);
         clearSelectionAction();
@@ -785,7 +782,7 @@ function TerminalViewport({
         terminalLinkMatchCache.clear();
         clearSelectionAction();
         activeTerminal.reset();
-        onAutoTerminalTitleChangeRef.current(event.snapshot.title);
+        onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(event.snapshot.title));
         if (event.snapshot.history.length > 0) {
           activeTerminal.write(event.snapshot.history);
         }
@@ -793,7 +790,7 @@ function TerminalViewport({
       }
 
       if (event.type === "title") {
-        onAutoTerminalTitleChangeRef.current(event.title);
+        onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(event.title));
         return;
       }
 
@@ -938,15 +935,16 @@ interface ThreadTerminalDrawerProps {
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
   runningTerminalIds: string[];
-  customTerminalTitlesById: Record<string, string>;
   autoTerminalTitlesById: Record<string, string>;
   focusRequestId: number;
   onNewTerminal: () => void;
   newShortcutLabel?: string | undefined;
+  toggleShortcutLabel?: string | undefined;
   onActiveTerminalChange: (terminalId: string) => void;
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onCloseTerminal: (terminalId: string) => void;
+  onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
 }
@@ -1092,15 +1090,16 @@ export default memo(function ThreadTerminalDrawer({
   activeTerminalId,
   terminalGroups,
   runningTerminalIds,
-  customTerminalTitlesById,
   autoTerminalTitlesById,
   focusRequestId,
   onNewTerminal,
   newShortcutLabel,
+  toggleShortcutLabel,
   onActiveTerminalChange,
   onMoveTerminal,
   onAutoTerminalTitleChange,
   onCloseTerminal,
+  onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
 }: ThreadTerminalDrawerProps) {
@@ -1134,35 +1133,29 @@ export default memo(function ThreadTerminalDrawer({
     return normalizeTerminalGroups(terminalGroups, normalizedTerminalIds);
   }, [normalizedTerminalIds, terminalGroups]);
 
+  const runningTerminalIdSet = useMemo(() => new Set(runningTerminalIds), [runningTerminalIds]);
+
   const terminalLabelById = useMemo(
     () =>
       new Map(
         normalizedTerminalIds.map((terminalId) => [
           terminalId,
-          customTerminalTitlesById[terminalId] ??
-            autoTerminalTitlesById[terminalId] ??
-            buildTerminalFallbackTitle(cwd, terminalId),
+          resolveTerminalDisplayTitle({
+            autoTitle: autoTerminalTitlesById[terminalId],
+            cwd,
+            isRunning: runningTerminalIdSet.has(terminalId),
+            terminalId,
+          }),
         ]),
       ),
-    [autoTerminalTitlesById, customTerminalTitlesById, cwd, normalizedTerminalIds],
-  );
-  const sidebarTerminalLabelById = useMemo(
-    () =>
-      new Map(
-        normalizedTerminalIds.map((terminalId) => {
-          const rawLabel = terminalLabelById.get(terminalId) ?? "shell";
-          if (customTerminalTitlesById[terminalId] || autoTerminalTitlesById[terminalId]) {
-            return [terminalId, rawLabel] as const;
-          }
-          const compactLabel = compactShellLabel(rawLabel);
-          return [terminalId, compactLabel.length > 0 ? compactLabel : rawLabel] as const;
-        }),
-      ),
-    [autoTerminalTitlesById, customTerminalTitlesById, normalizedTerminalIds, terminalLabelById],
+    [autoTerminalTitlesById, cwd, normalizedTerminalIds, runningTerminalIdSet],
   );
   const newTerminalActionLabel = newShortcutLabel
     ? `New Terminal (${newShortcutLabel})`
     : "New Terminal";
+  const toggleTerminalActionLabel = toggleShortcutLabel
+    ? `Hide Terminal (${toggleShortcutLabel})`
+    : "Hide Terminal";
   const onNewTerminalAction = useCallback(() => {
     onNewTerminal();
   }, [onNewTerminal]);
@@ -1335,6 +1328,15 @@ export default memo(function ThreadTerminalDrawer({
       <PlusIcon className="size-4" />
     </TerminalActionButton>
   );
+  const renderToggleTerminalButton = () => (
+    <TerminalActionButton
+      className="terminal-action-btn inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      onClick={onToggleTerminal}
+      label={toggleTerminalActionLabel}
+    >
+      <XIcon className="size-4" />
+    </TerminalActionButton>
+  );
 
   return (
     <aside
@@ -1366,8 +1368,8 @@ export default memo(function ThreadTerminalDrawer({
                     key={terminalId}
                     active={terminalId === resolvedActiveTerminalId}
                     canClose={normalizedTerminalIds.length > 1}
-                    label={sidebarTerminalLabelById.get(terminalId) ?? "shell"}
-                    running={runningTerminalIds.includes(terminalId)}
+                    label={terminalLabelById.get(terminalId) ?? "Terminal"}
+                    running={runningTerminalIdSet.has(terminalId)}
                     suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
                     terminalId={terminalId}
                     onClose={onCloseTerminal}
@@ -1385,6 +1387,7 @@ export default memo(function ThreadTerminalDrawer({
         </div>
 
         {tabsOverflow ? renderNewTerminalButton() : null}
+        {renderToggleTerminalButton()}
       </div>
 
       <div className="min-h-0 w-full flex-1">
