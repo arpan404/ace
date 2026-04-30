@@ -356,6 +356,19 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             onSteer={props.onSteerQueuedComposerMessage}
           />
         ) : null}
+        {props.pendingUserInputs.length > 0 ? (
+          <div className="mb-2">
+            <ComposerPendingUserInputPanel
+              pendingUserInputs={props.pendingUserInputs}
+              respondingRequestIds={props.respondingUserInputRequestIds}
+              answers={props.activePendingDraftAnswers}
+              questionIndex={props.activePendingQuestionIndex}
+              onSelectOption={props.onSelectPendingUserInputOption}
+              onPrevious={props.onPreviousPendingQuestion}
+              onAdvance={props.onAdvancePendingUserInput}
+            />
+          </div>
+        ) : null}
 
         <div
           className={cn(
@@ -383,17 +396,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 <ComposerPendingApprovalPanel
                   approval={props.activePendingApproval}
                   pendingCount={props.pendingApprovalsCount}
-                />
-              </div>
-            ) : props.pendingUserInputs.length > 0 ? (
-              <div className="rounded-t-[13px] border-b border-border bg-muted">
-                <ComposerPendingUserInputPanel
-                  pendingUserInputs={props.pendingUserInputs}
-                  respondingRequestIds={props.respondingUserInputRequestIds}
-                  answers={props.activePendingDraftAnswers}
-                  questionIndex={props.activePendingQuestionIndex}
-                  onSelectOption={props.onSelectPendingUserInputOption}
-                  onAdvance={props.onAdvancePendingUserInput}
                 />
               </div>
             ) : props.showPlanFollowUpPrompt && props.planFollowUpId ? (
@@ -592,7 +594,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     isPreparingWorktree={props.isPreparingWorktree}
                     hasSendableContent={props.hasSendableContent}
                     canQueueMessage={props.canQueueMessage}
-                    onPreviousPendingQuestion={props.onPreviousPendingQuestion}
                     onInterrupt={props.onInterrupt}
                     onImplementPlanInNewThread={props.onImplementPlanInNewThread}
                     onQueueMessage={props.onQueueMessage}

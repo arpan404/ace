@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { BotIcon, ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { BotIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -23,7 +23,6 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   canQueueMessage: boolean;
-  onPreviousPendingQuestion: () => void;
   onQueueMessage: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -40,7 +39,7 @@ const formatPendingPrimaryActionLabel = (input: {
   if (input.compact) {
     return input.isLastQuestion ? "Submit" : "Next";
   }
-  return input.isLastQuestion ? "Submit answers" : "Next question";
+  return input.isLastQuestion ? "Submit" : "Next question";
 };
 
 const SendArrowIcon = ({ size = 14 }: { size?: number }) => (
@@ -66,7 +65,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   canQueueMessage,
-  onPreviousPendingQuestion,
   onQueueMessage,
   onInterrupt,
   onImplementPlanInNewThread,
@@ -74,34 +72,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   if (pendingAction) {
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {pendingAction.questionIndex > 0 ? (
-          compact ? (
-            <Button
-              size="icon-sm"
-              variant="outline"
-              className="rounded-full border-border"
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-              aria-label="Previous question"
-            >
-              <ChevronLeftIcon className="size-3.5" />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full border-border"
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-            >
-              Previous
-            </Button>
-          )
-        ) : null}
         <Button
           type="submit"
           size="sm"
-          className={cn("rounded-full", compact ? "px-3" : "px-4")}
+          className={cn("h-9 rounded-full sm:h-8", compact ? "px-3" : "px-4")}
           disabled={
             pendingAction.isResponding ||
             (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)

@@ -5,8 +5,9 @@ import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, ListChecksIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -14,6 +15,7 @@ interface PendingUserInputPanelProps {
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onSelectOption: (questionId: string, optionLabel: string) => void;
+  onPrevious: () => void;
   onAdvance: () => void;
 }
 
@@ -23,6 +25,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   answers,
   questionIndex,
   onSelectOption,
+  onPrevious,
   onAdvance,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
@@ -37,6 +40,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       answers={answers}
       questionIndex={questionIndex}
       onSelectOption={onSelectOption}
+      onPrevious={onPrevious}
       onAdvance={onAdvance}
     />
   );
@@ -48,6 +52,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   answers,
   questionIndex,
   onSelectOption,
+  onPrevious,
   onAdvance,
 }: {
   prompt: PendingUserInput;
@@ -55,6 +60,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onSelectOption: (questionId: string, optionLabel: string) => void;
+  onPrevious: () => void;
   onAdvance: () => void;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
@@ -125,28 +131,61 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   }
 
   return (
-    <div className="px-4 py-3 sm:px-5">
-      <div className="flex items-center gap-3">
+    <section className="overflow-hidden rounded-[14px] border border-border/60 bg-card">
+      <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
         <div className="flex items-center gap-2">
+          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/80 text-muted-foreground/70">
+            <ListChecksIcon className="size-3" />
+          </span>
+          <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
+            Input request
+          </span>
           {prompt.questions.length > 1 ? (
-            <span className="flex h-[18px] items-center rounded-full bg-primary/8 px-2 text-[10px] font-semibold tabular-nums text-primary/70">
+            <span className="rounded-full border border-border/55 bg-background/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground/75">
               {questionIndex + 1}/{prompt.questions.length}
             </span>
           ) : null}
-          <span className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/45 uppercase">
+        </div>
+        {prompt.questions.length > 1 ? (
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="size-7 rounded-md text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground disabled:opacity-35"
+              onClick={onPrevious}
+              disabled={isResponding || questionIndex === 0}
+              aria-label="Previous question"
+            >
+              <ChevronLeftIcon className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="size-7 rounded-md text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground disabled:opacity-35"
+              onClick={onAdvance}
+              disabled={isResponding || !progress.canAdvance}
+              aria-label={progress.isLastQuestion ? "Submit answers" : "Next question"}
+            >
+              <ChevronRightIcon className="size-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <span className="truncate text-[10px] font-medium tracking-[0.14em] text-muted-foreground/52 uppercase">
             {activeQuestion.header}
           </span>
-        </div>
+        )}
       </div>
-      <p className="mt-2 text-[13px] leading-relaxed text-foreground/85">
-        {activeQuestion.question}
-      </p>
-      {activeQuestion.multiSelect ? (
-        <p className="mt-1 text-[11px] text-muted-foreground/50">
-          Select one or more options, then continue.
+      <div className="px-3 py-3">
+        <p className="text-[13px] leading-6 text-foreground/88">{activeQuestion.question}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/56">
+          {activeQuestion.multiSelect
+            ? "Select one or more options, then continue."
+            : "Pick an option or press 1-9."}
         </p>
-      ) : null}
-      <div className="mt-3 space-y-1.5">
+      </div>
+      <div>
         {activeQuestion.options.map((option, index) => {
           const isSelected = progress.selectedOptionLabels.includes(option.label);
           const shortcutKey = index < 9 ? index + 1 : null;
@@ -158,20 +197,20 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               aria-pressed={isSelected}
               onClick={() => selectOptionAndAutoAdvance(activeQuestion.id, option.label)}
               className={cn(
-                "group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
+                "group flex w-full items-center gap-3 border-t border-border/50 px-3 py-2.5 text-left transition-all duration-200 first:border-t-0",
                 isSelected
-                  ? "border-primary/30 bg-primary/6 text-foreground  "
-                  : "border-border/25 bg-muted/12 text-foreground/80 hover:border-border/45 hover:bg-muted/30",
-                isResponding && "opacity-50 cursor-not-allowed",
+                  ? "bg-primary/6 text-foreground"
+                  : "text-foreground/82 hover:bg-muted/35",
+                isResponding && "cursor-not-allowed opacity-50",
               )}
             >
               {shortcutKey !== null ? (
                 <kbd
                   className={cn(
-                    "flex size-5 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums transition-all duration-200",
+                    "flex size-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold tabular-nums transition-all duration-200",
                     isSelected
-                      ? "bg-primary/15 text-primary  "
-                      : "bg-muted/30 text-muted-foreground/40 group-hover:bg-muted/50 group-hover:text-muted-foreground/60",
+                      ? "border-primary/30 bg-primary/12 text-primary"
+                      : "border-border/55 bg-background/80 text-muted-foreground/55",
                   )}
                 >
                   {shortcutKey}
@@ -180,7 +219,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               <div className="min-w-0 flex-1">
                 <span className="text-[13px] font-medium">{option.label}</span>
                 {option.description && option.description !== option.label ? (
-                  <span className="ml-2 text-[11px] text-muted-foreground/45">
+                  <span className="ml-2 text-[11px] text-muted-foreground/52">
                     {option.description}
                   </span>
                 ) : null}
@@ -190,6 +229,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           );
         })}
       </div>
-    </div>
+    </section>
   );
 });
