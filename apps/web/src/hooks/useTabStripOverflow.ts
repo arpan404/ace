@@ -2,25 +2,26 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElement>() {
   const tabStripRef = useRef<TElement | null>(null);
+  const tabsOverflowRef = useRef(false);
   const [tabsOverflow, setTabsOverflow] = useState(false);
 
   const syncTabsOverflow = useCallback(() => {
     const tabStrip = tabStripRef.current;
-    if (!tabStrip) {
-      setTabsOverflow(false);
+    const nextOverflow = tabStrip ? tabStrip.scrollWidth - tabStrip.clientWidth > 1 : false;
+    if (tabsOverflowRef.current === nextOverflow) {
       return;
     }
-    const nextOverflow = tabStrip.scrollWidth - tabStrip.clientWidth > 1;
-    setTabsOverflow((current) => (current === nextOverflow ? current : nextOverflow));
+    tabsOverflowRef.current = nextOverflow;
+    setTabsOverflow(nextOverflow);
   }, []);
 
   useLayoutEffect(() => {
     syncTabsOverflow();
-  });
+  }, [syncTabsOverflow]);
 
   useLayoutEffect(() => {
     const tabStrip = tabStripRef.current;
-    if (!tabStrip || typeof ResizeObserver === "undefined") {
+    if (!tabStrip) {
       return;
     }
 
@@ -35,13 +36,27 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
       });
     };
 
-    const resizeObserver = new ResizeObserver(scheduleTabsOverflowSync);
-    resizeObserver.observe(tabStrip);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleTabsOverflowSync);
+    resizeObserver?.observe(tabStrip);
+
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(scheduleTabsOverflowSync);
+    mutationObserver?.observe(tabStrip, {
+      attributes: true,
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+
     return () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
-      resizeObserver.disconnect();
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
     };
   }, [syncTabsOverflow]);
 
