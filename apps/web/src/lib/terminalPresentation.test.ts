@@ -24,7 +24,14 @@ describe("deriveTerminalTitleFromCommand", () => {
     expect(deriveTerminalTitleFromCommand("python scripts/release.py")).toBe("python release.py");
     expect(deriveTerminalTitleFromCommand('bash -lc "rg queuedSteerRequest src"')).toBe("rg");
     expect(deriveTerminalTitleFromCommand("oa --model gpt-5.4 bun run dev")).toBe("bun dev");
+    expect(deriveTerminalTitleFromCommand("sleep 10")).toBe("sleep");
+    expect(deriveTerminalTitleFromCommand("./scripts/release")).toBe("release");
     expect(deriveTerminalTitleFromCommand("oa")).toBeNull();
+  });
+
+  it("rejects low-signal bare tokens instead of promoting terminal noise", () => {
+    expect(deriveTerminalTitleFromCommand("oaodododododocodod")).toBeNull();
+    expect(deriveTerminalTitleFromCommand("oaaadodccod")).toBeNull();
   });
 });
 
@@ -93,6 +100,7 @@ describe("normalizeTerminalDisplayTitle", () => {
     expect(normalizeTerminalDisplayTitle("git status")).toBe("git status");
     expect(normalizeTerminalDisplayTitle("docker compose up")).toBe("docker compose up");
     expect(normalizeTerminalDisplayTitle("rg queued src")).toBe("rg");
+    expect(normalizeTerminalDisplayTitle("sleep 10")).toBe("sleep");
   });
 
   it("rejects generated terminal and shell titles", () => {
@@ -100,6 +108,7 @@ describe("normalizeTerminalDisplayTitle", () => {
     expect(normalizeTerminalDisplayTitle("Workspace shell")).toBeNull();
     expect(normalizeTerminalDisplayTitle("zsh")).toBeNull();
     expect(normalizeTerminalDisplayTitle("oaoaoa:web")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("oaodododododocodod")).toBeNull();
   });
 });
 
@@ -127,6 +136,14 @@ describe("resolveTerminalDisplayTitle", () => {
     expect(
       resolveTerminalDisplayTitle({
         autoTitle: "oaoaoa:web",
+        cwd: "/Users/arpanbhandari/Code/ace",
+        isRunning: true,
+        terminalId: "terminal-2",
+      }),
+    ).toBe("Terminal");
+    expect(
+      resolveTerminalDisplayTitle({
+        autoTitle: "oaodododododocodod",
         cwd: "/Users/arpanbhandari/Code/ace",
         isRunning: true,
         terminalId: "terminal-2",
