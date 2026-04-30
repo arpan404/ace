@@ -6,6 +6,7 @@ import {
   buildTerminalIconMenuItems,
   buildTerminalSectionMenuItems,
   buildTerminalSidebarDensityItems,
+  resolveTerminalTabDropTarget,
   resolveTerminalSelectionActionPosition,
   shouldHandleTerminalSelectionMouseUp,
   terminalSelectionActionDelayForClickCount,
@@ -116,6 +117,26 @@ describe("buildTerminalSidebarDensityItems", () => {
       { id: "comfortable", label: "Comfortable", current: true },
       { id: "compact", label: "Compact", current: false },
     ]);
+  });
+});
+
+describe("resolveTerminalTabDropTarget", () => {
+  it("resolves the group and insertion index for tab sorting", () => {
+    expect(
+      resolveTerminalTabDropTarget(
+        [
+          { id: "group-default", terminalIds: ["default", "terminal-2"] },
+          { id: "group-terminal-3", terminalIds: ["terminal-3"] },
+        ],
+        "terminal-2",
+      ),
+    ).toEqual({ groupId: "group-default", index: 1 });
+  });
+
+  it("returns null when the target terminal is not open", () => {
+    expect(
+      resolveTerminalTabDropTarget([{ id: "group-default", terminalIds: ["default"] }], "missing"),
+    ).toBeNull();
   });
 });
 
