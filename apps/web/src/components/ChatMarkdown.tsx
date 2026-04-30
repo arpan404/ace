@@ -301,7 +301,7 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function MarkdownBody({
+const MarkdownBody = memo(function MarkdownBody({
   children,
   isStreaming,
   markdownComponents,
@@ -320,7 +320,7 @@ function MarkdownBody({
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 function PreviewTextPanel({
   text,
@@ -617,34 +617,45 @@ function ChatMarkdown({
     };
   }, [onLayoutChange]);
 
-  let content: ReactNode;
-  if (renderPlainText) {
-    content = <PreviewTextPanel text={text} />;
-  } else if (
-    isStreaming &&
-    streamingTextState &&
-    (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
-  ) {
-    content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
-  } else if (useLargePreview) {
-    content = (
-      <LargeMarkdownPreview
-        text={text}
-        isTransitionPending={isMarkdownTransitionPending}
-        onRenderMarkdown={() => {
-          startMarkdownTransition(() => {
-            setRenderPreference("markdown");
-          });
-        }}
-      />
-    );
-  } else {
-    content = (
+  const content = useMemo<ReactNode>(() => {
+    if (renderPlainText) {
+      return <PreviewTextPanel text={text} />;
+    }
+    if (
+      isStreaming &&
+      streamingTextState &&
+      (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
+    ) {
+      return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+    }
+    if (useLargePreview) {
+      return (
+        <LargeMarkdownPreview
+          text={text}
+          isTransitionPending={isMarkdownTransitionPending}
+          onRenderMarkdown={() => {
+            startMarkdownTransition(() => {
+              setRenderPreference("markdown");
+            });
+          }}
+        />
+      );
+    }
+    return (
       <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
         {text}
       </MarkdownBody>
     );
-  }
+  }, [
+    isMarkdownTransitionPending,
+    isStreaming,
+    markdownComponents,
+    renderPlainText,
+    startMarkdownTransition,
+    streamingTextState,
+    text,
+    useLargePreview,
+  ]);
 
   return (
     <div ref={rootRef} className="w-full min-w-0">

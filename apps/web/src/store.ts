@@ -776,18 +776,6 @@ function buildThreadIdsByProjectId(threads: ReadonlyArray<Thread>): Record<strin
   return threadIdsByProjectId;
 }
 
-function buildSidebarThreadsById(
-  threads: ReadonlyArray<Thread>,
-  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
-): Record<string, SidebarThreadSummary> {
-  return Object.fromEntries(
-    threads.map((thread) => [
-      thread.id,
-      buildSidebarThreadSummary(thread, dismissedThreadErrorKeysById),
-    ]),
-  );
-}
-
 function buildSidebarThreadsByIdPreserving(
   threads: ReadonlyArray<Thread>,
   dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
@@ -798,7 +786,7 @@ function buildSidebarThreadsByIdPreserving(
   for (const thread of threads) {
     const nextSummary = buildSidebarThreadSummary(thread, dismissedThreadErrorKeysById);
     const previousSummary = previous[thread.id];
-    if (sidebarThreadSummariesEqual(previousSummary, nextSummary)) {
+    if (previousSummary && sidebarThreadSummariesEqual(previousSummary, nextSummary)) {
       next[thread.id] = previousSummary;
       continue;
     }
@@ -1862,10 +1850,7 @@ export function mergeServerReadModel(
       state.dismissedThreadErrorKeysById,
       state.sidebarThreadsById,
     ),
-    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(
-      threads,
-      state.threadIdsByProjectId,
-    ),
+    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(threads, state.threadIdsByProjectId),
     bootstrapComplete: true,
   };
 }
@@ -1894,10 +1879,7 @@ export function removeReadModelEntities(
       state.dismissedThreadErrorKeysById,
       state.sidebarThreadsById,
     ),
-    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(
-      threads,
-      state.threadIdsByProjectId,
-    ),
+    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(threads, state.threadIdsByProjectId),
   };
 }
 
