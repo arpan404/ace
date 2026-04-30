@@ -78,6 +78,7 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
 
 const serverCommandId = (tag: string): CommandId =>
   CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
+const serverMessageId = (tag: string): MessageId => `${tag}:${crypto.randomUUID()}` as MessageId;
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
@@ -393,6 +394,7 @@ const make = Effect.gen(function* () {
     ThreadId,
     { readonly createdAt: string; readonly messageId: MessageId }
   >();
+  const pausedQueueDispatchByThreadId = new Set<ThreadId>();
   const nativeSteerReservationsByThreadId = new Set<ThreadId>();
 
   const resolveSessionCapabilities = (provider: ProviderKind) => {
@@ -616,11 +618,22 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    yield* requestQueuedSteerInterrupt(thread, queuedSteerRequest);
+  });
+
+  const requestQueuedSteerInterrupt = Effect.fnUntraced(function* (
+    thread: OrchestrationThread,
+    queuedSteerRequest: NonNullable<OrchestrationThread["queuedSteerRequest"]>,
+  ) {
+    const activeTurn = thread.latestTurn;
+    if (!activeTurn || activeTurn.state !== "running") {
+      return;
+    }
     const createdAt = new Date().toISOString();
     yield* orchestrationEngine.dispatch({
       type: "thread.queue.steer",
       commandId: serverCommandId("queue-steer-interrupt-requested"),
-      threadId,
+      threadId: thread.id,
       messageId: queuedSteerRequest.messageId,
       baselineWorkLogEntryCount: queuedSteerRequest.baselineWorkLogEntryCount,
       interruptRequested: true,
@@ -628,10 +641,38 @@ const make = Effect.gen(function* () {
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.interrupt",
       commandId: serverCommandId("queue-steer-interrupt"),
-      threadId,
-      turnId: thread.latestTurn.turnId,
+      threadId: thread.id,
+      turnId: activeTurn.turnId,
       createdAt,
     });
+  });
+
+  const maybeInterruptOpenCodeQueuedSteerImmediately = Effect.fnUntraced(function* (
+    thread: OrchestrationThread,
+  ) {
+    const queuedSteerRequest = thread.queuedSteerRequest;
+    if (
+      thread.latestTurn?.state !== "running" ||
+      !queuedSteerRequest ||
+      queuedSteerRequest.interruptRequested
+    ) {
+      return false;
+    }
+    if (resolveThreadProvider(thread) !== "opencode") {
+      return false;
+    }
+    if (
+      !thread.queuedComposerMessages.some((message) => message.id === queuedSteerRequest.messageId)
+    ) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.queue.steer.clear",
+        commandId: serverCommandId("queue-steer-clear-stale"),
+        threadId: thread.id,
+      });
+      return true;
+    }
+    yield* requestQueuedSteerInterrupt(thread, queuedSteerRequest);
+    return true;
   });
 
   const maybeDispatchNativeQueuedSteer = Effect.fnUntraced(function* (thread: OrchestrationThread) {
@@ -699,21 +740,31 @@ const make = Effect.gen(function* () {
       return true;
     }
 
+    yield* orchestrationEngine.dispatch({
+      type: "thread.message.user.append",
+      commandId: serverCommandId("queue-native-steer-message-pending"),
+      threadId: thread.id,
+      messageId: steerMessage.id,
+      text: messageText,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      createdAt,
+    });
+
     nativeSteerReservationsByThreadId.add(thread.id);
-    const steered = yield* providerService
+    const steerResult = yield* providerService
       .steerTurn({
         threadId: thread.id,
         ...(messageText.length > 0 ? { input: messageText } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       })
       .pipe(
-        Effect.as(true),
+        Effect.map((result) => result),
         Effect.catchCause((cause) =>
           Effect.logWarning("provider command reactor failed native queued steering", {
             threadId: thread.id,
             provider,
             cause: Cause.pretty(cause),
-          }).pipe(Effect.as(false)),
+          }).pipe(Effect.as(null)),
         ),
         Effect.ensuring(
           Effect.sync(() => {
@@ -722,10 +773,20 @@ const make = Effect.gen(function* () {
         ),
       );
 
-    if (!steered) {
+    if (!steerResult) {
       return false;
     }
 
+    yield* orchestrationEngine.dispatch({
+      type: "thread.message.user.append",
+      commandId: serverCommandId("queue-native-steer-message"),
+      threadId: thread.id,
+      messageId: steerMessage.id,
+      text: messageText,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      turnId: steerResult.turnId,
+      createdAt,
+    });
     yield* orchestrationEngine.dispatch({
       type: "thread.queue.delete",
       commandId: serverCommandId("queue-pop-native-steer"),
@@ -736,6 +797,9 @@ const make = Effect.gen(function* () {
   });
 
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
+    if (pausedQueueDispatchByThreadId.has(threadId)) {
+      return;
+    }
     if (queueDispatchReservationsByThreadId.has(threadId)) {
       return;
     }
@@ -761,8 +825,21 @@ const make = Effect.gen(function* () {
     if (thread && (yield* maybeDispatchNativeQueuedSteer(thread))) {
       return;
     }
+    if (thread && (yield* maybeInterruptOpenCodeQueuedSteerImmediately(thread))) {
+      return;
+    }
 
     if (!thread || !threadCanDispatchQueuedMessage(thread)) {
+      return;
+    }
+
+    const liveSession = yield* findLiveSession(threadId);
+    if (liveProviderSessionBlocksQueueDispatch(liveSession)) {
+      yield* reconcileThreadSessionFromLiveRuntime({
+        thread,
+        liveSession,
+        createdAt: new Date().toISOString(),
+      });
       return;
     }
 
@@ -839,34 +916,42 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catch((error) =>
-          orchestrationEngine
-            .dispatch({
-              type: "thread.queue.append",
-              commandId: serverCommandId("queue-restore"),
-              threadId,
-              message: nextQueuedMessage,
-              position: "front",
-              ...(previousSteerRequest?.messageId === nextQueuedMessage.id
-                ? { steerRequest: previousSteerRequest }
-                : {}),
-            })
-            .pipe(
-              Effect.flatMap(() =>
-                appendQueueFailureActivity({
-                  threadId,
-                  messageId: nextQueuedMessage.id,
-                  detail:
-                    error instanceof Error ? error.message : "Failed to start queued message turn.",
-                  createdAt,
-                }),
-              ),
-              Effect.tap(() =>
-                Effect.sync(() => {
-                  queueDispatchReservationsByThreadId.delete(threadId);
-                }),
-              ),
-              Effect.asVoid,
+          Effect.sync(() => {
+            const restoredMessageId = serverMessageId("queue-restore");
+            return {
+              restoredMessage: { ...nextQueuedMessage, id: restoredMessageId },
+              restoredSteerRequest:
+                previousSteerRequest?.messageId === nextQueuedMessage.id
+                  ? { ...previousSteerRequest, messageId: restoredMessageId }
+                  : undefined,
+            } as const;
+          }).pipe(
+            Effect.flatMap(({ restoredMessage, restoredSteerRequest }) =>
+              orchestrationEngine.dispatch({
+                type: "thread.queue.append",
+                commandId: serverCommandId("queue-restore"),
+                threadId,
+                message: restoredMessage,
+                position: "front",
+                ...(restoredSteerRequest ? { steerRequest: restoredSteerRequest } : {}),
+              }),
             ),
+            Effect.flatMap(() =>
+              appendQueueFailureActivity({
+                threadId,
+                messageId: nextQueuedMessage.id,
+                detail:
+                  error instanceof Error ? error.message : "Failed to start queued message turn.",
+                createdAt,
+              }),
+            ),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                queueDispatchReservationsByThreadId.delete(threadId);
+              }),
+            ),
+            Effect.asVoid,
+          ),
         ),
       );
   });
@@ -1598,6 +1683,17 @@ const make = Effect.gen(function* () {
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested"
       ) {
+        if (event.type === "thread.turn-start-requested") {
+          pausedQueueDispatchByThreadId.delete(event.payload.threadId);
+        } else if (event.type === "thread.turn-interrupt-requested") {
+          const thread = yield* resolveThread(event.payload.threadId);
+          const isQueuedSteerInterrupt = thread?.queuedSteerRequest?.interruptRequested === true;
+          if (!isQueuedSteerInterrupt) {
+            pausedQueueDispatchByThreadId.add(event.payload.threadId);
+          }
+        } else if (event.type === "thread.session-stop-requested") {
+          pausedQueueDispatchByThreadId.add(event.payload.threadId);
+        }
         return yield* worker.enqueue(event);
       }
       if (event.type === "thread.message-sent") {

@@ -16,7 +16,7 @@ export const HEADER_PILL_ICON_CONTROL_CLASS_NAME = cn(
 
 export const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
   HEADER_PILL_ICON_CONTROL_CLASS_NAME,
-  "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--foreground)_8%,transparent)] data-[pressed]:[&_svg]:scale-110 [&_svg]:transition-transform [&_svg]:duration-200",
+  "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground  data-[pressed]:[&_svg]:scale-110 [&_svg]:transition-transform [&_svg]:duration-200",
 );
 
 export const HEADER_ACTION_GROUP_CLASS_NAME =
@@ -33,7 +33,7 @@ export const HEADER_ACTION_ICON_CONTROL_CLASS_NAME = cn(
 export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-pill-border/55";
 
 export const HEADER_ACTION_DIALOG_POPUP_CLASS_NAME =
-  "overflow-hidden border-border/60 bg-popover/96 shadow-[0_24px_56px_-40px_color-mix(in_oklch,var(--foreground)_32%,transparent)] supports-[backdrop-filter]:bg-popover/90 supports-[backdrop-filter]:backdrop-blur-2xl";
+  "overflow-hidden border-border/60 bg-popover/96  supports-[backdrop-filter]:bg-popover/90 supports-[backdrop-filter]:backdrop-blur-2xl";
 
 export const HEADER_ACTION_DIALOG_HEADER_CLASS_NAME =
   "border-b border-border/35 bg-gradient-to-b from-muted/18 to-transparent px-5 py-4 sm:px-6 sm:py-5";

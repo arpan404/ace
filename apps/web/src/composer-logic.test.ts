@@ -61,6 +61,30 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects slash command token in the middle of a message", () => {
+    const text = "Please use /mo";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-command",
+      query: "mo",
+      rangeStart: "Please use ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects slash model query in the middle of a message", () => {
+    const text = "Switch to /model spark";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-model",
+      query: "spark",
+      rangeStart: "Switch to ".length,
+      rangeEnd: text.length,
+    });
+  });
+
   it("detects /issues while typing command name", () => {
     const text = "/iss";
     const trigger = detectComposerTrigger(text, text.length);

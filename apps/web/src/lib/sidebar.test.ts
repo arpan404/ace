@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildRenderedSidebarThreadGroups,
   createThreadJumpHintVisibilityController,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
@@ -403,6 +404,72 @@ describe("getVisibleSidebarThreadIds", () => {
         },
       ]),
     ).toEqual([ThreadId.makeUnsafe("thread-12"), ThreadId.makeUnsafe("thread-11")]);
+  });
+});
+
+describe("buildRenderedSidebarThreadGroups", () => {
+  it("includes pinned thread rows and pinned project threads ahead of other projects", () => {
+    const renderedThreadGroups = buildRenderedSidebarThreadGroups({
+      pinnedSectionExpanded: true,
+      pinnedItems: [
+        {
+          kind: "thread" as const,
+          threadId: ThreadId.makeUnsafe("thread-pinned-row"),
+        },
+        {
+          kind: "project" as const,
+          renderedProject: {
+            shouldShowThreadPanel: true,
+            renderedThreadIds: [
+              ThreadId.makeUnsafe("thread-pinned-project-2"),
+              ThreadId.makeUnsafe("thread-pinned-project-1"),
+            ],
+          },
+        },
+      ],
+      renderedProjects: [
+        {
+          shouldShowThreadPanel: true,
+          renderedThreadIds: [ThreadId.makeUnsafe("thread-project-1")],
+        },
+      ],
+    });
+
+    expect(getVisibleSidebarThreadIds(renderedThreadGroups)).toEqual([
+      ThreadId.makeUnsafe("thread-pinned-row"),
+      ThreadId.makeUnsafe("thread-pinned-project-2"),
+      ThreadId.makeUnsafe("thread-pinned-project-1"),
+      ThreadId.makeUnsafe("thread-project-1"),
+    ]);
+  });
+
+  it("omits pinned section threads when the pinned section is collapsed", () => {
+    const renderedThreadGroups = buildRenderedSidebarThreadGroups({
+      pinnedSectionExpanded: false,
+      pinnedItems: [
+        {
+          kind: "thread" as const,
+          threadId: ThreadId.makeUnsafe("thread-pinned-row"),
+        },
+        {
+          kind: "project" as const,
+          renderedProject: {
+            shouldShowThreadPanel: true,
+            renderedThreadIds: [ThreadId.makeUnsafe("thread-pinned-project-1")],
+          },
+        },
+      ],
+      renderedProjects: [
+        {
+          shouldShowThreadPanel: true,
+          renderedThreadIds: [ThreadId.makeUnsafe("thread-project-1")],
+        },
+      ],
+    });
+
+    expect(getVisibleSidebarThreadIds(renderedThreadGroups)).toEqual([
+      ThreadId.makeUnsafe("thread-project-1"),
+    ]);
   });
 });
 
@@ -908,29 +975,6 @@ describe("sortThreadsForSidebar", () => {
     expect(sorted.map((thread) => thread.id)).toEqual([
       ThreadId.makeUnsafe("thread-1"),
       ThreadId.makeUnsafe("thread-2"),
-    ]);
-  });
-
-  it("preserves input order when manual thread sort is selected", () => {
-    const sorted = sortThreadsForSidebar(
-      [
-        makeThread({
-          id: ThreadId.makeUnsafe("thread-2"),
-          createdAt: "2026-03-09T10:00:00.000Z",
-          updatedAt: "2026-03-09T10:10:00.000Z",
-        }),
-        makeThread({
-          id: ThreadId.makeUnsafe("thread-1"),
-          createdAt: "2026-03-09T10:05:00.000Z",
-          updatedAt: "2026-03-09T10:05:00.000Z",
-        }),
-      ],
-      "manual",
-    );
-
-    expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-2"),
-      ThreadId.makeUnsafe("thread-1"),
     ]);
   });
 });

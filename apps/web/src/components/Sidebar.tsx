@@ -21,6 +21,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -112,15 +113,7 @@ import {
 } from "./ui/dialog";
 import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Kbd } from "./ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -147,6 +140,7 @@ import {
   toBrowseDirectoryPath,
 } from "../lib/projectPaths";
 import {
+  buildRenderedSidebarThreadGroups,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   resolveAdjacentThreadId,
@@ -166,7 +160,6 @@ import {
   SortableProjectItem,
   type SortableProjectHandleProps,
 } from "./sidebar/SortableProjectItem";
-import { SortableThreadItem, type SortableThreadHandleProps } from "./sidebar/SortableThreadItem";
 import { SidebarThreadRow, ThreadStatusLabel } from "./sidebar/SidebarThreadRow";
 import { useSidebarCommandPalette } from "./sidebar/useSidebarCommandPalette";
 import { useSidebarThreadPrStatus } from "./sidebar/useSidebarThreadPrStatus";
@@ -210,11 +203,20 @@ import {
   THREAD_BOARD_SPLIT_SEARCH_PARAM,
   THREAD_BOARD_THREADS_SEARCH_PARAM,
 } from "../lib/chatThreadBoardRouteSearch";
-import { buildThreadBoardLayoutOptions, getCurrentLayoutColumns } from "../lib/threadBoardLayout";
 import {
+  createThreadBoardDragThread,
+  decodeThreadBoardDragThread,
+  encodeThreadBoardDragThread,
+  getThreadBoardDragThreadKey,
+  setActiveThreadBoardDrag,
+  setThreadBoardDragImage,
+  THREAD_BOARD_DRAG_MIME,
+  type ThreadBoardDragThread,
+} from "../lib/threadBoardDrag";
+import {
+  orderBoardPanes,
   type ChatThreadBoardSplitState,
   type ChatThreadBoardPaneState,
-  type ChatThreadBoardRowState,
   useChatThreadBoardStore,
 } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
@@ -228,6 +230,11 @@ const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
 type SplitContextMenuState = {
   position: { x: number; y: number };
   splitId: string;
+};
+type BoardThreadDragState = {
+  activeThread: ThreadBoardDragThread;
+  activeThreadKey: string;
+  overTargetKey: string | null;
 };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
@@ -289,34 +296,6 @@ function resolveIsoTimestamp(input: string | undefined): number {
 
 function connectionUrlsEqual(left: string, right: string): boolean {
   return normalizeWsUrl(left) === normalizeWsUrl(right);
-}
-
-function orderSplitBoardPanes(
-  panes: readonly ChatThreadBoardPaneState[],
-  rows: readonly ChatThreadBoardRowState[],
-): ChatThreadBoardPaneState[] {
-  const paneById = new Map(panes.map((pane) => [pane.id, pane]));
-  const orderedPanes: ChatThreadBoardPaneState[] = [];
-  const orderedPaneIds = new Set<string>();
-
-  for (const row of rows) {
-    for (const paneId of row.paneIds) {
-      const pane = paneById.get(paneId);
-      if (!pane || orderedPaneIds.has(pane.id)) {
-        continue;
-      }
-      orderedPaneIds.add(pane.id);
-      orderedPanes.push(pane);
-    }
-  }
-
-  for (const pane of panes) {
-    if (!orderedPaneIds.has(pane.id)) {
-      orderedPanes.push(pane);
-    }
-  }
-
-  return orderedPanes;
 }
 
 function sortByUpdatedAtDescending<T extends { readonly updatedAt: string }>(
@@ -868,8 +847,8 @@ export default function Sidebar() {
     useShallow((store) => ({
       activePaneId: store.activePaneId,
       activeSplitId: store.activeSplitId,
+      layoutRoot: store.layoutRoot,
       panes: store.panes,
-      rows: store.rows,
       splits: store.splits,
     })),
   );
@@ -881,7 +860,6 @@ export default function Sidebar() {
     projectExpandedById,
     projectOrder,
     projectsSectionExpanded,
-    threadOrderByProjectId,
     threadLastVisitedAtById,
   } = useUiStateStore(
     useShallow((store) => ({
@@ -891,7 +869,6 @@ export default function Sidebar() {
       projectExpandedById: store.projectExpandedById,
       projectOrder: store.projectOrder,
       projectsSectionExpanded: store.projectsSectionExpanded,
-      threadOrderByProjectId: store.threadOrderByProjectId,
       threadLastVisitedAtById: store.threadLastVisitedAtById,
     })),
   );
@@ -904,8 +881,6 @@ export default function Sidebar() {
   const setProjectsSectionExpanded = useUiStateStore((store) => store.setProjectsSectionExpanded);
   const setBoardsSectionExpanded = useUiStateStore((store) => store.setBoardsSectionExpanded);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
-  const reorderThreadsInProject = useUiStateStore((store) => store.reorderThreadsInProject);
-  const reorderPinnedThreads = useUiStateStore((store) => store.reorderPinnedThreads);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
@@ -1009,6 +984,9 @@ export default function Sidebar() {
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
+  const [boardThreadDragState, setBoardThreadDragState] = useState<BoardThreadDragState | null>(
+    null,
+  );
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const showSidebarHeaderToggle = !isMobile && sidebarState === "expanded";
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
@@ -1077,14 +1055,6 @@ export default function Sidebar() {
         : null,
     [savedBoards, splitContextMenuState],
   );
-  const contextMenuSplitLayoutOptions = useMemo(
-    () => (contextMenuSplit ? buildThreadBoardLayoutOptions(contextMenuSplit.panes.length) : []),
-    [contextMenuSplit],
-  );
-  const contextMenuSplitCurrentColumns = useMemo(
-    () => (contextMenuSplit ? getCurrentLayoutColumns(contextMenuSplit.rows) : 1),
-    [contextMenuSplit],
-  );
   useEffect(() => {
     setSplitRevealCount(SPLIT_REVEAL_STEP);
   }, [splitSortOrder]);
@@ -1103,9 +1073,39 @@ export default function Sidebar() {
     },
     [savedSplitBoard.splits.length, sidebarThreadsById],
   );
+  const clearBoardThreadDrag = useCallback(() => {
+    setActiveThreadBoardDrag(null);
+    setBoardThreadDragState(null);
+  }, []);
+  const setBoardThreadDragOverTarget = useCallback((targetKey: string | null) => {
+    setBoardThreadDragState((current) => {
+      if (!current || current.overTargetKey === targetKey) {
+        return current;
+      }
+      return {
+        ...current,
+        overTargetKey: targetKey,
+      };
+    });
+  }, []);
+  const readBoardThreadDrag = useCallback(
+    (event?: DragEvent<HTMLElement>): ThreadBoardDragThread | null => {
+      if (boardThreadDragState?.activeThread) {
+        return boardThreadDragState.activeThread;
+      }
+      const encodedThread =
+        event?.dataTransfer?.getData(THREAD_BOARD_DRAG_MIME) ||
+        event?.dataTransfer?.getData("text/plain");
+      if (encodedThread) {
+        return decodeThreadBoardDragThread(encodedThread);
+      }
+      return null;
+    },
+    [boardThreadDragState],
+  );
   const restoreSavedSplit = useCallback(
     (split: ChatThreadBoardSplitState, targetPane?: ChatThreadBoardPaneState | null) => {
-      const orderedPanes = orderSplitBoardPanes(split.panes, split.rows);
+      const orderedPanes = orderBoardPanes(split.panes, split.layoutRoot);
       const activePane =
         targetPane ??
         orderedPanes.find((pane) => pane.id === split.activePaneId) ??
@@ -1128,7 +1128,10 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId: activePane.threadId },
-          search: buildThreadBoardRouteSearch(orderedPanes, activePane, { splitId: split.id }),
+          search: buildThreadBoardRouteSearch(orderedPanes, activePane, {
+            paneId: activePane.id,
+            splitId: split.id,
+          }),
         });
       });
     },
@@ -1137,7 +1140,7 @@ export default function Sidebar() {
   const navigateToCurrentSplit = useCallback(
     (activePane: { connectionUrl: string | null; threadId: ThreadId }) => {
       const boardState = useChatThreadBoardStore.getState();
-      const routePanes = orderSplitBoardPanes(boardState.panes, boardState.rows);
+      const routePanes = orderBoardPanes(boardState.panes, boardState.layoutRoot);
       if (routePanes.length <= 1 || !boardState.activeSplitId) {
         return;
       }
@@ -1146,12 +1149,199 @@ export default function Sidebar() {
           to: "/$threadId",
           params: { threadId: activePane.threadId },
           search: buildThreadBoardRouteSearch(routePanes, activePane, {
+            paneId: boardState.activePaneId,
             splitId: boardState.activeSplitId,
           }),
         });
       });
     },
     [navigate],
+  );
+  const buildBoardFromDraggedThreads = useCallback(
+    (
+      threads: ReadonlyArray<{
+        connectionUrl: string | null;
+        threadId: ThreadId;
+      }>,
+      activeThread: { connectionUrl: string | null; threadId: ThreadId },
+    ) => {
+      const uniqueThreads = [
+        ...new Map(threads.map((thread) => [getThreadBoardDragThreadKey(thread), thread])).values(),
+      ];
+      if (uniqueThreads.length < 2) {
+        return;
+      }
+      for (const thread of uniqueThreads) {
+        if (thread.connectionUrl) {
+          useHostConnectionStore
+            .getState()
+            .upsertThreadOwnership(thread.connectionUrl, thread.threadId);
+        }
+      }
+      const splitId = useChatThreadBoardStore.getState().createSplit({
+        activeThread,
+        threads: uniqueThreads,
+        title: buildSplitTitle(uniqueThreads),
+      });
+      if (!splitId) {
+        return;
+      }
+      navigateToCurrentSplit(activeThread);
+    },
+    [buildSplitTitle, navigateToCurrentSplit],
+  );
+  const handleBoardThreadDragStart = useCallback(
+    (
+      thread: { connectionUrl: string | null; threadId: ThreadId },
+      event: DragEvent<HTMLAnchorElement>,
+    ) => {
+      const dragThread = createThreadBoardDragThread(thread);
+      const payload = encodeThreadBoardDragThread(dragThread);
+      event.dataTransfer.effectAllowed = "copyMove";
+      event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
+      event.dataTransfer.setData("text/plain", payload);
+      setThreadBoardDragImage(event.dataTransfer, {
+        label: event.currentTarget.textContent,
+        tone: "copy",
+      });
+      setActiveThreadBoardDrag(dragThread);
+      setBoardsSectionExpanded(true);
+      setBoardThreadDragState({
+        activeThread: dragThread,
+        activeThreadKey: getThreadBoardDragThreadKey(dragThread),
+        overTargetKey: null,
+      });
+    },
+    [setBoardsSectionExpanded],
+  );
+  const handleBoardThreadDropOnThread = useCallback(
+    (
+      target: { connectionUrl: string | null; threadId: ThreadId },
+      event: DragEvent<HTMLLIElement>,
+    ) => {
+      event.preventDefault();
+      const source = readBoardThreadDrag(event);
+      clearBoardThreadDrag();
+      if (!source) {
+        return;
+      }
+      const sourceKey = getThreadBoardDragThreadKey(source);
+      const targetKey = getThreadBoardDragThreadKey(target);
+      if (sourceKey === targetKey) {
+        return;
+      }
+      buildBoardFromDraggedThreads([source, target], target);
+    },
+    [buildBoardFromDraggedThreads, clearBoardThreadDrag, readBoardThreadDrag],
+  );
+  const handleBoardThreadDropOnSavedBoard = useCallback(
+    (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => {
+      event.preventDefault();
+      const source = readBoardThreadDrag(event);
+      clearBoardThreadDrag();
+      if (!source) {
+        return;
+      }
+      if (source.connectionUrl) {
+        useHostConnectionStore
+          .getState()
+          .upsertThreadOwnership(source.connectionUrl, source.threadId);
+      }
+      const openedPaneId = useChatThreadBoardStore.getState().openThreadInSplit(split.id, source);
+      const nextSplit = useChatThreadBoardStore
+        .getState()
+        .splits.find((candidate) => candidate.id === split.id);
+      if (!nextSplit) {
+        return;
+      }
+      const targetPane =
+        nextSplit.panes.find((pane) => pane.id === openedPaneId) ??
+        nextSplit.panes.find(
+          (pane) => getThreadBoardDragThreadKey(pane) === getThreadBoardDragThreadKey(source),
+        ) ??
+        null;
+      restoreSavedSplit(nextSplit, targetPane);
+    },
+    [clearBoardThreadDrag, readBoardThreadDrag, restoreSavedSplit],
+  );
+  const createBoardThreadRowDragProps = useCallback(
+    (thread: { connectionUrl: string | null; threadId: ThreadId }) => {
+      const targetKey = getThreadBoardDragThreadKey(thread);
+      const isDragging = boardThreadDragState?.activeThreadKey === targetKey;
+      const isDropTarget =
+        boardThreadDragState !== null &&
+        boardThreadDragState.overTargetKey === targetKey &&
+        boardThreadDragState.activeThreadKey !== targetKey;
+      return {
+        isDragging,
+        isDropTarget,
+        onDragEnd: clearBoardThreadDrag,
+        onDragLeave: (event: DragEvent<HTMLLIElement>) => {
+          const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+          if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+            return;
+          }
+          if (boardThreadDragState?.overTargetKey === targetKey) {
+            setBoardThreadDragOverTarget(null);
+          }
+        },
+        onDragOver: (event: DragEvent<HTMLLIElement>) => {
+          const source = readBoardThreadDrag(event);
+          if (!source) {
+            return;
+          }
+          if (getThreadBoardDragThreadKey(source) === targetKey) {
+            setBoardThreadDragOverTarget(null);
+            return;
+          }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setBoardThreadDragOverTarget(targetKey);
+        },
+        onDragStart: (event: DragEvent<HTMLAnchorElement>) => {
+          handleBoardThreadDragStart(thread, event);
+        },
+        onDrop: (event: DragEvent<HTMLLIElement>) => {
+          handleBoardThreadDropOnThread(thread, event);
+        },
+      };
+    },
+    [
+      boardThreadDragState,
+      clearBoardThreadDrag,
+      handleBoardThreadDragStart,
+      handleBoardThreadDropOnThread,
+      readBoardThreadDrag,
+      setBoardThreadDragOverTarget,
+    ],
+  );
+  const handleSavedBoardDragLeave = useCallback(
+    (splitId: string, event: DragEvent<HTMLLIElement>) => {
+      const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+      if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+        return;
+      }
+      if (boardThreadDragState?.overTargetKey === splitId) {
+        setBoardThreadDragOverTarget(null);
+      }
+    },
+    [boardThreadDragState?.overTargetKey, setBoardThreadDragOverTarget],
+  );
+  const handleSavedBoardDragOver = useCallback(
+    (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => {
+      const source = readBoardThreadDrag(event);
+      if (!source) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = split.panes.some(
+        (pane) => getThreadBoardDragThreadKey(pane) === getThreadBoardDragThreadKey(source),
+      )
+        ? "move"
+        : "copy";
+      setBoardThreadDragOverTarget(split.id);
+    },
+    [readBoardThreadDrag, setBoardThreadDragOverTarget],
   );
   const openThreadInSplit = useCallback(
     (target: { connectionUrl: string | null; threadId: ThreadId }) => {
@@ -1162,14 +1352,13 @@ export default function Sidebar() {
       }
 
       const shouldUpdateActiveSplit =
-        routeHasSplitThreads &&
-        activeRouteSplitId !== null &&
-        savedSplitBoard.activeSplitId === activeRouteSplitId;
+        activeRouteSplitId !== null && savedSplitBoard.activeSplitId === activeRouteSplitId;
 
       if (shouldUpdateActiveSplit) {
         useChatThreadBoardStore.getState().openThreadInBoard({
           connectionUrl: target.connectionUrl,
           direction: "right",
+          sourcePaneId: savedSplitBoard.activePaneId,
           threadId: target.threadId,
         });
         navigateToCurrentSplit(target);
@@ -1199,8 +1388,8 @@ export default function Sidebar() {
       activeRouteSplitId,
       buildSplitTitle,
       navigateToCurrentSplit,
-      routeHasSplitThreads,
       routeThreadId,
+      savedSplitBoard.activePaneId,
       savedSplitBoard.activeSplitId,
     ],
   );
@@ -1218,12 +1407,12 @@ export default function Sidebar() {
       }
       const activeTarget = targets[targets.length - 1]!;
       const shouldUpdateActiveSplit =
-        routeHasSplitThreads &&
-        activeRouteSplitId !== null &&
-        savedSplitBoard.activeSplitId === activeRouteSplitId;
+        activeRouteSplitId !== null && savedSplitBoard.activeSplitId === activeRouteSplitId;
 
       if (shouldUpdateActiveSplit) {
-        useChatThreadBoardStore.getState().openThreadsInBoard(targets);
+        useChatThreadBoardStore
+          .getState()
+          .openThreadsInBoard(targets, { sourcePaneId: savedSplitBoard.activePaneId });
         navigateToCurrentSplit(activeTarget);
         return;
       }
@@ -1252,8 +1441,8 @@ export default function Sidebar() {
       activeRouteSplitId,
       buildSplitTitle,
       navigateToCurrentSplit,
-      routeHasSplitThreads,
       routeThreadId,
+      savedSplitBoard.activePaneId,
       savedSplitBoard.activeSplitId,
     ],
   );
@@ -1299,13 +1488,6 @@ export default function Sidebar() {
       setSplitContextMenuState({ position, splitId: split.id });
     },
     [],
-  );
-  const handleSplitLayoutSelect = useCallback(
-    (split: ChatThreadBoardSplitState, columns: number) => {
-      useChatThreadBoardStore.getState().setSplitGridLayout(split.id, { columns });
-      closeSplitContextMenu();
-    },
-    [closeSplitContextMenu],
   );
   const handleSplitMenuAction = useCallback(
     async (split: ChatThreadBoardSplitState, action: "archive" | "delete" | "open" | "rename") => {
@@ -1874,23 +2056,14 @@ export default function Sidebar() {
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
-      const sortOrder =
-        sidebarThreadSortOrder === "manual" ? "last_user_message" : sidebarThreadSortOrder;
       const sortedThreads = sortThreadsForSidebar(
         (threadIdsByProjectId[projectId] ?? [])
           .map((threadId) => sidebarThreadsById[threadId])
           .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
           .filter((thread) => thread.archivedAt === null),
-        sortOrder,
+        sidebarThreadSortOrder,
       );
-      const latestThread =
-        sidebarThreadSortOrder === "manual"
-          ? orderItemsByPreferredIds({
-              items: sortedThreads,
-              preferredIds: threadOrderByProjectId[projectId] ?? [],
-              getId: (thread) => thread.id,
-            })[0]
-          : sortedThreads[0];
+      const latestThread = sortedThreads[0];
       if (!latestThread) return;
 
       void navigate({
@@ -1898,13 +2071,7 @@ export default function Sidebar() {
         params: { threadId: latestThread.id },
       });
     },
-    [
-      sidebarThreadSortOrder,
-      navigate,
-      sidebarThreadsById,
-      threadIdsByProjectId,
-      threadOrderByProjectId,
-    ],
+    [sidebarThreadSortOrder, navigate, sidebarThreadsById, threadIdsByProjectId],
   );
 
   const refreshProjectBrowse = useCallback(
@@ -3187,11 +3354,6 @@ export default function Sidebar() {
       activationConstraint: { distance: 6 },
     }),
   );
-  const threadDnDSensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-  );
   const projectCollisionDetection = useCallback<CollisionDetection>((args) => {
     const pointerCollisions = pointerWithin(args);
     if (pointerCollisions.length > 0) {
@@ -3225,37 +3387,6 @@ export default function Sidebar() {
   const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
     dragInProgressRef.current = false;
   }, []);
-  const handleThreadDragEnd = useCallback(
-    (projectId: ProjectId, event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) {
-        return;
-      }
-      if (sidebarThreadSortOrder !== "manual") {
-        updateSettings({ sidebarThreadSortOrder: "manual" });
-      }
-      reorderThreadsInProject(
-        projectId,
-        ThreadId.makeUnsafe(String(active.id)),
-        ThreadId.makeUnsafe(String(over.id)),
-      );
-    },
-    [reorderThreadsInProject, sidebarThreadSortOrder, updateSettings],
-  );
-  const handlePinnedThreadDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) {
-        return;
-      }
-      reorderPinnedThreads(
-        ThreadId.makeUnsafe(String(active.id)),
-        ThreadId.makeUnsafe(String(over.id)),
-      );
-    },
-    [reorderPinnedThreads],
-  );
-
   const handleProjectTitlePointerDownCapture = useCallback(
     (event: PointerEvent<HTMLButtonElement>) => {
       suppressProjectClickForContextMenuRef.current = false;
@@ -3342,18 +3473,10 @@ export default function Sidebar() {
           threadLastVisitedAtById,
         );
         const visibleThreadCount = threadRevealCountByProject[project.id] ?? THREAD_REVEAL_STEP;
-        const sortedProjectThreads = getCachedSortedSidebarThreads(
+        const projectThreads = getCachedSortedSidebarThreads(
           projectListThreads,
           sidebarThreadSortOrder,
         );
-        const projectThreads =
-          sidebarThreadSortOrder === "manual"
-            ? orderItemsByPreferredIds({
-                items: getCachedSortedSidebarThreads(projectListThreads, "last_user_message"),
-                preferredIds: threadOrderByProjectId[project.id] ?? [],
-                getId: (thread) => thread.id,
-              })
-            : sortedProjectThreads;
         const collapsedPreviewThread = !projectExpanded
           ? ((activeThreadId
               ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
@@ -3415,7 +3538,6 @@ export default function Sidebar() {
       activeThreadId,
       pinnedProjectIdSet,
       projectListThreadsByProjectId,
-      threadOrderByProjectId,
       threadLastVisitedAtById,
       visibleProjectThreadsByProjectId,
     ],
@@ -3999,13 +4121,13 @@ export default function Sidebar() {
   });
 
   const renderedSidebarThreadGroups = useMemo(
-    () => [
-      ...(renderedPinnedThreadIds.length > 0
-        ? [{ renderedThreadIds: renderedPinnedThreadIds }]
-        : []),
-      ...filteredRenderedProjects,
-    ],
-    [filteredRenderedProjects, renderedPinnedThreadIds],
+    () =>
+      buildRenderedSidebarThreadGroups({
+        pinnedItems: sortedRenderedPinnedItems,
+        renderedProjects: filteredRenderedProjects,
+        pinnedSectionExpanded,
+      }),
+    [filteredRenderedProjects, pinnedSectionExpanded, sortedRenderedPinnedItems],
   );
   const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
     renderedProjects: renderedSidebarThreadGroups,
@@ -4180,10 +4302,11 @@ export default function Sidebar() {
     updateThreadJumpHintsVisibility,
   ]);
 
-  function renderPinnedThreadRow(
-    threadId: ThreadId,
-    sortableHandleProps?: SortableThreadHandleProps,
-  ) {
+  function renderPinnedThreadRow(threadId: ThreadId) {
+    const boardDrag = createBoardThreadRowDragProps({
+      connectionUrl: activeWsUrl,
+      threadId,
+    });
     return (
       <SidebarThreadRow
         key={threadId}
@@ -4197,7 +4320,7 @@ export default function Sidebar() {
         jumpLabel={threadJumpLabelById.get(threadId) ?? null}
         appSettingsConfirmThreadArchive={confirmThreadArchive}
         isPinned
-        sortableHandleProps={sortableHandleProps ?? null}
+        boardDrag={boardDrag}
         showPinnedIndicator={false}
         renamingThreadId={renamingThreadId}
         renamingTitle={renamingTitle}
@@ -4222,11 +4345,6 @@ export default function Sidebar() {
       />
     );
   }
-
-  const canDragPinnedThreads =
-    normalizedProjectSearchQuery.length === 0 &&
-    sortedRenderedPinnedItems.every((item) => item.kind === "thread") &&
-    renderedPinnedThreadIds.length > 1;
 
   function renderProjectItem(
     renderedProject: (typeof renderedProjects)[number],
@@ -4257,50 +4375,48 @@ export default function Sidebar() {
         renderedThreadIds.length > 0 ||
         hasHiddenThreads ||
         canCollapseThreadList);
-    const canDragProjectThreads =
-      projectExpanded &&
-      normalizedProjectSearchQuery.length === 0 &&
-      renderedThreadIds.length > 1 &&
-      shouldShowThreadPanel;
-    const renderThreadRow = (
-      threadId: ThreadId,
-      sortableHandleProps?: SortableThreadHandleProps,
-    ) => (
-      <SidebarThreadRow
-        key={threadId}
-        threadId={threadId}
-        orderedProjectThreadIds={orderedProjectThreadIds}
-        routeThreadId={activeSidebarRouteThreadId}
-        activeRouteConnectionUrl={activeRouteConnectionUrl}
-        connectionUrl={connectionUrl}
-        selectedThreadIds={selectedThreadIds}
-        showThreadJumpHints={showThreadJumpHints}
-        jumpLabel={threadJumpLabelById.get(threadId) ?? null}
-        appSettingsConfirmThreadArchive={confirmThreadArchive}
-        isPinned={pinnedThreadIdSet.has(threadId)}
-        sortableHandleProps={sortableHandleProps ?? null}
-        renamingThreadId={renamingThreadId}
-        renamingTitle={renamingTitle}
-        setRenamingTitle={setRenamingTitle}
-        renamingInputRef={renamingInputRef}
-        renamingCommittedRef={renamingCommittedRef}
-        confirmingArchiveThreadId={confirmingArchiveThreadId}
-        setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-        handleThreadClick={handleThreadClick}
-        navigateToThread={navigateToThread}
-        prefetchThreadHistory={prefetchThreadHistory}
-        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-        handleThreadContextMenu={handleThreadContextMenu}
-        clearSelection={clearSelection}
-        commitRename={commitRename}
-        cancelRename={cancelRename}
-        attemptArchiveThread={attemptArchiveThread}
-        onTogglePinnedThread={togglePinnedThread}
-        openPrLink={openPrLink}
-        pr={prByThreadId.get(threadId) ?? null}
-      />
-    );
+    const renderThreadRow = (threadId: ThreadId) => {
+      const boardDrag = createBoardThreadRowDragProps({
+        connectionUrl,
+        threadId,
+      });
+      return (
+        <SidebarThreadRow
+          key={threadId}
+          threadId={threadId}
+          orderedProjectThreadIds={orderedProjectThreadIds}
+          routeThreadId={activeSidebarRouteThreadId}
+          activeRouteConnectionUrl={activeRouteConnectionUrl}
+          connectionUrl={connectionUrl}
+          selectedThreadIds={selectedThreadIds}
+          showThreadJumpHints={showThreadJumpHints}
+          jumpLabel={threadJumpLabelById.get(threadId) ?? null}
+          appSettingsConfirmThreadArchive={confirmThreadArchive}
+          isPinned={pinnedThreadIdSet.has(threadId)}
+          boardDrag={boardDrag}
+          renamingThreadId={renamingThreadId}
+          renamingTitle={renamingTitle}
+          setRenamingTitle={setRenamingTitle}
+          renamingInputRef={renamingInputRef}
+          renamingCommittedRef={renamingCommittedRef}
+          confirmingArchiveThreadId={confirmingArchiveThreadId}
+          setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+          confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+          handleThreadClick={handleThreadClick}
+          navigateToThread={navigateToThread}
+          prefetchThreadHistory={prefetchThreadHistory}
+          handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+          handleThreadContextMenu={handleThreadContextMenu}
+          clearSelection={clearSelection}
+          commitRename={commitRename}
+          cancelRename={cancelRename}
+          attemptArchiveThread={attemptArchiveThread}
+          onTogglePinnedThread={togglePinnedThread}
+          openPrLink={openPrLink}
+          pr={prByThreadId.get(threadId) ?? null}
+        />
+      );
+    };
     return (
       <>
         <div className="group/project-header relative">
@@ -4426,24 +4542,7 @@ export default function Sidebar() {
               </SidebarMenuSubItem>
             ) : null}
             {shouldShowThreadPanel &&
-              (canDragProjectThreads ? (
-                <DndContext
-                  sensors={threadDnDSensors}
-                  collisionDetection={projectCollisionDetection}
-                  modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                  onDragEnd={(event) => handleThreadDragEnd(project.id, event)}
-                >
-                  <SortableContext items={renderedThreadIds} strategy={verticalListSortingStrategy}>
-                    {renderedThreadIds.map((threadId) => (
-                      <SortableThreadItem key={threadId} threadId={threadId}>
-                        {(sortableHandleProps) => renderThreadRow(threadId, sortableHandleProps)}
-                      </SortableThreadItem>
-                    ))}
-                  </SortableContext>
-                </DndContext>
-              ) : (
-                renderedThreadIds.map((threadId) => renderThreadRow(threadId))
-              ))}
+              renderedThreadIds.map((threadId) => renderThreadRow(threadId))}
 
             {projectExpanded && hasHiddenThreads && (
               <SidebarMenuSubItem className="w-full">
@@ -4575,6 +4674,10 @@ export default function Sidebar() {
             {projectExpanded &&
               visibleThreads.map((thread) => {
                 const threadId = ThreadId.makeUnsafe(thread.id);
+                const boardDrag = createBoardThreadRowDragProps({
+                  connectionUrl,
+                  threadId,
+                });
                 return (
                   <SidebarThreadRow
                     key={thread.id}
@@ -4589,6 +4692,7 @@ export default function Sidebar() {
                     appSettingsConfirmThreadArchive={confirmThreadArchive}
                     isPinned={false}
                     pinEnabled={false}
+                    boardDrag={boardDrag}
                     renamingThreadId={renamingThreadId}
                     renamingTitle={renamingTitle}
                     setRenamingTitle={setRenamingTitle}
@@ -5226,37 +5330,6 @@ export default function Sidebar() {
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "open")}>
               Open board
             </MenuItem>
-            <MenuSub>
-              <MenuSubTrigger>
-                <span>Layout</span>
-                <span className="ms-auto truncate text-[10px] text-muted-foreground">
-                  {contextMenuSplitCurrentColumns} col
-                </span>
-              </MenuSubTrigger>
-              <MenuSubPopup sideOffset={4}>
-                {contextMenuSplitLayoutOptions.map((option) => {
-                  const selected = option.columns === contextMenuSplitCurrentColumns;
-                  return (
-                    <MenuItem
-                      key={option.value}
-                      onClick={() => handleSplitLayoutSelect(contextMenuSplit, option.columns)}
-                    >
-                      <span className="min-w-0 flex-1">{option.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {option.columns === 1
-                          ? "stack"
-                          : option.rows === 1
-                            ? "row"
-                            : `${option.columns} cols`}
-                      </span>
-                      {selected ? (
-                        <span className="ml-1 text-xs text-muted-foreground">Selected</span>
-                      ) : null}
-                    </MenuItem>
-                  );
-                })}
-              </MenuSubPopup>
-            </MenuSub>
             <div className="mx-2 my-1 h-px bg-border" />
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "rename")}>
               Rename board
@@ -5309,7 +5382,7 @@ export default function Sidebar() {
           }
         }}
       >
-        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0  rounded-xl">
           <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
             <button
               type="button"
@@ -5638,39 +5711,17 @@ export default function Sidebar() {
                 >
                   <div className="min-h-0 overflow-hidden">
                     <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
-                      {canDragPinnedThreads ? (
-                        <DndContext
-                          sensors={threadDnDSensors}
-                          collisionDetection={projectCollisionDetection}
-                          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                          onDragEnd={handlePinnedThreadDragEnd}
-                        >
-                          <SortableContext
-                            items={renderedPinnedThreadIds}
-                            strategy={verticalListSortingStrategy}
+                      {sortedRenderedPinnedItems.map((item) =>
+                        item.kind === "thread" ? (
+                          renderPinnedThreadRow(item.threadId)
+                        ) : (
+                          <SidebarMenuItem
+                            key={`pinned-project:${item.renderedProject.project.id}`}
+                            className="mt-2 rounded-md"
                           >
-                            {renderedPinnedThreadIds.map((threadId) => (
-                              <SortableThreadItem key={threadId} threadId={threadId}>
-                                {(sortableHandleProps) =>
-                                  renderPinnedThreadRow(threadId, sortableHandleProps)
-                                }
-                              </SortableThreadItem>
-                            ))}
-                          </SortableContext>
-                        </DndContext>
-                      ) : (
-                        sortedRenderedPinnedItems.map((item) =>
-                          item.kind === "thread" ? (
-                            renderPinnedThreadRow(item.threadId)
-                          ) : (
-                            <SidebarMenuItem
-                              key={`pinned-project:${item.renderedProject.project.id}`}
-                              className="mt-2 rounded-md"
-                            >
-                              {renderProjectItem(item.renderedProject, null)}
-                            </SidebarMenuItem>
-                          ),
-                        )
+                            {renderProjectItem(item.renderedProject, null)}
+                          </SidebarMenuItem>
+                        ),
                       )}
                     </SidebarMenuSub>
                   </div>
@@ -5683,16 +5734,26 @@ export default function Sidebar() {
                 boardsSectionExpanded={boardsSectionExpanded}
                 canCollapseSplitList={canCollapseSplitList}
                 canCreateBoard={splitPickerThreadOptions.length >= 2}
+                dragOverBoardId={
+                  boardThreadDragState?.overTargetKey &&
+                  savedBoards.some((split) => split.id === boardThreadDragState.overTargetKey)
+                    ? boardThreadDragState.overTargetKey
+                    : null
+                }
                 hiddenSavedSplitCount={hiddenSavedSplitCount}
                 renamingSplitId={renamingSplitId}
                 renamingSplitTitle={renamingSplitTitle}
                 savedBoards={savedBoards}
                 showMoreCount={Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)}
                 splitSortOrder={splitSortOrder}
+                threadDragActive={boardThreadDragState !== null}
                 visibleSavedBoards={visibleSavedBoards}
                 onBoardsSectionToggle={() => {
                   setBoardsSectionExpanded(!boardsSectionExpanded);
                 }}
+                onBoardDragLeave={handleSavedBoardDragLeave}
+                onBoardDragOver={handleSavedBoardDragOver}
+                onBoardDrop={handleBoardThreadDropOnSavedBoard}
                 onCancelSplitRename={cancelSplitRename}
                 onCommitSplitRename={commitSplitRename}
                 onOpenSplitContextMenu={openSplitContextMenu}

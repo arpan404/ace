@@ -15,7 +15,6 @@ const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
   updated_at: "Latest thread activity",
   last_user_message: "Last user message",
   created_at: "Created at",
-  manual: "Manual",
 };
 
 export function ProjectSortMenu({

@@ -436,7 +436,7 @@ export function GitHubIssueDialog({
                               "group flex items-start gap-2 rounded-[var(--control-radius)] border border-transparent px-2 py-2 transition-colors",
                               "hover:border-border/35 hover:bg-muted/30 dark:hover:border-border/25 dark:hover:bg-muted/15",
                               active &&
-                                "border-border/50 bg-muted/34 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.18)] dark:border-border/40 dark:bg-muted/20",
+                                "border-border/50 bg-muted/34  dark:border-border/40 dark:bg-muted/20",
                             )}
                           >
                             <Checkbox

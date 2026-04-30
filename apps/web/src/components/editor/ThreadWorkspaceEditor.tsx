@@ -1317,6 +1317,26 @@ function ThreadWorkspaceEditor(inputProps: {
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
   }, []);
+  useEffect(() => {
+    const resetResizeInteractions = () => {
+      treeResizeStateRef.current = null;
+      paneResizeStateRef.current = null;
+      rowResizeStateRef.current = null;
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetResizeInteractions();
+      }
+    };
+    window.addEventListener("blur", resetResizeInteractions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetResizeInteractions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const workspaceFileCount = useMemo(
     () => treeEntries.filter((entry) => entry.kind === "file").length,

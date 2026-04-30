@@ -260,6 +260,41 @@ export function getVisibleSidebarThreadIds<TThreadId>(
   );
 }
 
+export function buildRenderedSidebarThreadGroups<
+  TThreadId,
+  TRenderedProject extends {
+    shouldShowThreadPanel?: boolean;
+    renderedThreadIds: readonly TThreadId[];
+  },
+>(input: {
+  pinnedItems: readonly (
+    | {
+        kind: "thread";
+        threadId: TThreadId;
+      }
+    | {
+        kind: "project";
+        renderedProject: TRenderedProject;
+      }
+  )[];
+  renderedProjects: readonly TRenderedProject[];
+  pinnedSectionExpanded: boolean;
+}): Array<{
+  shouldShowThreadPanel?: boolean;
+  renderedThreadIds: readonly TThreadId[];
+}> {
+  if (!input.pinnedSectionExpanded || input.pinnedItems.length === 0) {
+    return [...input.renderedProjects];
+  }
+
+  return [
+    ...input.pinnedItems.map((item) =>
+      item.kind === "thread" ? { renderedThreadIds: [item.threadId] } : item.renderedProject,
+    ),
+    ...input.renderedProjects,
+  ];
+}
+
 export function resolveAdjacentThreadId<T>(input: {
   threadIds: readonly T[];
   currentThreadId: T | null;
@@ -551,9 +586,6 @@ function buildThreadSortTimestampById<
 export function sortThreadsForSidebar<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
-  if (sortOrder === "manual") {
-    return [...threads];
-  }
   const timestampByThreadId = buildThreadSortTimestampById(threads, sortOrder);
   return threads.toSorted((left, right) => {
     const rightTimestamp = timestampByThreadId.get(right.id) ?? Number.NEGATIVE_INFINITY;

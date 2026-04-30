@@ -1,5 +1,6 @@
 import type {
   ProviderKind,
+  ProviderInteractionMode,
   ProviderModelOptions,
   ServerProvider,
   ServerProviderModel,
@@ -22,6 +23,7 @@ import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
 import { Separator } from "../ui/separator";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -42,6 +44,22 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 
 const EMPTY_TERMINAL_CONTEXTS: ComponentProps<typeof ComposerPromptEditor>["terminalContexts"] = [];
 
+function renderInteractionModeTooltipContent(
+  interactionMode: ProviderInteractionMode,
+  shortcutLabel: string | null,
+) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>{interactionMode === "plan" ? "Switch to Agent" : "Switch to Plan"}</span>
+      {shortcutLabel ? (
+        <Kbd className="h-4.5 min-w-0 rounded-md bg-background/70 px-1.5 text-[10px] text-foreground/75 dark:bg-background/25">
+          {shortcutLabel}
+        </Kbd>
+      ) : null}
+    </span>
+  );
+}
+
 interface ChatComposerPanelProps {
   readonly threadId: ThreadId;
   readonly isGitRepo: boolean;
@@ -58,6 +76,7 @@ interface ChatComposerPanelProps {
   readonly liveTurnInProgress: boolean;
   readonly isSendBusy: boolean;
   readonly showPlanFollowUpPrompt: boolean;
+  readonly showQueue?: boolean;
   readonly prompt: string;
   readonly composerCursor: ComponentProps<typeof ComposerPromptEditor>["cursor"];
   readonly composerTriggerKind: ComponentProps<typeof ComposerCommandMenu>["triggerKind"];
@@ -86,9 +105,11 @@ interface ChatComposerPanelProps {
   readonly handoffDisabled: boolean;
   readonly interactionMode: ComponentProps<typeof CompactComposerControlsMenu>["interactionMode"];
   readonly runtimeMode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"];
+  readonly interactionModeShortcutLabel: string | null;
   readonly activeContextWindow: ComponentProps<typeof ContextWindowMeter>["usage"] | null;
   readonly promptHasText: boolean;
   readonly hasSendableContent: boolean;
+  readonly canQueueMessage: boolean;
   readonly activePendingApproval:
     | ComponentProps<typeof ComposerPendingApprovalPanel>["approval"]
     | null;
@@ -132,6 +153,9 @@ interface ChatComposerPanelProps {
   readonly onClearQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onClearAll"];
+  readonly onReorderQueuedComposerMessages: ComponentProps<
+    typeof ComposerQueuedMessages
+  >["onReorder"];
   readonly onSteerQueuedComposerMessage: ComponentProps<typeof ComposerQueuedMessages>["onSteer"];
   readonly onPreviewComposerImage: (imageId: string) => void;
   readonly onRemoveComposerImage: (imageId: string) => void;
@@ -264,6 +288,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         modelOptions: props.selectedProviderModelOptions,
         prompt: props.prompt,
         onPromptChange: props.onPromptChangeFromTraits,
+        showFastInTriggerLabel: false,
       }),
     [
       props.onPromptChangeFromTraits,
@@ -329,13 +354,46 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";
 
   return (
-    <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4")}>
+    <div
+      className={cn(
+        "shrink-0 px-3 pt-1.5 sm:px-5 sm:pt-2",
+        props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4",
+      )}
+    >
       <form
         ref={props.composerFormRef}
         onSubmit={props.onSubmit}
         className="mx-auto w-full min-w-0 max-w-208"
         data-chat-composer-form="true"
       >
+        {(props.showQueue ?? true) ? (
+          <ComposerQueuedMessages
+            messages={props.queuedComposerMessages}
+            className="mb-2"
+            {...(props.queuedSteerMessageId !== undefined
+              ? { steerMessageId: props.queuedSteerMessageId }
+              : {})}
+            onEdit={props.onEditQueuedComposerMessage}
+            onDelete={props.onDeleteQueuedComposerMessage}
+            onClearAll={props.onClearQueuedComposerMessages}
+            onReorder={props.onReorderQueuedComposerMessages}
+            onSteer={props.onSteerQueuedComposerMessage}
+          />
+        ) : null}
+        {props.pendingUserInputs.length > 0 ? (
+          <div className="mb-2">
+            <ComposerPendingUserInputPanel
+              pendingUserInputs={props.pendingUserInputs}
+              respondingRequestIds={props.respondingUserInputRequestIds}
+              answers={props.activePendingDraftAnswers}
+              questionIndex={props.activePendingQuestionIndex}
+              onSelectOption={props.onSelectPendingUserInputOption}
+              onPrevious={props.onPreviousPendingQuestion}
+              onAdvance={props.onAdvancePendingUserInput}
+            />
+          </div>
+        ) : null}
+
         <div
           className={cn(
             "group rounded-xl transition-colors duration-200",
@@ -351,8 +409,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             className={cn(
               "rounded-xl",
               isUltrathinkFrame
-                ? "border-0 bg-input transition-all duration-200 has-focus-visible:ring-2 has-focus-visible:ring-ring/55"
-                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 has-focus-visible:border-transparent has-focus-visible:ring-2 has-focus-visible:ring-ring/55",
+                ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/55"
+                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/55",
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
@@ -362,17 +420,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 <ComposerPendingApprovalPanel
                   approval={props.activePendingApproval}
                   pendingCount={props.pendingApprovalsCount}
-                />
-              </div>
-            ) : props.pendingUserInputs.length > 0 ? (
-              <div className="rounded-t-[13px] border-b border-border bg-muted">
-                <ComposerPendingUserInputPanel
-                  pendingUserInputs={props.pendingUserInputs}
-                  respondingRequestIds={props.respondingUserInputRequestIds}
-                  answers={props.activePendingDraftAnswers}
-                  questionIndex={props.activePendingQuestionIndex}
-                  onSelectOption={props.onSelectPendingUserInputOption}
-                  onAdvance={props.onAdvancePendingUserInput}
                 />
               </div>
             ) : props.showPlanFollowUpPrompt && props.planFollowUpId ? (
@@ -404,7 +451,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               ) : null}
               {props.showIssuesCommandExamplesPopover ? (
                 <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 px-1">
-                  <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-sm">
+                  <div className="rounded-lg border border-border bg-popover px-3 py-2 ">
                     <p className="mb-1 text-[11px] font-medium text-muted-foreground">
                       Use <span className="font-mono text-foreground">/issues</span> with issue
                       tags:
@@ -423,18 +470,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   </div>
                 </div>
               ) : null}
-
-              <ComposerQueuedMessages
-                messages={props.queuedComposerMessages}
-                className="mb-3"
-                {...(props.queuedSteerMessageId !== undefined
-                  ? { steerMessageId: props.queuedSteerMessageId }
-                  : {})}
-                onEdit={props.onEditQueuedComposerMessage}
-                onDelete={props.onDeleteQueuedComposerMessage}
-                onClearAll={props.onClearQueuedComposerMessages}
-                onSteer={props.onSteerQueuedComposerMessage}
-              />
 
               {!props.isComposerApprovalState && props.pendingUserInputs.length === 0 ? (
                 <ComposerImageStrip
@@ -510,6 +545,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     <CompactComposerControlsMenu
                       interactionMode={props.interactionMode}
                       runtimeMode={props.runtimeMode}
+                      interactionModeShortcutLabel={props.interactionModeShortcutLabel}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={props.onToggleInteractionMode}
                       onRuntimeModeChange={props.onRuntimeModeChange}
@@ -531,27 +567,39 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                         className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
                       />
 
-                      <Button
-                        variant="ghost"
-                        className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
-                        size="sm"
-                        type="button"
-                        onClick={props.onToggleInteractionMode}
-                        title={
-                          props.interactionMode === "plan"
-                            ? "Plan mode — click to return to build mode"
-                            : "Build mode — click to enter plan mode"
-                        }
-                      >
-                        {props.interactionMode === "plan" ? (
-                          <ListTodoIcon className="size-4" />
-                        ) : (
-                          <BotIcon className="size-4" />
-                        )}
-                        <span className="sr-only sm:not-sr-only">
-                          {props.interactionMode === "plan" ? "Plan" : "Build"}
-                        </span>
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
+                              size="sm"
+                              type="button"
+                              onClick={props.onToggleInteractionMode}
+                              aria-label={
+                                props.interactionMode === "plan"
+                                  ? "Switch to agent mode"
+                                  : "Switch to plan mode"
+                              }
+                            />
+                          }
+                        >
+                          {props.interactionMode === "plan" ? (
+                            <ListTodoIcon className="size-4" />
+                          ) : (
+                            <BotIcon className="size-4" />
+                          )}
+                          <span className="sr-only sm:not-sr-only">
+                            {props.interactionMode === "plan" ? "Plan" : "Agent"}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipPopup side="top" sideOffset={4}>
+                          {renderInteractionModeTooltipContent(
+                            props.interactionMode,
+                            props.interactionModeShortcutLabel,
+                          )}
+                        </TooltipPopup>
+                      </Tooltip>
                     </>
                   )}
                 </div>
@@ -582,8 +630,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     isConnecting={props.isConnecting}
                     isPreparingWorktree={props.isPreparingWorktree}
                     hasSendableContent={props.hasSendableContent}
-                    canQueueMessage={props.hasSendableContent}
-                    onPreviousPendingQuestion={props.onPreviousPendingQuestion}
+                    canQueueMessage={props.canQueueMessage}
                     onInterrupt={props.onInterrupt}
                     onImplementPlanInNewThread={props.onImplementPlanInNewThread}
                     onQueueMessage={props.onQueueMessage}

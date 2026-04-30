@@ -68,6 +68,7 @@ interface ChatMarkdownProps {
   streamingTextState?: ChatMessageStreamingTextState;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void) | null;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -403,6 +404,7 @@ function ChatMarkdown({
   streamingTextState,
   onLayoutChange,
   onOpenBrowserUrl = null,
+  onOpenFilePath = null,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
@@ -413,6 +415,17 @@ function ChatMarkdown({
     !isStreaming &&
     renderPreference !== "markdown" &&
     shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
+  const openLinkExternally = useCallback((href: string) => {
+    const api = readNativeApi();
+    if (api) {
+      void api.shell.openExternal(href).catch((error) => {
+        console.warn("Failed to open link externally.", error);
+      });
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
+  }, []);
+
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
@@ -425,7 +438,19 @@ function ChatMarkdown({
 
           return (
             <span className="chat-markdown-link-shell">
-              <a {...props} href={href} target="_blank" rel="noopener noreferrer" />
+              <a
+                {...props}
+                href={href}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (event.metaKey || event.ctrlKey) {
+                    openLinkExternally(href ?? browserUrl);
+                    return;
+                  }
+                  onOpenBrowserUrl(browserUrl);
+                }}
+              />
               <button
                 type="button"
                 className="chat-markdown-link-open-browser"
@@ -450,6 +475,21 @@ function ChatMarkdown({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (event.metaKey || event.ctrlKey) {
+                const api = readNativeApi();
+                if (api) {
+                  void openInPreferredEditor(api, targetPath).catch((error) => {
+                    console.warn("Failed to open file in external editor.", error);
+                  });
+                } else {
+                  console.warn("Native API not found. Unable to open file in external editor.");
+                }
+                return;
+              }
+              if (onOpenFilePath) {
+                onOpenFilePath(targetPath);
+                return;
+              }
               const api = readNativeApi();
               if (api) {
                 void openInPreferredEditor(api, targetPath);
@@ -504,7 +544,15 @@ function ChatMarkdown({
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming, onOpenBrowserUrl, resolvedTheme],
+    [
+      cwd,
+      diffThemeName,
+      isStreaming,
+      onOpenBrowserUrl,
+      onOpenFilePath,
+      openLinkExternally,
+      resolvedTheme,
+    ],
   );
 
   useEffect(() => {

@@ -24,6 +24,7 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_RENDERER_BOOTSTRAP_CHANNEL = "desktop:get-renderer-bootstrap";
 const WINDOW_SHOWN_AT_CHANGED_CHANNEL = "desktop:window-shown-at-changed";
 const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed";
+const WINDOW_RESUME_CHANNEL = "desktop:window-resume";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
@@ -89,6 +90,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(TITLEBAR_LEFT_INSET_CHANGED_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(TITLEBAR_LEFT_INSET_CHANGED_CHANNEL, wrappedListener);
+    };
+  },
+  onWindowResume: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, reason: unknown) => {
+      if (reason !== "focus" && reason !== "resume" && reason !== "unlock-screen") {
+        return;
+      }
+      listener(reason);
+    };
+
+    ipcRenderer.on(WINDOW_RESUME_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(WINDOW_RESUME_CHANNEL, wrappedListener);
     };
   },
   getNotificationPermission: async () => {

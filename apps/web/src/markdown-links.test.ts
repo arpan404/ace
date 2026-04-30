@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveMarkdownFileLinkTarget } from "./markdown-links";
+import { resolveMarkdownFileLinkTarget, resolveWorkspaceEditorFilePath } from "./markdown-links";
 
 describe("resolveMarkdownFileLinkTarget", () => {
   it("resolves absolute posix file paths", () => {
@@ -45,5 +45,38 @@ describe("resolveMarkdownFileLinkTarget", () => {
 
   it("does not treat app routes as file links", () => {
     expect(resolveMarkdownFileLinkTarget("/chat/settings")).toBeNull();
+  });
+
+  it("treats localhost file bridge urls as workspace file links", () => {
+    expect(
+      resolveMarkdownFileLinkTarget(
+        "http://localhost:5777/Users/arpanbhandari/.ace/worktrees/t3code/ace-4b62369b/apps/server/src/telemetry/Identify.ts",
+      ),
+    ).toBe(
+      "/Users/arpanbhandari/.ace/worktrees/t3code/ace-4b62369b/apps/server/src/telemetry/Identify.ts",
+    );
+  });
+});
+
+describe("resolveWorkspaceEditorFilePath", () => {
+  it("maps workspace absolute paths to workspace-relative editor paths", () => {
+    expect(
+      resolveWorkspaceEditorFilePath(
+        "/Users/julius/project/src/main.ts:42:7",
+        "/Users/julius/project",
+      ),
+    ).toBe("src/main.ts");
+  });
+
+  it("supports windows absolute paths with case-insensitive workspace roots", () => {
+    expect(
+      resolveWorkspaceEditorFilePath("C:\\Code\\Project\\src\\index.ts:9", "c:\\code\\project"),
+    ).toBe("src/index.ts");
+  });
+
+  it("returns absolute paths when they are outside the workspace root", () => {
+    expect(
+      resolveWorkspaceEditorFilePath("/Users/julius/other/main.ts:10", "/Users/julius/project"),
+    ).toBe("/Users/julius/other/main.ts");
   });
 });

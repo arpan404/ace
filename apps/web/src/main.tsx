@@ -16,6 +16,7 @@ import {
   DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE,
   MAC_TITLEBAR_LEFT_INSET_PX,
 } from "./lib/desktopChrome";
+import { installWindowInteractionRecovery } from "./lib/interactionRecovery";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 initLoadDiagnostics();
@@ -60,6 +61,7 @@ const syncDesktopTitlebarLeftInset = () => {
 };
 
 syncDesktopTitlebarLeftInset();
+installWindowInteractionRecovery();
 
 if (isElectron && typeof window.desktopBridge?.getTitlebarLeftInset === "function") {
   let pendingRaf = 0;

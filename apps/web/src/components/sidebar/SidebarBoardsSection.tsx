@@ -1,4 +1,5 @@
 import { IconFilter2 } from "@tabler/icons-react";
+import { type DragEvent } from "react";
 import { ChevronRightIcon, Columns2Icon, PlusIcon } from "lucide-react";
 
 import type { ChatThreadBoardSplitState } from "../../chatThreadBoardStore";
@@ -28,6 +29,8 @@ export function SidebarBoardsSection(props: {
   savedBoards: ReadonlyArray<ChatThreadBoardSplitState>;
   showMoreCount: number;
   splitSortOrder: SidebarSplitSortOrder;
+  threadDragActive: boolean;
+  dragOverBoardId: string | null;
   visibleSavedBoards: ReadonlyArray<ChatThreadBoardSplitState>;
   onBoardsSectionToggle: () => void;
   onCancelSplitRename: () => void;
@@ -40,6 +43,9 @@ export function SidebarBoardsSection(props: {
   onRestoreSavedSplit: (split: ChatThreadBoardSplitState) => void;
   onShowLess: () => void;
   onShowMore: () => void;
+  onBoardDragLeave: (splitId: string, event: DragEvent<HTMLLIElement>) => void;
+  onBoardDragOver: (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => void;
+  onBoardDrop: (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => void;
   onSplitRenameChange: (title: string) => void;
   onSplitSortOrderChange: (sortOrder: SidebarSplitSortOrder) => void;
 }) {
@@ -127,6 +133,11 @@ export function SidebarBoardsSection(props: {
         )}
       >
         <div className="min-h-0 overflow-hidden">
+          {props.threadDragActive ? (
+            <div className="mb-1 rounded-md border border-dashed border-primary/35 bg-primary/[0.06] px-2 py-1.5 text-[10px] font-medium text-primary/80">
+              Drop on a thread to create a board, or drop on a saved board to add the thread.
+            </div>
+          ) : null}
           <SidebarMenu>
             {props.visibleSavedBoards.map((split) => {
               const paneCount = split.panes.length;
@@ -134,7 +145,21 @@ export function SidebarBoardsSection(props: {
               return (
                 <SidebarMenuItem
                   key={split.id}
-                  className="rounded-md"
+                  className={cn(
+                    "rounded-md transition-colors",
+                    props.dragOverBoardId === split.id
+                      ? "bg-primary/[0.08] ring-1 ring-primary/35"
+                      : "",
+                  )}
+                  onDragLeave={(event) => {
+                    props.onBoardDragLeave(split.id, event);
+                  }}
+                  onDragOver={(event) => {
+                    props.onBoardDragOver(split, event);
+                  }}
+                  onDrop={(event) => {
+                    props.onBoardDrop(split, event);
+                  }}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     props.onOpenSplitContextMenu(split, {
