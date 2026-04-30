@@ -496,7 +496,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               </>
             )}
             {(worktreeStatus || prStatus) && (
-              <span className={cn(threadGitMetaClassName, "inline-flex items-center gap-1")}>
+              <span className={cn(threadGitMetaClassName, "mr-2 inline-flex items-center gap-1")}>
                 {worktreeStatus && (
                   <Tooltip>
                     <TooltipTrigger
