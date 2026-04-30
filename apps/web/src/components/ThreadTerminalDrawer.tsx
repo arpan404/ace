@@ -1340,7 +1340,7 @@ export default memo(function ThreadTerminalDrawer({
         onPointerDown={handleResizePointerDown}
       />
 
-      <div className="terminal-tabs-strip flex h-11 shrink-0 items-center gap-2 border-b border-border/50 bg-transparent px-3">
+      <div className="terminal-tabs-strip flex h-11 shrink-0 items-center gap-2 bg-transparent px-3">
         <div
           ref={tabStripRef}
           className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
