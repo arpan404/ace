@@ -121,7 +121,6 @@ import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   DEFAULT_THREAD_TERMINAL_ID,
-  MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type QueuedComposerImageAttachment,
   type Thread,
@@ -155,7 +154,7 @@ import {
 } from "~/projectScripts";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { reportBackgroundError, runAsyncTask } from "~/lib/async";
+import { reportBackgroundError } from "~/lib/async";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { useSetting } from "../hooks/useSettings";
@@ -863,20 +862,11 @@ export default function ChatView({
   );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
-  const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
-  const storeMoveTerminalToNewGroup = useTerminalStateStore((s) => s.moveTerminalToNewGroup);
-  const storeRenameTerminal = useTerminalStateStore((s) => s.renameTerminal);
   const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
-  const storeSetTerminalIcon = useTerminalStateStore((s) => s.setTerminalIcon);
-  const storeSetTerminalColor = useTerminalStateStore((s) => s.setTerminalColor);
-  const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
-    (s) => s.setTerminalGroupSplitRatios,
-  );
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
-  const storeClearTerminalState = useTerminalStateStore((s) => s.clearTerminalState);
 
   const setPrompt = useCallback(
     (nextPrompt: string) => {
@@ -2306,10 +2296,6 @@ export default function ChatView({
     () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
     [keybindings],
   );
-  const splitTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.split", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
-  );
   const newTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.new", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
@@ -2860,16 +2846,6 @@ export default function ChatView({
     (activeThread.messages.length > 0 ||
       (activeThread.session !== null && activeThread.session.status !== "closed")),
   );
-  const activeTerminalGroup =
-    terminalState.terminalGroups.find(
-      (group) => group.id === terminalState.activeTerminalGroupId,
-    ) ??
-    terminalState.terminalGroups.find((group) =>
-      group.terminalIds.includes(terminalState.activeTerminalId),
-    ) ??
-    null;
-  const hasReachedSplitLimit =
-    (activeTerminalGroup?.terminalIds.length ?? 0) >= MAX_TERMINALS_PER_GROUP;
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
@@ -4403,12 +4379,6 @@ export default function ChatView({
     };
   }, [rightSidePanelFullscreen, rightSidePanelOpen, syncRightSidePanelWidth]);
 
-  const splitTerminal = useCallback(() => {
-    if (!activeThreadId || hasReachedSplitLimit) return;
-    const terminalId = `terminal-${randomUUID()}`;
-    storeSplitTerminal(activeThreadId, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadId, hasReachedSplitLimit, storeSplitTerminal]);
   const createNewTerminal = useCallback(() => {
     if (!activeThreadId) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -4429,44 +4399,6 @@ export default function ChatView({
       storeMoveTerminal(activeThreadId, terminalId, targetGroupId, targetIndex);
     },
     [activeThreadId, storeMoveTerminal],
-  );
-  const unsplitTerminal = useCallback(
-    (terminalId: string) => {
-      if (!activeThreadId) return;
-      const sourceGroupIndex = terminalState.terminalGroups.findIndex((group) =>
-        group.terminalIds.includes(terminalId),
-      );
-      const sourceGroup =
-        sourceGroupIndex >= 0 ? terminalState.terminalGroups[sourceGroupIndex] : null;
-      if (!sourceGroup || sourceGroup.terminalIds.length <= 1) {
-        return;
-      }
-      storeMoveTerminalToNewGroup(activeThreadId, terminalId, sourceGroupIndex + 1);
-      setTerminalFocusRequestId((value) => value + 1);
-    },
-    [activeThreadId, storeMoveTerminalToNewGroup, terminalState.terminalGroups],
-  );
-  const renameTerminal = useCallback(
-    (terminalId: string, title: string) => {
-      if (!activeThreadId) return;
-      storeRenameTerminal(activeThreadId, terminalId, title);
-    },
-    [activeThreadId, storeRenameTerminal],
-  );
-  const clearTerminal = useCallback(
-    (terminalId: string) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
-      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
-      runAsyncTask(
-        api.terminal.clear({
-          threadId: activeThreadId,
-          terminalId,
-        }),
-        "Failed to clear the terminal from ChatView.",
-      );
-    },
-    [activeThreadId, storeSetTerminalAutoTitle],
   );
   const closeTerminalTarget = useCallback(
     (targetTerminalId: string) => {
@@ -4515,28 +4447,6 @@ export default function ChatView({
     },
     [activeThreadId, storeCloseTerminal, terminalState.terminalIds.length],
   );
-  const restartTerminal = useCallback(
-    (terminalId: string) => {
-      const api = readNativeApi();
-      if (!activeThreadId || !api || !activeProject) return;
-      void api.terminal
-        .restart({
-          threadId: activeThreadId,
-          terminalId,
-          cwd: gitCwd ?? activeProject.cwd,
-          env: threadTerminalRuntimeEnv,
-          cols: SCRIPT_TERMINAL_COLS,
-          rows: SCRIPT_TERMINAL_ROWS,
-        })
-        .then(() => {
-          setTerminalFocusRequestId((value) => value + 1);
-        })
-        .catch((err: unknown) => {
-          reportBackgroundError("Failed to restart the terminal from ChatView.", err);
-        });
-    },
-    [activeProject, activeThreadId, gitCwd, threadTerminalRuntimeEnv],
-  );
   const setTerminalAutoTitle = useCallback(
     (terminalId: string, title: string | null) => {
       if (!activeThreadId) return;
@@ -4544,90 +4454,6 @@ export default function ChatView({
     },
     [activeThreadId, storeSetTerminalAutoTitle],
   );
-  const setTerminalIcon = useCallback(
-    (terminalId: string, icon: Parameters<typeof storeSetTerminalIcon>[2]) => {
-      if (!activeThreadId) return;
-      storeSetTerminalIcon(activeThreadId, terminalId, icon);
-    },
-    [activeThreadId, storeSetTerminalIcon],
-  );
-  const setTerminalColor = useCallback(
-    (terminalId: string, color: Parameters<typeof storeSetTerminalColor>[2]) => {
-      if (!activeThreadId) return;
-      storeSetTerminalColor(activeThreadId, terminalId, color);
-    },
-    [activeThreadId, storeSetTerminalColor],
-  );
-  const setTerminalGroupSplitRatios = useCallback(
-    (groupId: string, ratios: number[]) => {
-      if (!activeThreadId) return;
-      storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
-    },
-    [activeThreadId, storeSetTerminalGroupSplitRatios],
-  );
-  const duplicateTerminal = useCallback(
-    (terminalId: string) => {
-      if (!activeThreadId) return;
-      const sourceGroup = terminalState.terminalGroups.find((group) =>
-        group.terminalIds.includes(terminalId),
-      );
-      const sourceIndex = sourceGroup?.terminalIds.indexOf(terminalId) ?? -1;
-      const nextTerminalId = `terminal-${randomUUID()}`;
-
-      if (sourceGroup && sourceGroup.terminalIds.length < MAX_TERMINALS_PER_GROUP) {
-        storeNewTerminal(activeThreadId, nextTerminalId);
-        storeMoveTerminal(
-          activeThreadId,
-          nextTerminalId,
-          sourceGroup.id,
-          Math.max(sourceIndex + 1, 0),
-        );
-      } else {
-        storeNewTerminal(activeThreadId, nextTerminalId);
-      }
-
-      const icon = terminalState.terminalIconsById[terminalId] ?? null;
-      const color = terminalState.terminalColorsById[terminalId] ?? null;
-      if (icon) {
-        storeSetTerminalIcon(activeThreadId, nextTerminalId, icon);
-      }
-      if (color) {
-        storeSetTerminalColor(activeThreadId, nextTerminalId, color);
-      }
-      setTerminalFocusRequestId((value) => value + 1);
-    },
-    [
-      activeThreadId,
-      storeMoveTerminal,
-      storeNewTerminal,
-      storeSetTerminalColor,
-      storeSetTerminalIcon,
-      terminalState.terminalColorsById,
-      terminalState.terminalGroups,
-      terminalState.terminalIconsById,
-    ],
-  );
-  const clearAllTerminals = useCallback(() => {
-    const api = readNativeApi();
-    if (!activeThreadId || !api) return;
-    for (const terminalId of terminalState.terminalIds) {
-      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
-      runAsyncTask(
-        api.terminal.clear({ threadId: activeThreadId, terminalId }),
-        "Failed to clear a terminal while clearing all terminals from ChatView.",
-      );
-    }
-  }, [activeThreadId, storeSetTerminalAutoTitle, terminalState.terminalIds]);
-  const closeAllTerminals = useCallback(() => {
-    const api = readNativeApi();
-    if (!activeThreadId || !api) return;
-    runAsyncTask(
-      api.terminal.close({ threadId: activeThreadId, deleteHistory: true }),
-      "Failed to close all terminals from ChatView.",
-    );
-    storeClearTerminalState(activeThreadId);
-    setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadId, storeClearTerminalState]);
   const closeTerminal = useCallback(
     (terminalId: string) => {
       if (!activeThreadId) return;
@@ -5614,16 +5440,6 @@ export default function ChatView({
         return;
       }
 
-      if (command === "terminal.split") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!terminalState.terminalOpen) {
-          setTerminalOpen(true);
-        }
-        splitTerminal();
-        return;
-      }
-
       if (command === "terminal.close") {
         event.preventDefault();
         event.stopPropagation();
@@ -5807,7 +5623,6 @@ export default function ChatView({
     createNewTerminal,
     setTerminalOpen,
     runProjectScript,
-    splitTerminal,
     keybindings,
     onOpenRightSidePanelBrowserTab,
     onToggleRightSidePanel,
@@ -7730,31 +7545,15 @@ export default function ChatView({
           terminalIds: terminalState.terminalIds,
           activeTerminalId: terminalState.activeTerminalId,
           terminalGroups: terminalState.terminalGroups,
-          activeTerminalGroupId: terminalState.activeTerminalGroupId,
           runningTerminalIds: terminalState.runningTerminalIds,
           customTerminalTitlesById: terminalState.customTerminalTitlesById,
           autoTerminalTitlesById: terminalState.autoTerminalTitlesById,
-          terminalIconsById: terminalState.terminalIconsById,
-          terminalColorsById: terminalState.terminalColorsById,
-          splitRatiosByGroupId: terminalState.splitRatiosByGroupId,
           focusRequestId: terminalFocusRequestId,
-          onSplitTerminal: splitTerminal,
-          onUnsplitTerminal: unsplitTerminal,
           onNewTerminal: createNewTerminal,
-          splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
           newShortcutLabel: newTerminalShortcutLabel ?? undefined,
           onActiveTerminalChange: activateTerminal,
           onMoveTerminal: moveTerminal,
-          onDuplicateTerminal: duplicateTerminal,
-          onRenameTerminal: renameTerminal,
-          onClearTerminal: clearTerminal,
-          onClearAllTerminals: clearAllTerminals,
-          onRestartTerminal: restartTerminal,
-          onCloseAllTerminals: closeAllTerminals,
           onAutoTerminalTitleChange: setTerminalAutoTitle,
-          onTerminalIconChange: setTerminalIcon,
-          onTerminalColorChange: setTerminalColor,
-          onSplitRatiosChange: setTerminalGroupSplitRatios,
           onCloseTerminal: closeTerminal,
           onHeightChange: setTerminalHeight,
           onAddTerminalContext: addTerminalContextToDraft,
