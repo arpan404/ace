@@ -50,8 +50,10 @@ import {
   type ThreadBoardDragThread,
 } from "../../lib/threadBoardDrag";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
+import { useStore } from "../../store";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { buildThreadBoardTitle } from "../../lib/threadBoardTitle";
 
 const BOARD_MIN_COLUMN_WIDTH_PX = 360;
 const BOARD_MIN_ROW_HEIGHT_PX = 240;
@@ -208,6 +210,7 @@ function isThreadBoardDrag(dataTransfer: DataTransfer | null): boolean {
 
 function ThreadBoardPane(props: {
   activePaneId: string | null;
+  animateLayout: boolean;
   dropPreviewAction?: "insert" | "move";
   dropPreviewDirection?: ThreadBoardDropDirection | null;
   dragActive?: boolean;
@@ -246,7 +249,7 @@ function ThreadBoardPane(props: {
 
   return (
     <motion.div
-      layout="position"
+      layout={props.animateLayout ? "position" : false}
       transition={transition}
       className={cn(
         "group/thread-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
@@ -284,7 +287,7 @@ function ThreadBoardPane(props: {
                   size="icon-xs"
                   variant="ghost"
                   draggable
-                  className="no-drag-region h-7 w-7 cursor-grab text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
+                  className="no-drag-region h-7 w-7 cursor-pointer text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
                   onClick={(event) => {
                     event.stopPropagation();
                   }}
@@ -382,6 +385,8 @@ export function ThreadBoard(props: {
       ? (state.splits.find((candidate) => candidate.id === props.routeSplitId) ?? null)
       : null,
   );
+  const savedSplitCount = useChatThreadBoardStore((state) => state.splits.length);
+  const sidebarThreadsById = useStore((state) => state.sidebarThreadsById);
   const closePane = useChatThreadBoardStore((state) => state.closePane);
   const movePane = useChatThreadBoardStore((state) => state.movePane);
   const openThreadInBoard = useChatThreadBoardStore((state) => state.openThreadInBoard);
@@ -419,6 +424,14 @@ export function ThreadBoard(props: {
     if (props.routeSplitId && routeSplitIsRestorable) {
       const restorePaneId = props.routePaneId ?? routeSplitActivePaneId;
       const restoreKey = `${props.routeSplitId}:${restorePaneId ?? ""}`;
+      if (
+        activeSplitId === props.routeSplitId &&
+        activePaneId === restorePaneId &&
+        panes.length > 1
+      ) {
+        restoredSplitRouteKeyRef.current = restoreKey;
+        return;
+      }
       if (restoredSplitRouteKeyRef.current !== restoreKey) {
         restoredSplitRouteKeyRef.current = restoreKey;
         restoreSplit(props.routeSplitId, restorePaneId);
@@ -436,6 +449,9 @@ export function ThreadBoard(props: {
     });
   }, [
     activeRouteThread,
+    activePaneId,
+    activeSplitId,
+    panes.length,
     props.routePaneId,
     props.routeSplitId,
     restoreSplit,
@@ -450,6 +466,9 @@ export function ThreadBoard(props: {
     const activePane = selectBoardPaneById(panes, activePaneId);
     const isSplitRoute = routeSplitIsRestorable;
     if (!isSplitRoute && splitRouteThreads.length <= 1) {
+      return;
+    }
+    if (isSplitRoute && activeSplitId !== props.routeSplitId) {
       return;
     }
     const nextSplitId = isSplitRoute ? (props.routeSplitId ?? null) : activeSplitId;
@@ -537,6 +556,7 @@ export function ThreadBoard(props: {
     : threadDragActive
       ? BOARD_DRAG_PANE_TRANSITION
       : BOARD_PANE_TRANSITION;
+  const boardLayoutAnimationEnabled = threadDragActive || dropTarget !== null;
 
   const navigateToBoardRoute = useCallback(
     (activePane: ChatThreadBoardRoutePane) => {
@@ -557,6 +577,18 @@ export function ThreadBoard(props: {
       });
     },
     [navigate],
+  );
+
+  const buildBoardTitle = useCallback(
+    (threads: ReadonlyArray<{ threadId: ThreadId; title?: string | null | undefined }>) =>
+      buildThreadBoardTitle({
+        fallbackIndex: savedSplitCount + 1,
+        threads: threads.map((thread) => ({
+          threadId: thread.threadId,
+          title: thread.title ?? sidebarThreadsById[thread.threadId]?.title,
+        })),
+      }),
+    [savedSplitCount, sidebarThreadsById],
   );
 
   const promotePane = useCallback(
@@ -745,11 +777,21 @@ export function ThreadBoard(props: {
       }
 
       const insertionSourcePaneId = boardVisible ? pane.id : syncRouteThread(activeRouteThread);
+      const boardTitle = boardVisible
+        ? undefined
+        : buildBoardTitle([
+            {
+              threadId: activeRouteThread.threadId,
+              title: sidebarThreadsById[activeRouteThread.threadId]?.title,
+            },
+            draggedThread,
+          ]);
       openThreadInBoard({
         connectionUrl: draggedThread.connectionUrl,
         direction,
         sourcePaneId: insertionSourcePaneId,
         threadId: draggedThread.threadId,
+        ...(boardTitle ? { title: boardTitle } : {}),
       });
       setActiveThreadBoardDrag(null);
       navigateToBoardRoute({
@@ -761,11 +803,13 @@ export function ThreadBoard(props: {
       activeDraggedThread,
       activeRouteThread,
       boardVisible,
+      buildBoardTitle,
       clearDropTarget,
       dropTarget,
       movePane,
       navigateToBoardRoute,
       openThreadInBoard,
+      sidebarThreadsById,
       syncRouteThread,
     ],
   );
@@ -777,6 +821,7 @@ export function ThreadBoard(props: {
           connectionUrl: pane.connectionUrl,
           sourcePaneId: pane.id,
           threadId: pane.threadId,
+          title: label,
         });
         const payload = encodeThreadBoardDragThread(dragThread);
         event.stopPropagation();
@@ -928,6 +973,7 @@ export function ThreadBoard(props: {
         <ThreadBoardPane
           key={pane.id}
           activePaneId={activePaneId}
+          animateLayout={boardLayoutAnimationEnabled}
           dropPreviewAction={dropTarget?.thread.sourcePaneId ? "move" : "insert"}
           dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
           dragActive={threadDragActive}
@@ -955,6 +1001,7 @@ export function ThreadBoard(props: {
     },
     [
       activePaneId,
+      boardLayoutAnimationEnabled,
       dropTarget,
       firstPaneId,
       handleClosePane,
@@ -998,7 +1045,7 @@ export function ThreadBoard(props: {
           {node.children.map((child, index) => (
             <Fragment key={child.id}>
               <motion.div
-                layout="position"
+                layout={boardLayoutAnimationEnabled ? "position" : false}
                 className="flex min-h-0 min-w-0 overflow-hidden"
                 transition={boardPaneTransition}
                 style={{
@@ -1054,6 +1101,7 @@ export function ThreadBoard(props: {
     },
     [
       boardPaneTransition,
+      boardLayoutAnimationEnabled,
       handleBranchResizeEnd,
       handleBranchResizeMove,
       handleBranchResizeStart,
@@ -1077,6 +1125,7 @@ export function ThreadBoard(props: {
       >
         <ThreadBoardPane
           activePaneId={singlePane.id}
+          animateLayout={boardLayoutAnimationEnabled}
           dropPreviewDirection={dropTarget?.paneId === singlePane.id ? dropTarget.direction : null}
           dragActive={threadDragActive}
           isPrimary

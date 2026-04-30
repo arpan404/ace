@@ -311,6 +311,7 @@ export const Route = createFileRoute("/_chat/$threadId")({
         "threads",
         "active",
         "split",
+        "pane",
       ]),
     ],
   },
