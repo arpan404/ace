@@ -9,11 +9,14 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
+import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
 import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { ensureNativeApi } from "../../nativeApi";
 import {
   buildHostPairingConnectionString,
@@ -45,6 +48,7 @@ import {
 } from "../../lib/remoteWsRouter";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useHostConnectionStore } from "../../hostConnectionStore";
+import { useServerConfig } from "../../rpc/serverState";
 import { useStore } from "../../store";
 import {
   PROJECT_ICON_COLOR_OPTIONS,
@@ -54,6 +58,7 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
@@ -100,6 +105,9 @@ function resolveAvailabilityPollDelayMs(): number {
 
 export function DevicesSettingsPanel() {
   const desktopMode = isElectron;
+  const remoteRelaySettings = useSettings((settings) => settings.remoteRelay);
+  const serverConfig = useServerConfig();
+  const { updateSettings } = useUpdateSettings();
   const [hosts, setHosts] = useState<RemoteHostInstance[]>(() =>
     normalizeHostsForMode(loadRemoteHostInstances(), desktopMode),
   );
@@ -112,6 +120,7 @@ export function DevicesSettingsPanel() {
   const [advertisedLocalWsUrl, setAdvertisedLocalWsUrl] = useState<string | null>(null);
   const [refreshingLocalEndpoint, setRefreshingLocalEndpoint] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
+  const [relayUrlDraft, setRelayUrlDraft] = useState(remoteRelaySettings.defaultUrl);
   const [pairingLink, setPairingLink] = useState<PairingLinkState | null>(null);
   const [creatingPairingLink, setCreatingPairingLink] = useState(false);
   const [revokingPairingLink, setRevokingPairingLink] = useState(false);
@@ -135,6 +144,9 @@ export function DevicesSettingsPanel() {
   const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
+  useEffect(() => {
+    setRelayUrlDraft(remoteRelaySettings.defaultUrl);
+  }, [remoteRelaySettings.defaultUrl]);
   const localControlConnectionUrl = useMemo(
     () =>
       resolveHostConnectionWsUrl({
@@ -205,6 +217,12 @@ export function DevicesSettingsPanel() {
     });
   }, [hosts, connectedHostIds]);
 
+  const pinnedRelayUrls = useMemo(
+    () => Array.from(new Set(pairedSessions.map((session) => session.relayUrl).filter(Boolean))),
+    [pairedSessions],
+  );
+  const relayRegistrations = serverConfig?.relay?.registrations ?? [];
+
   useEffect(() => {
     const availableHostIds = new Set(hosts.map((host) => host.id));
     const nextConnectedHostIds = connectedHostIds.filter((hostId) => availableHostIds.has(hostId));
@@ -261,6 +279,43 @@ export function DevicesSettingsPanel() {
       setRefreshingLocalEndpoint(false);
     }
   }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
+
+  const saveRelaySettings = useCallback(() => {
+    try {
+      const normalized = validateRelayWebSocketUrl(relayUrlDraft, {
+        allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
+      });
+      updateSettings({
+        remoteRelay: {
+          defaultUrl: normalized,
+          allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
+        },
+      });
+      setRelayUrlDraft(normalized);
+      toastManager.add({
+        type: "success",
+        title: "Default relay updated.",
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Invalid relay URL.",
+        description: error instanceof Error ? error.message : "Relay URL validation failed.",
+      });
+    }
+  }, [relayUrlDraft, remoteRelaySettings.allowInsecureLocalUrls, updateSettings]);
+
+  const toggleInsecureRelayUrls = useCallback(
+    (allow: boolean) => {
+      updateSettings({
+        remoteRelay: {
+          defaultUrl: relayUrlDraft,
+          allowInsecureLocalUrls: allow,
+        },
+      });
+    },
+    [relayUrlDraft, updateSettings],
+  );
 
   const markHostLastConnected = useCallback(
     (hostId: string) => {
@@ -619,17 +674,18 @@ export function DevicesSettingsPanel() {
         ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
         name: pairingName,
       });
-      const advertisedEndpoint = await readHostPairingAdvertisedEndpoint({
-        wsUrl: localAdvertisedWsUrl,
-        ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
-      });
       const connectionString = buildHostPairingConnectionString({
         name: pairingName,
-        wsUrl: advertisedEndpoint.wsUrl,
         sessionId: created.sessionId,
         secret: created.secret,
         ...(created.claimUrl ? { claimUrl: created.claimUrl } : {}),
         ...(created.pollingUrl ? { pollingUrl: created.pollingUrl } : {}),
+        ...(created.relayUrl ? { relayUrl: created.relayUrl } : {}),
+        ...(created.hostDeviceId ? { hostDeviceId: created.hostDeviceId } : {}),
+        ...(created.hostIdentityPublicKey
+          ? { hostIdentityPublicKey: created.hostIdentityPublicKey }
+          : {}),
+        expiresAt: created.expiresAt,
       });
       const qrDataUrl = await QRCode.toDataURL(connectionString, {
         margin: 1,
@@ -1007,6 +1063,99 @@ export function DevicesSettingsPanel() {
               ) : null}
             </div>
           ) : null}
+        </SettingsRow>
+
+        <SettingsRow
+          title="Default relay URL"
+          description="New pairings use this relay. Existing paired devices stay pinned to the relay they were paired through."
+          status={
+            pinnedRelayUrls.some((relayUrl) => relayUrl !== remoteRelaySettings.defaultUrl) ? (
+              <span className="block text-[11px] text-amber-300">
+                Some paired devices are still pinned to older relay URLs. Create fresh pairing links
+                on the new relay to migrate them.
+              </span>
+            ) : (
+              <span className="block text-[11px] text-muted-foreground">
+                Managed default: {DEFAULT_MANAGED_RELAY_URL}
+              </span>
+            )
+          }
+          control={
+            <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  updateSettings({
+                    remoteRelay: {
+                      defaultUrl: DEFAULT_MANAGED_RELAY_URL,
+                      allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
+                    },
+                  });
+                }}
+              >
+                Reset
+              </Button>
+              <Button size="xs" onClick={saveRelaySettings}>
+                Save relay
+              </Button>
+            </div>
+          }
+        >
+          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <Input
+              value={relayUrlDraft}
+              onChange={(event) => setRelayUrlDraft(event.currentTarget.value)}
+              placeholder={DEFAULT_MANAGED_RELAY_URL}
+            />
+            <label className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-2 text-xs text-muted-foreground">
+              <Switch
+                checked={remoteRelaySettings.allowInsecureLocalUrls}
+                onCheckedChange={toggleInsecureRelayUrls}
+              />
+              <span>Allow local `ws://`</span>
+            </label>
+          </div>
+          <div className="mt-3 space-y-2">
+            <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              {serverConfig?.relay ? (
+                <>
+                  Host device:{" "}
+                  <span className="font-mono text-foreground">{serverConfig.relay.deviceId}</span>
+                </>
+              ) : (
+                "Relay status is unavailable until the host reports its current registrations."
+              )}
+            </div>
+            {relayRegistrations.length === 0 ? null : (
+              <div className="space-y-2">
+                {relayRegistrations.map((registration) => (
+                  <div
+                    key={registration.relayUrl}
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2.5 py-2 text-xs"
+                  >
+                    {registration.status === "connected" ? (
+                      <CheckCircle2Icon className="size-3.5 text-emerald-400" />
+                    ) : registration.status === "connecting" ? (
+                      <ShieldAlertIcon className="size-3.5 text-amber-300" />
+                    ) : (
+                      <CircleOffIcon className="size-3.5 text-rose-400" />
+                    )}
+                    <span className="font-mono text-foreground">{registration.relayUrl}</span>
+                    <span className="text-muted-foreground">{registration.status}</span>
+                    {registration.connectedAt ? (
+                      <span className="text-muted-foreground">
+                        since {formatRelativeTimeLabel(registration.connectedAt)}
+                      </span>
+                    ) : null}
+                    {registration.lastError ? (
+                      <span className="text-rose-300">{registration.lastError}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </SettingsRow>
 
         <SettingsRow

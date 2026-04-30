@@ -396,9 +396,7 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
   const unassignedPaneIds = [...paneById.keys()].filter((paneId) => !assignedPaneIds.has(paneId));
   const layoutRoot = appendPaneIdsToLayout(legacyRoot, unassignedPaneIds);
   const orderedPaneIds = flattenLayoutPaneIds(layoutRoot);
-  const panes = orderedPaneIds
-    .map((paneId) => paneById.get(paneId))
-    .filter((pane): pane is ChatThreadBoardPaneState => pane !== undefined);
+  const panes = [...paneById.values()];
   const activePaneId =
     input.activePaneId && orderedPaneIds.includes(input.activePaneId)
       ? input.activePaneId

@@ -11,6 +11,7 @@ import {
   type ServerRuntimeProfile,
 } from "@ace/contracts";
 import {
+  buildRelayHostConnectionDraft,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
   requestPairingClaim,
@@ -153,6 +154,12 @@ const logWebSocketEventsFlag = Flag.boolean("log-websocket-events").pipe(
   Flag.withAlias("log-ws-events"),
   Flag.optional,
 );
+const relayUrlFlag = Flag.string("relay-url").pipe(
+  Flag.withDescription(
+    "Override the default relay URL for this process (equivalent to ACE_RELAY_URL).",
+  ),
+  Flag.optional,
+);
 
 const EnvServerConfig = Config.all({
   logLevel: Config.logLevel("ACE_LOG_LEVEL").pipe(Config.withDefault("Info")),
@@ -194,6 +201,7 @@ interface CliServerFlags {
   readonly bootstrapFd: Option.Option<number>;
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
+  readonly relayUrl?: Option.Option<string>;
 }
 
 interface CliDataFlags {
@@ -400,6 +408,7 @@ const serveCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
+  relayUrl: relayUrlFlag,
 } as const;
 
 const webCommandFlags = {
@@ -412,12 +421,21 @@ const webCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
+  relayUrl: relayUrlFlag,
 } as const;
 
 const dataCommandFlags = {
   baseDir: baseDirFlag,
   devUrl: devUrlFlag,
 } as const;
+
+const applyRelayUrlProcessOverride = (relayUrl: Option.Option<string>) =>
+  Effect.sync(() => {
+    const resolved = Option.getOrUndefined(relayUrl)?.trim();
+    if (resolved && resolved.length > 0) {
+      process.env.ACE_RELAY_URL = resolved;
+    }
+  });
 
 const profileIntervalMsFlag = Flag.integer("interval-ms").pipe(
   Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(250))),
@@ -1073,6 +1091,13 @@ const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (to
   if (parsed.kind === "direct") {
     return parsed.draft;
   }
+  if (
+    parsed.pairing.relayUrl &&
+    parsed.pairing.hostDeviceId &&
+    parsed.pairing.hostIdentityPublicKey
+  ) {
+    return buildRelayHostConnectionDraft(parsed.pairing);
+  }
   const receipt = yield* Effect.promise(() =>
     requestPairingClaim(parsed.pairing, {
       requesterName: "ace cli",
@@ -1533,6 +1558,7 @@ const serveCommand = Command.make("serve", {
   Command.withDescription("Run or attach to the persistent background ace server daemon."),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(flags, logLevel, workspaceRoot);
       if (shouldRunServeInForeground()) {
@@ -1565,6 +1591,7 @@ const webCommand = Command.make("web", {
   Command.withDescription("Open the ace web app by reusing or starting the background daemon."),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(
         {
@@ -1714,6 +1741,7 @@ const remoteCreateCommand = Command.make("create", {
   deviceName: Flag.string("device-name").pipe(
     Flag.withDescription("Label shown while pairing this host."),
   ),
+  relayUrl: relayUrlFlag,
   wait: Flag.boolean("wait").pipe(
     Flag.withDescription("Wait for status updates until paired/revoked/expired."),
     Flag.withDefault(true),
@@ -1725,14 +1753,16 @@ const remoteCreateCommand = Command.make("create", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription("Create a host pairing token and QR for remote linking."),
-  Command.withHandler(({ deviceName, wait, waitTimeoutMs, json, ...flags }) =>
+  Command.withHandler(({ deviceName, relayUrl, wait, waitTimeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
       const host = yield* resolveLocalDaemonConnection(flags);
+      const relayUrlOverride = Option.getOrUndefined(relayUrl);
       const result = yield* Effect.promise(() =>
         createCliPairingSession({
           wsUrl: host.wsUrl,
           authToken: host.authToken,
           name: deviceName,
+          ...(relayUrlOverride ? { relayUrl: relayUrlOverride } : {}),
         }),
       );
       const qr = yield* renderQrToken(result.connectionString);
@@ -2137,6 +2167,7 @@ const daemonStartCommand = Command.make("start", {
   Command.withDescription("Start the ace server daemon in the background (idempotent)."),
   Command.withHandler(({ json, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(
         {
@@ -2187,6 +2218,7 @@ const daemonRestartCommand = Command.make("restart", {
   Command.withDescription("Restart the background daemon process."),
   Command.withHandler(({ timeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const dataConfig = yield* resolveDataConfig(
         {

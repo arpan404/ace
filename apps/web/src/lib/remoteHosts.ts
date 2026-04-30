@@ -1,6 +1,8 @@
 import { randomUUID } from "@ace/shared/ids";
+import { WS_METHODS } from "@ace/contracts";
 import {
   appendWsAuthToken,
+  buildRelayHostConnectionDraft,
   buildPairingPayload,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
@@ -14,8 +16,11 @@ import {
   type HostPairingPayload,
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 
 import { clearActiveWsUrlOverride, resolveServerUrl } from "./utils";
+import { loadWebRelayDeviceIdentity } from "./relayDeviceIdentity";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
 const CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.connected-remote-host-ids.v1";
@@ -46,12 +51,18 @@ export interface HostPairingSessionSummary extends HostPairingSessionStatus {
   readonly name: string;
   readonly createdAt: string;
   readonly resolvedAt?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly viewerDeviceId?: string;
 }
 
 export interface HostPairingSessionCreated extends HostPairingSessionStatus {
   readonly secret: string;
   readonly claimUrl?: string;
   readonly pollingUrl?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
 }
 
 export interface PairingAdvertisedEndpoint {
@@ -97,6 +108,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function resolveWsProtocol(): "ws" | "wss" {
   return window.location.protocol === "https:" ? "wss" : "ws";
+}
+
+function createRelayProbeId(prefix: string): string {
+  const randomSuffix =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${randomSuffix}`;
 }
 
 export function createRemoteHostInstance(
@@ -307,6 +326,37 @@ export async function verifyWsHostConnection(
   options?: { readonly timeoutMs?: number },
 ): Promise<void> {
   const normalizedTarget = normalizeWsUrl(targetWsUrl);
+  if (parseRelayConnectionUrl(normalizedTarget)) {
+    const transport = new RelayRpcTransport({
+      connectionUrl: normalizedTarget,
+      clientSessionId: createRelayProbeId("relay-probe"),
+      connectionId: createRelayProbeId("relay-connection"),
+      deviceName: "ace web",
+      loadIdentity: loadWebRelayDeviceIdentity,
+    });
+    try {
+      await Promise.race([
+        transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => {
+              reject(
+                new Error(
+                  `Connection check timed out after ${String(
+                    Math.max(1_000, options?.timeoutMs ?? 5_000),
+                  )}ms.`,
+                ),
+              );
+            },
+            Math.max(1_000, options?.timeoutMs ?? 5_000),
+          );
+        }),
+      ]);
+      return;
+    } finally {
+      await transport.dispose().catch(() => undefined);
+    }
+  }
   const { wsUrl, authToken } = splitWsUrlAuthToken(normalizedTarget);
   const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 5_000);
   const probeErrors: string[] = [];
@@ -498,6 +548,9 @@ function assertPairingSessionStatus(payload: unknown): HostPairingSessionStatus 
     expiresAt?: unknown;
     requesterName?: unknown;
     claimId?: unknown;
+    relayUrl?: unknown;
+    hostDeviceId?: unknown;
+    viewerDeviceId?: unknown;
   };
   if (
     typeof value.sessionId !== "string" ||
@@ -521,6 +574,9 @@ function assertPairingSessionStatus(payload: unknown): HostPairingSessionStatus 
     expiresAt: value.expiresAt,
     ...(typeof value.requesterName === "string" ? { requesterName: value.requesterName } : {}),
     ...(typeof value.claimId === "string" ? { claimId: value.claimId } : {}),
+    ...(typeof value.relayUrl === "string" ? { relayUrl: value.relayUrl } : {}),
+    ...(typeof value.hostDeviceId === "string" ? { hostDeviceId: value.hostDeviceId } : {}),
+    ...(typeof value.viewerDeviceId === "string" ? { viewerDeviceId: value.viewerDeviceId } : {}),
   };
 }
 
@@ -559,13 +615,24 @@ function assertPairingSessionCreated(payload: unknown): HostPairingSessionCreate
   if (typeof payload !== "object" || payload === null) {
     throw new Error("Pairing session response was invalid.");
   }
-  const value = payload as { secret?: unknown; claimUrl?: unknown; pollingUrl?: unknown };
+  const value = payload as {
+    secret?: unknown;
+    claimUrl?: unknown;
+    pollingUrl?: unknown;
+    relayUrl?: unknown;
+    hostDeviceId?: unknown;
+    hostIdentityPublicKey?: unknown;
+  };
   if (typeof value.secret !== "string") {
     throw new Error("Pairing session creation response was missing required fields.");
   }
   const claimUrl = typeof value.claimUrl === "string" ? value.claimUrl : undefined;
   const pollingUrl = typeof value.pollingUrl === "string" ? value.pollingUrl : undefined;
-  if (!claimUrl && !pollingUrl) {
+  const relayUrl = typeof value.relayUrl === "string" ? value.relayUrl : undefined;
+  const hostDeviceId = typeof value.hostDeviceId === "string" ? value.hostDeviceId : undefined;
+  const hostIdentityPublicKey =
+    typeof value.hostIdentityPublicKey === "string" ? value.hostIdentityPublicKey : undefined;
+  if (!claimUrl && !pollingUrl && (!relayUrl || !hostDeviceId || !hostIdentityPublicKey)) {
     throw new Error("Pairing session creation response did not include a polling endpoint.");
   }
   return {
@@ -573,6 +640,9 @@ function assertPairingSessionCreated(payload: unknown): HostPairingSessionCreate
     secret: value.secret,
     ...(claimUrl ? { claimUrl } : {}),
     ...(pollingUrl ? { pollingUrl } : {}),
+    ...(relayUrl ? { relayUrl } : {}),
+    ...(hostDeviceId ? { hostDeviceId } : {}),
+    ...(hostIdentityPublicKey ? { hostIdentityPublicKey } : {}),
   };
 }
 
@@ -631,7 +701,6 @@ export async function createHostPairingSession(input: {
       method: "POST",
       path: "/api/pairing/sessions",
       body: {
-        wsUrl: normalizeWsUrl(input.wsUrl),
         ...(input.name?.trim() ? { name: input.name.trim() } : {}),
       },
     },
@@ -665,14 +734,7 @@ function encodeBase64UrlUtf8(input: string): string {
 }
 
 export function buildHostPairingConnectionString(pairing: HostPairingPayload): string {
-  const payload = JSON.stringify({
-    ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
-    wsUrl: pairing.wsUrl,
-    sessionId: pairing.sessionId,
-    secret: pairing.secret,
-    ...(pairing.claimUrl ? { claimUrl: new URL(pairing.claimUrl).toString() } : {}),
-    ...(pairing.pollingUrl ? { pollingUrl: pairing.pollingUrl } : {}),
-  });
+  const payload = buildPairingPayload(pairing);
   const pairingUrl = new URL("ace://pair");
   pairingUrl.searchParams.set("p", encodeBase64UrlUtf8(payload));
   return pairingUrl.toString();
@@ -686,6 +748,9 @@ export async function resolvePairingHostConnection(
     readonly pollIntervalMs?: number;
   },
 ): Promise<HostConnectionDraft> {
+  if (pairing.relayUrl && pairing.hostDeviceId && pairing.hostIdentityPublicKey) {
+    return buildRelayHostConnectionDraft(pairing);
+  }
   const claimOptions = options?.requesterName
     ? { requesterName: options.requesterName }
     : undefined;

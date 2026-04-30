@@ -59,6 +59,7 @@ import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./pro
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { RelayHostManagerService } from "./relayHostManager";
 import {
   getLspToolsStatus,
   installLspTool,
@@ -241,6 +242,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const config = yield* ServerConfig;
     const lifecycleEvents = yield* ServerLifecycleEvents;
     const serverSettings = yield* ServerSettingsService;
+    const relayHostManager = yield* RelayHostManagerService;
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceEditor = yield* WorkspaceEditor;
@@ -260,6 +262,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         providers,
         availableEditors: resolveAvailableEditors(),
         settings,
+        relay: yield* relayHostManager.getStatus,
       };
     });
 

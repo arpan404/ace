@@ -71,6 +71,33 @@ describe("hostConnections", () => {
     });
   });
 
+  it("parses relay pairing payloads", () => {
+    const encoded = encodeBase64UrlUtf8(
+      JSON.stringify({
+        name: "Primary host",
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        sessionId: "session-1",
+        secret: "secret-1",
+        expiresAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
+    const parsed = parseHostConnectionQrPayload(`ace://pair?p=${encoded}`);
+    expect(parsed).toEqual({
+      kind: "pairing",
+      pairing: {
+        name: "Primary host",
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        sessionId: "session-1",
+        secret: "secret-1",
+        expiresAt: "2026-05-01T00:00:00.000Z",
+      },
+    });
+  });
+
   it("requests claim and waits for pairing approval", async () => {
     const pairing = {
       wsUrl: "ws://192.168.0.12:3773/ws",

@@ -296,4 +296,30 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
+
+  it.effect("validates and normalizes remote relay settings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+
+      const next = yield* serverSettings.updateSettings({
+        remoteRelay: {
+          defaultUrl: "https://relay.example.com",
+          allowInsecureLocalUrls: false,
+        },
+      });
+
+      assert.equal(next.remoteRelay.defaultUrl, "wss://relay.example.com/v1/ws");
+      assert.equal(next.remoteRelay.allowInsecureLocalUrls, false);
+
+      const local = yield* serverSettings.updateSettings({
+        remoteRelay: {
+          defaultUrl: "ws://127.0.0.1:8788/v1/ws",
+          allowInsecureLocalUrls: true,
+        },
+      });
+
+      assert.equal(local.remoteRelay.defaultUrl, "ws://127.0.0.1:8788/v1/ws");
+      assert.equal(local.remoteRelay.allowInsecureLocalUrls, true);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
 });

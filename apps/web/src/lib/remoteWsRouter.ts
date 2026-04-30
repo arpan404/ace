@@ -1,8 +1,11 @@
 import { type FilesystemBrowseInput, type FilesystemBrowseResult } from "@ace/contracts";
 import { normalizeWsUrl, splitWsUrlAuthToken } from "@ace/shared/hostConnections";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
 
 import { reportBackgroundError } from "./async";
 import { createWsRpcClient, getWsRpcClient, type WsRpcClient } from "../wsRpcClient";
+import { loadWebRelayDeviceIdentity } from "./relayDeviceIdentity";
 import { WsTransport } from "../wsTransport";
 import { resolveLocalDeviceWsUrl } from "./remoteHosts";
 
@@ -41,6 +44,14 @@ function createRouteClientSessionId(): string {
       ? globalThis.crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `route-${randomSuffix}`;
+}
+
+function createRouteConnectionId(): string {
+  const randomSuffix =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `route-connection-${randomSuffix}`;
 }
 
 function isActiveConnectionUrl(connectionUrl: string): boolean {
@@ -110,12 +121,23 @@ function getOrCreateRouteClient(connectionUrl: string): WsRpcClient {
     return existingClient;
   }
   ensureDisposeHandlersRegistered();
-  const createdClient = createWsRpcClient(
-    new WsTransport(normalizedConnectionUrl, {
-      clientSessionId: createRouteClientSessionId(),
-      disableConnectionProbeLifecycle: true,
-    }),
-  );
+  const relayMetadata = parseRelayConnectionUrl(normalizedConnectionUrl);
+  const createdClient = relayMetadata
+    ? createWsRpcClient(
+        new RelayRpcTransport({
+          connectionUrl: normalizedConnectionUrl,
+          clientSessionId: createRouteClientSessionId(),
+          connectionId: createRouteConnectionId(),
+          deviceName: "ace web",
+          loadIdentity: loadWebRelayDeviceIdentity,
+        }),
+      )
+    : createWsRpcClient(
+        new WsTransport(normalizedConnectionUrl, {
+          clientSessionId: createRouteClientSessionId(),
+          disableConnectionProbeLifecycle: true,
+        }),
+      );
   routeClientsByConnectionUrl.set(normalizedConnectionUrl, createdClient);
   return createdClient;
 }
