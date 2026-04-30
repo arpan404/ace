@@ -24,6 +24,64 @@ const SHELL_BINARIES = new Set([
   "sh",
   "zsh",
 ]);
+const KNOWN_COMMAND_TITLE_BINARIES = new Set([
+  "astro",
+  "awk",
+  "cat",
+  "chmod",
+  "chown",
+  "claude",
+  "clear",
+  "code",
+  "codex",
+  "cp",
+  "curl",
+  "emacs",
+  "eslint",
+  "fd",
+  "find",
+  "gh",
+  "grep",
+  "head",
+  "htop",
+  "jest",
+  "kill",
+  "less",
+  "ls",
+  "mkdir",
+  "mv",
+  "nano",
+  "nvim",
+  "open",
+  "oxfmt",
+  "oxlint",
+  "playwright",
+  "prettier",
+  "ps",
+  "rg",
+  "rm",
+  "rsync",
+  "scp",
+  "sed",
+  "sleep",
+  "ssh",
+  "tail",
+  "top",
+  "touch",
+  "tree",
+  "tsc",
+  "tsup",
+  "tsx",
+  "turbo",
+  "vercel",
+  "vim",
+  "vite",
+  "vitest",
+  "watch",
+  "wget",
+  "wrangler",
+  "xcodebuild",
+]);
 
 function basename(pathValue: string): string {
   const normalized = pathValue.trim().replace(/[\\/]+$/, "");
@@ -72,7 +130,8 @@ export function deriveTerminalTitleFromCommand(command: string): string | null {
   const tokens = tokenizeCommand(commandWithoutPrefix);
   if (tokens.length === 0) return null;
 
-  const binary = basename(tokens[0] ?? "").toLowerCase();
+  const rawBinary = tokens[0] ?? "";
+  const binary = basename(rawBinary).toLowerCase();
   const arg1 = tokens[1]?.trim();
   const arg2 = tokens[2]?.trim();
 
@@ -123,7 +182,19 @@ export function deriveTerminalTitleFromCommand(command: string): string | null {
     return `${binary} ${arg1}`;
   }
 
-  return isGenericTerminalTitle(binary) ? null : binary || null;
+  if (isGenericTerminalTitle(binary)) {
+    return null;
+  }
+
+  if (KNOWN_COMMAND_TITLE_BINARIES.has(binary)) {
+    return binary;
+  }
+
+  if (/[\\/]/.test(rawBinary) && binary.length > 0) {
+    return binary;
+  }
+
+  return null;
 }
 
 export function extractTerminalOscTitle(data: string): string | null {

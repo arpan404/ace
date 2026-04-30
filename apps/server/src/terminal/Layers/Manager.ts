@@ -10,7 +10,6 @@ import { makeKeyedCoalescingWorker } from "@ace/shared/KeyedCoalescingWorker";
 import {
   applyTerminalInputToBuffer,
   deriveTerminalTitleFromCommand,
-  extractTerminalOscTitle,
 } from "@ace/shared/terminalTitles";
 import {
   Data,
@@ -126,7 +125,6 @@ type DrainProcessEventAction =
       terminalId: string;
       history: string | null;
       data: string;
-      title?: string | null;
     }
   | {
       type: "exit";
@@ -1151,7 +1149,6 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           }
 
           if (nextEvent.type === "output") {
-            const oscTitle = extractTerminalOscTitle(nextEvent.data);
             const sanitized = sanitizeTerminalHistoryChunk(
               session.pendingHistoryControlSequence,
               nextEvent.data,
@@ -1164,12 +1161,6 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               );
             }
             session.updatedAt = new Date().toISOString();
-            const nextTitle = oscTitle === null ? undefined : normalizeSessionTitle(oscTitle);
-            const title =
-              nextTitle !== undefined && nextTitle !== session.title ? nextTitle : undefined;
-            if (title !== undefined) {
-              session.title = title;
-            }
 
             return {
               type: "output",
@@ -1177,7 +1168,6 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               terminalId: session.terminalId,
               history: sanitized.visibleText.length > 0 ? session.history : null,
               data: nextEvent.data,
-              ...(title !== undefined ? { title } : {}),
             } as const;
           }
 
@@ -1216,16 +1206,6 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         if (action.type === "output") {
           if (action.history !== null) {
             yield* queuePersist(action.threadId, action.terminalId, action.history);
-          }
-
-          if (action.title !== undefined) {
-            yield* publishEvent({
-              type: "title",
-              threadId: action.threadId,
-              terminalId: action.terminalId,
-              createdAt: new Date().toISOString(),
-              title: action.title,
-            });
           }
 
           yield* publishEvent({

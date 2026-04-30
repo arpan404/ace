@@ -367,6 +367,7 @@ function SidebarRail({
     pendingWidth: number;
     rail: HTMLButtonElement;
     rafId: number | null;
+    sidebarContainer: HTMLElement;
     sidebarRoot: HTMLElement;
     side: "left" | "right";
     startWidth: number;
@@ -390,9 +391,8 @@ function SidebarRail({
       if (resizeState.rafId !== null) {
         window.cancelAnimationFrame(resizeState.rafId);
       }
-      resizeState.transitionTargets.forEach((element) => {
-        element.style.removeProperty("transition-duration");
-      });
+      resizeState.wrapper.style.setProperty("--sidebar-width", `${resizeState.width}px`);
+      resizeState.sidebarContainer.style.removeProperty("width");
       if (resolvedResizable?.storageKey && typeof window !== "undefined") {
         setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
       }
@@ -449,6 +449,7 @@ function SidebarRail({
         pendingWidth: initialWidth,
         rail: event.currentTarget,
         rafId: null,
+        sidebarContainer,
         sidebarRoot,
         side: sidebarInstance?.side ?? "left",
         startWidth: initialWidth,
@@ -458,7 +459,7 @@ function SidebarRail({
         wrapper,
         wrapperWidth: wrapper.clientWidth,
       };
-      wrapper.style.setProperty("--sidebar-width", `${initialWidth}px`);
+      sidebarContainer.style.setProperty("width", `${initialWidth}px`);
       event.currentTarget.setPointerCapture(event.pointerId);
       document.documentElement.classList.add(SIDEBAR_RESIZING_CLASS_NAME);
       document.body.style.cursor = "col-resize";
@@ -510,7 +511,10 @@ function SidebarRail({
           return;
         }
 
-        activeResizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+        if (Math.abs(nextWidth - activeResizeState.width) < 1) {
+          return;
+        }
+        activeResizeState.sidebarContainer.style.setProperty("width", `${nextWidth}px`);
         activeResizeState.width = nextWidth;
       });
     },
@@ -588,6 +592,7 @@ function SidebarRail({
       resizeState?.transitionTargets.forEach((element) => {
         element.style.removeProperty("transition-duration");
       });
+      resizeState?.sidebarContainer.style.removeProperty("width");
       const hadSidebarResizeClass = document.documentElement.classList.contains(
         SIDEBAR_RESIZING_CLASS_NAME,
       );

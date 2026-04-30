@@ -34,8 +34,6 @@ import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
   applyTerminalInputToBuffer,
   deriveTerminalTitleFromCommand,
-  extractTerminalOscTitle,
-  normalizeTerminalDisplayTitle,
   resolveTerminalDisplayTitle,
 } from "~/lib/terminalPresentation";
 import { openInPreferredEditor } from "../editorPreferences";
@@ -743,7 +741,6 @@ function TerminalViewport({
         });
         if (disposed) return;
         activeTerminal.write("\u001bc");
-        onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(snapshot.title));
         if (snapshot.history.length > 0) {
           activeTerminal.write(snapshot.history);
         }
@@ -767,10 +764,6 @@ function TerminalViewport({
       if (!activeTerminal) return;
 
       if (event.type === "output") {
-        const oscTitle = extractTerminalOscTitle(event.data);
-        if (oscTitle) {
-          onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(oscTitle));
-        }
         activeTerminal.write(event.data);
         clearSelectionAction();
         return;
@@ -782,7 +775,6 @@ function TerminalViewport({
         terminalLinkMatchCache.clear();
         clearSelectionAction();
         activeTerminal.reset();
-        onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(event.snapshot.title));
         if (event.snapshot.history.length > 0) {
           activeTerminal.write(event.snapshot.history);
         }
@@ -790,7 +782,7 @@ function TerminalViewport({
       }
 
       if (event.type === "title") {
-        onAutoTerminalTitleChangeRef.current(normalizeTerminalDisplayTitle(event.title));
+        onAutoTerminalTitleChangeRef.current(event.title);
         return;
       }
 
@@ -1348,7 +1340,7 @@ export default memo(function ThreadTerminalDrawer({
         onPointerDown={handleResizePointerDown}
       />
 
-      <div className="terminal-tabs-strip flex h-11 shrink-0 items-center gap-2 border-b border-border/50 bg-card/80 px-3">
+      <div className="terminal-tabs-strip flex h-11 shrink-0 items-center gap-2 bg-transparent px-3">
         <div
           ref={tabStripRef}
           className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
