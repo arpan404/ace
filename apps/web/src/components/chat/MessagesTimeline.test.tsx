@@ -206,6 +206,33 @@ describe("MessagesTimeline", () => {
     ).toBe(rows.length - 8);
   });
 
+  it("schedules deferred assistant markdown from newest to oldest", async () => {
+    const { derivePendingAssistantMarkdownMessageIdsBottomUp } = await import("./MessagesTimeline");
+    const rows = Array.from({ length: 5 }, (_, index) => ({
+      kind: "message" as const,
+      id: `assistant-${index + 1}`,
+      createdAt: `2026-03-17T19:12:${20 + index}.000Z`,
+      message: {
+        id: MessageId.makeUnsafe(`assistant-${index + 1}`),
+        role: "assistant" as const,
+        text: `Assistant ${index + 1}`,
+        createdAt: `2026-03-17T19:12:${20 + index}.000Z`,
+        streaming: false,
+      },
+      durationStart: `2026-03-17T19:12:${20 + index}.000Z`,
+      completionSummary: null,
+    }));
+
+    expect(
+      derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
+        firstUnvirtualizedRowIndex: rows.length,
+        immediateMessageIds: new Set(["assistant-5"]),
+        mountedMessageIds: new Set(["assistant-4"]),
+        renderedMessageIds: new Set(["assistant-2"]),
+      }),
+    ).toEqual(["assistant-3", "assistant-1"]);
+  });
+
   it("keeps the current turn tail expanded only while work is actively running", async () => {
     const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./MessagesTimeline");
     const rows = [
