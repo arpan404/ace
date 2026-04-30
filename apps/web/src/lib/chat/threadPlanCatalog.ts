@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { type Thread } from "../../types";
 import { LRUCache } from "../lruCache";
 import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "../memoryPressure";
-import { getThreadsByIds, useStore } from "../../store";
+import { getThreadsByIdsFromState, useStore, type AppState } from "../../store";
 
 export type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -71,8 +71,8 @@ export function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlan
     let previousThreads: Array<Thread | undefined> | null = null;
     let previousEntries: ThreadPlanCatalogEntry[] = [];
 
-    return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = getThreadsByIds(state.threads, threadIds);
+    return (state: Pick<AppState, "threads" | "threadsById">): ThreadPlanCatalogEntry[] => {
+      const nextThreads = getThreadsByIdsFromState(state, threadIds);
       const cachedThreads = previousThreads;
       if (
         cachedThreads &&

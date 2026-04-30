@@ -40,6 +40,7 @@ import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread 
 export interface AppState {
   projects: Project[];
   threads: Thread[];
+  threadsById?: Record<string, Thread>;
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
   dismissedThreadErrorKeysById: Record<string, string>;
@@ -49,6 +50,7 @@ export interface AppState {
 const initialState: AppState = {
   projects: [],
   threads: [],
+  threadsById: {},
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
   dismissedThreadErrorKeysById: {},
@@ -59,6 +61,7 @@ function createInitialState(): AppState {
   return {
     projects: [],
     threads: [],
+    threadsById: {},
     sidebarThreadsById: {},
     threadIdsByProjectId: {},
     dismissedThreadErrorKeysById: {},
@@ -114,6 +117,37 @@ export function getThreadsByIds(
   }
   const lookup = getThreadLookup(threads);
   return threadIds.map((threadId) => lookup.get(threadId));
+}
+
+function buildThreadsById(threads: ReadonlyArray<Thread>): Record<string, Thread> {
+  const threadsById: Record<string, Thread> = {};
+  for (const thread of threads) {
+    threadsById[thread.id] = thread;
+  }
+  return threadsById;
+}
+
+export function getThreadByIdFromState(
+  state: Pick<AppState, "threads" | "threadsById">,
+  threadId: ThreadId | null | undefined,
+): Thread | undefined {
+  if (!threadId) {
+    return undefined;
+  }
+  return state.threadsById?.[threadId] ?? getThreadById(state.threads, threadId);
+}
+
+export function getThreadsByIdsFromState(
+  state: Pick<AppState, "threads" | "threadsById">,
+  threadIds: readonly ThreadId[],
+): Array<Thread | undefined> {
+  if (threadIds.length === 0) {
+    return [];
+  }
+  if (!state.threadsById) {
+    return getThreadsByIds(state.threads, threadIds);
+  }
+  return threadIds.map((threadId) => state.threadsById?.[threadId]);
 }
 
 function updateThread(
@@ -345,9 +379,11 @@ function mergeThreadPreservingHydratedHistory(
     existingThread.historyLoaded === false ||
     incomingThread.historyLoaded
   ) {
-    return incomingThread;
+    return existingThread && threadsRenderEquivalent(existingThread, incomingThread)
+      ? existingThread
+      : incomingThread;
   }
-  return {
+  const mergedThread = {
     ...incomingThread,
     messages: existingThread.messages,
     proposedPlans: existingThread.proposedPlans,
@@ -357,6 +393,203 @@ function mergeThreadPreservingHydratedHistory(
     activities: existingThread.activities,
     historyLoaded: true,
   };
+  return threadsRenderEquivalent(existingThread, mergedThread) ? existingThread : mergedThread;
+}
+
+function modelSelectionsEqual(
+  left: Thread["modelSelection"],
+  right: Thread["modelSelection"],
+): boolean {
+  return left.provider === right.provider && left.model === right.model;
+}
+
+function sessionsEqual(left: Thread["session"], right: Thread["session"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return (
+    left.provider === right.provider &&
+    left.status === right.status &&
+    left.orchestrationStatus === right.orchestrationStatus &&
+    left.activeTurnId === right.activeTurnId &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt &&
+    left.lastError === right.lastError
+  );
+}
+
+function latestTurnsEqual(left: Thread["latestTurn"], right: Thread["latestTurn"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return (
+    left.turnId === right.turnId &&
+    left.state === right.state &&
+    left.requestedAt === right.requestedAt &&
+    left.startedAt === right.startedAt &&
+    left.completedAt === right.completedAt &&
+    left.assistantMessageId === right.assistantMessageId &&
+    left.sourceProposedPlan?.threadId === right.sourceProposedPlan?.threadId &&
+    left.sourceProposedPlan?.planId === right.sourceProposedPlan?.planId
+  );
+}
+
+function proposedPlanSummariesEqual(
+  left: Thread["latestProposedPlanSummary"],
+  right: Thread["latestProposedPlanSummary"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return (
+    left.id === right.id &&
+    left.turnId === right.turnId &&
+    left.implementedAt === right.implementedAt &&
+    left.implementationThreadId === right.implementationThreadId &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt
+  );
+}
+
+function handoffsEqual(left: Thread["handoff"], right: Thread["handoff"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.sourceThreadId === right.sourceThreadId &&
+    left.fromProvider === right.fromProvider &&
+    left.toProvider === right.toProvider &&
+    left.mode === right.mode &&
+    left.createdAt === right.createdAt
+  );
+}
+
+function queuedSteerRequestsEqual(
+  left: Thread["queuedSteerRequest"],
+  right: Thread["queuedSteerRequest"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return (
+    left.messageId === right.messageId &&
+    left.baselineWorkLogEntryCount === right.baselineWorkLogEntryCount &&
+    left.interruptRequested === right.interruptRequested
+  );
+}
+
+function queuedComposerMessagesEqual(
+  left: Thread["queuedComposerMessages"],
+  right: Thread["queuedComposerMessages"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftMessage = left[index];
+    const rightMessage = right[index];
+    if (!leftMessage || !rightMessage) {
+      return false;
+    }
+    if (
+      leftMessage.id !== rightMessage.id ||
+      leftMessage.prompt !== rightMessage.prompt ||
+      leftMessage.runtimeMode !== rightMessage.runtimeMode ||
+      leftMessage.interactionMode !== rightMessage.interactionMode ||
+      leftMessage.modelSelection.provider !== rightMessage.modelSelection.provider ||
+      leftMessage.modelSelection.model !== rightMessage.modelSelection.model ||
+      leftMessage.images.length !== rightMessage.images.length ||
+      leftMessage.terminalContexts.length !== rightMessage.terminalContexts.length
+    ) {
+      return false;
+    }
+    for (let imageIndex = 0; imageIndex < leftMessage.images.length; imageIndex += 1) {
+      const leftImage = leftMessage.images[imageIndex];
+      const rightImage = rightMessage.images[imageIndex];
+      if (
+        !leftImage ||
+        !rightImage ||
+        leftImage.id !== rightImage.id ||
+        leftImage.name !== rightImage.name ||
+        leftImage.mimeType !== rightImage.mimeType ||
+        leftImage.sizeBytes !== rightImage.sizeBytes ||
+        leftImage.dataUrl !== rightImage.dataUrl
+      ) {
+        return false;
+      }
+    }
+    for (
+      let contextIndex = 0;
+      contextIndex < leftMessage.terminalContexts.length;
+      contextIndex += 1
+    ) {
+      const leftContext = leftMessage.terminalContexts[contextIndex];
+      const rightContext = rightMessage.terminalContexts[contextIndex];
+      if (
+        !leftContext ||
+        !rightContext ||
+        leftContext.id !== rightContext.id ||
+        leftContext.createdAt !== rightContext.createdAt ||
+        leftContext.terminalId !== rightContext.terminalId ||
+        leftContext.terminalLabel !== rightContext.terminalLabel ||
+        leftContext.lineStart !== rightContext.lineStart ||
+        leftContext.lineEnd !== rightContext.lineEnd ||
+        leftContext.text !== rightContext.text
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function threadsRenderEquivalent(left: Thread, right: Thread): boolean {
+  return (
+    left.id === right.id &&
+    left.codexThreadId === right.codexThreadId &&
+    left.projectId === right.projectId &&
+    left.title === right.title &&
+    modelSelectionsEqual(left.modelSelection, right.modelSelection) &&
+    left.runtimeMode === right.runtimeMode &&
+    left.interactionMode === right.interactionMode &&
+    sessionsEqual(left.session, right.session) &&
+    left.messages === right.messages &&
+    left.proposedPlans === right.proposedPlans &&
+    proposedPlanSummariesEqual(left.latestProposedPlanSummary, right.latestProposedPlanSummary) &&
+    left.error === right.error &&
+    left.createdAt === right.createdAt &&
+    left.archivedAt === right.archivedAt &&
+    left.updatedAt === right.updatedAt &&
+    latestTurnsEqual(left.latestTurn, right.latestTurn) &&
+    left.pendingSourceProposedPlan?.threadId === right.pendingSourceProposedPlan?.threadId &&
+    left.pendingSourceProposedPlan?.planId === right.pendingSourceProposedPlan?.planId &&
+    left.branch === right.branch &&
+    left.worktreePath === right.worktreePath &&
+    handoffsEqual(left.handoff, right.handoff) &&
+    left.historyLoaded === right.historyLoaded &&
+    queuedComposerMessagesEqual(left.queuedComposerMessages, right.queuedComposerMessages) &&
+    queuedSteerRequestsEqual(left.queuedSteerRequest, right.queuedSteerRequest) &&
+    left.turnDiffSummaries === right.turnDiffSummaries &&
+    left.activities === right.activities
+  );
 }
 
 export interface SnapshotSyncOptions {
@@ -555,6 +788,50 @@ function buildSidebarThreadsById(
   );
 }
 
+function buildSidebarThreadsByIdPreserving(
+  threads: ReadonlyArray<Thread>,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+  previous: Readonly<Record<string, SidebarThreadSummary>>,
+): Record<string, SidebarThreadSummary> {
+  let changed = Object.keys(previous).length !== threads.length;
+  const next: Record<string, SidebarThreadSummary> = {};
+  for (const thread of threads) {
+    const nextSummary = buildSidebarThreadSummary(thread, dismissedThreadErrorKeysById);
+    const previousSummary = previous[thread.id];
+    if (sidebarThreadSummariesEqual(previousSummary, nextSummary)) {
+      next[thread.id] = previousSummary;
+      continue;
+    }
+    changed = true;
+    next[thread.id] = nextSummary;
+  }
+  return changed ? next : (previous as Record<string, SidebarThreadSummary>);
+}
+
+function threadIdArraysEqual(left: readonly ThreadId[], right: readonly ThreadId[]): boolean {
+  return left.length === right.length && left.every((threadId, index) => threadId === right[index]);
+}
+
+function buildThreadIdsByProjectIdPreserving(
+  threads: ReadonlyArray<Thread>,
+  previous: Readonly<Record<string, ThreadId[]>>,
+): Record<string, ThreadId[]> {
+  const next = buildThreadIdsByProjectId(threads);
+  const previousProjectIds = Object.keys(previous);
+  const nextProjectIds = Object.keys(next);
+  if (previousProjectIds.length !== nextProjectIds.length) {
+    return next;
+  }
+  for (const projectId of nextProjectIds) {
+    const previousThreadIds = previous[projectId] ?? EMPTY_THREAD_IDS;
+    const nextThreadIds = next[projectId] ?? EMPTY_THREAD_IDS;
+    if (!threadIdArraysEqual(previousThreadIds, nextThreadIds)) {
+      return next;
+    }
+  }
+  return previous as Record<string, ThreadId[]>;
+}
+
 function shouldRetainLeanThreadActivity(
   activity: Pick<Thread["activities"][number], "kind">,
 ): boolean {
@@ -624,7 +901,12 @@ export function pruneHydratedThreadHistories(
   return {
     ...state,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
+    threadsById: buildThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsByIdPreserving(
+      threads,
+      state.dismissedThreadErrorKeysById,
+      state.sidebarThreadsById,
+    ),
   };
 }
 
@@ -917,12 +1199,20 @@ function updateThreadState(
     return {
       ...state,
       threads,
+      threadsById: {
+        ...(state.threadsById ?? buildThreadsById(state.threads)),
+        [threadId]: updatedThread,
+      },
     };
   }
 
   return {
     ...state,
     threads,
+    threadsById: {
+      ...(state.threadsById ?? buildThreadsById(state.threads)),
+      [threadId]: updatedThread,
+    },
     sidebarThreadsById,
   };
 }
@@ -1038,6 +1328,10 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       return {
         ...state,
         threads,
+        threadsById: {
+          ...(state.threadsById ?? buildThreadsById(state.threads)),
+          [nextThread.id]: nextThread,
+        },
         sidebarThreadsById,
         threadIdsByProjectId,
       };
@@ -1061,6 +1355,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       return {
         ...state,
         threads,
+        threadsById: buildThreadsById(threads),
         sidebarThreadsById,
         threadIdsByProjectId,
       };
@@ -1501,12 +1796,20 @@ export function syncServerReadModel(
       }
       return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
     });
-  const sidebarThreadsById = buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById);
-  const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
+  const sidebarThreadsById = buildSidebarThreadsByIdPreserving(
+    threads,
+    state.dismissedThreadErrorKeysById,
+    state.sidebarThreadsById,
+  );
+  const threadIdsByProjectId = buildThreadIdsByProjectIdPreserving(
+    threads,
+    state.threadIdsByProjectId,
+  );
   return {
     ...state,
     projects,
     threads,
+    threadsById: buildThreadsById(threads),
     sidebarThreadsById,
     threadIdsByProjectId,
     bootstrapComplete: true,
@@ -1553,8 +1856,16 @@ export function mergeServerReadModel(
     ...state,
     projects,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
-    threadIdsByProjectId: buildThreadIdsByProjectId(threads),
+    threadsById: buildThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsByIdPreserving(
+      threads,
+      state.dismissedThreadErrorKeysById,
+      state.sidebarThreadsById,
+    ),
+    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(
+      threads,
+      state.threadIdsByProjectId,
+    ),
     bootstrapComplete: true,
   };
 }
@@ -1577,8 +1888,16 @@ export function removeReadModelEntities(
     ...state,
     projects,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
-    threadIdsByProjectId: buildThreadIdsByProjectId(threads),
+    threadsById: buildThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsByIdPreserving(
+      threads,
+      state.dismissedThreadErrorKeysById,
+      state.sidebarThreadsById,
+    ),
+    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(
+      threads,
+      state.threadIdsByProjectId,
+    ),
   };
 }
 
@@ -1622,6 +1941,10 @@ export function hydrateThreadFromReadModel(
   return {
     ...state,
     threads,
+    threadsById: {
+      ...(state.threadsById ?? buildThreadsById(state.threads)),
+      [nextThread.id]: nextThread,
+    },
     sidebarThreadsById,
     threadIdsByProjectId,
   };
@@ -1655,7 +1978,7 @@ export const selectProjectById =
 export const selectThreadById =
   (threadId: ThreadId | null | undefined) =>
   (state: AppState): Thread | undefined =>
-    getThreadById(state.threads, threadId);
+    getThreadByIdFromState(state, threadId);
 
 export const selectSidebarThreadSummaryById =
   (threadId: ThreadId | null | undefined) =>

@@ -520,15 +520,53 @@ function createHandoffLineageSelector(sourceThreadId: ThreadId | null) {
       previousResult = null;
       return null;
     }
-    const nextResult = resolveHandoffLineage({
-      sourceThreadId,
-      threads: state.threads,
-    });
+    const nextResult = state.threadsById
+      ? resolveHandoffLineageFromIndex(sourceThreadId, state.threadsById)
+      : resolveHandoffLineage({
+          sourceThreadId,
+          threads: state.threads,
+        });
     if (handoffLineageResultsEqual(previousResult, nextResult)) {
       return previousResult;
     }
     previousResult = nextResult;
     return nextResult;
+  };
+}
+
+function resolveHandoffLineageFromIndex(
+  sourceThreadId: ThreadId,
+  threadsById: Readonly<Record<string, Thread>>,
+): HandoffLineageResult {
+  const lineageNewestFirst: Thread[] = [];
+  const visited = new Set<string>();
+  let currentThreadId: ThreadId | null = sourceThreadId;
+
+  while (currentThreadId !== null) {
+    const thread = threadsById[currentThreadId];
+    if (!thread) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: currentThreadId,
+        hasCycle: false,
+      };
+    }
+    if (visited.has(thread.id)) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: null,
+        hasCycle: true,
+      };
+    }
+    visited.add(thread.id);
+    lineageNewestFirst.push(thread);
+    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+  }
+
+  return {
+    threads: lineageNewestFirst.toReversed(),
+    missingThreadId: null,
+    hasCycle: false,
   };
 }
 

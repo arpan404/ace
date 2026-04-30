@@ -10,7 +10,7 @@ import {
   readCachedHydratedThread,
   resolveThreadHydrationRetryDelayMs,
 } from "../lib/threadHydrationCache";
-import { getThreadById, useStore } from "../store";
+import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
@@ -97,7 +97,7 @@ function ChatThreadRouteView() {
     [search.active],
   );
   const routePaneId = useMemo(() => search.pane?.trim() || null, [search.pane]);
-  const serverThread = useStore((store) => getThreadById(store.threads, threadId));
+  const serverThread = useStore((store) => getThreadByIdFromState(store, threadId));
   const threadExists = serverThread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
