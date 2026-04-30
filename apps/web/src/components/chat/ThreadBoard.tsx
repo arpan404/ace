@@ -106,11 +106,7 @@ function resolveThreadBoardDropDirection(
   ).direction;
 }
 
-function ThreadBoardDropPreview(props: {
-  action: "insert" | "move";
-  direction: ThreadBoardDropDirection;
-  isSinglePane: boolean;
-}) {
+function ThreadBoardDropPreview(props: { direction: ThreadBoardDropDirection }) {
   const reducedMotion = useReducedMotion();
   const transition = reducedMotion ? BOARD_REDUCED_MOTION_TRANSITION : BOARD_DROP_TRANSITION;
   const frameClassName =
@@ -145,22 +141,6 @@ function ThreadBoardDropPreview(props: {
         exit={{ opacity: 0, scale: 0.99 }}
         transition={transition}
       />
-      <motion.div
-        className="absolute inset-x-3 top-3 z-[32] flex justify-center"
-        initial={{ opacity: 0, y: -4 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -2 }}
-        transition={transition}
-      >
-        <div className="rounded-full border border-primary/30 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/85 uppercase backdrop-blur">
-          {props.action === "move"
-            ? "Move pane"
-            : props.isSinglePane
-              ? "Create split"
-              : "Insert pane"}{" "}
-          {props.direction}
-        </div>
-      </motion.div>
     </motion.div>
   );
 }
@@ -211,7 +191,6 @@ function isThreadBoardDrag(dataTransfer: DataTransfer | null): boolean {
 function ThreadBoardPane(props: {
   activePaneId: string | null;
   animateLayout: boolean;
-  dropPreviewAction?: "insert" | "move";
   dropPreviewDirection?: ThreadBoardDropDirection | null;
   dragActive?: boolean;
   isPrimary: boolean;
@@ -338,12 +317,7 @@ function ThreadBoardPane(props: {
 
       <AnimatePresence initial={false}>
         {props.dropPreviewDirection ? (
-          <ThreadBoardDropPreview
-            key="drop-preview"
-            action={props.dropPreviewAction ?? "insert"}
-            direction={props.dropPreviewDirection}
-            isSinglePane={props.isSinglePane}
-          />
+          <ThreadBoardDropPreview key="drop-preview" direction={props.dropPreviewDirection} />
         ) : props.showDropHint ? (
           <ThreadBoardDropHint key="drop-hint" isSinglePane={props.isSinglePane} />
         ) : null}
@@ -974,7 +948,6 @@ export function ThreadBoard(props: {
           key={pane.id}
           activePaneId={activePaneId}
           animateLayout={boardLayoutAnimationEnabled}
-          dropPreviewAction={dropTarget?.thread.sourcePaneId ? "move" : "insert"}
           dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
           dragActive={threadDragActive}
           isPrimary={pane.id === primaryPane.id}
