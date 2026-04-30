@@ -88,11 +88,11 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
               >
                 <div className="flex min-h-0 flex-1 gap-1">
                   <div
-                    className="min-w-0 flex-1 rounded-sm shadow-sm ring-1 ring-white/10"
+                    className="min-w-0 flex-1 rounded-sm  ring-1 ring-white/10"
                     style={{ background: mockLeft }}
                   />
                   <div
-                    className="min-w-0 flex-1 rounded-sm shadow-sm ring-1 ring-white/10"
+                    className="min-w-0 flex-1 rounded-sm  ring-1 ring-white/10"
                     style={{ background: mockRight }}
                   />
                 </div>

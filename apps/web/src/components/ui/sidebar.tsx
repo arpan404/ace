@@ -599,6 +599,26 @@ function SidebarRail({
       document.body.style.removeProperty("user-select");
     };
   }, []);
+  React.useEffect(() => {
+    const resetResizeState = () => {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+      stopResize(resizeState.pointerId);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetResizeState();
+      }
+    };
+    window.addEventListener("blur", resetResizeState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetResizeState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [stopResize]);
 
   return (
     <button
@@ -809,8 +829,7 @@ const sidebarMenuButtonVariants = cva(
       },
       variant: {
         default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        outline:
-          "bg-sidebar shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
+        outline: "bg-sidebar  hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ",
       },
     },
   },

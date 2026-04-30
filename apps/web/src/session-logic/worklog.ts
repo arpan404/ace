@@ -223,6 +223,13 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   return entry;
 }
 
+function isRenderableDerivedWorkLogEntry(entry: DerivedWorkLogEntry): boolean {
+  if (entry.activityKind === "reasoning.completed" && !entry.detail) {
+    return false;
+  }
+  return true;
+}
+
 function collapseDerivedWorkLogEntries(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
 ): DerivedWorkLogEntry[] {
@@ -444,7 +451,10 @@ export function deriveWorkLogEntries(
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter(isRenderableWorkLogActivity)
     .map(toDerivedWorkLogEntry);
-  return collapseDerivedWorkLogEntries(entries).map(
+  // Drop terminal reasoning-completed shell activities that carry no detail.
+  // Some providers emit these after the assistant message, which otherwise creates
+  // a stray trailing "1 reasoning step" disclosure with no useful content.
+  return collapseDerivedWorkLogEntries(entries.filter(isRenderableDerivedWorkLogEntry)).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
 }

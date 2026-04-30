@@ -18,25 +18,20 @@ import {
   GlobeIcon,
   ListTodoIcon,
   Maximize2Icon,
+  MessageSquareIcon,
   Minimize2Icon,
   PlusIcon,
   XIcon,
 } from "lucide-react";
-import {
-  Suspense,
-  lazy,
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type MutableRefObject,
-} from "react";
+import { Suspense, lazy, useCallback, useRef, type MutableRefObject } from "react";
 
+import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/session";
 import { cn } from "~/lib/utils";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
@@ -156,12 +151,21 @@ function RightSidePanelAddTabMenu(props: {
 }) {
   return (
     <Menu>
-      <MenuTrigger
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label="Open side panel tab"
-      >
-        <PlusIcon className="size-4" />
-      </MenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Open side panel tab"
+            />
+          }
+        >
+          <PlusIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="end">
+          Open side panel tab
+        </TooltipPopup>
+      </Tooltip>
       <MenuPopup align="end" side="bottom" className="min-w-52">
         <MenuItem disabled={!props.browserAvailable} onClick={props.onNewBrowserTab}>
           <GlobeIcon className="size-4" />
@@ -211,6 +215,7 @@ export function RightSidePanelTabStrip(props: {
   fullscreen: boolean;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
+  floatingChatOpen: boolean;
   onBrowserTabClose: (tabId: string) => void;
   onBrowserTabReorder: (draggedTabId: string, targetTabId: string) => void;
   onBrowserTabSelect: (tabId: string) => void;
@@ -218,16 +223,22 @@ export function RightSidePanelTabStrip(props: {
   onEditorClose: () => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
+  onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
 }) {
   const { onBrowserTabReorder } = props;
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const [tabsOverflow, setTabsOverflow] = useState(false);
+  const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
   const browserTabSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
     }),
   );
+  const reviewTooltipLabel = props.reviewShortcutLabel
+    ? `Review (${props.reviewShortcutLabel})`
+    : "Review";
+  const editorTooltipLabel = props.editorShortcutLabel
+    ? `Editor (${props.editorShortcutLabel})`
+    : "Editor";
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
@@ -264,47 +275,6 @@ export function RightSidePanelTabStrip(props: {
       suppressBrowserTabClickAfterDragRef.current = false;
     }, 0);
   }, []);
-  const syncTabsOverflow = useCallback(() => {
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip) {
-      setTabsOverflow(false);
-      return;
-    }
-    const nextOverflow = tabStrip.scrollWidth - tabStrip.clientWidth > 1;
-    setTabsOverflow((current) => (current === nextOverflow ? current : nextOverflow));
-  }, []);
-  useLayoutEffect(() => {
-    syncTabsOverflow();
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip || typeof ResizeObserver === "undefined") {
-      return;
-    }
-    let frameId: number | null = null;
-    const scheduleTabsOverflowSync = () => {
-      if (frameId !== null) {
-        return;
-      }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        syncTabsOverflow();
-      });
-    };
-    const resizeObserver = new ResizeObserver(scheduleTabsOverflowSync);
-    resizeObserver.observe(tabStrip);
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-      resizeObserver.disconnect();
-    };
-  }, [
-    props.activeBrowserTabId,
-    props.activeMode,
-    props.browserSession?.tabs.length,
-    props.editorOpen,
-    props.reviewOpen,
-    syncTabsOverflow,
-  ]);
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3">
@@ -312,80 +282,107 @@ export function RightSidePanelTabStrip(props: {
         ref={tabStripRef}
         className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <button
-          type="button"
-          className={tabClassName(props.activeMode === "summary")}
-          aria-pressed={props.activeMode === "summary"}
-          onClick={() => props.onSelectMode("summary")}
-        >
-          <ListTodoIcon className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">Summary</span>
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={tabClassName(props.activeMode === "summary")}
+                aria-pressed={props.activeMode === "summary"}
+                onClick={() => props.onSelectMode("summary")}
+              />
+            }
+          >
+            <ListTodoIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">Summary</span>
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" align="start">
+            Summary
+          </TooltipPopup>
+        </Tooltip>
         {props.reviewOpen ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
-            <button
-              type="button"
-              className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
-              disabled={!props.diffAvailable}
-              aria-pressed={props.activeMode === "diff"}
-              onClick={() => props.onSelectMode("diff")}
-            >
-              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                <GitCompareIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                  aria-label="Close review tab"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    props.onDiffClose();
-                  }}
-                >
-                  <XIcon className="size-3" />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
+                    disabled={!props.diffAvailable}
+                    aria-pressed={props.activeMode === "diff"}
+                    onClick={() => props.onSelectMode("diff")}
+                  />
+                }
+              >
+                <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                  <GitCompareIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                    aria-label="Close review tab"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onDiffClose();
+                    }}
+                  >
+                    <XIcon className="size-3" />
+                  </span>
                 </span>
-              </span>
-              <span className="min-w-0 truncate text-left">Review</span>
-            </button>
+                <span className="min-w-0 truncate text-left">Review</span>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" align="start">
+                {reviewTooltipLabel}
+              </TooltipPopup>
+            </Tooltip>
           </>
         ) : null}
         {props.editorOpen ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
-            <button
-              type="button"
-              className={tabClassName(props.activeMode === "editor")}
-              aria-pressed={props.activeMode === "editor"}
-              onClick={() => props.onSelectMode("editor")}
-            >
-              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                <Code2Icon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                  aria-label="Close editor tab"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    props.onEditorClose();
-                  }}
-                >
-                  <XIcon className="size-3" />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={tabClassName(props.activeMode === "editor")}
+                    aria-pressed={props.activeMode === "editor"}
+                    onClick={() => props.onSelectMode("editor")}
+                  />
+                }
+              >
+                <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                  <Code2Icon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                    aria-label="Close editor tab"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onEditorClose();
+                    }}
+                  >
+                    <XIcon className="size-3" />
+                  </span>
                 </span>
-              </span>
-              <span className="min-w-0 truncate text-left">Editor</span>
-            </button>
+                <span className="min-w-0 truncate text-left">Editor</span>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" align="start">
+                {editorTooltipLabel}
+              </TooltipPopup>
+            </Tooltip>
           </>
         ) : null}
         {props.browserSession?.tabs.length ? (
@@ -447,18 +444,56 @@ export function RightSidePanelTabStrip(props: {
           onSelectMode={props.onSelectMode}
         />
       ) : null}
-      <button
-        type="button"
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"}
-        onClick={props.onToggleFullscreen}
-      >
-        {props.fullscreen ? (
-          <Minimize2Icon className="size-4" />
-        ) : (
-          <Maximize2Icon className="size-4" />
-        )}
-      </button>
+      {props.fullscreen ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  props.floatingChatOpen
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                aria-pressed={props.floatingChatOpen}
+                aria-label={
+                  props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"
+                }
+                onClick={props.onToggleFloatingChat}
+              />
+            }
+          >
+            <MessageSquareIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" align="end">
+            {props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={
+                props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"
+              }
+              onClick={props.onToggleFullscreen}
+            />
+          }
+        >
+          {props.fullscreen ? (
+            <Minimize2Icon className="size-4" />
+          ) : (
+            <Maximize2Icon className="size-4" />
+          )}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="end">
+          {props.fullscreen ? "Exit full screen" : "Enter full screen"}
+        </TooltipPopup>
+      </Tooltip>
     </div>
   );
 }

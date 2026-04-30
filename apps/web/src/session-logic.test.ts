@@ -1177,6 +1177,41 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("drops empty terminal reasoning completion entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-progress-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-empty-complete",
+          detail: "Inspecting package scripts.",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-complete-empty",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "reasoning.completed",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-empty-complete",
+          itemType: "reasoning",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      tone: "thinking",
+      detail: "Inspecting package scripts.",
+    });
+  });
+
   it("accumulates token-like streamed reasoning fragments into readable text", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

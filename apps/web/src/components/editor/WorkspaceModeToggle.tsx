@@ -35,14 +35,14 @@ export const WorkspaceModeToggle = memo(function WorkspaceModeToggle(props: {
       role="radiogroup"
       aria-label="Switch workspace mode"
       className={cn(
-        "relative grid shrink-0 items-center rounded-full border border-border bg-muted p-[3px] shadow-inner shadow-foreground/[0.03]",
+        "relative grid shrink-0 items-center rounded-full border border-border bg-muted p-[3px]  ",
         props.className,
       )}
       style={{ gridTemplateColumns: `repeat(${visibleModes.length}, minmax(0, 1fr))` }}
     >
       <div
         aria-hidden
-        className="absolute inset-y-[3px] left-[3px] rounded-full border border-border bg-card shadow-sm transition-transform duration-[250ms] ease-[var(--transition-timing)] will-change-transform"
+        className="absolute inset-y-[3px] left-[3px] rounded-full border border-border bg-card  transition-transform duration-[250ms] ease-[var(--transition-timing)] will-change-transform"
         style={{
           width: `calc((100% - 6px) / ${visibleModes.length})`,
           transform: `translateX(${activeModeIndex * 100}%)`,

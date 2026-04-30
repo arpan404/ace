@@ -30,12 +30,14 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   cwd,
   onLayoutChange,
   onOpenBrowserUrl = null,
+  onOpenFilePath = null,
   workspaceRoot,
 }: {
   planMarkdown: string;
   cwd: string | undefined;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void) | null;
   workspaceRoot: string | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -159,6 +161,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               cwd={cwd}
               isStreaming={false}
               onOpenBrowserUrl={onOpenBrowserUrl}
+              onOpenFilePath={onOpenFilePath}
               {...(onLayoutChange ? { onLayoutChange } : {})}
             />
           ) : (
@@ -167,6 +170,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               cwd={cwd}
               isStreaming={false}
               onOpenBrowserUrl={onOpenBrowserUrl}
+              onOpenFilePath={onOpenFilePath}
               {...(onLayoutChange ? { onLayoutChange } : {})}
             />
           )}

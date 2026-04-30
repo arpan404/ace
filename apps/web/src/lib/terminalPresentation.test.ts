@@ -5,7 +5,9 @@ import {
   buildTerminalFallbackTitle,
   deriveTerminalTitleFromCommand,
   extractTerminalOscTitle,
+  normalizeTerminalDisplayTitle,
   normalizeTerminalPaneRatios,
+  resolveTerminalDisplayTitle,
   resizeTerminalPaneRatios,
 } from "./terminalPresentation";
 
@@ -73,15 +75,53 @@ describe("terminal pane ratios", () => {
 });
 
 describe("buildTerminalFallbackTitle", () => {
-  it("returns stable terminal labels independent of cwd", () => {
-    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe(
-      "Terminal 1",
-    );
+  it("returns the generic terminal label independent of cwd or id", () => {
+    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe("Terminal");
     expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-2")).toBe(
-      "Terminal 3",
+      "Terminal",
     );
     expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-abc123")).toBe(
-      "Terminal C123",
+      "Terminal",
     );
+  });
+});
+
+describe("normalizeTerminalDisplayTitle", () => {
+  it("keeps command-derived titles", () => {
+    expect(normalizeTerminalDisplayTitle("bun run dev")).toBe("bun dev");
+    expect(normalizeTerminalDisplayTitle("bun dev")).toBe("bun dev");
+    expect(normalizeTerminalDisplayTitle("git status")).toBe("git status");
+    expect(normalizeTerminalDisplayTitle("docker compose up")).toBe("docker compose up");
+    expect(normalizeTerminalDisplayTitle("rg queued src")).toBe("rg");
+  });
+
+  it("rejects generated terminal and shell titles", () => {
+    expect(normalizeTerminalDisplayTitle("Terminal EC9E")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("Workspace shell")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("zsh")).toBeNull();
+  });
+});
+
+describe("resolveTerminalDisplayTitle", () => {
+  it("shows command-derived titles only while the terminal is running", () => {
+    const base = {
+      autoTitle: "clear",
+      cwd: "/Users/arpanbhandari/Code/ace",
+      terminalId: "terminal-2",
+    };
+
+    expect(resolveTerminalDisplayTitle({ ...base, isRunning: true })).toBe("clear");
+    expect(resolveTerminalDisplayTitle({ ...base, isRunning: false })).toBe("Terminal");
+  });
+
+  it("falls back to Terminal for non-command generated titles", () => {
+    expect(
+      resolveTerminalDisplayTitle({
+        autoTitle: "Terminal EC9E",
+        cwd: "/Users/arpanbhandari/Code/ace",
+        isRunning: true,
+        terminalId: "terminal-2",
+      }),
+    ).toBe("Terminal");
   });
 });

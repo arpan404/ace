@@ -204,6 +204,23 @@ describe("terminalStateStore actions", () => {
     ]);
   });
 
+  it("moves terminals down within the active split group", () => {
+    const store = useTerminalStateStore.getState();
+    store.splitTerminal(THREAD_ID, "terminal-2");
+    store.splitTerminal(THREAD_ID, "terminal-3");
+
+    store.moveTerminal(THREAD_ID, "terminal-2", "group-default", 2);
+
+    const terminalState = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+    );
+    expect(terminalState.terminalIds).toEqual(["default", "terminal-3", "terminal-2"]);
+    expect(terminalState.terminalGroups).toEqual([
+      { id: "group-default", terminalIds: ["default", "terminal-3", "terminal-2"] },
+    ]);
+  });
+
   it("moves terminals across groups while keeping group state valid", () => {
     const store = useTerminalStateStore.getState();
     store.splitTerminal(THREAD_ID, "terminal-2");

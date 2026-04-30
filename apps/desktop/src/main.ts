@@ -14,6 +14,7 @@ import {
   nativeImage,
   nativeTheme,
   Notification as ElectronNotification,
+  powerMonitor,
   protocol,
   session,
   systemPreferences,
@@ -100,6 +101,7 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_RENDERER_BOOTSTRAP_CHANNEL = "desktop:get-renderer-bootstrap";
 const WINDOW_SHOWN_AT_CHANGED_CHANNEL = "desktop:window-shown-at-changed";
 const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed";
+const WINDOW_RESUME_CHANNEL = "desktop:window-resume";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
@@ -2510,6 +2512,18 @@ function safelySendToWindow(window: BrowserWindow, channel: string, ...args: unk
   window.webContents.send(channel, ...args);
 }
 
+function emitWindowResume(
+  window: BrowserWindow,
+  reason: "focus" | "resume" | "unlock-screen",
+): void {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) {
+    return;
+  }
+
+  writeDesktopLogHeader(`main-window resume-signal reason=${reason}`);
+  safelySendToWindow(window, WINDOW_RESUME_CHANNEL, reason);
+}
+
 function stopWebContentsForTeardown(contents: Electron.WebContents, label: string): void {
   if (contents.isDestroyed()) {
     return;
@@ -2665,6 +2679,9 @@ function createWindow(): BrowserWindow {
     emitTitlebarLeftInsetChanged(window);
     emitUpdateState();
   });
+  window.on("focus", () => {
+    emitWindowResume(window, "focus");
+  });
   const revealWindow = () => {
     if (window.isDestroyed()) {
       return;
@@ -2804,6 +2821,18 @@ app
     app.on("activate", () => {
       const window = getOrCreatePrimaryWindow();
       focusPrimaryWindow(window);
+    });
+    powerMonitor.on("resume", () => {
+      writeDesktopLogHeader("power-monitor resume");
+      if (mainWindow) {
+        emitWindowResume(mainWindow, "resume");
+      }
+    });
+    powerMonitor.on("unlock-screen", () => {
+      writeDesktopLogHeader("power-monitor unlock-screen");
+      if (mainWindow) {
+        emitWindowResume(mainWindow, "unlock-screen");
+      }
     });
   })
   .catch((error) => {

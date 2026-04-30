@@ -2806,6 +2806,50 @@ export function BrowserTabWebview(props: {
     },
     [],
   );
+  useEffect(() => {
+    const resetPointerInteractions = () => {
+      const overlay = overlayRef.current;
+      const dragSelection = dragSelectionRef.current;
+      if (overlay && dragSelection && overlay.hasPointerCapture(dragSelection.pointerId)) {
+        overlay.releasePointerCapture(dragSelection.pointerId);
+      }
+      dragSelectionRef.current = null;
+      setSelectionRect(null);
+
+      const annotationCanvas = annotationCanvasRef.current;
+      const annotationState = annotationPointerRef.current;
+      if (
+        annotationCanvas &&
+        annotationState &&
+        annotationCanvas.hasPointerCapture(annotationState.pointerId)
+      ) {
+        annotationCanvas.releasePointerCapture(annotationState.pointerId);
+      }
+      annotationPointerRef.current = null;
+
+      const designRequestPanel = designRequestPanelRef.current;
+      const panelDragState = designRequestPanelDragStateRef.current;
+      if (
+        designRequestPanel &&
+        panelDragState &&
+        designRequestPanel.hasPointerCapture(panelDragState.pointerId)
+      ) {
+        designRequestPanel.releasePointerCapture(panelDragState.pointerId);
+      }
+      designRequestPanelDragStateRef.current = null;
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetPointerInteractions();
+      }
+    };
+    window.addEventListener("blur", resetPointerInteractions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetPointerInteractions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
   const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
     const position = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
     if (!position || !designRequestPanelViewport) {
@@ -2872,13 +2916,13 @@ export function BrowserTabWebview(props: {
                 height: `${activeOverlaySelection.height}px`,
               }}
             >
-              <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] shadow-[0_28px_90px_-42px_rgba(91,106,255,0.85)]" />
+              <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] " />
             </div>
           )}
           {designDraft && designRequestPanelStyle && (
             <form
               ref={designRequestPanelRef}
-              className="absolute z-30 w-[272px] max-w-[calc(100%-16px)] rounded-2xl border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
+              className="absolute z-30 w-[272px] max-w-[calc(100%-16px)] rounded-2xl border border-border/60 bg-background/95 p-2.5  backdrop-blur-xl"
               style={designRequestPanelStyle}
               onSubmit={(event) => {
                 event.preventDefault();

@@ -30,6 +30,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ComponentProps,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   Suspense,
   lazy,
   startTransition,
@@ -120,7 +121,6 @@ import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   DEFAULT_THREAD_TERMINAL_ID,
-  MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type QueuedComposerImageAttachment,
   type Thread,
@@ -154,7 +154,7 @@ import {
 } from "~/projectScripts";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { reportBackgroundError, runAsyncTask } from "~/lib/async";
+import { reportBackgroundError } from "~/lib/async";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { useSetting } from "../hooks/useSettings";
@@ -195,6 +195,7 @@ import {
 } from "~/lib/composer/footerLayout";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { useEditorStateStore } from "../editorStateStore";
 import { type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
@@ -203,6 +204,7 @@ import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import { ChatComposerPanel } from "./chat/ChatComposerPanel";
+import BranchToolbar from "./BranchToolbar";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -269,7 +271,12 @@ import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
 } from "~/lib/browser/launcher";
-import { touchRecentBrowserInstanceId } from "~/lib/browser/liveInstanceCache";
+import {
+  evictExpiredRecentBrowserInstances,
+  resolveNextRecentBrowserInstanceExpiry,
+  touchRecentBrowserInstance,
+  type RecentBrowserInstanceEntry,
+} from "~/lib/browser/liveInstanceCache";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import {
   BROWSER_PANEL_MODE_STORAGE_KEY,
@@ -299,6 +306,7 @@ import {
   normalizeWsUrl,
   resolveHostConnectionWsUrl,
 } from "~/lib/remoteHosts";
+import { resolveWorkspaceEditorFilePath } from "~/markdown-links";
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
@@ -317,12 +325,19 @@ const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
 } as const;
+const RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY =
+  "ace:chat:right-side-panel-floating-chat:v1";
 const TERMINAL_DRAWER_TRANSITION = {
   duration: 0.2,
   ease: [0.16, 1, 0.3, 1],
 } as const;
 
+function isAbsoluteFilesystemPath(path: string): boolean {
+  return /^(?:\/|\\\\|[A-Za-z]:[\\/])/.test(path);
+}
+
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
+const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -467,6 +482,7 @@ type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
   connectionUrl?: string | null;
+  paneControls?: ReactNode;
   shortcutsEnabled?: boolean;
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
@@ -538,6 +554,7 @@ interface PendingPullRequestSetupRequest {
 
 export default function ChatView({
   connectionUrl = null,
+  paneControls = null,
   shortcutsEnabled = true,
   showSidebarTrigger = true,
   splitPane = false,
@@ -650,6 +667,15 @@ export default function ChatView({
   const [rightSidePanelVisible, setRightSidePanelVisible] = useLocalStorage(
     rightSidePanelVisibleStorageKey,
     true,
+    Schema.Boolean,
+  );
+  const rightSidePanelFloatingChatOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const [rightSidePanelFloatingChatOpen, setRightSidePanelFloatingChatOpen] = useLocalStorage(
+    rightSidePanelFloatingChatOpenStorageKey,
+    false,
     Schema.Boolean,
   );
   const { resolvedTheme } = useTheme();
@@ -790,10 +816,15 @@ export default function ChatView({
   const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
+  const floatingComposerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const floatingComposerFormRef = useRef<HTMLFormElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerFooterRef = useRef<HTMLDivElement>(null);
+  const floatingComposerFooterRef = useRef<HTMLDivElement>(null);
   const composerFooterLeadingRef = useRef<HTMLDivElement>(null);
+  const floatingComposerFooterLeadingRef = useRef<HTMLDivElement>(null);
   const composerFooterActionsRef = useRef<HTMLDivElement>(null);
+  const floatingComposerFooterActionsRef = useRef<HTMLDivElement>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
@@ -831,22 +862,11 @@ export default function ChatView({
   );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
-  const storeSetTerminalSidebarWidth = useTerminalStateStore((s) => s.setTerminalSidebarWidth);
-  const storeSetTerminalSidebarDensity = useTerminalStateStore((s) => s.setTerminalSidebarDensity);
-  const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
-  const storeMoveTerminalToNewGroup = useTerminalStateStore((s) => s.moveTerminalToNewGroup);
-  const storeRenameTerminal = useTerminalStateStore((s) => s.renameTerminal);
   const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
-  const storeSetTerminalIcon = useTerminalStateStore((s) => s.setTerminalIcon);
-  const storeSetTerminalColor = useTerminalStateStore((s) => s.setTerminalColor);
-  const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
-    (s) => s.setTerminalGroupSplitRatios,
-  );
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
-  const storeClearTerminalState = useTerminalStateStore((s) => s.clearTerminalState);
 
   const setPrompt = useCallback(
     (nextPrompt: string) => {
@@ -1476,6 +1496,8 @@ export default function ChatView({
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
+  const queuedSteerRequestRef = useRef(queuedSteerRequest);
+  queuedSteerRequestRef.current = queuedSteerRequest;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -1754,9 +1776,7 @@ export default function ChatView({
   );
   const isComposerApprovalState = activePendingApproval !== null;
   const hasComposerHeader =
-    isComposerApprovalState ||
-    pendingUserInputs.length > 0 ||
-    (showPlanFollowUpPrompt && activeProposedPlan !== null);
+    isComposerApprovalState || (showPlanFollowUpPrompt && activeProposedPlan !== null);
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
   const composerFooterActionLayoutKey = useMemo(() => {
     if (activePendingProgress) {
@@ -2276,16 +2296,8 @@ export default function ChatView({
     () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
     [keybindings],
   );
-  const splitTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.split", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
-  );
   const newTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.new", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
-  );
-  const closeTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
   const rightSidePanelToggleShortcutLabel = useMemo(
@@ -2319,6 +2331,15 @@ export default function ChatView({
         "rightPanel.editor.open",
         nonTerminalShortcutLabelOptions,
       ) ?? defaultShortcutLabelForCommand("rightPanel.editor.open"),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
+  const togglePlanModeShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "chat.togglePlanMode",
+        nonTerminalShortcutLabelOptions,
+      ) ?? defaultShortcutLabelForCommand("chat.togglePlanMode"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserActionShortcutLabelOptions = useMemo(
@@ -2456,8 +2477,12 @@ export default function ChatView({
   } | null>(null);
   const didResizeBrowserSplitDuringDragRef = useRef(false);
   const lastSyncedBrowserSplitWidthRef = useRef(browserSplitWidth);
-  const [mountedBrowserThreadIds, setMountedBrowserThreadIds] = useState<readonly ThreadId[]>([]);
-  const previousMountedBrowserThreadIdsRef = useRef<readonly ThreadId[]>([]);
+  const [mountedBrowserInstances, setMountedBrowserInstances] = useState<
+    readonly RecentBrowserInstanceEntry<ThreadId>[]
+  >([]);
+  const previousMountedBrowserInstancesRef = useRef<
+    readonly RecentBrowserInstanceEntry<ThreadId>[]
+  >([]);
   const workspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const workspaceEditorSplitResizePointerIdRef = useRef<number | null>(null);
   const workspaceEditorSplitResizeStateRef = useRef<{
@@ -2487,6 +2512,36 @@ export default function ChatView({
     ? "split"
     : workspaceMode;
   const browserOpen = browserMode !== "closed";
+  const cleanupBrowserInstanceState = useCallback(
+    (browserThreadId: ThreadId, options?: { resetVisibleState?: boolean }) => {
+      browserControllerByThreadRef.current.delete(browserThreadId);
+      browserRuntimeStateByThreadRef.current.delete(browserThreadId);
+      browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
+      browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
+      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+        return;
+      }
+      browserControllerRef.current = null;
+      pendingBrowserOpenUrlRef.current = null;
+      if (options?.resetVisibleState !== false) {
+        setBrowserDevToolsOpen(false);
+      }
+    },
+    [],
+  );
+  const resetBrowserCacheState = useCallback((options?: { resetVisibleState?: boolean }) => {
+    browserControllerByThreadRef.current.clear();
+    browserRuntimeStateByThreadRef.current.clear();
+    browserControllerChangeHandlerByThreadRef.current.clear();
+    browserRuntimeStateChangeHandlerByThreadRef.current.clear();
+    activeBrowserThreadIdRef.current = null;
+    browserControllerRef.current = null;
+    pendingBrowserOpenUrlRef.current = null;
+    previousMountedBrowserInstancesRef.current = [];
+    if (options?.resetVisibleState !== false) {
+      setBrowserDevToolsOpen(false);
+    }
+  }, []);
   useEffect(() => {
     if (rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
       return;
@@ -2546,24 +2601,56 @@ export default function ChatView({
   }, [activeThreadId]);
   useEffect(() => {
     if (!isElectron || !activeThreadId) {
-      browserControllerByThreadRef.current.clear();
-      browserRuntimeStateByThreadRef.current.clear();
-      browserControllerChangeHandlerByThreadRef.current.clear();
-      browserRuntimeStateChangeHandlerByThreadRef.current.clear();
-      browserControllerRef.current = null;
-      setMountedBrowserThreadIds([]);
+      resetBrowserCacheState();
+      setMountedBrowserInstances([]);
       return;
     }
     if (!browserOpen) {
-      setMountedBrowserThreadIds([]);
       return;
     }
-    setMountedBrowserThreadIds((current) =>
-      touchRecentBrowserInstanceId(current, activeThreadId, MAX_CACHED_BROWSER_INSTANCES),
+    setMountedBrowserInstances((current) =>
+      touchRecentBrowserInstance(current, activeThreadId, Date.now(), MAX_CACHED_BROWSER_INSTANCES),
     );
-  }, [activeThreadId, browserOpen]);
+  }, [activeThreadId, browserOpen, resetBrowserCacheState]);
   useEffect(() => {
-    if (!isElectron || !activeThreadId || !browserOpen) {
+    if (!isElectron || mountedBrowserInstances.length === 0) {
+      return;
+    }
+
+    const protectedThreadId = browserOpen ? activeThreadId : null;
+    const pruneExpiredBrowserCache = () => {
+      setMountedBrowserInstances((current) =>
+        evictExpiredRecentBrowserInstances(
+          current,
+          Date.now(),
+          CACHED_BROWSER_INSTANCE_TTL_MS,
+          protectedThreadId,
+        ),
+      );
+    };
+
+    pruneExpiredBrowserCache();
+
+    const nextExpiryAt = resolveNextRecentBrowserInstanceExpiry(
+      mountedBrowserInstances,
+      CACHED_BROWSER_INSTANCE_TTL_MS,
+      protectedThreadId,
+    );
+    if (nextExpiryAt === null) {
+      return;
+    }
+
+    const timeoutHandle = window.setTimeout(
+      pruneExpiredBrowserCache,
+      Math.max(0, nextExpiryAt - Date.now()),
+    );
+
+    return () => {
+      window.clearTimeout(timeoutHandle);
+    };
+  }, [activeThreadId, browserOpen, mountedBrowserInstances]);
+  useEffect(() => {
+    if (!isElectron || !activeThreadId) {
       return;
     }
 
@@ -2571,11 +2658,10 @@ export default function ChatView({
       if (document.visibilityState !== "hidden") {
         return;
       }
-      setMountedBrowserThreadIds((current) =>
-        current.length <= 1 || current[0] === activeThreadId
-          ? current.slice(0, 1)
-          : [activeThreadId],
-      );
+      setMountedBrowserInstances((current) => {
+        const activeEntry = current.find((entry) => entry.instanceId === activeThreadId);
+        return activeEntry ? [activeEntry] : current.slice(0, 1);
+      });
     };
 
     window.addEventListener("blur", trimBackgroundBrowserCache);
@@ -2585,25 +2671,28 @@ export default function ChatView({
       window.removeEventListener("blur", trimBackgroundBrowserCache);
       document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
     };
-  }, [activeThreadId, browserOpen]);
+  }, [activeThreadId]);
   useEffect(() => {
-    const previousThreadIds = previousMountedBrowserThreadIdsRef.current;
-    previousMountedBrowserThreadIdsRef.current = mountedBrowserThreadIds;
+    const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
+      (entry) => entry.instanceId,
+    );
+    const mountedBrowserThreadIds = new Set(
+      mountedBrowserInstances.map((entry) => entry.instanceId),
+    );
+    previousMountedBrowserInstancesRef.current = mountedBrowserInstances;
 
     for (const previousThreadId of previousThreadIds) {
-      if (mountedBrowserThreadIds.includes(previousThreadId)) {
+      if (mountedBrowserThreadIds.has(previousThreadId)) {
         continue;
       }
-      browserControllerByThreadRef.current.delete(previousThreadId);
-      browserRuntimeStateByThreadRef.current.delete(previousThreadId);
-      browserControllerChangeHandlerByThreadRef.current.delete(previousThreadId);
-      browserRuntimeStateChangeHandlerByThreadRef.current.delete(previousThreadId);
-      if (activeBrowserThreadIdRef.current === previousThreadId) {
-        browserControllerRef.current = null;
-        setBrowserDevToolsOpen(false);
-      }
+      cleanupBrowserInstanceState(previousThreadId);
     }
-  }, [mountedBrowserThreadIds]);
+  }, [cleanupBrowserInstanceState, mountedBrowserInstances]);
+  useEffect(() => {
+    return () => {
+      resetBrowserCacheState({ resetVisibleState: false });
+    };
+  }, [resetBrowserCacheState]);
   useEffect(() => {
     if (splitPane || routeWorkspaceMode === "chat") {
       return;
@@ -2757,16 +2846,6 @@ export default function ChatView({
     (activeThread.messages.length > 0 ||
       (activeThread.session !== null && activeThread.session.status !== "closed")),
   );
-  const activeTerminalGroup =
-    terminalState.terminalGroups.find(
-      (group) => group.id === terminalState.activeTerminalGroupId,
-    ) ??
-    terminalState.terminalGroups.find((group) =>
-      group.terminalIds.includes(terminalState.activeTerminalId),
-    ) ??
-    null;
-  const hasReachedSplitLimit =
-    (activeTerminalGroup?.terminalIds.length ?? 0) >= MAX_TERMINALS_PER_GROUP;
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
@@ -2913,6 +2992,16 @@ export default function ChatView({
       })),
     [dispatchQueuedComposerCommand],
   );
+  const reorderQueuedComposerState = useCallback(
+    async (targetThreadId: ThreadId, messageIds: ReadonlyArray<MessageId>) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.reorder",
+        commandId,
+        threadId,
+        messageIds: [...messageIds],
+      })),
+    [dispatchQueuedComposerCommand],
+  );
   const steerQueuedComposerMessage = useCallback(
     async (
       targetThreadId: ThreadId,
@@ -3025,6 +3114,40 @@ export default function ChatView({
       revokeComposerImagePreviewUrls(queuedMessage.images);
     }
   }, [clearQueuedComposerState, queuedComposerMessages, serverThread]);
+  const reorderQueuedComposerMessages = useCallback(
+    async (draggedMessageId: MessageId, targetMessageId: MessageId) => {
+      if (!serverThread) {
+        return;
+      }
+      const currentQueue = queuedComposerMessagesRef.current;
+      const draggedIndex = currentQueue.findIndex((message) => message.id === draggedMessageId);
+      const targetIndex = currentQueue.findIndex((message) => message.id === targetMessageId);
+      if (draggedIndex < 0 || targetIndex < 0) {
+        return;
+      }
+
+      const nextQueue = [...currentQueue];
+      const [dragged] = nextQueue.splice(draggedIndex, 1);
+      if (!dragged) return;
+      nextQueue.splice(targetIndex, 0, dragged);
+      const isUnchanged = nextQueue.every(
+        (message, index) => message.id === currentQueue[index]?.id,
+      );
+      if (isUnchanged) {
+        return;
+      }
+
+      const steerRequest = queuedSteerRequestRef.current;
+      const nextMessageIds = nextQueue.map((message) => message.id);
+      if (!(await reorderQueuedComposerState(serverThread.id, nextMessageIds))) {
+        return;
+      }
+      if (steerRequest && !nextMessageIds.includes(steerRequest.messageId)) {
+        return;
+      }
+    },
+    [reorderQueuedComposerState, serverThread],
+  );
   const restoreQueuedComposerMessageToDraft = useCallback(
     (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
       promptRef.current = message.prompt;
@@ -3112,6 +3235,10 @@ export default function ChatView({
   );
   const queueCurrentComposerMessage = useCallback(
     async (mode: "queue" | "steer" = "queue") => {
+      const api = readNativeApi();
+      if (!api || !activeThread || (sendInFlightRef.current && !isServerThread)) {
+        return false;
+      }
       const hiddenDesignMessage = queuedDesignMessageEditRef.current;
       const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
         deriveComposerSendState({
@@ -3238,6 +3365,8 @@ export default function ChatView({
       selectedModelSelection,
       setThreadError,
       workLogEntries.length,
+      isServerThread,
+      activeThread,
       threadId,
     ],
   );
@@ -3406,20 +3535,6 @@ export default function ChatView({
     },
     [activeThreadId, storeSetTerminalHeight],
   );
-  const setTerminalSidebarWidth = useCallback(
-    (width: number) => {
-      if (!activeThreadId) return;
-      storeSetTerminalSidebarWidth(activeThreadId, width);
-    },
-    [activeThreadId, storeSetTerminalSidebarWidth],
-  );
-  const setTerminalSidebarDensity = useCallback(
-    (density: "compact" | "comfortable") => {
-      if (!activeThreadId) return;
-      storeSetTerminalSidebarDensity(activeThreadId, density);
-    },
-    [activeThreadId, storeSetTerminalSidebarDensity],
-  );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
@@ -3455,6 +3570,44 @@ export default function ChatView({
     setRightSidePanelMode("editor");
     setRightSidePanelVisible(true);
   }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
+  const openEditorFile = useEditorStateStore((state) => state.openFile);
+  const workspaceRootsForInAppFileOpen = useMemo(
+    () =>
+      [activeThread?.worktreePath, gitCwd, activeProject?.cwd].filter(
+        (root): root is string => typeof root === "string" && root.trim().length > 0,
+      ),
+    [activeProject?.cwd, activeThread?.worktreePath, gitCwd],
+  );
+  const openMarkdownFileInAppEditor = useCallback(
+    (targetPath: string) => {
+      if (!activeThread) {
+        return;
+      }
+      const normalizedTargetPath = targetPath.trim();
+      if (normalizedTargetPath.length === 0) {
+        return;
+      }
+      let resolvedFilePath = resolveWorkspaceEditorFilePath(
+        normalizedTargetPath,
+        workspaceRootsForInAppFileOpen[0] ?? "",
+      );
+      if (isAbsoluteFilesystemPath(resolvedFilePath) && workspaceRootsForInAppFileOpen.length > 1) {
+        for (const workspaceRoot of workspaceRootsForInAppFileOpen.slice(1)) {
+          const candidatePath = resolveWorkspaceEditorFilePath(normalizedTargetPath, workspaceRoot);
+          if (!isAbsoluteFilesystemPath(candidatePath)) {
+            resolvedFilePath = candidatePath;
+            break;
+          }
+        }
+      }
+      if (resolvedFilePath.length === 0) {
+        return;
+      }
+      onOpenRightSidePanelEditor();
+      openEditorFile(activeThread.id, resolvedFilePath);
+    },
+    [activeThread, onOpenRightSidePanelEditor, openEditorFile, workspaceRootsForInAppFileOpen],
+  );
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
       setRightSidePanelVisible(true);
@@ -3794,7 +3947,6 @@ export default function ChatView({
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [handleBrowserSplitResizePointerEnd, handleBrowserSplitResizePointerMove]);
-
   useEffect(() => {
     const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
     const clampedWidth = clampBrowserSplitWidth(storedBrowserSplitWidth, viewportWidth);
@@ -4132,6 +4284,28 @@ export default function ChatView({
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [handleRightSidePanelResizePointerEnd, handleRightSidePanelResizePointerMove]);
+  useEffect(() => {
+    const resetResizeInteractions = () => {
+      handleBrowserSplitResizePointerEnd();
+      handleWorkspaceEditorSplitResizePointerEnd();
+      handleRightSidePanelResizePointerEnd();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetResizeInteractions();
+      }
+    };
+    window.addEventListener("blur", resetResizeInteractions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetResizeInteractions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    handleBrowserSplitResizePointerEnd,
+    handleRightSidePanelResizePointerEnd,
+    handleWorkspaceEditorSplitResizePointerEnd,
+  ]);
 
   useEffect(() => {
     const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
@@ -4205,12 +4379,6 @@ export default function ChatView({
     };
   }, [rightSidePanelFullscreen, rightSidePanelOpen, syncRightSidePanelWidth]);
 
-  const splitTerminal = useCallback(() => {
-    if (!activeThreadId || hasReachedSplitLimit) return;
-    const terminalId = `terminal-${randomUUID()}`;
-    storeSplitTerminal(activeThreadId, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadId, hasReachedSplitLimit, storeSplitTerminal]);
   const createNewTerminal = useCallback(() => {
     if (!activeThreadId) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -4231,44 +4399,6 @@ export default function ChatView({
       storeMoveTerminal(activeThreadId, terminalId, targetGroupId, targetIndex);
     },
     [activeThreadId, storeMoveTerminal],
-  );
-  const unsplitTerminal = useCallback(
-    (terminalId: string) => {
-      if (!activeThreadId) return;
-      const sourceGroupIndex = terminalState.terminalGroups.findIndex((group) =>
-        group.terminalIds.includes(terminalId),
-      );
-      const sourceGroup =
-        sourceGroupIndex >= 0 ? terminalState.terminalGroups[sourceGroupIndex] : null;
-      if (!sourceGroup || sourceGroup.terminalIds.length <= 1) {
-        return;
-      }
-      storeMoveTerminalToNewGroup(activeThreadId, terminalId, sourceGroupIndex + 1);
-      setTerminalFocusRequestId((value) => value + 1);
-    },
-    [activeThreadId, storeMoveTerminalToNewGroup, terminalState.terminalGroups],
-  );
-  const renameTerminal = useCallback(
-    (terminalId: string, title: string) => {
-      if (!activeThreadId) return;
-      storeRenameTerminal(activeThreadId, terminalId, title);
-    },
-    [activeThreadId, storeRenameTerminal],
-  );
-  const clearTerminal = useCallback(
-    (terminalId: string) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
-      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
-      runAsyncTask(
-        api.terminal.clear({
-          threadId: activeThreadId,
-          terminalId,
-        }),
-        "Failed to clear the terminal from ChatView.",
-      );
-    },
-    [activeThreadId, storeSetTerminalAutoTitle],
   );
   const closeTerminalTarget = useCallback(
     (targetTerminalId: string) => {
@@ -4317,28 +4447,6 @@ export default function ChatView({
     },
     [activeThreadId, storeCloseTerminal, terminalState.terminalIds.length],
   );
-  const restartTerminal = useCallback(
-    (terminalId: string) => {
-      const api = readNativeApi();
-      if (!activeThreadId || !api || !activeProject) return;
-      void api.terminal
-        .restart({
-          threadId: activeThreadId,
-          terminalId,
-          cwd: gitCwd ?? activeProject.cwd,
-          env: threadTerminalRuntimeEnv,
-          cols: SCRIPT_TERMINAL_COLS,
-          rows: SCRIPT_TERMINAL_ROWS,
-        })
-        .then(() => {
-          setTerminalFocusRequestId((value) => value + 1);
-        })
-        .catch((err: unknown) => {
-          reportBackgroundError("Failed to restart the terminal from ChatView.", err);
-        });
-    },
-    [activeProject, activeThreadId, gitCwd, threadTerminalRuntimeEnv],
-  );
   const setTerminalAutoTitle = useCallback(
     (terminalId: string, title: string | null) => {
       if (!activeThreadId) return;
@@ -4346,90 +4454,6 @@ export default function ChatView({
     },
     [activeThreadId, storeSetTerminalAutoTitle],
   );
-  const setTerminalIcon = useCallback(
-    (terminalId: string, icon: Parameters<typeof storeSetTerminalIcon>[2]) => {
-      if (!activeThreadId) return;
-      storeSetTerminalIcon(activeThreadId, terminalId, icon);
-    },
-    [activeThreadId, storeSetTerminalIcon],
-  );
-  const setTerminalColor = useCallback(
-    (terminalId: string, color: Parameters<typeof storeSetTerminalColor>[2]) => {
-      if (!activeThreadId) return;
-      storeSetTerminalColor(activeThreadId, terminalId, color);
-    },
-    [activeThreadId, storeSetTerminalColor],
-  );
-  const setTerminalGroupSplitRatios = useCallback(
-    (groupId: string, ratios: number[]) => {
-      if (!activeThreadId) return;
-      storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
-    },
-    [activeThreadId, storeSetTerminalGroupSplitRatios],
-  );
-  const duplicateTerminal = useCallback(
-    (terminalId: string) => {
-      if (!activeThreadId) return;
-      const sourceGroup = terminalState.terminalGroups.find((group) =>
-        group.terminalIds.includes(terminalId),
-      );
-      const sourceIndex = sourceGroup?.terminalIds.indexOf(terminalId) ?? -1;
-      const nextTerminalId = `terminal-${randomUUID()}`;
-
-      if (sourceGroup && sourceGroup.terminalIds.length < MAX_TERMINALS_PER_GROUP) {
-        storeNewTerminal(activeThreadId, nextTerminalId);
-        storeMoveTerminal(
-          activeThreadId,
-          nextTerminalId,
-          sourceGroup.id,
-          Math.max(sourceIndex + 1, 0),
-        );
-      } else {
-        storeNewTerminal(activeThreadId, nextTerminalId);
-      }
-
-      const icon = terminalState.terminalIconsById[terminalId] ?? null;
-      const color = terminalState.terminalColorsById[terminalId] ?? null;
-      if (icon) {
-        storeSetTerminalIcon(activeThreadId, nextTerminalId, icon);
-      }
-      if (color) {
-        storeSetTerminalColor(activeThreadId, nextTerminalId, color);
-      }
-      setTerminalFocusRequestId((value) => value + 1);
-    },
-    [
-      activeThreadId,
-      storeMoveTerminal,
-      storeNewTerminal,
-      storeSetTerminalColor,
-      storeSetTerminalIcon,
-      terminalState.terminalColorsById,
-      terminalState.terminalGroups,
-      terminalState.terminalIconsById,
-    ],
-  );
-  const clearAllTerminals = useCallback(() => {
-    const api = readNativeApi();
-    if (!activeThreadId || !api) return;
-    for (const terminalId of terminalState.terminalIds) {
-      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
-      runAsyncTask(
-        api.terminal.clear({ threadId: activeThreadId, terminalId }),
-        "Failed to clear a terminal while clearing all terminals from ChatView.",
-      );
-    }
-  }, [activeThreadId, storeSetTerminalAutoTitle, terminalState.terminalIds]);
-  const closeAllTerminals = useCallback(() => {
-    const api = readNativeApi();
-    if (!activeThreadId || !api) return;
-    runAsyncTask(
-      api.terminal.close({ threadId: activeThreadId, deleteHistory: true }),
-      "Failed to close all terminals from ChatView.",
-    );
-    storeClearTerminalState(activeThreadId);
-    setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadId, storeClearTerminalState]);
   const closeTerminal = useCallback(
     (terminalId: string) => {
       if (!activeThreadId) return;
@@ -4477,7 +4501,7 @@ export default function ChatView({
       storeSetTerminalAutoTitle(
         activeThreadId,
         targetTerminalId,
-        deriveTerminalTitleFromCommand(script.command) ?? script.name,
+        deriveTerminalTitleFromCommand(script.command),
       );
       setTerminalFocusRequestId((value) => value + 1);
 
@@ -5416,16 +5440,6 @@ export default function ChatView({
         return;
       }
 
-      if (command === "terminal.split") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!terminalState.terminalOpen) {
-          setTerminalOpen(true);
-        }
-        splitTerminal();
-        return;
-      }
-
       if (command === "terminal.close") {
         event.preventDefault();
         event.stopPropagation();
@@ -5609,7 +5623,6 @@ export default function ChatView({
     createNewTerminal,
     setTerminalOpen,
     runProjectScript,
-    splitTerminal,
     keybindings,
     onOpenRightSidePanelBrowserTab,
     onToggleRightSidePanel,
@@ -6100,7 +6113,7 @@ export default function ChatView({
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
-    if (!api || !activeThread || sendInFlightRef.current) return;
+    if (!api || !activeThread) return;
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
@@ -6109,6 +6122,7 @@ export default function ChatView({
       await queueCurrentComposerMessage();
       return;
     }
+    if (sendInFlightRef.current) return;
     const promptForSend = promptRef.current;
     const promptForSendWithoutIssueMarkers = stripIssueReferenceMarkers(promptForSend);
     const hiddenDesignMessage = queuedDesignMessageEditRef.current;
@@ -6421,12 +6435,16 @@ export default function ChatView({
 
   const onRespondToUserInput = useCallback(
     async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
+      if (!activeThreadId) return;
 
       setRespondingUserInputRequestIds((existing) =>
         existing.includes(requestId) ? existing : [...existing, requestId],
       );
+      const api = readNativeApi();
+      if (!api) {
+        setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+        return;
+      }
       await api.orchestration
         .dispatchCommand({
           type: "thread.user-input.respond",
@@ -7346,6 +7364,7 @@ export default function ChatView({
       onImageExpand: onExpandTimelineImage,
       markdownCwd: codingGitCwd ?? undefined,
       onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
+      onOpenFilePath: openMarkdownFileInAppEditor,
       resolvedTheme,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
@@ -7372,6 +7391,7 @@ export default function ChatView({
       onToggleWorkGroup,
       openGitHubIssueDialog,
       openBrowserUrlInNewTab,
+      openMarkdownFileInAppEditor,
       resolvedTheme,
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
@@ -7466,6 +7486,7 @@ export default function ChatView({
   const browserPanel =
     isElectron && activeThreadId
       ? (() => {
+          const mountedBrowserThreadIds = mountedBrowserInstances.map((entry) => entry.instanceId);
           const orderedBrowserThreadIds = [
             ...(browserOpen ? [activeThreadId] : []),
             ...mountedBrowserThreadIds.filter(
@@ -7521,41 +7542,21 @@ export default function ChatView({
           cwd: gitCwd ?? activeProject.cwd,
           runtimeEnv: threadTerminalRuntimeEnv,
           height: terminalState.terminalHeight,
-          sidebarWidth: terminalState.terminalSidebarWidth,
-          sidebarDensity: terminalState.terminalSidebarDensity,
           terminalIds: terminalState.terminalIds,
           activeTerminalId: terminalState.activeTerminalId,
           terminalGroups: terminalState.terminalGroups,
-          activeTerminalGroupId: terminalState.activeTerminalGroupId,
           runningTerminalIds: terminalState.runningTerminalIds,
-          customTerminalTitlesById: terminalState.customTerminalTitlesById,
           autoTerminalTitlesById: terminalState.autoTerminalTitlesById,
-          terminalIconsById: terminalState.terminalIconsById,
-          terminalColorsById: terminalState.terminalColorsById,
-          splitRatiosByGroupId: terminalState.splitRatiosByGroupId,
           focusRequestId: terminalFocusRequestId,
-          onSplitTerminal: splitTerminal,
-          onUnsplitTerminal: unsplitTerminal,
           onNewTerminal: createNewTerminal,
-          splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
           newShortcutLabel: newTerminalShortcutLabel ?? undefined,
-          closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
+          toggleShortcutLabel: terminalToggleShortcutLabel ?? undefined,
           onActiveTerminalChange: activateTerminal,
           onMoveTerminal: moveTerminal,
-          onDuplicateTerminal: duplicateTerminal,
-          onRenameTerminal: renameTerminal,
-          onClearTerminal: clearTerminal,
-          onClearAllTerminals: clearAllTerminals,
-          onRestartTerminal: restartTerminal,
-          onCloseAllTerminals: closeAllTerminals,
           onAutoTerminalTitleChange: setTerminalAutoTitle,
-          onTerminalIconChange: setTerminalIcon,
-          onTerminalColorChange: setTerminalColor,
-          onSplitRatiosChange: setTerminalGroupSplitRatios,
           onCloseTerminal: closeTerminal,
+          onToggleTerminal: toggleTerminalVisibility,
           onHeightChange: setTerminalHeight,
-          onSidebarWidthChange: setTerminalSidebarWidth,
-          onSidebarDensityChange: setTerminalSidebarDensity,
           onAddTerminalContext: addTerminalContextToDraft,
         }
       : null;
@@ -7593,13 +7594,17 @@ export default function ChatView({
   const handleComposerSubmit = useCallback((event: React.FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
+  const canQueueComposerMessage =
+    composerSendState.hasSendableContent && (!sendInFlightRef.current || isServerThread);
+  const showRightPanelChatDock =
+    rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <div
         className={cn(
-          "overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+          "shrink-0 overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
@@ -7612,6 +7617,9 @@ export default function ChatView({
           )}
           showSidebarTrigger={showSidebarTrigger}
         >
+          {paneControls ? (
+            <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
+          ) : null}
           <ChatHeader
             activeThreadId={activeThread.id}
             activeThreadTitle={activeThread.title}
@@ -7746,9 +7754,11 @@ export default function ChatView({
                     handoffDisabled={handoffDisabled}
                     interactionMode={interactionMode}
                     runtimeMode={runtimeMode}
+                    interactionModeShortcutLabel={togglePlanModeShortcutLabel}
                     activeContextWindow={activeContextWindow}
                     promptHasText={prompt.trim().length > 0}
                     hasSendableContent={composerSendState.hasSendableContent}
+                    canQueueMessage={canQueueComposerMessage}
                     activePendingApproval={activePendingApproval}
                     pendingApprovalsCount={pendingApprovals.length}
                     pendingUserInputs={pendingUserInputs}
@@ -7781,6 +7791,7 @@ export default function ChatView({
                     onEditQueuedComposerMessage={onEditQueuedComposerMessage}
                     onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
                     onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                    onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
                     onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
                     onPreviewComposerImage={handleComposerImagePreview}
                     onRemoveComposerImage={removeComposerImage}
@@ -7943,6 +7954,7 @@ export default function ChatView({
                   fullscreen={rightSidePanelFullscreen}
                   reviewShortcutLabel={reviewPanelShortcutLabel}
                   reviewOpen={rightSidePanelReviewOpen}
+                  floatingChatOpen={rightSidePanelFloatingChatOpen}
                   onBrowserTabClose={onCloseRightSidePanelBrowserTab}
                   onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
                   onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
@@ -7950,6 +7962,9 @@ export default function ChatView({
                   onEditorClose={onCloseRightSidePanelEditor}
                   onNewBrowserTab={onOpenRightSidePanelBrowserTab}
                   onSelectMode={onSelectRightSidePanelMode}
+                  onToggleFloatingChat={() => {
+                    setRightSidePanelFloatingChatOpen((current) => !current);
+                  }}
                   onToggleFullscreen={onToggleRightSidePanelFullscreen}
                 />
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -7970,6 +7985,7 @@ export default function ChatView({
                             activeProvider={activeThread?.session?.provider ?? null}
                             markdownCwd={gitCwd ?? undefined}
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                            onOpenFilePath={openMarkdownFileInAppEditor}
                             workspaceRoot={activeProject?.cwd ?? undefined}
                           />
                         ) : activeRightSidePanelMode === "diff" ? (
@@ -8022,6 +8038,117 @@ export default function ChatView({
                       {browserPanel.instances.map((instance) => (
                         <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
                       ))}
+                    </div>
+                  ) : null}
+                  {showRightPanelChatDock ? (
+                    <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20">
+                      <ChatComposerPanel
+                        threadId={threadId}
+                        isGitRepo={isGitRepo}
+                        isDragOverComposer={isDragOverComposer}
+                        hasComposerHeader={hasComposerHeader}
+                        isComposerApprovalState={isComposerApprovalState}
+                        isComposerFooterCompact={isComposerFooterCompact}
+                        isComposerPrimaryActionsCompact={isComposerPrimaryActionsCompact}
+                        isComposerMenuLoading={isComposerMenuLoading}
+                        composerMenuOpen={composerMenuOpen}
+                        showIssuesCommandExamplesPopover={showIssuesCommandExamplesPopover}
+                        isConnecting={isConnecting}
+                        isPreparingWorktree={isPreparingWorktree}
+                        liveTurnInProgress={liveTurnInProgress}
+                        isSendBusy={isSendBusy}
+                        showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+                        showQueue={true}
+                        prompt={prompt}
+                        composerCursor={composerCursor}
+                        composerTriggerKind={composerTriggerKind}
+                        composerMenuItems={composerMenuItems}
+                        activeComposerMenuItemId={activeComposerMenuItem?.id ?? null}
+                        composerImages={composerImages}
+                        nonPersistedComposerImageIdSet={nonPersistedComposerImageIdSet}
+                        composerTerminalContexts={composerTerminalContexts}
+                        queuedComposerMessages={queuedComposerMessages}
+                        queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+                        composerProviderState={composerProviderState}
+                        selectedProvider={selectedProvider}
+                        selectedModel={selectedModel}
+                        selectedProviderModels={selectedProviderModels}
+                        selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                        selectedModelForPickerWithCustomFallback={
+                          selectedModelForPickerWithCustomFallback
+                        }
+                        lockedProvider={lockedProvider}
+                        providers={providerStatuses}
+                        modelOptionsByProvider={modelOptionsByProvider}
+                        isServerThread={isServerThread}
+                        handoffTargetProviders={handoffTargetProviders}
+                        handoffDisabled={handoffDisabled}
+                        interactionMode={interactionMode}
+                        runtimeMode={runtimeMode}
+                        interactionModeShortcutLabel={togglePlanModeShortcutLabel}
+                        activeContextWindow={activeContextWindow}
+                        promptHasText={prompt.trim().length > 0}
+                        hasSendableContent={composerSendState.hasSendableContent}
+                        canQueueMessage={canQueueComposerMessage}
+                        activePendingApproval={activePendingApproval}
+                        pendingApprovalsCount={pendingApprovals.length}
+                        pendingUserInputs={pendingUserInputs}
+                        respondingApprovalRequestIds={respondingRequestIds}
+                        respondingUserInputRequestIds={respondingUserInputRequestIds}
+                        activePendingDraftAnswers={activePendingDraftAnswers}
+                        activePendingQuestionIndex={activePendingQuestionIndex}
+                        activePendingProgress={activePendingProgress}
+                        activePendingIsResponding={activePendingIsResponding}
+                        activePendingResolvedAnswers={activePendingResolvedAnswers}
+                        planFollowUpId={activeProposedPlan?.id ?? null}
+                        planFollowUpTitle={
+                          activeProposedPlan
+                            ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null)
+                            : null
+                        }
+                        resolvedTheme={resolvedTheme}
+                        composerFormRef={floatingComposerFormRef}
+                        composerEditorRef={floatingComposerEditorRef}
+                        composerFooterRef={floatingComposerFooterRef}
+                        composerFooterLeadingRef={floatingComposerFooterLeadingRef}
+                        composerFooterActionsRef={floatingComposerFooterActionsRef}
+                        onSubmit={handleComposerSubmit}
+                        onComposerDragEnter={onComposerDragEnter}
+                        onComposerDragOver={onComposerDragOver}
+                        onComposerDragLeave={onComposerDragLeave}
+                        onComposerDrop={onComposerDrop}
+                        onHighlightedItemChange={onComposerMenuItemHighlighted}
+                        onSelectComposerItem={onSelectComposerItem}
+                        onEditQueuedComposerMessage={onEditQueuedComposerMessage}
+                        onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
+                        onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                        onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+                        onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
+                        onPreviewComposerImage={handleComposerImagePreview}
+                        onRemoveComposerImage={removeComposerImage}
+                        onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                        onPromptChange={onPromptChange}
+                        onCommandKeyDown={onComposerCommandKey}
+                        onIssueTokenClick={onComposerIssueTokenClick}
+                        onPaste={onComposerPaste}
+                        onRespondToApproval={onRespondToApproval}
+                        onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
+                        onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
+                        onProviderModelSelect={onProviderModelSelect}
+                        onHandoffToProvider={onHandoffToProvider}
+                        onToggleInteractionMode={toggleInteractionMode}
+                        onRuntimeModeChange={handleRuntimeModeChange}
+                        onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                        onInterrupt={onInterrupt}
+                        onImplementPlanInNewThread={onImplementPlanInNewThread}
+                        onQueueMessage={handleQueueComposerMessage}
+                        onPromptChangeFromTraits={setPromptFromTraits}
+                      />
+                      {branchToolbarProps ? (
+                        <div className="mx-auto w-full max-w-208 rounded-md bg-background/95 backdrop-blur-sm">
+                          <BranchToolbar {...branchToolbarProps} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

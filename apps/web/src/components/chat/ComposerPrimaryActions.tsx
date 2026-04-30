@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { BotIcon, ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { BotIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -23,7 +23,6 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   canQueueMessage: boolean;
-  onPreviousPendingQuestion: () => void;
   onQueueMessage: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -40,8 +39,20 @@ const formatPendingPrimaryActionLabel = (input: {
   if (input.compact) {
     return input.isLastQuestion ? "Submit" : "Next";
   }
-  return input.isLastQuestion ? "Submit answers" : "Next question";
+  return input.isLastQuestion ? "Submit" : "Next question";
 };
+
+const SendArrowIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path
+      d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
@@ -54,7 +65,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   canQueueMessage,
-  onPreviousPendingQuestion,
   onQueueMessage,
   onInterrupt,
   onImplementPlanInNewThread,
@@ -62,34 +72,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   if (pendingAction) {
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {pendingAction.questionIndex > 0 ? (
-          compact ? (
-            <Button
-              size="icon-sm"
-              variant="outline"
-              className="rounded-full border-border"
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-              aria-label="Previous question"
-            >
-              <ChevronLeftIcon className="size-3.5" />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full border-border"
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-            >
-              Previous
-            </Button>
-          )
-        ) : null}
         <Button
           type="submit"
           size="sm"
-          className={cn("rounded-full", compact ? "px-3" : "px-4")}
+          className={cn("h-9 rounded-full sm:h-8", compact ? "px-3" : "px-4")}
           disabled={
             pendingAction.isResponding ||
             (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
@@ -106,31 +92,41 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (isRunning || (isSendBusy && canQueueMessage)) {
+    const shouldShowQueueAsPrimarySend = isRunning && canQueueMessage && hasSendableContent;
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {canQueueMessage ? (
+        {canQueueMessage && !shouldShowQueueAsPrimarySend ? (
           <Button
             type="button"
-            size={isRunning ? "icon-xs" : "sm"}
+            size="icon-xs"
             variant="ghost"
             className={cn(
               "rounded-full transition-all duration-150",
               isRunning
                 ? "bg-primary/8 text-primary hover:bg-primary/14 hover:text-primary"
-                : compact
-                  ? "px-3"
-                  : "px-4",
+                : "text-primary hover:bg-primary/12 hover:text-primary",
             )}
             onClick={onQueueMessage}
             disabled={isConnecting}
             aria-label={isRunning ? "Steer message" : "Queue message"}
             title={isRunning ? "Steer message" : "Queue message"}
           >
-            {isRunning ? <BotIcon className="size-3.5" /> : "Queue"}
+            {isRunning ? <BotIcon className="size-3.5" /> : <SendArrowIcon size={12} />}
           </Button>
         ) : null}
 
-        {isRunning ? (
+        {shouldShowQueueAsPrimarySend ? (
+          <button
+            type="button"
+            className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-150 hover:bg-primary/88 disabled:pointer-events-none disabled:opacity-15 sm:size-7"
+            onClick={onQueueMessage}
+            disabled={isConnecting}
+            aria-label="Queue message"
+            title="Queue message"
+          >
+            <SendArrowIcon />
+          </button>
+        ) : isRunning ? (
           <button
             type="button"
             className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-destructive text-white transition-all duration-200 hover:bg-destructive/90 sm:size-7"
@@ -256,15 +252,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           />
         </svg>
       ) : (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path
-            d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <SendArrowIcon />
       )}
     </button>
   );

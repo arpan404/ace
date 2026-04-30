@@ -17,6 +17,7 @@ import {
 import { type GitStatusResult, ThreadId } from "@ace/contracts";
 import {
   memo,
+  type DragEvent,
   type Dispatch,
   type MouseEvent,
   type MutableRefObject,
@@ -24,6 +25,7 @@ import {
 } from "react";
 
 import { resolveThreadRowClassName, resolveThreadStatusPill } from "../../lib/sidebar";
+import { cn } from "../../lib/utils";
 import { normalizeWsUrl } from "../../lib/remoteHosts";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../../terminalStateStore";
@@ -31,7 +33,6 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useUiStateStore } from "../../uiStateStore";
 import { SidebarMenuSubButton, SidebarMenuSubItem } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { type SortableThreadHandleProps } from "./SortableThreadItem";
 
 interface TerminalStatusIndicator {
   label: "Terminal process running";
@@ -147,7 +148,6 @@ export interface SidebarThreadRowProps {
   isPinned: boolean;
   showPinnedIndicator?: boolean;
   pinEnabled?: boolean;
-  sortableHandleProps?: SortableThreadHandleProps | null;
   renamingThreadId: ThreadId | null;
   renamingTitle: string;
   setRenamingTitle: (title: string) => void;
@@ -176,6 +176,15 @@ export interface SidebarThreadRowProps {
   onTogglePinnedThread: (threadId: ThreadId) => void;
   openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
   pr: ThreadPr | null;
+  boardDrag?: {
+    isDragging: boolean;
+    isDropTarget: boolean;
+    onDragEnd: () => void;
+    onDragLeave: (event: DragEvent<HTMLLIElement>) => void;
+    onDragOver: (event: DragEvent<HTMLLIElement>) => void;
+    onDragStart: (event: DragEvent<HTMLAnchorElement>) => void;
+    onDrop: (event: DragEvent<HTMLLIElement>) => void;
+  } | null;
 }
 
 export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
@@ -224,10 +233,14 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
 
   return (
     <SidebarMenuSubItem
-      ref={props.sortableHandleProps?.setNodeRef}
-      style={props.sortableHandleProps?.style}
-      className="w-full"
+      className={cn(
+        "w-full rounded-md transition-colors",
+        props.boardDrag?.isDropTarget ? "bg-primary/[0.08] ring-1 ring-primary/35" : "",
+      )}
       data-thread-item
+      onDragLeave={props.boardDrag?.onDragLeave}
+      onDragOver={props.boardDrag?.onDragOver}
+      onDrop={props.boardDrag?.onDrop}
       onMouseLeave={() => {
         props.setConfirmingArchiveThreadId((current) => (current === thread.id ? null : current));
       }}
@@ -243,18 +256,21 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     >
       <SidebarMenuSubButton
         render={<div role="button" tabIndex={0} />}
-        ref={props.sortableHandleProps?.setActivatorNodeRef}
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
-        className={`${resolveThreadRowClassName({
-          isActive,
-          isSelected,
-        })} relative isolate ${
-          props.sortableHandleProps?.isDragging ? "z-20 opacity-80" : ""
-        } ${props.sortableHandleProps?.isOver && !props.sortableHandleProps.isDragging ? "ring-1 ring-primary/40" : ""}`}
-        {...(props.sortableHandleProps ? props.sortableHandleProps.attributes : {})}
-        {...(props.sortableHandleProps ? props.sortableHandleProps.listeners : {})}
+        className={cn(
+          resolveThreadRowClassName({
+            isActive,
+            isSelected,
+          }),
+          "relative isolate",
+          props.boardDrag ? "cursor-grab active:cursor-grabbing" : "",
+          props.boardDrag?.isDragging ? "z-20 opacity-80" : "",
+        )}
+        draggable={Boolean(props.boardDrag) && props.renamingThreadId !== thread.id}
+        onDragEnd={props.boardDrag?.onDragEnd}
+        onDragStart={props.boardDrag?.onDragStart}
         onMouseEnter={prefetchThreadHistory}
         onFocus={prefetchThreadHistory}
         onClick={(event) => {
@@ -481,7 +497,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             <span className={threadMetaClassName}>
               {props.showThreadJumpHints && props.jumpLabel ? (
                 <span
-                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground shadow-sm"
+                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground "
                   title={props.jumpLabel}
                 >
                   {props.jumpLabel}

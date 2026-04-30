@@ -56,6 +56,7 @@ type ProviderRegistryEntry = {
     modelOptions: ProviderModelOptions[ProviderKind] | undefined;
     prompt: string;
     onPromptChange: (prompt: string) => void;
+    showFastInTriggerLabel?: boolean;
   }) => ReactNode;
 };
 
@@ -132,7 +133,15 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         onPromptChange={onPromptChange}
       />
     ),
-    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      showFastInTriggerLabel,
+    }) => (
       <TraitsPicker
         provider="codex"
         models={models}
@@ -141,6 +150,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
   },
@@ -164,7 +174,15 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         onPromptChange={onPromptChange}
       />
     ),
-    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      showFastInTriggerLabel,
+    }) => (
       <TraitsPicker
         provider="claudeAgent"
         models={models}
@@ -173,6 +191,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
   },
@@ -196,7 +215,15 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         onPromptChange={onPromptChange}
       />
     ),
-    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      showFastInTriggerLabel,
+    }) => (
       <TraitsPicker
         provider="githubCopilot"
         models={models}
@@ -205,6 +232,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
   },
@@ -217,8 +245,13 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     renderTraitsMenuContent: ({ threadId, model, models }) => (
       <CursorTraitsMenuContent threadId={threadId} model={model} models={models} />
     ),
-    renderTraitsPicker: ({ threadId, model, models }) => (
-      <CursorTraitsPicker threadId={threadId} model={model} models={models} />
+    renderTraitsPicker: ({ threadId, model, models, showFastInTriggerLabel }) => (
+      <CursorTraitsPicker
+        threadId={threadId}
+        model={model}
+        models={models}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
+      />
     ),
   },
   gemini: {
@@ -241,7 +274,15 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         onPromptChange={onPromptChange}
       />
     ),
-    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      showFastInTriggerLabel,
+    }) => (
       <TraitsPicker
         provider="gemini"
         models={models}
@@ -250,6 +291,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
   },
@@ -273,7 +315,15 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         onPromptChange={onPromptChange}
       />
     ),
-    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      showFastInTriggerLabel,
+    }) => (
       <TraitsPicker
         provider="opencode"
         models={models}
@@ -282,6 +332,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
   },
@@ -330,6 +381,7 @@ export function renderProviderTraitsPicker(input: {
   modelOptions: ProviderModelOptions[ProviderKind] | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
+  showFastInTriggerLabel?: boolean;
 }): ReactNode {
   if (
     !shouldRenderTraitsPicker({
@@ -350,5 +402,8 @@ export function renderProviderTraitsPicker(input: {
     modelOptions: input.modelOptions,
     prompt: input.prompt,
     onPromptChange: input.onPromptChange,
+    ...(typeof input.showFastInTriggerLabel === "boolean"
+      ? { showFastInTriggerLabel: input.showFastInTriggerLabel }
+      : {}),
   });
 }

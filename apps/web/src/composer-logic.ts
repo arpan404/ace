@@ -183,38 +183,47 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   const cursor = clampCursor(text, cursorInput);
   const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
   const linePrefix = text.slice(lineStart, cursor);
+  const slashIndex = linePrefix.lastIndexOf("/");
 
-  if (linePrefix.startsWith("/")) {
-    const commandMatch = /^\/(\S*)$/.exec(linePrefix);
-    if (commandMatch) {
-      const commandQuery = commandMatch[1] ?? "";
-      if (commandQuery.toLowerCase() === "model") {
+  if (slashIndex >= 0) {
+    const commandStart = lineStart + slashIndex;
+    const characterBeforeSlash = commandStart > 0 ? text[commandStart - 1] : "";
+    const slashStartsToken = commandStart === 0 || isWhitespace(characterBeforeSlash ?? "");
+    const commandText = linePrefix.slice(slashIndex);
+    if (!slashStartsToken) {
+      // Ignore slashes embedded in existing tokens (e.g. urls/paths).
+    } else {
+      const commandMatch = /^\/(\S*)$/.exec(commandText);
+      if (commandMatch) {
+        const commandQuery = commandMatch[1] ?? "";
+        if (commandQuery.toLowerCase() === "model") {
+          return {
+            kind: "slash-model",
+            query: "",
+            rangeStart: commandStart,
+            rangeEnd: cursor,
+          };
+        }
+        if (SLASH_COMMANDS.some((command) => command.startsWith(commandQuery.toLowerCase()))) {
+          return {
+            kind: "slash-command",
+            query: commandQuery,
+            rangeStart: commandStart,
+            rangeEnd: cursor,
+          };
+        }
+        return null;
+      }
+
+      const modelMatch = /^\/model(?:\s+(.*))?$/.exec(commandText);
+      if (modelMatch) {
         return {
           kind: "slash-model",
-          query: "",
-          rangeStart: lineStart,
+          query: (modelMatch[1] ?? "").trim(),
+          rangeStart: commandStart,
           rangeEnd: cursor,
         };
       }
-      if (SLASH_COMMANDS.some((command) => command.startsWith(commandQuery.toLowerCase()))) {
-        return {
-          kind: "slash-command",
-          query: commandQuery,
-          rangeStart: lineStart,
-          rangeEnd: cursor,
-        };
-      }
-      return null;
-    }
-
-    const modelMatch = /^\/model(?:\s+(.*))?$/.exec(linePrefix);
-    if (modelMatch) {
-      return {
-        kind: "slash-model",
-        query: (modelMatch[1] ?? "").trim(),
-        rangeStart: lineStart,
-        rangeEnd: cursor,
-      };
     }
   }
 
@@ -278,12 +287,12 @@ export function parseComposerIssuesCommand(
     if (!numberText) {
       continue;
     }
-    const issueNumber = Number.parseInt(numberText, 10);
-    if (!Number.isInteger(issueNumber) || issueNumber <= 0 || seen.has(issueNumber)) {
+    const number = Number.parseInt(numberText, 10);
+    if (!Number.isFinite(number) || number <= 0 || seen.has(number)) {
       continue;
     }
-    seen.add(issueNumber);
-    issueNumbers.push(issueNumber);
+    seen.add(number);
+    issueNumbers.push(number);
   }
 
   return {

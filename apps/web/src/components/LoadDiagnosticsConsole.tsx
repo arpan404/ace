@@ -122,7 +122,7 @@ export function LoadDiagnosticsConsole() {
             visibleEntries.map((entry) => (
               <article
                 key={entry.id}
-                className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2.5 "
               >
                 <div className="flex items-start gap-3">
                   <span

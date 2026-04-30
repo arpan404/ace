@@ -6,7 +6,7 @@ import { appendBrowserDesignContextToPrompt } from "../../lib/terminalContext";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 
 describe("ComposerQueuedMessages", () => {
-  it("renders the refined queue surface with steering and attachment metadata", () => {
+  it("renders unified queue rows with steer/edit/delete actions and icon-only attachments", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages
         messages={[
@@ -22,18 +22,19 @@ describe("ComposerQueuedMessages", () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClearAll={vi.fn()}
+        onReorder={vi.fn()}
         onSteer={vi.fn()}
       />,
     );
 
-    expect(markup).toContain("Pending");
-    expect(markup).toContain("Steering");
-    expect(markup).toContain("2 images");
-    expect(markup).toContain("1 terminal");
-    expect(markup).toContain('aria-label="Steering queued message"');
+    expect(markup).toContain("Steer");
+    expect(markup).toContain('aria-label="Edit queued message"');
+    expect(markup).toContain('aria-label="Delete queued message"');
+    expect(markup).not.toContain("2 images");
+    expect(markup).not.toContain("1 terminal");
   });
 
-  it("keeps designer comments delete-only in the queue", () => {
+  it("renders steer and edit controls for designer queue rows", () => {
     const prompt = appendBrowserDesignContextToPrompt("Tighten the card rhythm", {
       requestId: "DR-4F2C8A11",
       pageUrl: "https://example.com/dashboard",
@@ -58,11 +59,28 @@ describe("ComposerQueuedMessages", () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClearAll={vi.fn()}
+        onReorder={vi.fn()}
         onSteer={vi.fn()}
       />,
     );
 
-    expect(markup).toContain("Comment");
-    expect(markup).not.toContain("Edit queued message");
+    expect(markup).toContain('aria-label="Steer queued message"');
+    expect(markup).toContain('aria-label="Edit queued message"');
+  });
+
+  it("renders nothing when the queue is empty", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        messages={[]}
+        steerMessageId={null}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toBe("");
   });
 });

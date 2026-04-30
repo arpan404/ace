@@ -127,6 +127,13 @@ export const ThreadQueueUpdateCommand = Schema.Struct({
   message: QueuedComposerMessage,
 });
 
+export const ThreadQueueReorderCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.reorder"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+});
+
 export const ThreadQueueDeleteCommand = Schema.Struct({
   type: Schema.Literal("thread.queue.delete"),
   commandId: CommandId,
@@ -261,6 +268,7 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadQueueAppendCommand,
   ThreadQueueUpdateCommand,
+  ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
   ThreadQueueSteerCommand,
@@ -288,6 +296,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadQueueAppendCommand,
   ThreadQueueUpdateCommand,
+  ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
   ThreadQueueSteerCommand,
@@ -308,6 +317,17 @@ export const ThreadSessionSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   session: OrchestrationSession,
+  createdAt: IsoDateTime,
+});
+
+export const ThreadMessageUserAppendCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.user.append"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
+  attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
 
@@ -376,6 +396,7 @@ export const ThreadRevertCompleteCommand = Schema.Struct({
 
 export const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
+  ThreadMessageUserAppendCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadProposedPlanUpsertCommand,
