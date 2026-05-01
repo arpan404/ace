@@ -38,11 +38,12 @@ function SettingsContentLayout() {
         <AppPageTopBar>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-              <h1 className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80">
+              <h1 className="min-w-0 shrink truncate text-[13px] leading-none font-semibold tracking-tight text-foreground">
                 Settings
               </h1>
               <span className="h-3.5 w-px shrink-0 bg-border/70" aria-hidden="true" />
-              <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground/70">
+              <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground/72">
+                {currentItem.icon ? <currentItem.icon className="size-3.5 shrink-0" /> : null}
                 <span className="min-w-0 truncate text-[12px] leading-none font-medium">
                   {currentItem.label}
                 </span>

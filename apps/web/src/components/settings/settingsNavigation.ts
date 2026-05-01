@@ -2,8 +2,6 @@ import { IconTerminal } from "@tabler/icons-react";
 import type { ComponentType } from "react";
 import {
   ArchiveIcon,
-  BotIcon,
-  GlobeIcon,
   InfoIcon,
   MessageCircleIcon,
   ServerIcon,
@@ -28,7 +26,7 @@ export const SETTINGS_NAV_ITEMS = [
   {
     group: "workspace",
     label: "General",
-    description: "Appearance, time, and thread defaults",
+    description: "Appearance, time, thread defaults, and browser search",
     to: "/settings/general",
     icon: Settings2Icon,
   },
@@ -42,28 +40,14 @@ export const SETTINGS_NAV_ITEMS = [
   {
     group: "workspace",
     label: "Editor",
-    description: "Workspace editor and diff preferences",
+    description: "Workspace editor, diffs, and language servers",
     to: "/settings/editor",
     icon: SquarePenIcon,
   },
   {
-    group: "workspace",
-    label: "Browser",
-    description: "Search defaults for in-app browsing",
-    to: "/settings/browser",
-    icon: GlobeIcon,
-  },
-  {
-    group: "ai",
-    label: "Models",
-    description: "Text generation model overrides",
-    to: "/settings/models",
-    icon: BotIcon,
-  },
-  {
     group: "ai",
     label: "Providers",
-    description: "CLI status, installs, and custom models",
+    description: "Models, provider CLI status, installs, and custom configurations",
     to: "/settings/providers",
     icon: IconTerminal,
   },
@@ -77,7 +61,7 @@ export const SETTINGS_NAV_ITEMS = [
   {
     group: "system",
     label: "Advanced",
-    description: "Keybindings and cache controls",
+    description: "Git credentials, keybindings, and cache controls",
     to: "/settings/advanced",
     icon: WrenchIcon,
   },

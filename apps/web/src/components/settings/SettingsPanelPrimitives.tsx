@@ -160,7 +160,7 @@ export function SettingsSection({
     <section className="min-w-0 space-y-1.5">
       <div className="flex min-w-0 flex-col gap-2 px-0.5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 space-y-0.5">
-          <h2 className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/62">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
             {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
             <span className="min-w-0 truncate">{title}</span>
           </h2>
@@ -208,7 +208,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-pill-border/48 px-3 py-2.75 transition-colors duration-150 first:border-t-0 hover:bg-foreground/[0.018] sm:px-4",
+        "border-t border-pill-border/48 px-3 py-2.75 transition-colors duration-150 first:border-t-0 hover:bg-foreground/[0.028] sm:px-4",
         tone === "warning" && "bg-warning/[0.04]",
         tone === "danger" && "bg-destructive/[0.04]",
       )}
@@ -216,7 +216,7 @@ export function SettingsRow({
       <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex min-h-5 min-w-0 items-center gap-1.5">
-            <h3 className="min-w-0 text-[13px] leading-snug font-medium text-foreground/88">
+            <h3 className="min-w-0 text-[13px] leading-snug font-medium text-foreground/92">
               {title}
             </h3>
             {resetAction ? (
@@ -225,7 +225,7 @@ export function SettingsRow({
               </span>
             ) : null}
           </div>
-          <p className="text-[12px] leading-relaxed text-muted-foreground/58">{description}</p>
+          <p className="text-[12px] leading-relaxed text-muted-foreground/65">{description}</p>
           {status ? (
             <div className="pt-0.5 text-[11px] text-muted-foreground/60">{status}</div>
           ) : null}

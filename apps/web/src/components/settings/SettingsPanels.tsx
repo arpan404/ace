@@ -753,15 +753,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-type SettingsPanelPage =
-  | "general"
-  | "chat"
-  | "editor"
-  | "browser"
-  | "models"
-  | "providers"
-  | "advanced"
-  | "about";
+type SettingsPanelPage = "general" | "chat" | "editor" | "providers" | "advanced" | "about";
 
 function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
@@ -1282,8 +1274,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const isGeneralPage = page === "general";
   const isChatPage = page === "chat";
   const isEditorPage = page === "editor";
-  const isBrowserPage = page === "browser";
-  const isModelsPage = page === "models";
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
@@ -2702,7 +2692,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         </>
       ) : null}
 
-      {isBrowserPage ? (
+      {isGeneralPage ? (
         <SettingsSection title="In-app browser">
           <SettingsRow
             title="Search engine"
@@ -2736,7 +2726,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         </SettingsSection>
       ) : null}
 
-      {isModelsPage ? (
+      {isProvidersPage ? (
         <SettingsSection title="Text generation">
           <SettingsRow
             title="Text generation model"
@@ -3037,14 +3027,6 @@ export function ChatSettingsPanel() {
 
 export function EditorSettingsPanel() {
   return <SettingsPanel page="editor" />;
-}
-
-export function BrowserSettingsPanel() {
-  return <SettingsPanel page="browser" />;
-}
-
-export function ModelsSettingsPanel() {
-  return <SettingsPanel page="models" />;
 }
 
 export function ProvidersSettingsPanel() {

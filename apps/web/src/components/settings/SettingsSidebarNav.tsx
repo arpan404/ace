@@ -47,7 +47,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                           "h-8 items-center gap-2 rounded-[var(--control-radius)] px-2.5 text-left text-[13px] transition-colors duration-150 ease-out",
                           isActive
                             ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                            : "text-sidebar-foreground/62 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground",
+                            : "text-sidebar-foreground/72 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground",
                         )}
                         onClick={() => void navigate({ to: item.to, replace: true })}
                       >
@@ -70,7 +70,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         })}
       </SidebarContent>
 
-      <SidebarFooter className="p-2">
+      <SidebarFooter className="border-t border-sidebar-border/60 p-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -79,7 +79,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               onClick={() => window.history.back()}
             >
               <ArrowLeftIcon className="size-3.5" />
-              <span>Back</span>
+              <span>Back to chat</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

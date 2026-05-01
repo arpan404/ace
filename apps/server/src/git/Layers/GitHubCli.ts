@@ -332,9 +332,7 @@ function decodeGitHubJson<S extends Schema.Top>(
         detail: error instanceof Error ? `${invalidDetail}: ${error.message}` : invalidDetail,
         cause: error,
       }),
-  }).pipe(
-    Effect.map((value) => value as S["Type"]),
-  );
+  }).pipe(Effect.map((value) => value as S["Type"]));
 }
 
 const makeGitHubCli = Effect.sync(() => {
