@@ -156,11 +156,28 @@ export interface RelayRpcTransportOptions {
   readonly resolveConnectionUrl?: (connectionUrl: string) => Promise<string>;
 }
 
-function formatErrorMessage(error: unknown): string {
+export function formatRelayTransportErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
   }
-  return String(error);
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error.trim();
+  }
+  if (typeof error === "object" && error !== null) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message.trim();
+    }
+    try {
+      const encoded = JSON.stringify(error);
+      if (typeof encoded === "string" && encoded !== "{}") {
+        return encoded;
+      }
+    } catch {
+      // Fall through to the generic fallback below.
+    }
+  }
+  return "Unknown relay transport error.";
 }
 
 function createRandomId(): string {
@@ -337,7 +354,7 @@ export class RelayRpcTransport {
     this.disconnected = true;
     this.emitConnectionState({
       kind: "disconnected",
-      error: formatErrorMessage(error),
+      error: formatRelayTransportErrorMessage(error),
     });
   }
 
