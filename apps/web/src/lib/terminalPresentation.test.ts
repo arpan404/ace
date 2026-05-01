@@ -32,6 +32,7 @@ describe("deriveTerminalTitleFromCommand", () => {
   it("rejects low-signal bare tokens instead of promoting terminal noise", () => {
     expect(deriveTerminalTitleFromCommand("oaodododododocodod")).toBeNull();
     expect(deriveTerminalTitleFromCommand("oaaadodccod")).toBeNull();
+    expect(deriveTerminalTitleFromCommand("bun disOAt:OA0A[5")).toBeNull();
   });
 });
 
@@ -50,6 +51,16 @@ describe("applyTerminalInputToBuffer", () => {
     });
     expect(applyTerminalInputToBuffer("bun run dev", "\u0015")).toEqual({
       buffer: "",
+      submittedCommand: null,
+    });
+  });
+
+  it("ignores terminal navigation escape sequences while tracking command input", () => {
+    const first = applyTerminalInputToBuffer("", "bun run dev");
+    const second = applyTerminalInputToBuffer(first.buffer, "\u001b[A\u001b[B\u001b[1;5D");
+
+    expect(second).toEqual({
+      buffer: "bun run dev",
       submittedCommand: null,
     });
   });
@@ -109,6 +120,7 @@ describe("normalizeTerminalDisplayTitle", () => {
     expect(normalizeTerminalDisplayTitle("zsh")).toBeNull();
     expect(normalizeTerminalDisplayTitle("oaoaoa:web")).toBeNull();
     expect(normalizeTerminalDisplayTitle("oaodododododocodod")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("bun disOAt:OA0A[5")).toBeNull();
   });
 });
 

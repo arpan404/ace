@@ -555,6 +555,7 @@ function constrainedPanelWidth(
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
+  activeInBoard?: boolean;
   connectionUrl?: string | null;
   paneControls?: ReactNode;
   shortcutsEnabled?: boolean;
@@ -665,6 +666,7 @@ interface PendingPullRequestSetupRequest {
 }
 
 export default function ChatView({
+  activeInBoard = true,
   connectionUrl = null,
   paneControls = null,
   shortcutsEnabled = true,
@@ -672,6 +674,7 @@ export default function ChatView({
   splitPane = false,
   threadId,
 }: ChatViewProps) {
+  const activeForSideEffects = !splitPane || activeInBoard;
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const dismissStoreThreadError = useStore((store) => store.dismissThreadError);
@@ -680,10 +683,14 @@ export default function ChatView({
   const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
-  const trackedActiveThreadId = useUiStateStore((store) => store.activeThreadId);
-  const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
-  const activeThreadLastVisitedAt = useUiStateStore(
-    (store) => store.threadLastVisitedAtById[threadId],
+  const trackedActiveThreadId = useUiStateStore((store) =>
+    activeForSideEffects ? store.activeThreadId : null,
+  );
+  const previousActiveThreadId = useUiStateStore((store) =>
+    activeForSideEffects ? store.previousActiveThreadId : null,
+  );
+  const activeThreadLastVisitedAt = useUiStateStore((store) =>
+    activeForSideEffects ? store.threadLastVisitedAtById[threadId] : undefined,
   );
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
@@ -1240,8 +1247,9 @@ export default function ChatView({
 
   // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
   useLayoutEffect(() => {
+    if (!activeForSideEffects) return;
     trackActiveThread(activeThreadId);
-  }, [activeThreadId, trackActiveThread]);
+  }, [activeForSideEffects, activeThreadId, trackActiveThread]);
 
   useEffect(() => {
     directThreadHydrationFailureCountRef.current = 0;
@@ -1737,6 +1745,7 @@ export default function ChatView({
   );
 
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!serverThread?.id) return;
     if (!latestTurnSettled) return;
     if (!activeLatestTurn?.completedAt) return;
@@ -1749,6 +1758,7 @@ export default function ChatView({
   }, [
     activeLatestTurn?.completedAt,
     activeThreadLastVisitedAt,
+    activeForSideEffects,
     latestTurnSettled,
     markThreadVisited,
     serverThread?.id,
@@ -2193,7 +2203,7 @@ export default function ChatView({
   const workspaceStatusPollingMs = latestTurnSettled ? 10_000 : 5_000;
   const workspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(codingGitCwd),
-    enabled: codingGitCwd !== null,
+    enabled: codingGitCwd !== null && activeForSideEffects,
     staleTime: workspaceStatusPollingMs,
     refetchInterval: workspaceStatusPollingMs,
     refetchIntervalInBackground: false,
@@ -2219,7 +2229,10 @@ export default function ChatView({
     (debouncerState) => ({ isPending: debouncerState.isPending }),
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
-  const branchesQuery = useQuery(gitBranchesQueryOptions(codingGitCwd));
+  const branchesQuery = useQuery({
+    ...gitBranchesQueryOptions(codingGitCwd),
+    enabled: codingGitCwd !== null && activeForSideEffects,
+  });
   // Default true while loading to avoid toolbar flicker.
   const rawIsGitRepo = branchesQuery.data?.isRepo ?? true;
   const isGitRepo = rawIsGitRepo;
@@ -5521,6 +5534,7 @@ export default function ChatView({
       : "local";
 
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!activeThreadId) return;
     const previous = terminalOpenByThreadRef.current[activeThreadId] ?? false;
     const current = Boolean(terminalState.terminalOpen);
@@ -5535,7 +5549,7 @@ export default function ChatView({
     }
 
     terminalOpenByThreadRef.current[activeThreadId] = current;
-  }, [activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
+  }, [activeForSideEffects, activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
     if (!shortcutsEnabled) return;
@@ -7478,6 +7492,7 @@ export default function ChatView({
         : {}),
       activeTurnInProgress: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
+      backgroundMarkdownPrewarm: activeForSideEffects,
       scrollContainer: messagesScrollElement,
       timelineEntries,
       completionDividerBeforeEntryId,
@@ -7502,6 +7517,7 @@ export default function ChatView({
       activeProject?.cwd,
       activeThread.messages.length,
       activeThread.session?.provider,
+      activeForSideEffects,
       activeWorkStartedAt,
       completionDividerBeforeEntryId,
       completionSummary,
@@ -8265,23 +8281,25 @@ export default function ChatView({
       </div>
       {/* end horizontal flex container */}
 
-      <ConnectedRetainedThreadTerminalDrawers
-        activeThreadId={activeThread.id}
-        activeProjectAvailable={activeProject !== undefined}
-        cwd={gitCwd ?? activeProject?.cwd ?? null}
-        runtimeEnv={threadTerminalRuntimeEnv}
-        focusRequestId={terminalFocusRequestId}
-        onNewTerminal={createNewTerminal}
-        newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-        toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
-        onActiveTerminalChange={activateTerminal}
-        onMoveTerminal={moveTerminal}
-        onAutoTerminalTitleChange={setTerminalAutoTitle}
-        onCloseTerminal={closeTerminal}
-        onToggleTerminal={toggleTerminalVisibility}
-        onHeightChange={setTerminalHeight}
-        onAddTerminalContext={addTerminalContextToDraft}
-      />
+      {activeForSideEffects ? (
+        <ConnectedRetainedThreadTerminalDrawers
+          activeThreadId={activeThread.id}
+          activeProjectAvailable={activeProject !== undefined}
+          cwd={gitCwd ?? activeProject?.cwd ?? null}
+          runtimeEnv={threadTerminalRuntimeEnv}
+          focusRequestId={terminalFocusRequestId}
+          onNewTerminal={createNewTerminal}
+          newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+          toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
+          onActiveTerminalChange={activateTerminal}
+          onMoveTerminal={moveTerminal}
+          onAutoTerminalTitleChange={setTerminalAutoTitle}
+          onCloseTerminal={closeTerminal}
+          onToggleTerminal={toggleTerminalVisibility}
+          onHeightChange={setTerminalHeight}
+          onAddTerminalContext={addTerminalContextToDraft}
+        />
+      ) : null}
     </div>
   );
 }

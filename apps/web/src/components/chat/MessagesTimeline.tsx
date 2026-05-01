@@ -71,6 +71,7 @@ const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
+const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
@@ -160,6 +161,7 @@ interface MessagesTimelineProps {
   continueWithGitHubIssuesDisabledReason?: string;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  backgroundMarkdownPrewarm?: boolean;
   scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
@@ -190,6 +192,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   continueWithGitHubIssuesDisabledReason,
   activeTurnInProgress,
   activeTurnStartedAt,
+  backgroundMarkdownPrewarm = true,
   scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
@@ -255,7 +258,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
 
     let pendingWidth: number | null = null;
-    let frameId: number | null = null;
+    let timeoutId: number | null = null;
 
     const updateWidth = (nextWidth: number) => {
       setTimelineWidthPx((current) =>
@@ -264,17 +267,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
     const scheduleWidthUpdate = (nextWidth: number) => {
       pendingWidth = nextWidth;
-      if (frameId !== null) {
-        return;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
+      timeoutId = window.setTimeout(() => {
+        timeoutId = null;
         const width = pendingWidth;
         pendingWidth = null;
         if (width !== null) {
           updateWidth(width);
         }
-      });
+      }, TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS);
     };
 
     updateWidth(timelineRootElement.clientWidth);
@@ -293,8 +296,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     observer.observe(timelineRootElement);
     return () => {
       observer.disconnect();
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
     };
   }, [timelineRootElement]);
@@ -339,6 +342,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldUseVirtualizedBuffer =
     scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
+  const shouldPrewarmAssistantMarkdown =
+    shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
     ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
@@ -361,7 +366,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
     [rows],
   );
-  const pendingAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
+  const pendingAssistantMarkdownMessageIds = shouldPrewarmAssistantMarkdown
     ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
         firstUnvirtualizedRowIndex,
         immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
@@ -429,7 +434,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
 
   useEffect(() => {
-    if (!shouldPrioritizeAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
+    if (!shouldPrewarmAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
       return;
     }
     if (typeof window === "undefined") {
@@ -485,7 +490,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         cancelAssistantMarkdownIdleCallback(idleHandle);
       }
     };
-  }, [pendingAssistantMarkdownMessageIdKey, shouldPrioritizeAssistantMarkdown]);
+  }, [pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
   const registerMeasuredRowElement = useCallback(
     (rowId: string, element: HTMLDivElement | null) => {
       if (element) {
