@@ -62,10 +62,12 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { PairingSessionRepository } from "./persistence/Services/PairingSessions.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
+import { RelayHostManagerService } from "./relayHostManager.ts";
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
@@ -211,6 +213,28 @@ const buildAppUnderTest = (options?: {
           updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
           streamChanges: Stream.empty,
           ...options?.layers?.serverSettings,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(RelayHostManagerService)({
+          getStatus: Effect.succeed({
+            deviceId: "relay-host-test",
+            defaultRelayUrl: DEFAULT_SERVER_SETTINGS.remoteRelay.defaultUrl,
+            activeRelayLimit: 1,
+            registrations: [],
+          }),
+          refreshRegistrations: Effect.void,
+          streamChanges: Stream.empty,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(PairingSessionRepository)({
+          upsert: () => Effect.void,
+          getAll: () => Effect.succeed([]),
+          getBySessionId: () => Effect.succeed(Option.none()),
+          getByClaimId: () => Effect.succeed(Option.none()),
+          deleteBySessionId: () => Effect.void,
+          deleteExpiredSessions: () => Effect.succeed(0),
         }),
       ),
       Layer.provide(
@@ -753,14 +777,18 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const created = (yield* Effect.promise(() => createResponse.json())) as {
         readonly sessionId: string;
         readonly secret: string;
-        readonly claimUrl: string;
+        readonly relayUrl: string;
+        readonly hostDeviceId: string;
+        readonly hostIdentityPublicKey: string;
       };
       assert.isTrue(created.sessionId.length > 0);
       assert.isTrue(created.secret.length > 0);
-      assert.include(created.claimUrl, "/api/pairing/claims");
+      assert.include(created.relayUrl, "://");
+      assert.isTrue(created.hostDeviceId.length > 0);
+      assert.isTrue(created.hostIdentityPublicKey.length > 0);
 
       const claimResponse = yield* Effect.promise(() =>
-        fetch(created.claimUrl, {
+        fetch(`${baseUrl}/api/pairing/claims`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -791,23 +819,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const session = (yield* Effect.promise(() => sessionResponse.json())) as {
         readonly status: string;
         readonly requesterName?: string;
+        readonly relayUrl?: string;
       };
       assert.equal(session.status, "approved");
       assert.equal(session.requesterName, "ace mobile");
+      assert.equal(session.relayUrl, created.relayUrl);
 
       const claimStatusResponse = yield* Effect.promise(() => fetch(claim.pollUrl));
       assert.equal(claimStatusResponse.status, 200);
       const claimStatus = (yield* Effect.promise(() => claimStatusResponse.json())) as {
         readonly status: string;
         readonly host?: {
-          readonly wsUrl?: string;
-          readonly authToken?: string;
           readonly name?: string;
         };
       };
       assert.equal(claimStatus.status, "approved");
-      assert.equal(claimStatus.host?.wsUrl, "ws://192.168.0.12:3773/ws");
-      assert.equal(claimStatus.host?.authToken, "secret-token");
       assert.equal(claimStatus.host?.name, "Primary ace host");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -835,6 +861,92 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }),
       );
       assert.equal(response.status, 401);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects relay pairing creation when remote relay is disabled", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+        layers: {
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              remoteRelay: {
+                ...DEFAULT_SERVER_SETTINGS.remoteRelay,
+                enabled: false,
+              },
+            }),
+          },
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const response = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(response.status, 409);
+      const payload = (yield* Effect.promise(() => response.json())) as {
+        readonly error: string;
+      };
+      assert.include(payload.error, "Remote relay is disabled");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects pairing creation when a different relay URL is requested", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+        layers: {
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              remoteRelay: {
+                ...DEFAULT_SERVER_SETTINGS.remoteRelay,
+                enabled: true,
+                defaultUrl: "wss://relay.example.com/v1/ws",
+              },
+            }),
+          },
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const response = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            name: "Primary ace host",
+            relayUrl: "wss://other-relay.example.com/v1/ws",
+          }),
+        }),
+      );
+      assert.equal(response.status, 409);
+      const payload = (yield* Effect.promise(() => response.json())) as {
+        readonly error: string;
+      };
+      assert.include(payload.error, "Only one relay server is allowed");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

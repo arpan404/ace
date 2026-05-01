@@ -251,11 +251,6 @@ const maybeOpenBrowser = Effect.gen(function* () {
 });
 
 const makeServerRuntimeStartup = Effect.gen(function* () {
-  const keybindings = yield* Keybindings;
-  const orchestrationReactor = yield* OrchestrationReactor;
-  const lifecycleEvents = yield* ServerLifecycleEvents;
-  const serverSettings = yield* ServerSettingsService;
-
   const commandGate = yield* makeCommandGate;
   const httpListening = yield* Deferred.make<void>();
   const reactorScope = yield* Scope.make("sequential");
@@ -263,6 +258,11 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
 
   const startup = Effect.gen(function* () {
+    const keybindings = yield* Keybindings;
+    const orchestrationReactor = yield* OrchestrationReactor;
+    const lifecycleEvents = yield* ServerLifecycleEvents;
+    const serverSettings = yield* ServerSettingsService;
+
     yield* logStartupEvent({
       phase: "runtime",
       message: "Starting keybindings runtime",
@@ -333,6 +333,8 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
 
   yield* Effect.forkScoped(
     Effect.gen(function* () {
+      const lifecycleEvents = yield* ServerLifecycleEvents;
+
       yield* logStartupEvent({
         phase: "runtime",
         message: "Server runtime startup flow started",

@@ -42,6 +42,7 @@ import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
 import { type DeepPartial, deepMerge } from "@ace/shared/Struct";
 import { fromLenientJson } from "@ace/shared/schemaJson";
+import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
 export interface ServerSettingsShape {
   /** Start the settings runtime and attach file watching. */
@@ -130,6 +131,22 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
 // Values under these keys are compared as a whole — never stripped field-by-field.
 const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set(["textGenerationModelSelection"]);
 
+function validateRemoteRelaySettings(settings: ServerSettings): ServerSettings {
+  const normalizedRelayUrl = validateRelayWebSocketUrl(settings.remoteRelay.defaultUrl, {
+    allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
+  });
+  if (normalizedRelayUrl === settings.remoteRelay.defaultUrl) {
+    return settings;
+  }
+  return {
+    ...settings,
+    remoteRelay: {
+      ...settings.remoteRelay,
+      defaultUrl: normalizedRelayUrl,
+    },
+  };
+}
+
 function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
   if (Array.isArray(current) || Array.isArray(defaults)) {
     return Equal.equals(current, defaults) ? undefined : current;
@@ -203,7 +220,7 @@ const makeServerSettings = Effect.gen(function* () {
 
   const loadSettingsFromDisk = Effect.gen(function* () {
     if (!(yield* readConfigExists)) {
-      return DEFAULT_SERVER_SETTINGS;
+      return validateRemoteRelaySettings(DEFAULT_SERVER_SETTINGS);
     }
 
     const raw = yield* readRawConfig;
@@ -213,9 +230,9 @@ const makeServerSettings = Effect.gen(function* () {
         path: settingsPath,
         issues: Cause.pretty(decoded.cause),
       });
-      return DEFAULT_SERVER_SETTINGS;
+      return validateRemoteRelaySettings(DEFAULT_SERVER_SETTINGS);
     }
-    return decoded.value;
+    return validateRemoteRelaySettings(decoded.value);
   });
 
   const settingsCache = yield* Cache.make<typeof cacheKey, ServerSettings, ServerSettingsError>({
@@ -331,10 +348,22 @@ const makeServerSettings = Effect.gen(function* () {
                 }),
             ),
           );
-          yield* writeSettingsAtomically(next);
-          yield* Cache.set(settingsCache, cacheKey, next);
-          yield* emitChange(next);
-          return resolveTextGenerationProvider(next);
+          const validated = yield* Effect.try({
+            try: () => validateRemoteRelaySettings(next),
+            catch: (cause) =>
+              new ServerSettingsError({
+                settingsPath: "<memory>",
+                detail:
+                  cause instanceof Error
+                    ? cause.message
+                    : "failed to validate remote relay settings",
+                cause,
+              }),
+          });
+          yield* writeSettingsAtomically(validated);
+          yield* Cache.set(settingsCache, cacheKey, validated);
+          yield* emitChange(validated);
+          return resolveTextGenerationProvider(validated);
         }),
       ),
     get streamChanges() {

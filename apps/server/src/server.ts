@@ -15,6 +15,7 @@ import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
 import { OpenLive } from "./open";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite";
+import { PairingSessionRepositoryLive } from "./persistence/Layers/PairingSessions";
 import { ProjectionThreadMessageRepositoryLive } from "./persistence/Layers/ProjectionThreadMessages";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
@@ -58,6 +59,8 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceEditorLive } from "./workspace/Layers/WorkspaceEditor";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
+import { PairingPersistenceRuntimeLive } from "./pairingPersistence";
+import { RelayHostManagerLive } from "./relayHostManager";
 
 const PtyAdapterLive = Layer.unwrap(
   withStartupTiming(
@@ -216,7 +219,10 @@ const ProviderLayerLive = Layer.unwrap(
   ),
 );
 
-const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+const PersistenceLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(PairingSessionRepositoryLive),
+  Layer.provideMerge(SqlitePersistenceLayerLive),
+);
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(
@@ -243,6 +249,7 @@ const WorkspaceLayerLive = Layer.mergeAll(
 
 const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(ServerRuntimeStartupLive),
+  Layer.provideMerge(RelayHostManagerLive),
   Layer.provideMerge(ReactorLayerLive),
 
   // Core Services
@@ -251,6 +258,7 @@ const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(TerminalLayerLive),
+  Layer.provideMerge(PairingPersistenceRuntimeLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(MaintenanceRuntimeLive),
   Layer.provideMerge(KeybindingsLive),
@@ -329,8 +337,4 @@ export const makeServerLayer = Layer.unwrap(
 );
 
 // Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
-export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<
-  never,
-  any,
-  ServerConfig
->;
+export const runServer = Layer.launch(makeServerLayer) as Effect.Effect<never, never, ServerConfig>;

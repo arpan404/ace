@@ -1,9 +1,12 @@
+import { buildRelayHostConnectionDraft } from "@ace/shared/hostConnections";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CliPairingCommandError,
   createCliPairingSession,
   listCliPairingSessions,
+  pingCliHostConnection,
   revokeCliPairingSession,
 } from "./cliPairing";
 
@@ -55,9 +58,51 @@ describe("cliPairing", () => {
     expect(created.connectionString.startsWith("ace://pair?p=")).toBe(true);
     const encoded = new URL(created.connectionString).searchParams.get("p");
     expect(encoded).toBeTruthy();
-    const decoded = Buffer.from(encoded ?? "", "base64url").toString("utf8");
-    expect(decoded).toContain('"name":"Workstation"');
-    expect(decoded).toContain('"wsUrl":"ws://192.168.1.10:3773/ws"');
+    const decoded = JSON.parse(Buffer.from(encoded ?? "", "base64url").toString("utf8")) as {
+      readonly name: string;
+      readonly wsUrl: string;
+    };
+    expect(decoded.name).toBe("Workstation");
+    expect(decoded.wsUrl).toBe("ws://192.168.1.10:3773/ws");
+  });
+
+  it("uses relay pairing metadata when the host returns a relay-backed pairing session", async () => {
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith("/api/pairing/sessions") && init?.method === "POST") {
+        return jsonResponse(200, {
+          sessionId: "session-relay-1",
+          name: "Workstation",
+          createdAt: "2026-04-15T22:59:00.000Z",
+          status: "waiting-claim",
+          expiresAt: "2026-04-15T23:00:00.000Z",
+          secret: "secret-relay-1",
+          relayUrl: "wss://relay.example.com/v1/ws",
+          hostDeviceId: "host-device-1",
+          hostIdentityPublicKey: "host-public-key-1",
+        });
+      }
+      return jsonResponse(404, { error: "Unexpected URL" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const created = await createCliPairingSession({
+      wsUrl: "http://localhost:3773",
+      authToken: "token-1",
+      name: "Workstation",
+      relayUrl: "wss://relay.example.com/v1/ws",
+    });
+
+    expect(created.advertisedWsUrl).toBe("wss://relay.example.com/v1/ws");
+    const encoded = new URL(created.connectionString).searchParams.get("p");
+    const decoded = JSON.parse(Buffer.from(encoded ?? "", "base64url").toString("utf8")) as {
+      readonly relayUrl: string;
+      readonly hostDeviceId: string;
+      readonly hostIdentityPublicKey: string;
+    };
+    expect(decoded.relayUrl).toBe("wss://relay.example.com/v1/ws");
+    expect(decoded.hostDeviceId).toBe("host-device-1");
+    expect(decoded.hostIdentityPublicKey).toBe("host-public-key-1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("revokes pairing sessions", async () => {
@@ -119,6 +164,56 @@ describe("cliPairing", () => {
       requesterName: "Arpan Laptop",
       claimId: "claim-1",
     });
+  });
+
+  it("pings direct hosts through the pairing endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.includes("/api/pairing/advertised-endpoint") && init?.method === "GET") {
+          return jsonResponse(200, {
+            wsUrl: "ws://192.168.1.10:3773/ws",
+          });
+        }
+        return jsonResponse(404, { error: "Unexpected URL" });
+      }),
+    );
+
+    const ping = await pingCliHostConnection({
+      wsUrl: "ws://host.example:3773/ws",
+      authToken: "token-1",
+    });
+
+    expect(ping.status).toBe("available");
+  });
+
+  it("pings relay-backed hosts through the relay transport", async () => {
+    const requestSpy = vi
+      .spyOn(RelayRpcTransport.prototype, "request")
+      .mockResolvedValue({} as never);
+    const disposeSpy = vi.spyOn(RelayRpcTransport.prototype, "dispose").mockResolvedValue();
+    const relayDraft = buildRelayHostConnectionDraft({
+      pairing: {
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        sessionId: "session-1",
+        secret: "secret-1",
+      },
+      viewerIdentity: {
+        deviceId: "viewer-device-1",
+        publicKey: "viewer-public-key-1",
+      },
+    });
+
+    const ping = await pingCliHostConnection({
+      wsUrl: relayDraft.wsUrl,
+      stateDir: "/tmp/ace-cli-relay-test",
+    });
+
+    expect(ping.status).toBe("available");
+    expect(requestSpy).toHaveBeenCalledOnce();
+    expect(disposeSpy).toHaveBeenCalledOnce();
   });
 
   it("surfaces server pairing errors", async () => {

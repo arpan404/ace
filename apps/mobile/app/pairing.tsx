@@ -19,8 +19,7 @@ import { useTheme } from "../src/design/ThemeContext";
 import {
   createHostInstance,
   parseHostConnectionQrPayload,
-  requestPairingClaim,
-  waitForPairingApproval,
+  resolvePairingHostConnection,
 } from "../src/hostInstances";
 import { useHostStore } from "../src/store/HostStore";
 import { formatErrorMessage } from "../src/errors";
@@ -100,15 +99,10 @@ export default function PairingScreen() {
 
         if (parsed.kind === "pairing") {
           setStatusText("Connecting…");
-          const receipt = await requestPairingClaim(parsed.pairing, {
+          const resolvedHost = await resolvePairingHostConnection(parsed.pairing, {
             requesterName,
-            requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
-          });
-          setStatusText("Finalizing pairing…");
-          const resolvedHost = await waitForPairingApproval(receipt, {
             timeoutMs: 90_000,
             pollIntervalMs: 1_200,
-            requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
           });
           const host = createHostInstance(resolvedHost);
           addHost(host);

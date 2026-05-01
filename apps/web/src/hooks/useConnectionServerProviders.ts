@@ -1,24 +1,20 @@
-import { type ServerProvider } from "@ace/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  type ServerConfig,
+  type ServerConfigStreamEvent,
+  type ServerProvider,
+  type ServerSettings,
+} from "@ace/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { reportBackgroundError } from "../lib/async";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
 import { getRouteRpcClient } from "../lib/remoteWsRouter";
 import { normalizeWsUrl } from "../lib/remoteHosts";
-import { getServerConfig, useServerProviders } from "../rpc/serverState";
+import { useServerConfig } from "../rpc/serverState";
 
 const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
-const remoteProvidersByConnectionUrl = new Map<string, ReadonlyArray<ServerProvider>>();
-
-function readCachedConnectionProviders(
-  normalizedConnectionUrl: string,
-  localConnectionUrl: string,
-): ReadonlyArray<ServerProvider> {
-  if (normalizedConnectionUrl === localConnectionUrl) {
-    return getServerConfig()?.providers ?? EMPTY_SERVER_PROVIDERS;
-  }
-  return remoteProvidersByConnectionUrl.get(normalizedConnectionUrl) ?? EMPTY_SERVER_PROVIDERS;
-}
+const remoteServerConfigByConnectionUrl = new Map<string, ServerConfig>();
 
 function normalizeConnectionUrl(connectionUrl: string | null | undefined): string | null {
   const trimmed = connectionUrl?.trim();
@@ -59,59 +55,67 @@ export function resolveThreadOriginConnectionUrl(input: {
   return normalizeConnectionUrl(input.routeConnectionUrl) ?? localConnectionUrl;
 }
 
-export function useConnectionServerProviders(
+export function applyConnectionServerConfigEvent(
+  current: ServerConfig | null,
+  event: ServerConfigStreamEvent,
+): ServerConfig | null {
+  switch (event.type) {
+    case "snapshot":
+      return event.config;
+    case "keybindingsUpdated":
+      return current ? { ...current, issues: event.payload.issues } : current;
+    case "providerStatuses":
+      return current ? { ...current, providers: event.payload.providers } : current;
+    case "settingsUpdated":
+      return current ? { ...current, settings: event.payload.settings } : current;
+    case "relayUpdated":
+      return current ? { ...current, relay: event.payload.relay } : current;
+  }
+}
+
+export function useConnectionServerConfig(
   connectionUrl: string | null | undefined,
-  options?: { enabled?: boolean },
-): ReadonlyArray<ServerProvider> {
-  const enabled = options?.enabled ?? true;
+): ServerConfig | null {
+  const serverConfig = useServerConfig();
   const localConnectionUrl = resolveLocalConnectionUrl();
   const normalizedConnectionUrl = useMemo(
     () => normalizeConnectionUrl(connectionUrl) ?? localConnectionUrl,
     [connectionUrl, localConnectionUrl],
   );
   const isLocalConnection = normalizedConnectionUrl === localConnectionUrl;
-  const cachedProviders = useMemo(
-    () => readCachedConnectionProviders(normalizedConnectionUrl, localConnectionUrl),
-    [localConnectionUrl, normalizedConnectionUrl],
+  const [remoteConfig, setRemoteConfig] = useState<ServerConfig | null>(
+    remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null,
   );
-  const localProviders = useServerProviders({ enabled: enabled && isLocalConnection });
-  const [remoteProviders, setRemoteProviders] =
-    useState<ReadonlyArray<ServerProvider>>(cachedProviders);
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
     if (isLocalConnection) {
       return;
     }
-    setRemoteProviders(
-      remoteProvidersByConnectionUrl.get(normalizedConnectionUrl) ?? EMPTY_SERVER_PROVIDERS,
-    );
+    setRemoteConfig(remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null);
 
     let canceled = false;
     const client = getRouteRpcClient(normalizedConnectionUrl);
-    const applyProviders = (providers: ReadonlyArray<ServerProvider>) => {
-      remoteProvidersByConnectionUrl.set(normalizedConnectionUrl, providers);
+    const applyConfig = (config: ServerConfig) => {
+      remoteServerConfigByConnectionUrl.set(normalizedConnectionUrl, config);
       if (!canceled) {
-        setRemoteProviders(providers);
+        setRemoteConfig(config);
       }
     };
 
     const unsubscribe = client.server.subscribeConfig((event) => {
-      if (event.type === "snapshot") {
-        applyProviders(event.config.providers);
-        return;
-      }
-      if (event.type === "providerStatuses") {
-        applyProviders(event.payload.providers);
+      const nextConfig = applyConnectionServerConfigEvent(
+        remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null,
+        event,
+      );
+      if (nextConfig) {
+        applyConfig(nextConfig);
       }
     });
 
     void client.server
       .getConfig()
       .then((config) => {
-        applyProviders(config.providers);
+        applyConfig(config);
       })
       .catch((error) => {
         reportBackgroundError(
@@ -124,15 +128,37 @@ export function useConnectionServerProviders(
       canceled = true;
       unsubscribe();
     };
-  }, [enabled, isLocalConnection, normalizedConnectionUrl]);
-
-  if (!enabled) {
-    return cachedProviders;
-  }
+  }, [isLocalConnection, normalizedConnectionUrl]);
 
   if (isLocalConnection) {
-    return localProviders;
+    return serverConfig;
   }
 
-  return remoteProviders;
+  return remoteConfig;
+}
+
+export function useConnectionServerProviders(
+  connectionUrl: string | null | undefined,
+): ReadonlyArray<ServerProvider> {
+  const connectionServerConfig = useConnectionServerConfig(connectionUrl);
+  return connectionServerConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
+}
+
+export function useConnectionServerProviderSettings(
+  connectionUrl: string | null | undefined,
+): ServerSettings["providers"] {
+  const connectionServerConfig = useConnectionServerConfig(connectionUrl);
+  return connectionServerConfig?.settings.providers ?? DEFAULT_SERVER_SETTINGS.providers;
+}
+
+export function clearRemoteConnectionServerConfigCache(): void {
+  remoteServerConfigByConnectionUrl.clear();
+}
+
+export function getCachedRemoteConnectionServerConfig(connectionUrl: string): ServerConfig | null {
+  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
+  if (!normalizedConnectionUrl) {
+    return null;
+  }
+  return remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null;
 }

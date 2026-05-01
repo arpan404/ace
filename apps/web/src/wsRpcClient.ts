@@ -9,7 +9,7 @@ import {
 } from "@ace/contracts";
 import { Effect, Stream } from "effect";
 
-import { type WsRpcProtocolClient } from "./rpc/protocol";
+import { type WsClientConnectionIdentity, type WsRpcProtocolClient } from "./rpc/protocol";
 import { type WsTransportConnectionState, WsTransport } from "./wsTransport";
 
 type RpcTag = keyof WsRpcProtocolClient & string;
@@ -33,6 +33,25 @@ type RpcStreamMethod<TTag extends RpcTag> =
 
 interface GitRunStackedActionOptions {
   readonly onProgress?: (event: GitActionProgressEvent) => void;
+}
+
+interface RpcTransportLike {
+  readonly dispose: () => Promise<void>;
+  readonly getConnectionIdentity: () => WsClientConnectionIdentity;
+  readonly onConnectionStateChange: (
+    listener: (state: WsTransportConnectionState) => void,
+  ) => () => void;
+  readonly request: <TSuccess>(
+    execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
+  ) => Promise<TSuccess>;
+  readonly requestStream: <TValue>(
+    connect: (client: WsRpcProtocolClient) => Stream.Stream<TValue, Error, never>,
+    listener: (value: TValue) => void,
+  ) => Promise<void>;
+  readonly subscribe: <TValue>(
+    connect: (client: WsRpcProtocolClient) => Stream.Stream<TValue, Error, never>,
+    listener: (value: TValue) => void,
+  ) => () => void;
 }
 
 export interface WsRpcClient {
@@ -148,7 +167,7 @@ export async function resetWsRpcClient(): Promise<void> {
   sharedWsRpcClient = null;
 }
 
-export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
+export function createWsRpcClient(transport: RpcTransportLike = new WsTransport()): WsRpcClient {
   const streamIdentity = transport.getConnectionIdentity();
   return {
     dispose: () => transport.dispose(),

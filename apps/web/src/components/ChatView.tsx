@@ -7,13 +7,18 @@ import {
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
+  type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
+  type ServerProvider,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_DISPLAY_NAMES,
   type ThreadHandoffMode,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
+  type GitHubIssue,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -22,6 +27,7 @@ import {
 import * as Schema from "effect/Schema";
 import { buildProviderModelSelection } from "@ace/shared/model";
 import { truncate } from "@ace/shared/String";
+import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ComponentProps,
@@ -279,7 +285,7 @@ import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
-  useConnectionServerProviders,
+  useConnectionServerConfig,
   resolveThreadOriginConnectionUrl,
 } from "~/hooks/useConnectionServerProviders";
 import { useServerAvailableEditors, useServerKeybindings } from "~/rpc/serverState";
@@ -323,6 +329,9 @@ const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
+const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
+const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
+const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> =
@@ -681,10 +690,8 @@ export default function ChatView({
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
-  const providerSettings = useSetting("providers");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
-  const modelSettings = useMemo(() => ({ providers: providerSettings }), [providerSettings]);
   const {
     activeDraftThread: currentRouteDraftThread,
     activeThread: currentRouteThread,
@@ -1008,9 +1015,14 @@ export default function ChatView({
   );
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
-  const providerStatuses = useConnectionServerProviders(activeServerConnectionUrl, {
-    enabled: activeForSideEffects,
-  });
+  const connectionServerConfig = useConnectionServerConfig(activeServerConnectionUrl);
+  const providerStatuses = useMemo(
+    () => connectionServerConfig?.providers ?? EMPTY_PROVIDER_STATUSES,
+    [connectionServerConfig?.providers],
+  );
+  const providerSettings =
+    connectionServerConfig?.settings.providers ?? DEFAULT_UNIFIED_SETTINGS.providers;
+  const modelSettings = useMemo(() => ({ providers: providerSettings }), [providerSettings]);
   const localDraftThread = useMemo(
     () =>
       draftThread

@@ -1,17 +1,25 @@
 import { type FilesystemBrowseInput, type FilesystemBrowseResult } from "@ace/contracts";
 import { normalizeWsUrl, splitWsUrlAuthToken } from "@ace/shared/hostConnections";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
 
 import { reportBackgroundError } from "./async";
 import { createWsRpcClient, getWsRpcClient, type WsRpcClient } from "../wsRpcClient";
+import { loadWebRelayDeviceIdentity } from "./relayDeviceIdentity";
+import { resolveWebSecureRelayConnectionUrl } from "./relaySecureStorage";
 import { WsTransport } from "../wsTransport";
 import { resolveLocalDeviceWsUrl } from "./remoteHosts";
 
 const routeClientsByConnectionUrl = new Map<string, WsRpcClient>();
+const routeClientRelayListenerCleanupByConnectionUrl = new Map<string, () => void>();
 const routeAvailabilityByConnectionUrl = new Map<string, RemoteRouteAvailabilitySnapshot>();
 const routeRegistrationCountByConnectionUrl = new Map<string, number>();
 const inFlightAvailabilityByConnectionUrl = new Map<
   string,
   Promise<RemoteRouteAvailabilitySnapshot>
+>();
+const remoteRelayConnectionStateListeners = new Set<
+  (event: RemoteRelayConnectionStateEvent) => void
 >();
 let disposeHandlersRegistered = false;
 type RemoteDispatchCommand = Parameters<WsRpcClient["orchestration"]["dispatchCommand"]>[0];
@@ -24,6 +32,12 @@ const ROUTE_AVAILABILITY_MAX_AGE_MS = 3_000;
 export interface RemoteRouteAvailabilitySnapshot {
   readonly status: "unknown" | "checking" | "available" | "unavailable";
   readonly checkedAt: number;
+  readonly error?: string;
+}
+
+export interface RemoteRelayConnectionStateEvent {
+  readonly connectionUrl: string;
+  readonly kind: "disconnected" | "reconnected";
   readonly error?: string;
 }
 
@@ -41,6 +55,14 @@ function createRouteClientSessionId(): string {
       ? globalThis.crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `route-${randomSuffix}`;
+}
+
+function createRouteConnectionId(): string {
+  const randomSuffix =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `route-connection-${randomSuffix}`;
 }
 
 function isActiveConnectionUrl(connectionUrl: string): boolean {
@@ -67,6 +89,16 @@ function setRouteAvailability(
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
   routeAvailabilityByConnectionUrl.set(normalizedConnectionUrl, snapshot);
   return snapshot;
+}
+
+function emitRemoteRelayConnectionState(event: RemoteRelayConnectionStateEvent): void {
+  for (const listener of remoteRelayConnectionStateListeners) {
+    try {
+      listener(event);
+    } catch {
+      // Ignore listener failures so remote route state remains stable.
+    }
+  }
 }
 
 function ensureRouteTracked(connectionUrl: string): string {
@@ -110,17 +142,56 @@ function getOrCreateRouteClient(connectionUrl: string): WsRpcClient {
     return existingClient;
   }
   ensureDisposeHandlersRegistered();
-  const createdClient = createWsRpcClient(
-    new WsTransport(normalizedConnectionUrl, {
-      clientSessionId: createRouteClientSessionId(),
-      disableConnectionProbeLifecycle: true,
-    }),
-  );
+  const relayMetadata = parseRelayConnectionUrl(normalizedConnectionUrl);
+  const createdClient = relayMetadata
+    ? (() => {
+        const transport = new RelayRpcTransport({
+          connectionUrl: normalizedConnectionUrl,
+          clientSessionId: createRouteClientSessionId(),
+          connectionId: createRouteConnectionId(),
+          deviceName: "ace web",
+          loadIdentity: loadWebRelayDeviceIdentity,
+          resolveConnectionUrl: resolveWebSecureRelayConnectionUrl,
+        });
+        routeClientRelayListenerCleanupByConnectionUrl.set(
+          normalizedConnectionUrl,
+          transport.onConnectionStateChange((state) => {
+            if (state.kind === "disconnected") {
+              setRouteAvailability(normalizedConnectionUrl, {
+                status: "unavailable",
+                checkedAt: Date.now(),
+                ...(state.error ? { error: state.error } : {}),
+              });
+              clearInFlightSnapshotRequestsForConnection(normalizedConnectionUrl);
+              inFlightAvailabilityByConnectionUrl.delete(normalizedConnectionUrl);
+            } else {
+              setRouteAvailability(normalizedConnectionUrl, {
+                status: "available",
+                checkedAt: Date.now(),
+              });
+            }
+            emitRemoteRelayConnectionState({
+              connectionUrl: normalizedConnectionUrl,
+              kind: state.kind,
+              ...(state.error ? { error: state.error } : {}),
+            });
+          }),
+        );
+        return createWsRpcClient(transport);
+      })()
+    : createWsRpcClient(
+        new WsTransport(normalizedConnectionUrl, {
+          clientSessionId: createRouteClientSessionId(),
+          disableConnectionProbeLifecycle: true,
+        }),
+      );
   routeClientsByConnectionUrl.set(normalizedConnectionUrl, createdClient);
   return createdClient;
 }
 
 async function disposeRouteClientOnly(normalizedConnectionUrl: string): Promise<void> {
+  routeClientRelayListenerCleanupByConnectionUrl.get(normalizedConnectionUrl)?.();
+  routeClientRelayListenerCleanupByConnectionUrl.delete(normalizedConnectionUrl);
   const client = routeClientsByConnectionUrl.get(normalizedConnectionUrl);
   if (!client) {
     return;
@@ -191,6 +262,15 @@ export function readRemoteRouteAvailability(
   connectionUrl: string,
 ): RemoteRouteAvailabilitySnapshot {
   return resolveRouteAvailability(connectionUrl);
+}
+
+export function subscribeToRemoteRelayConnectionState(
+  listener: (event: RemoteRelayConnectionStateEvent) => void,
+): () => void {
+  remoteRelayConnectionStateListeners.add(listener);
+  return () => {
+    remoteRelayConnectionStateListeners.delete(listener);
+  };
 }
 
 async function probeRemoteRouteOverExistingClient(
@@ -351,6 +431,10 @@ export async function disposeAllRemoteRouteClients(): Promise<void> {
   routeAvailabilityByConnectionUrl.clear();
   inFlightAvailabilityByConnectionUrl.clear();
   inFlightSnapshotRequestByKey.clear();
+  for (const cleanup of routeClientRelayListenerCleanupByConnectionUrl.values()) {
+    cleanup();
+  }
+  routeClientRelayListenerCleanupByConnectionUrl.clear();
   const clients = [...routeClientsByConnectionUrl.values()];
   routeClientsByConnectionUrl.clear();
   await Promise.all(clients.map((client) => client.dispose()));

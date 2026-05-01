@@ -1,4 +1,5 @@
 import {
+  describeHostConnection,
   normalizeWsUrl,
   resolveHostDisplayName,
   splitWsUrlAuthToken,
@@ -23,6 +24,13 @@ export interface RemoveCliRemoteConnectionResult {
   readonly connection: CliRemoteConnectionSummary;
 }
 
+export interface CliRemoteConnectionDescriptor {
+  readonly mode: "direct" | "relay";
+  readonly target: string;
+  readonly detail: string;
+  readonly selectorValues: ReadonlyArray<string>;
+}
+
 export class CliRemoteConnectionCommandError extends Data.TaggedError(
   "CliRemoteConnectionCommandError",
 )<{
@@ -38,6 +46,46 @@ const listConnections = Effect.gen(function* () {
   const repository = yield* RemoteConnectionRepository;
   return yield* repository.listAll();
 });
+
+export function describeCliRemoteConnection(
+  connection: Pick<CliRemoteConnectionSummary, "wsUrl" | "authToken">,
+): CliRemoteConnectionDescriptor {
+  const descriptor = describeHostConnection({
+    wsUrl: connection.wsUrl,
+    authToken: connection.authToken,
+  });
+  if (descriptor.kind === "relay") {
+    return {
+      mode: "relay",
+      target: descriptor.relayHost ?? descriptor.endpointUrl,
+      detail: descriptor.detail,
+      selectorValues: descriptor.selectorValues,
+    };
+  }
+  return {
+    mode: "direct",
+    target: descriptor.summary,
+    detail: descriptor.detail,
+    selectorValues: descriptor.selectorValues,
+  };
+}
+
+export function remoteConnectionMatchesSelector(
+  connection: Pick<CliRemoteConnectionSummary, "id" | "name" | "wsUrl" | "authToken">,
+  selector: string,
+): boolean {
+  const trimmedSelector = selector.trim();
+  if (trimmedSelector.length === 0) {
+    return false;
+  }
+  if (connection.id === trimmedSelector || connection.name === trimmedSelector) {
+    return true;
+  }
+  const normalizedSelector = trimmedSelector.toLowerCase();
+  return describeCliRemoteConnection(connection).selectorValues.some(
+    (value) => value === trimmedSelector || value === normalizedSelector,
+  );
+}
 
 const normalizeRemoteConnectionInput = Effect.fn("normalizeRemoteConnectionInput")(
   function* (input: {
@@ -84,34 +132,15 @@ const findConnectionBySelector = Effect.fn("findConnectionBySelector")(function*
     });
   }
 
-  const maybeNormalizedSelectorWsUrl = yield* Effect.sync(() => {
-    try {
-      return Option.some(splitWsUrlAuthToken(normalizeWsUrl(trimmedSelector)).wsUrl);
-    } catch {
-      return Option.none<string>();
-    }
-  });
-  if (Option.isSome(maybeNormalizedSelectorWsUrl)) {
-    const byWsUrl = connections.filter(
-      (connection) => connection.wsUrl === maybeNormalizedSelectorWsUrl.value,
-    );
-    if (byWsUrl.length === 1) {
-      return byWsUrl[0]!;
-    }
-    if (byWsUrl.length > 1) {
-      return yield* new CliRemoteConnectionCommandError({
-        message: `Multiple remote connections matched '${trimmedSelector}'.`,
-      });
-    }
+  const bySelector = connections.filter((connection) =>
+    remoteConnectionMatchesSelector(connection, trimmedSelector),
+  );
+  if (bySelector.length === 1) {
+    return bySelector[0]!;
   }
-
-  const byName = connections.filter((connection) => connection.name === trimmedSelector);
-  if (byName.length === 1) {
-    return byName[0]!;
-  }
-  if (byName.length > 1) {
+  if (bySelector.length > 1) {
     return yield* new CliRemoteConnectionCommandError({
-      message: `Multiple remote connections matched '${trimmedSelector}'. Use id or ws url.`,
+      message: `Multiple remote connections matched '${trimmedSelector}'. Use id or a more specific selector.`,
     });
   }
 
