@@ -16,7 +16,9 @@ import {
   applyOrchestrationEvents,
   dismissThreadError,
   hydrateThreadFromReadModel,
+  mergeServerReadModel,
   pruneHydratedThreadHistories,
+  selectThreadById,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -81,6 +83,9 @@ function makeState(thread: Thread): AppState {
       },
     ],
     threads: [thread],
+    threadsById: {
+      [thread.id]: thread,
+    },
     sidebarThreadsById: {},
     threadIdsByProjectId,
     dismissedThreadErrorKeysById: {},
@@ -228,6 +233,24 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, makeReadModel(makeReadModelThread({})));
 
     expect(next.bootstrapComplete).toBe(true);
+  });
+
+  it("preserves project identity when snapshot sync has no project changes", () => {
+    const readModel = makeReadModel(makeReadModelThread({}));
+    const synced = syncServerReadModel(makeState(makeThread()), readModel);
+    const next = syncServerReadModel(synced, readModel);
+
+    expect(next.projects).toBe(synced.projects);
+    expect(next.projects[0]).toBe(synced.projects[0]);
+  });
+
+  it("preserves project identity when merging an unchanged project", () => {
+    const readModel = makeReadModel(makeReadModelThread({}));
+    const synced = syncServerReadModel(makeState(makeThread()), readModel);
+    const next = mergeServerReadModel(synced, readModel);
+
+    expect(next.projects).toBe(synced.projects);
+    expect(next.projects[0]).toBe(synced.projects[0]);
   });
 
   it("preserves claude model slugs without an active session", () => {
@@ -863,6 +886,39 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.bootstrapComplete).toBe(false);
+  });
+
+  it("keeps the active thread selector stable when an unrelated thread updates", () => {
+    const activeThreadId = ThreadId.makeUnsafe("thread-active");
+    const unrelatedThreadId = ThreadId.makeUnsafe("thread-unrelated");
+    const activeThread = makeThread({ id: activeThreadId, title: "Active thread" });
+    const unrelatedThread = makeThread({
+      id: unrelatedThreadId,
+      title: "Unrelated thread",
+    });
+    const state: AppState = {
+      ...makeState(activeThread),
+      threads: [activeThread, unrelatedThread],
+      threadsById: {
+        [activeThread.id]: activeThread,
+        [unrelatedThread.id]: unrelatedThread,
+      },
+      threadIdsByProjectId: {
+        [activeThread.projectId]: [activeThread.id, unrelatedThread.id],
+      },
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.meta-updated", {
+        threadId: unrelatedThreadId,
+        title: "Updated unrelated thread",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threadsById?.[activeThreadId]).toBe(activeThread);
+    expect(selectThreadById(activeThreadId)(next)).toBe(activeThread);
   });
 
   it("preserves state identity for no-op project and thread deletes", () => {
