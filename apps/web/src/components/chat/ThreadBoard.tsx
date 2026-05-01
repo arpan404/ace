@@ -257,6 +257,7 @@ function ThreadBoardPane(props: {
         )}
       >
         <ChatView
+          activeInBoard={isFocusedPane}
           connectionUrl={pane.connectionUrl}
           paneControls={
             !props.isSinglePane ? (
@@ -360,7 +361,6 @@ export function ThreadBoard(props: {
       : null,
   );
   const savedSplitCount = useChatThreadBoardStore((state) => state.splits.length);
-  const sidebarThreadsById = useStore((state) => state.sidebarThreadsById);
   const closePane = useChatThreadBoardStore((state) => state.closePane);
   const movePane = useChatThreadBoardStore((state) => state.movePane);
   const openThreadInBoard = useChatThreadBoardStore((state) => state.openThreadInBoard);
@@ -559,10 +559,10 @@ export function ThreadBoard(props: {
         fallbackIndex: savedSplitCount + 1,
         threads: threads.map((thread) => ({
           threadId: thread.threadId,
-          title: thread.title ?? sidebarThreadsById[thread.threadId]?.title,
+          title: thread.title ?? useStore.getState().sidebarThreadsById[thread.threadId]?.title,
         })),
       }),
-    [savedSplitCount, sidebarThreadsById],
+    [savedSplitCount],
   );
 
   const promotePane = useCallback(
@@ -756,7 +756,7 @@ export function ThreadBoard(props: {
         : buildBoardTitle([
             {
               threadId: activeRouteThread.threadId,
-              title: sidebarThreadsById[activeRouteThread.threadId]?.title,
+              title: useStore.getState().sidebarThreadsById[activeRouteThread.threadId]?.title,
             },
             draggedThread,
           ]);
@@ -783,7 +783,6 @@ export function ThreadBoard(props: {
       movePane,
       navigateToBoardRoute,
       openThreadInBoard,
-      sidebarThreadsById,
       syncRouteThread,
     ],
   );
