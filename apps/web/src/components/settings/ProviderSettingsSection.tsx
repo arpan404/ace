@@ -121,7 +121,7 @@ export function ProviderSettingsSection({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 gap-1.5 px-2 text-xs"
+                  className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
                   disabled={isRefreshingProviders}
                   onClick={() => void refreshProviders()}
                   aria-label="Refresh provider status"
@@ -147,24 +147,24 @@ export function ProviderSettingsSection({
           PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
 
         return (
-          <div key={providerCard.provider} className="border-t border-border/12 first:border-t-0">
-            <div className="px-4 py-3 sm:px-5">
-              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div key={providerCard.provider} className="border-t border-border/45 first:border-t-0">
+            <div className="px-3 py-3 sm:px-4">
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="flex min-h-5 items-center gap-1.5">
+                  <div className="flex min-h-5 min-w-0 items-center gap-1.5">
                     <span
                       className={cn("size-1.5 shrink-0 rounded-full", providerCard.statusStyle.dot)}
                     />
-                    <h3 className="text-[13px] font-medium tracking-tight text-foreground/85">
+                    <h3 className="min-w-0 truncate text-[13px] font-medium tracking-tight text-foreground/90">
                       {providerDisplayName}
                     </h3>
                     {providerCard.versionLabel ? (
-                      <code className="text-[11px] text-muted-foreground/45">
+                      <code className="shrink-0 text-[11px] text-muted-foreground/50">
                         {providerCard.versionLabel}
                       </code>
                     ) : null}
-                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                      {providerCard.isDirty ? (
+                    {providerCard.isDirty ? (
+                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
                         <SettingResetButton
                           label={`${providerDisplayName} provider settings`}
                           onClick={() => {
@@ -181,19 +181,19 @@ export function ProviderSettingsSection({
                             }));
                           }}
                         />
-                      ) : null}
-                    </span>
+                      </span>
+                    ) : null}
                   </div>
-                  <p className="text-[12px] leading-relaxed text-muted-foreground/45">
+                  <p className="text-[12px] leading-relaxed text-muted-foreground/65">
                     {providerCard.summary.headline}
                     {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
                   </p>
                 </div>
-                <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+                <div className="flex w-full shrink-0 items-center gap-2 md:w-auto md:justify-end">
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-xs text-muted-foreground/45 transition-colors duration-150 hover:text-foreground/70"
+                    className="h-7 rounded-[var(--control-radius)] px-2 text-xs text-muted-foreground/55 transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-foreground"
                     onClick={() =>
                       setOpenProviderDetails((existing) => ({
                         ...existing,
@@ -247,13 +247,13 @@ export function ProviderSettingsSection({
               }
             >
               <CollapsibleContent>
-                <div className="space-y-0">
-                  <div className="border-t border-border/12 px-4 py-3 sm:px-5">
+                <div className="space-y-0 bg-background/25">
+                  <div className="border-t border-border/45 px-3 py-3 sm:px-4">
                     <label
                       htmlFor={`provider-install-${providerCard.provider}-binary-path`}
                       className="block"
                     >
-                      <span className="text-[12px] font-medium text-foreground/80">
+                      <span className="text-[12px] font-medium text-foreground/85">
                         {providerDisplayName} binary path
                       </span>
                       <Input
@@ -274,19 +274,19 @@ export function ProviderSettingsSection({
                         placeholder={providerCard.binaryPlaceholder}
                         spellCheck={false}
                       />
-                      <span className="mt-1 block text-[11px] text-muted-foreground/45">
+                      <span className="mt-1 block text-[11px] text-muted-foreground/60">
                         {providerCard.binaryDescription}
                       </span>
                     </label>
                   </div>
 
                   {providerCard.provider === "githubCopilot" ? (
-                    <div className="border-t border-border/12 px-4 py-3 sm:px-5">
+                    <div className="border-t border-border/45 px-3 py-3 sm:px-4">
                       <label
                         htmlFor={`provider-install-${providerCard.provider}-cli-url`}
                         className="block"
                       >
-                        <span className="text-[12px] font-medium text-foreground/80">
+                        <span className="text-[12px] font-medium text-foreground/85">
                           Copilot CLI server URL
                         </span>
                         <Input
@@ -308,7 +308,7 @@ export function ProviderSettingsSection({
                           spellCheck={false}
                         />
                         {providerCard.cliUrlDescription ? (
-                          <span className="mt-1 block text-[11px] text-muted-foreground/45">
+                          <span className="mt-1 block text-[11px] text-muted-foreground/60">
                             {providerCard.cliUrlDescription}
                           </span>
                         ) : null}
@@ -317,12 +317,12 @@ export function ProviderSettingsSection({
                   ) : null}
 
                   {providerCard.homePathKey ? (
-                    <div className="border-t border-border/12 px-4 py-3 sm:px-5">
+                    <div className="border-t border-border/45 px-3 py-3 sm:px-4">
                       <label
                         htmlFor={`provider-install-${providerCard.homePathKey}`}
                         className="block"
                       >
-                        <span className="text-[12px] font-medium text-foreground/80">
+                        <span className="text-[12px] font-medium text-foreground/85">
                           CODEX_HOME path
                         </span>
                         <Input
@@ -344,7 +344,7 @@ export function ProviderSettingsSection({
                           spellCheck={false}
                         />
                         {providerCard.homeDescription ? (
-                          <span className="mt-1 block text-[11px] text-muted-foreground/45">
+                          <span className="mt-1 block text-[11px] text-muted-foreground/60">
                             {providerCard.homeDescription}
                           </span>
                         ) : null}
@@ -352,9 +352,9 @@ export function ProviderSettingsSection({
                     </div>
                   ) : null}
 
-                  <div className="border-t border-border/12 px-4 py-3 sm:px-5">
-                    <div className="text-[12px] font-medium text-foreground/80">Models</div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground/45">
+                  <div className="border-t border-border/45 px-3 py-3 sm:px-4">
+                    <div className="text-[12px] font-medium text-foreground/85">Models</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground/60">
                       {providerCard.models.length} model
                       {providerCard.models.length === 1 ? "" : "s"} available.
                     </div>
@@ -377,7 +377,7 @@ export function ProviderSettingsSection({
                         return (
                           <div
                             key={`${providerCard.provider}:${model.slug}`}
-                            className="flex items-center gap-2 py-1"
+                            className="flex items-center gap-2 border-t border-border/25 py-1.5 first:border-t-0"
                           >
                             <span className="min-w-0 truncate text-xs text-foreground/90">
                               {model.name}
@@ -418,7 +418,7 @@ export function ProviderSettingsSection({
                             ) : null}
                             {model.isCustom ? (
                               <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                                <span className="text-[10px] text-muted-foreground">custom</span>
+                                <span className="text-[10px] text-muted-foreground/70">custom</span>
                                 <button
                                   type="button"
                                   className="text-muted-foreground transition-colors hover:text-foreground"

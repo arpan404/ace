@@ -15,7 +15,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
 }) {
   return (
     <div className={cn("min-w-0", className)} role="listbox" aria-label="Theme presets">
-      <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-1.5">
         {THEME_PRESET_OPTIONS.map((option) => {
           const active = value === option.id;
           const { preview } = option;
@@ -41,9 +41,9 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                 onChange(option.id);
               }}
               className={cn(
-                "group relative flex aspect-video w-full min-w-0 flex-col overflow-hidden rounded-xl border p-2 text-left outline-none transition-[border-color,box-shadow,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "group relative flex h-[68px] w-full min-w-0 flex-col overflow-hidden rounded-[var(--control-radius)] border p-1.5 text-left outline-none transition-[border-color,box-shadow,background-color,transform] duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 !active &&
-                  "border-border bg-card hover:border-muted-foreground/35 hover:bg-accent/25",
+                  "border-pill-border/55 bg-background/34 hover:border-muted-foreground/35 hover:bg-foreground/[0.035]",
                 active && "border-transparent",
               )}
               style={
@@ -51,8 +51,8 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                   ? {
                       ...presetStyle,
                       borderColor: accent,
-                      backgroundColor: `color-mix(in oklch, ${accent} 8%, var(--card))`,
-                      boxShadow: `0 0 0 1px color-mix(in oklch, ${accent} 40%, transparent)`,
+                      backgroundColor: `color-mix(in oklch, ${accent} 7%, var(--pill))`,
+                      boxShadow: `0 0 0 1px color-mix(in oklch, ${accent} 38%, transparent)`,
                     }
                   : presetStyle
               }
@@ -61,10 +61,10 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                 <Badge
                   variant="outline"
                   size="sm"
-                  className="absolute top-1.5 right-1.5 z-10 h-5 border px-1.5 text-[10px] font-medium text-foreground"
+                  className="absolute top-1 right-1 z-10 h-4.5 rounded-[var(--control-radius)] border px-1.5 text-[9.5px] font-medium text-foreground"
                   style={{
                     borderColor: `color-mix(in oklch, ${accent} 30%, var(--border))`,
-                    backgroundColor: `color-mix(in oklch, ${accent} 20%, var(--card))`,
+                    backgroundColor: `color-mix(in oklch, ${accent} 18%, var(--pill))`,
                   }}
                 >
                   Active
@@ -76,12 +76,12 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                   active && "pr-10",
                 )}
               >
-                <p className="truncate text-[12px] font-semibold leading-tight text-foreground">
+                <p className="truncate text-[11px] font-semibold leading-tight text-foreground">
                   {option.label}
                 </p>
               </div>
               <div
-                className="mt-1.5 flex min-h-0 flex-1 flex-col rounded-md border border-white/5 p-1.5"
+                className="mt-1 flex min-h-0 flex-1 flex-col rounded-[calc(var(--control-radius)-1px)] border border-white/5 p-1.25"
                 style={{
                   background: mockBackground,
                 }}
@@ -96,7 +96,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                     style={{ background: mockRight }}
                   />
                 </div>
-                <div className="mt-1.5 flex h-1.5 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10">
+                <div className="mt-1 flex h-1.25 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10">
                   <div className="h-full w-1/2" style={{ background: preview.accent }} />
                   <div className="h-full w-1/2" style={{ background: preview.accentMuted }} />
                 </div>

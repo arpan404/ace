@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { ServerProvider } from "@ace/contracts";
 
 import { formatRelativeTime } from "../../timestampFormat";
+import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -142,25 +143,43 @@ export function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string |
 
 export function SettingsSection({
   title,
+  description,
   icon,
   headerAction,
+  contentClassName,
   children,
 }: {
   title: string;
+  description?: ReactNode;
   icon?: ReactNode;
   headerAction?: ReactNode;
+  contentClassName?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {icon}
-          {title}
-        </h2>
-        {headerAction}
+    <section className="min-w-0 space-y-1.5">
+      <div className="flex min-w-0 flex-col gap-2 px-0.5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-0.5">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/62">
+            {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
+            <span className="min-w-0 truncate">{title}</span>
+          </h2>
+          {description ? (
+            <p className="max-w-2xl text-[11px] leading-relaxed text-muted-foreground/52">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {headerAction ? (
+          <div className="flex min-h-7 shrink-0 items-center sm:justify-end">{headerAction}</div>
+        ) : null}
       </div>
-      <div className="relative overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
+      <div
+        className={cn(
+          "relative min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-pill-border/58 bg-pill/58 text-card-foreground supports-[backdrop-filter]:bg-pill/48 supports-[backdrop-filter]:backdrop-blur-lg",
+          contentClassName,
+        )}
+      >
         {children}
       </div>
     </section>
@@ -173,6 +192,8 @@ export function SettingsRow({
   status,
   resetAction,
   control,
+  controlClassName,
+  tone = "default",
   children,
 }: {
   title: ReactNode;
@@ -180,23 +201,42 @@ export function SettingsRow({
   status?: ReactNode;
   resetAction?: ReactNode;
   control?: ReactNode;
+  controlClassName?: string;
+  tone?: "default" | "warning" | "danger";
   children?: ReactNode;
 }) {
   return (
-    <div className="border-t border-border px-4 py-4 first:border-t-0 sm:px-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className={cn(
+        "border-t border-pill-border/48 px-3 py-2.75 transition-colors duration-150 first:border-t-0 hover:bg-foreground/[0.018] sm:px-4",
+        tone === "warning" && "bg-warning/[0.04]",
+        tone === "danger" && "bg-destructive/[0.04]",
+      )}
+    >
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
         <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className="text-[13px] font-medium text-foreground">{title}</h3>
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-              {resetAction}
-            </span>
+          <div className="flex min-h-5 min-w-0 items-center gap-1.5">
+            <h3 className="min-w-0 text-[13px] leading-snug font-medium text-foreground/88">
+              {title}
+            </h3>
+            {resetAction ? (
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                {resetAction}
+              </span>
+            ) : null}
           </div>
-          <p className="text-[12px] leading-relaxed text-muted-foreground">{description}</p>
-          {status ? <div className="pt-0.5 text-[11px] text-muted-foreground">{status}</div> : null}
+          <p className="text-[12px] leading-relaxed text-muted-foreground/58">{description}</p>
+          {status ? (
+            <div className="pt-0.5 text-[11px] text-muted-foreground/60">{status}</div>
+          ) : null}
         </div>
         {control ? (
-          <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+          <div
+            className={cn(
+              "flex w-full min-w-0 shrink-0 items-center gap-2 md:w-auto md:justify-end",
+              controlClassName,
+            )}
+          >
             {control}
           </div>
         ) : null}
@@ -215,7 +255,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
             size="icon-xs"
             variant="ghost"
             aria-label={`Reset ${label} to default`}
-            className="size-5 rounded-md p-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
+            className="size-5 rounded-[var(--control-radius)] p-0 text-muted-foreground/55 transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               onClick();
@@ -232,8 +272,10 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
 
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
-    <div className="flex-1 overflow-y-auto p-5 sm:p-8">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">{children}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5 [&_[data-slot=input-control]]:border-border/64 [&_[data-slot=input-control]]:bg-background/72 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/64 [&_[data-slot=select-button]]:bg-background/72 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+        {children}
+      </div>
     </div>
   );
 }
