@@ -38,6 +38,7 @@ import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-
 import {
   type DesktopUpdateState,
   type FilesystemBrowseResult,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
   ProjectId,
   ThreadId,
@@ -47,7 +48,7 @@ import { type SidebarProjectSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
-import { cn } from "../lib/utils";
+import { cn, randomUUID } from "../lib/utils";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
@@ -166,6 +167,7 @@ import type {
   RemoteSidebarThreadEntry,
 } from "./sidebar/sidebarTypes";
 import { prefetchHydratedThread, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import { describeHostConnection } from "@ace/shared/hostConnections";
 import {
   isHostConnectionActive,
   loadConnectedRemoteHostIds,
@@ -230,6 +232,41 @@ type BoardThreadDragState = {
   overTargetKey: string | null;
 };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
+
+function createOptimisticProjectCreatedEvent(input: {
+  projectId: ProjectId;
+  title: string;
+  workspaceRoot: string;
+  createdAt: string;
+  defaultModelSelection: {
+    provider: "codex";
+    model: string;
+  };
+}): OrchestrationEvent {
+  return {
+    type: "project.created",
+    sequence: 0,
+    eventId: randomUUID() as OrchestrationEvent["eventId"],
+    aggregateKind: "project",
+    aggregateId: input.projectId,
+    occurredAt: input.createdAt,
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    payload: {
+      projectId: input.projectId,
+      title: input.title,
+      workspaceRoot: input.workspaceRoot,
+      defaultModelSelection: input.defaultModelSelection,
+      scripts: [],
+      icon: null,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+      archivedAt: null,
+    },
+  };
+}
 let remoteSidebarHostSnapshotCache: ReadonlyArray<RemoteSidebarHostEntry> = [];
 
 function isEditableHotkeyTarget(target: EventTarget | null): boolean {
@@ -799,6 +836,7 @@ export default function Sidebar() {
   const [projectBrowseResult, setProjectBrowseResult] = useState<FilesystemBrowseResult | null>(
     null,
   );
+  const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
   const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
   const lastKeyboardNavigationTimeRef = useRef(0);
   const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
@@ -1436,11 +1474,12 @@ export default function Sidebar() {
   const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
     const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
     const connectedHostIds = new Set(projectPickerConnectedHostIds);
+    const localConnectionDescriptor = describeHostConnection(localDeviceHost);
 
     uniqueByConnection.set(localDeviceConnectionUrl, {
       id: "local-device",
       name: "This device",
-      subtitle: localDeviceHost.wsUrl,
+      subtitle: localConnectionDescriptor.summary,
       connectionUrl: localDeviceConnectionUrl,
       icon: {
         glyph: "terminal",
@@ -1458,10 +1497,17 @@ export default function Sidebar() {
       if (uniqueByConnection.has(connectionUrl)) {
         continue;
       }
+      const connectionDescriptor = describeHostConnection({
+        wsUrl: host.wsUrl,
+        authToken: host.authToken,
+      });
       uniqueByConnection.set(connectionUrl, {
         id: host.id,
         name: host.name,
-        subtitle: host.wsUrl,
+        subtitle:
+          connectionDescriptor.kind === "relay"
+            ? `${connectionDescriptor.summary} · ${connectionDescriptor.detail}`
+            : connectionDescriptor.summary,
         connectionUrl,
         icon:
           host.iconGlyph && host.iconColor
@@ -1478,7 +1524,7 @@ export default function Sidebar() {
     return [...uniqueByConnection.values()];
   }, [
     localDeviceConnectionUrl,
-    localDeviceHost.wsUrl,
+    localDeviceHost,
     projectPickerConnectedHostIds,
     projectPickerRemoteHosts,
   ]);
@@ -1494,6 +1540,10 @@ export default function Sidebar() {
       null
     );
   }, [pickerEnvironments, projectPickerSelectedConnectionUrl]);
+  const selectedProjectPickerConnectionUrl =
+    selectedProjectPickerEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
+  const selectedProjectPickerIsLocal = selectedProjectPickerEnvironment?.isLocal ?? true;
+  const selectedProjectPickerName = selectedProjectPickerEnvironment?.name ?? "remote host";
   const normalizedProjectPickerEnvironmentQuery = projectPickerEnvironmentQuery
     .trim()
     .toLowerCase();
@@ -1930,6 +1980,7 @@ export default function Sidebar() {
       const trimmedPath = partialPath.trim();
       if (!addingProject || projectPickerStep !== "directory" || !trimmedPath) {
         setProjectBrowseResult(null);
+        setProjectBrowseLoadedPath(null);
         setActiveProjectBrowseIndex(-1);
         return;
       }
@@ -1938,20 +1989,23 @@ export default function Sidebar() {
       browseRequestVersionRef.current = requestVersion;
       setIsBrowsingProjectPaths(true);
       try {
-        const targetEnvironment = selectedProjectPickerEnvironment;
-        const targetConnectionUrl = targetEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
-        const browseResult = await routeFilesystemBrowseToRemote(targetConnectionUrl, {
-          partialPath: trimmedPath,
-        });
+        const browseResult = await routeFilesystemBrowseToRemote(
+          selectedProjectPickerConnectionUrl,
+          {
+            partialPath: trimmedPath,
+          },
+        );
         if (browseRequestVersionRef.current !== requestVersion) {
           return;
         }
+        setProjectBrowseLoadedPath(trimmedPath);
         setProjectBrowseResult(browseResult);
         setActiveProjectBrowseIndex(browseResult.entries.length > 0 ? 0 : -1);
       } catch (error) {
         if (browseRequestVersionRef.current !== requestVersion) {
           return;
         }
+        setProjectBrowseLoadedPath(trimmedPath);
         setProjectBrowseResult(null);
         setActiveProjectBrowseIndex(-1);
         setAddProjectError(
@@ -1963,12 +2017,13 @@ export default function Sidebar() {
         }
       }
     },
-    [addingProject, localDeviceConnectionUrl, projectPickerStep, selectedProjectPickerEnvironment],
+    [addingProject, projectPickerStep, selectedProjectPickerConnectionUrl],
   );
 
   useEffect(() => {
     if (!addingProject || projectPickerStep !== "directory") {
       setProjectBrowseResult(null);
+      setProjectBrowseLoadedPath(null);
       setActiveProjectBrowseIndex(-1);
       setIsBrowsingProjectPaths(false);
       return;
@@ -1976,6 +2031,7 @@ export default function Sidebar() {
     const trimmedPath = newCwd.trim();
     if (!trimmedPath) {
       setProjectBrowseResult(null);
+      setProjectBrowseLoadedPath(null);
       setActiveProjectBrowseIndex(-1);
       return;
     }
@@ -1991,9 +2047,8 @@ export default function Sidebar() {
 
   const addProjectFromPath = useCallback(
     async (rawCwd: string, options?: { revealOnError?: boolean }) => {
-      const targetEnvironment = selectedProjectPickerEnvironment;
-      const isLocalEnvironment = targetEnvironment?.isLocal ?? true;
-      const targetConnectionUrl = targetEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
+      const isLocalEnvironment = selectedProjectPickerIsLocal;
+      const targetConnectionUrl = selectedProjectPickerConnectionUrl;
       const cwd = resolveProjectPath(
         rawCwd,
         isLocalEnvironment ? addProjectBaseDirectory : undefined,
@@ -2038,6 +2093,10 @@ export default function Sidebar() {
       const createdAt = new Date().toISOString();
       const title = inferProjectTitle(cwd) || cwd;
       try {
+        const defaultModelSelection = {
+          provider: "codex" as const,
+          model: getDefaultServerModel(providerStatuses, "codex"),
+        };
         await routeOrchestrationDispatchCommandToRemote(targetConnectionUrl, {
           type: "project.create",
           commandId: newCommandId(),
@@ -2045,18 +2104,26 @@ export default function Sidebar() {
           title,
           workspaceRoot: cwd,
           createWorkspaceRootIfMissing: true,
-          defaultModelSelection: {
-            provider: "codex",
-            model: getDefaultServerModel(providerStatuses, "codex"),
-          },
+          defaultModelSelection,
           createdAt,
         });
+        if (isLocalEnvironment) {
+          useStore.getState().applyOrchestrationEvent(
+            createOptimisticProjectCreatedEvent({
+              projectId,
+              title,
+              workspaceRoot: cwd,
+              createdAt,
+              defaultModelSelection,
+            }),
+          );
+        }
         finishAddingProject();
         refreshRemoteSidebarHosts().catch(() => undefined);
         if (!isLocalEnvironment) {
           toastManager.add({
             type: "success",
-            title: `Added project on ${targetEnvironment?.name ?? "remote host"}.`,
+            title: `Added project on ${selectedProjectPickerName}.`,
           });
         } else {
           handleNewThread(projectId, {
@@ -2091,7 +2158,9 @@ export default function Sidebar() {
       providerStatuses,
       projects,
       refreshRemoteSidebarHosts,
-      selectedProjectPickerEnvironment,
+      selectedProjectPickerConnectionUrl,
+      selectedProjectPickerIsLocal,
+      selectedProjectPickerName,
     ],
   );
 
@@ -2099,13 +2168,26 @@ export default function Sidebar() {
     void addProjectFromPath(newCwd);
   }, [addProjectFromPath, newCwd]);
 
+  const canAddProject =
+    projectPickerStep === "directory" && newCwd.trim().length > 0 && !isAddingProject;
+  const currentProjectBrowsePath = newCwd.trim();
+  const currentProjectBrowseResult =
+    projectBrowseLoadedPath !== null && projectBrowseLoadedPath === currentProjectBrowsePath
+      ? projectBrowseResult
+      : null;
+  const isWaitingForCurrentProjectBrowse =
+    projectPickerStep === "directory" &&
+    currentProjectBrowsePath.length > 0 &&
+    currentProjectBrowseResult === null &&
+    addProjectError === null;
+
   const handleBrowseProjectEntry = useCallback((fullPath: string) => {
     setAddProjectError(null);
     setNewCwd(toBrowseDirectoryPath(fullPath));
   }, []);
 
   const handleBrowseParentPath = useCallback(() => {
-    const currentPath = projectBrowseResult?.parentPath ?? newCwd.trim();
+    const currentPath = currentProjectBrowseResult?.parentPath ?? newCwd.trim();
     if (!currentPath) {
       return;
     }
@@ -2115,16 +2197,14 @@ export default function Sidebar() {
     }
     setNewCwd(toBrowseDirectoryPath(nextPath));
     setAddProjectError(null);
-  }, [newCwd, projectBrowseResult]);
+  }, [currentProjectBrowseResult, newCwd]);
 
-  const canAddProject =
-    projectPickerStep === "directory" && newCwd.trim().length > 0 && !isAddingProject;
   const normalizedResolvedProjectPath = useMemo(() => {
-    const shouldResolveAsLocal = selectedProjectPickerEnvironment?.isLocal ?? true;
+    const shouldResolveAsLocal = selectedProjectPickerIsLocal;
     return resolveProjectPath(newCwd, shouldResolveAsLocal ? addProjectBaseDirectory : undefined)
       .trim()
       .toLowerCase();
-  }, [addProjectBaseDirectory, newCwd, selectedProjectPickerEnvironment]);
+  }, [addProjectBaseDirectory, newCwd, selectedProjectPickerIsLocal]);
   const isBrowsePathExactDirectoryMatch = useMemo(() => {
     const trimmedPath = newCwd.trim();
     if (!trimmedPath) {
@@ -2134,11 +2214,11 @@ export default function Sidebar() {
       return true;
     }
     return (
-      projectBrowseResult?.entries.some(
+      currentProjectBrowseResult?.entries.some(
         (entry) => entry.fullPath.trim().toLowerCase() === normalizedResolvedProjectPath,
       ) ?? false
     );
-  }, [newCwd, normalizedResolvedProjectPath, projectBrowseResult]);
+  }, [currentProjectBrowseResult, newCwd, normalizedResolvedProjectPath]);
   const addProjectActionLabel = isAddingProject
     ? "Adding..."
     : isBrowsePathExactDirectoryMatch
@@ -2236,7 +2316,7 @@ export default function Sidebar() {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setActiveProjectBrowseIndex((index) => {
-          const entryCount = projectBrowseResult?.entries.length ?? 0;
+          const entryCount = currentProjectBrowseResult?.entries.length ?? 0;
           if (entryCount === 0) {
             return -1;
           }
@@ -2247,7 +2327,7 @@ export default function Sidebar() {
       if (event.key === "ArrowUp") {
         event.preventDefault();
         setActiveProjectBrowseIndex((index) => {
-          const entryCount = projectBrowseResult?.entries.length ?? 0;
+          const entryCount = currentProjectBrowseResult?.entries.length ?? 0;
           if (entryCount === 0) {
             return -1;
           }
@@ -2258,7 +2338,7 @@ export default function Sidebar() {
       if (event.key === "ArrowRight") {
         const selectedEntry =
           activeProjectBrowseIndex >= 0
-            ? projectBrowseResult?.entries[activeProjectBrowseIndex]
+            ? currentProjectBrowseResult?.entries[activeProjectBrowseIndex]
             : undefined;
         if (selectedEntry) {
           event.preventDefault();
@@ -2309,7 +2389,7 @@ export default function Sidebar() {
       handleSelectProjectPickerEnvironment,
       projectPickerEnvironmentQuery,
       projectPickerStep,
-      projectBrowseResult,
+      currentProjectBrowseResult,
       pickerEnvironments.length,
     ],
   );
@@ -2321,7 +2401,7 @@ export default function Sidebar() {
     const itemCount =
       projectPickerStep === "environment"
         ? filteredPickerEnvironments.length
-        : (projectBrowseResult?.entries.length ?? 0);
+        : (currentProjectBrowseResult?.entries.length ?? 0);
     setActiveProjectBrowseIndex((currentIndex) => {
       if (itemCount === 0) {
         return -1;
@@ -2331,7 +2411,12 @@ export default function Sidebar() {
       }
       return Math.min(currentIndex, itemCount - 1);
     });
-  }, [addingProject, filteredPickerEnvironments.length, projectBrowseResult, projectPickerStep]);
+  }, [
+    addingProject,
+    currentProjectBrowseResult,
+    filteredPickerEnvironments.length,
+    projectPickerStep,
+  ]);
 
   useEffect(() => {
     if (!addingProject || activeProjectBrowseIndex < 0) {
@@ -3435,9 +3520,12 @@ export default function Sidebar() {
     }
     return visibleRemoteSidebarHosts
       .map((entry) => {
+        const connectionDescriptor = describeHostConnection(entry.host);
         const hostMatches =
           entry.host.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
-          entry.host.wsUrl.toLowerCase().includes(normalizedProjectSearchQuery);
+          connectionDescriptor.selectorValues.some((value) =>
+            value.toLowerCase().includes(normalizedProjectSearchQuery),
+          );
         const filteredProjects = entry.projects.filter((project) => {
           if (
             project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
@@ -5195,7 +5283,7 @@ export default function Sidebar() {
                       No matching environments
                     </p>
                   )
-                ) : isBrowsingProjectPaths ? (
+                ) : isBrowsingProjectPaths || isWaitingForCurrentProjectBrowse ? (
                   <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
                     Browsing directories...
                   </p>
@@ -5210,8 +5298,8 @@ export default function Sidebar() {
                       <ArrowUpIcon className="size-4" strokeWidth={2} />
                       <span className="font-semibold">..</span>
                     </button>
-                    {projectBrowseResult?.entries.length ? (
-                      projectBrowseResult.entries.map((entry, index) => (
+                    {currentProjectBrowseResult?.entries.length ? (
+                      currentProjectBrowseResult.entries.map((entry, index) => (
                         <button
                           key={entry.fullPath}
                           type="button"

@@ -1,14 +1,17 @@
 import { randomUUID } from "@ace/shared/ids";
 import {
+  buildRelayHostConnectionDraft,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
   requestPairingClaim,
+  type HostConnectionDraft,
+  type HostPairingPayload,
   resolveHostDisplayName,
   waitForPairingApproval,
-  type HostConnectionDraft,
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 import { NativeModules, Platform } from "react-native";
+import { loadMobileRelayDeviceIdentity } from "./relayDeviceIdentity";
 
 const DEFAULT_ACE_PORT = 3773;
 
@@ -93,6 +96,29 @@ export {
   waitForPairingApproval,
   wsUrlToBrowserBaseUrl,
 };
+
+export async function resolvePairingHostConnection(
+  pairing: HostPairingPayload,
+  options?: {
+    readonly requesterName?: string;
+    readonly timeoutMs?: number;
+    readonly pollIntervalMs?: number;
+  },
+): Promise<HostConnectionDraft> {
+  if (pairing.relayUrl && pairing.hostDeviceId && pairing.hostIdentityPublicKey) {
+    return buildRelayHostConnectionDraft({
+      pairing,
+      viewerIdentity: await loadMobileRelayDeviceIdentity(),
+    });
+  }
+  const receipt = await requestPairingClaim(pairing, {
+    ...(options?.requesterName ? { requesterName: options.requesterName } : {}),
+  });
+  return waitForPairingApproval(receipt, {
+    ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options?.pollIntervalMs !== undefined ? { pollIntervalMs: options.pollIntervalMs } : {}),
+  });
+}
 
 export function createHostInstance(
   draft: HostConnectionDraft,

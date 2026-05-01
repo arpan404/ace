@@ -308,4 +308,76 @@ describe("serverState", () => {
     unsubscribeConfig();
     stop();
   });
+
+  it("merges relay updates into the cached config", async () => {
+    serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
+    const configListener = vi.fn();
+    const stop = startServerStateSync(serverApi);
+    const unsubscribeConfig = onServerConfigUpdated(configListener);
+
+    await waitFor(() => {
+      expect(getServerConfig()).toEqual(baseServerConfig);
+    });
+
+    emitServerConfigEvent({
+      version: 1,
+      type: "relayUpdated",
+      payload: {
+        relay: {
+          deviceId: "relay-host-test",
+          defaultRelayUrl: "ws://127.0.0.1:8788/v1/ws",
+          activeRelayLimit: 1,
+          registrations: [
+            {
+              relayUrl: "ws://127.0.0.1:8788/v1/ws",
+              status: "connected",
+              connectedAt: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(getServerConfig()).toEqual({
+        ...baseServerConfig,
+        relay: {
+          deviceId: "relay-host-test",
+          defaultRelayUrl: "ws://127.0.0.1:8788/v1/ws",
+          activeRelayLimit: 1,
+          registrations: [
+            {
+              relayUrl: "ws://127.0.0.1:8788/v1/ws",
+              status: "connected",
+              connectedAt: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+        },
+      });
+    });
+
+    expect(configListener).toHaveBeenLastCalledWith(
+      {
+        issues: [],
+        providers: defaultProviders,
+        settings: DEFAULT_SERVER_SETTINGS,
+        relay: {
+          deviceId: "relay-host-test",
+          defaultRelayUrl: "ws://127.0.0.1:8788/v1/ws",
+          activeRelayLimit: 1,
+          registrations: [
+            {
+              relayUrl: "ws://127.0.0.1:8788/v1/ws",
+              status: "connected",
+              connectedAt: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+      "relayUpdated",
+    );
+
+    unsubscribeConfig();
+    stop();
+  });
 });

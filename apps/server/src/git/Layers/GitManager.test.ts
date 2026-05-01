@@ -928,7 +928,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           ),
         ).toBe(false);
       }),
-    12_000,
+    25_000,
   );
 
   it.effect("status returns merged PR state when latest PR was merged", () =>

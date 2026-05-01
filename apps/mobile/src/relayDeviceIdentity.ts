@@ -1,0 +1,1 @@
+export { loadMobileRelayDeviceIdentity } from "./relaySecureStorage";

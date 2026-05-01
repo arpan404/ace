@@ -1,10 +1,16 @@
+import { WS_METHODS } from "@ace/contracts";
 import {
+  buildPairingPayload,
   normalizeWsUrl,
   splitWsUrlAuthToken,
   wsUrlToBrowserBaseUrl,
   type HostPairingPayload,
 } from "@ace/shared/hostConnections";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 import { Data } from "effect";
+
+import { loadCliRelayDeviceIdentity } from "./cliRelayIdentity";
 
 export class CliPairingCommandError extends Data.TaggedError("CliPairingCommandError")<{
   readonly message: string;
@@ -33,6 +39,9 @@ export interface CliPairingSessionCreated extends CliPairingSessionStatus {
   readonly claimUrl?: string;
   readonly pollingUrl?: string;
   readonly advertisedWsUrl: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
   readonly connectionString: string;
 }
 
@@ -126,6 +135,9 @@ function assertPairingSessionCreated(payload: unknown): {
   readonly secret: string;
   readonly claimUrl?: string;
   readonly pollingUrl?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
 } {
   const session = assertPairingSessionStatus(payload);
   if (typeof payload !== "object" || payload === null) {
@@ -133,7 +145,14 @@ function assertPairingSessionCreated(payload: unknown): {
       message: "Pairing session response was invalid.",
     });
   }
-  const value = payload as { secret?: unknown; claimUrl?: unknown; pollingUrl?: unknown };
+  const value = payload as {
+    secret?: unknown;
+    claimUrl?: unknown;
+    pollingUrl?: unknown;
+    relayUrl?: unknown;
+    hostDeviceId?: unknown;
+    hostIdentityPublicKey?: unknown;
+  };
   if (typeof value.secret !== "string") {
     throw new CliPairingCommandError({
       message: "Pairing session creation response was missing required fields.",
@@ -141,7 +160,11 @@ function assertPairingSessionCreated(payload: unknown): {
   }
   const claimUrl = typeof value.claimUrl === "string" ? value.claimUrl : undefined;
   const pollingUrl = typeof value.pollingUrl === "string" ? value.pollingUrl : undefined;
-  if (!claimUrl && !pollingUrl) {
+  const relayUrl = typeof value.relayUrl === "string" ? value.relayUrl : undefined;
+  const hostDeviceId = typeof value.hostDeviceId === "string" ? value.hostDeviceId : undefined;
+  const hostIdentityPublicKey =
+    typeof value.hostIdentityPublicKey === "string" ? value.hostIdentityPublicKey : undefined;
+  if (!claimUrl && !pollingUrl && (!relayUrl || !hostDeviceId || !hostIdentityPublicKey)) {
     throw new CliPairingCommandError({
       message: "Pairing session creation response did not include a polling endpoint.",
     });
@@ -151,6 +174,9 @@ function assertPairingSessionCreated(payload: unknown): {
     secret: value.secret,
     ...(claimUrl ? { claimUrl } : {}),
     ...(pollingUrl ? { pollingUrl } : {}),
+    ...(relayUrl ? { relayUrl } : {}),
+    ...(hostDeviceId ? { hostDeviceId } : {}),
+    ...(hostIdentityPublicKey ? { hostIdentityPublicKey } : {}),
   };
 }
 
@@ -186,17 +212,7 @@ function resolveBaseUrl(wsUrl: string): string {
 }
 
 function buildConnectionString(pairing: HostPairingPayload): string {
-  const encodedPayload = Buffer.from(
-    JSON.stringify({
-      ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
-      wsUrl: pairing.wsUrl,
-      sessionId: pairing.sessionId,
-      secret: pairing.secret,
-      ...(pairing.claimUrl ? { claimUrl: new URL(pairing.claimUrl).toString() } : {}),
-      ...(pairing.pollingUrl ? { pollingUrl: pairing.pollingUrl } : {}),
-    }),
-    "utf8",
-  ).toString("base64url");
+  const encodedPayload = Buffer.from(buildPairingPayload(pairing), "utf8").toString("base64url");
   return `ace://pair?p=${encodedPayload}`;
 }
 
@@ -265,6 +281,7 @@ export async function createCliPairingSession(input: {
   readonly wsUrl: string;
   readonly authToken?: string;
   readonly name?: string;
+  readonly relayUrl?: string;
 }): Promise<CliPairingSessionCreated> {
   const normalized = normalizeConnectionInput({
     wsUrl: input.wsUrl,
@@ -276,32 +293,46 @@ export async function createCliPairingSession(input: {
     method: "POST",
     path: "/api/pairing/sessions",
     body: {
-      wsUrl: normalized.wsUrl,
       ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+      ...(input.relayUrl?.trim() ? { relayUrl: input.relayUrl.trim() } : {}),
     },
   });
   const created = assertPairingSessionCreated(createdPayload);
-  const advertisedPayload = await requestPairingSessionJson({
-    wsUrl: normalized.wsUrl,
-    authToken: normalized.authToken,
-    method: "GET",
-    path: `/api/pairing/advertised-endpoint?wsUrl=${encodeURIComponent(normalized.wsUrl)}`,
-  });
-  const advertised = assertPairingAdvertisedEndpoint(advertisedPayload);
+  const advertisedWsUrl =
+    created.relayUrl ??
+    assertPairingAdvertisedEndpoint(
+      await requestPairingSessionJson({
+        wsUrl: normalized.wsUrl,
+        authToken: normalized.authToken,
+        method: "GET",
+        path: `/api/pairing/advertised-endpoint?wsUrl=${encodeURIComponent(normalized.wsUrl)}`,
+      }),
+    ).wsUrl;
 
   return {
     ...created.session,
     secret: created.secret,
     ...(created.claimUrl ? { claimUrl: created.claimUrl } : {}),
     ...(created.pollingUrl ? { pollingUrl: created.pollingUrl } : {}),
-    advertisedWsUrl: advertised.wsUrl,
+    advertisedWsUrl,
+    ...(created.relayUrl ? { relayUrl: created.relayUrl } : {}),
+    ...(created.hostDeviceId ? { hostDeviceId: created.hostDeviceId } : {}),
+    ...(created.hostIdentityPublicKey
+      ? { hostIdentityPublicKey: created.hostIdentityPublicKey }
+      : {}),
     connectionString: buildConnectionString({
       ...(input.name?.trim() ? { name: input.name.trim() } : {}),
-      wsUrl: advertised.wsUrl,
       sessionId: created.session.sessionId,
       secret: created.secret,
       ...(created.claimUrl ? { claimUrl: created.claimUrl } : {}),
       ...(created.pollingUrl ? { pollingUrl: created.pollingUrl } : {}),
+      ...(created.relayUrl ? { relayUrl: created.relayUrl } : {}),
+      ...(created.hostDeviceId ? { hostDeviceId: created.hostDeviceId } : {}),
+      ...(created.hostIdentityPublicKey
+        ? { hostIdentityPublicKey: created.hostIdentityPublicKey }
+        : {}),
+      expiresAt: created.session.expiresAt,
+      ...(!created.relayUrl ? { wsUrl: advertisedWsUrl } : {}),
     }),
   };
 }
@@ -345,6 +376,7 @@ export async function pingCliHostConnection(input: {
   readonly wsUrl: string;
   readonly authToken?: string;
   readonly timeoutMs?: number;
+  readonly stateDir?: string;
 }): Promise<CliHostPingResult> {
   const normalized = normalizeConnectionInput({
     wsUrl: input.wsUrl,
@@ -352,6 +384,45 @@ export async function pingCliHostConnection(input: {
   });
   const timeoutMs = Math.max(100, input.timeoutMs ?? 4_000);
   const startedAt = Date.now();
+  if (parseRelayConnectionUrl(normalized.wsUrl)) {
+    if (!input.stateDir?.trim()) {
+      return {
+        status: "unavailable",
+        latencyMs: Date.now() - startedAt,
+        detail: "Relay ping requires a CLI state directory.",
+      };
+    }
+    const stateDir = input.stateDir.trim();
+    const transport = new RelayRpcTransport({
+      connectionUrl: normalized.wsUrl,
+      clientSessionId: `ace-cli-ping-${Date.now().toString(36)}`,
+      connectionId: `ace-cli-connection-${Date.now().toString(36)}`,
+      deviceName: "ace cli",
+      loadIdentity: () => loadCliRelayDeviceIdentity(stateDir),
+    });
+    try {
+      await Promise.race([
+        transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Relay ping timed out after ${String(timeoutMs)}ms.`));
+          }, timeoutMs);
+        }),
+      ]);
+      return {
+        status: "available",
+        latencyMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        latencyMs: Date.now() - startedAt,
+        detail: error instanceof Error ? error.message : "Relay ping failed.",
+      };
+    } finally {
+      await transport.dispose().catch(() => undefined);
+    }
+  }
   try {
     const { response, payload } = await requestPairingSessionStatus({
       wsUrl: normalized.wsUrl,

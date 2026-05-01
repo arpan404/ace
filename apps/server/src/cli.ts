@@ -11,6 +11,7 @@ import {
   type ServerRuntimeProfile,
 } from "@ace/contracts";
 import {
+  buildRelayHostConnectionDraft,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
   requestPairingClaim,
@@ -27,8 +28,10 @@ import {
 } from "./cliProjects";
 import {
   addCliRemoteConnection,
+  describeCliRemoteConnection,
   listCliRemoteConnections,
   removeCliRemoteConnection,
+  remoteConnectionMatchesSelector,
   type CliRemoteConnectionSummary,
   CliRemoteConnectionServicesLive,
 } from "./cliRemoteConnections";
@@ -39,6 +42,7 @@ import {
   revokeCliPairingSession,
   type CliPairingSessionStatus,
 } from "./cliPairing";
+import { loadCliRelayDeviceIdentity } from "./cliRelayIdentity";
 import { normalizeCliWorkspaceRoot } from "./cliPaths";
 import {
   type AceServerDaemonState,
@@ -153,6 +157,12 @@ const logWebSocketEventsFlag = Flag.boolean("log-websocket-events").pipe(
   Flag.withAlias("log-ws-events"),
   Flag.optional,
 );
+const relayUrlFlag = Flag.string("relay-url").pipe(
+  Flag.withDescription(
+    "Override the default relay URL for this process (equivalent to ACE_RELAY_URL).",
+  ),
+  Flag.optional,
+);
 
 const EnvServerConfig = Config.all({
   logLevel: Config.logLevel("ACE_LOG_LEVEL").pipe(Config.withDefault("Info")),
@@ -194,6 +204,7 @@ interface CliServerFlags {
   readonly bootstrapFd: Option.Option<number>;
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
+  readonly relayUrl?: Option.Option<string>;
 }
 
 interface CliDataFlags {
@@ -400,6 +411,7 @@ const serveCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
+  relayUrl: relayUrlFlag,
 } as const;
 
 const webCommandFlags = {
@@ -412,12 +424,21 @@ const webCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
+  relayUrl: relayUrlFlag,
 } as const;
 
 const dataCommandFlags = {
   baseDir: baseDirFlag,
   devUrl: devUrlFlag,
 } as const;
+
+const applyRelayUrlProcessOverride = (relayUrl: Option.Option<string>) =>
+  Effect.sync(() => {
+    const resolved = Option.getOrUndefined(relayUrl)?.trim();
+    if (resolved && resolved.length > 0) {
+      process.env.ACE_RELAY_URL = resolved;
+    }
+  });
 
 const profileIntervalMsFlag = Flag.integer("interval-ms").pipe(
   Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(250))),
@@ -566,17 +587,25 @@ const maskToken = (token: string): string => {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 };
 
+const formatRemoteConnectionTarget = (connection: CliRemoteConnectionSummary): string => {
+  const descriptor = describeCliRemoteConnection(connection);
+  return descriptor.mode === "relay"
+    ? `${descriptor.target} (${descriptor.detail})`
+    : descriptor.target;
+};
+
 const formatRemoteConnectionRows = (
   connections: ReadonlyArray<CliRemoteConnectionSummary>,
 ): string => {
   if (connections.length === 0) {
     return `${pc.dim("No remote connections saved yet.")}\n`;
   }
-  const headers = ["ID", "NAME", "WS URL", "TOKEN", "UPDATED"] as const;
+  const headers = ["ID", "NAME", "MODE", "TARGET", "TOKEN", "UPDATED"] as const;
   const rows = connections.map((connection) => [
     connection.id,
     connection.name,
-    connection.wsUrl,
+    describeCliRemoteConnection(connection).mode,
+    formatRemoteConnectionTarget(connection),
     maskToken(connection.authToken),
     connection.updatedAt,
   ]);
@@ -678,7 +707,7 @@ const promptRemoteConnectionSelection = (
         process.stdout.write(`  ${pc.cyan("0")}. ${pc.dim("all linked hosts")}\n`);
         connections.forEach((connection, index) => {
           process.stdout.write(
-            `  ${pc.cyan(String(index + 1))}. ${connection.name} ${pc.dim(`(${connection.wsUrl})`)}\n`,
+            `  ${pc.cyan(String(index + 1))}. ${connection.name} ${pc.dim(`(${formatRemoteConnectionTarget(connection)})`)}\n`,
           );
         });
         const answer = (await rl.question(`${pc.magenta("›")} `)).trim();
@@ -692,14 +721,15 @@ const promptRemoteConnectionSelection = (
             return selected.id;
           }
         }
-        const bySelector = connections.find(
-          (connection) =>
-            connection.id === answer || connection.name === answer || connection.wsUrl === answer,
+        const bySelector = connections.find((connection) =>
+          remoteConnectionMatchesSelector(connection, answer),
         );
         if (bySelector) {
           return bySelector.id;
         }
-        throw new Error("Invalid selection. Use a list number, id, name, ws url, or 0 for all.");
+        throw new Error(
+          "Invalid selection. Use a list number, id, name, target, relay host, host device id, or 0 for all.",
+        );
       } finally {
         rl.close();
       }
@@ -1063,7 +1093,10 @@ const resolveLocalDaemonConnection = Effect.fn("resolveLocalDaemonConnection")(f
   } as const;
 });
 
-const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (token: string) {
+const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (
+  flags: CliDataFlags,
+  token: string,
+) {
   const parsed = parseHostConnectionQrPayload(token);
   if (!parsed) {
     return yield* new DaemonCommandError({
@@ -1072,6 +1105,19 @@ const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (to
   }
   if (parsed.kind === "direct") {
     return parsed.draft;
+  }
+  if (
+    parsed.pairing.relayUrl &&
+    parsed.pairing.hostDeviceId &&
+    parsed.pairing.hostIdentityPublicKey
+  ) {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveDataConfig(flags, logLevel);
+    const viewerIdentity = yield* Effect.promise(() => loadCliRelayDeviceIdentity(config.stateDir));
+    return buildRelayHostConnectionDraft({
+      pairing: parsed.pairing,
+      viewerIdentity,
+    });
   }
   const receipt = yield* Effect.promise(() =>
     requestPairingClaim(parsed.pairing, {
@@ -1533,6 +1579,7 @@ const serveCommand = Command.make("serve", {
   Command.withDescription("Run or attach to the persistent background ace server daemon."),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(flags, logLevel, workspaceRoot);
       if (shouldRunServeInForeground()) {
@@ -1565,6 +1612,7 @@ const webCommand = Command.make("web", {
   Command.withDescription("Open the ace web app by reusing or starting the background daemon."),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(
         {
@@ -1714,6 +1762,7 @@ const remoteCreateCommand = Command.make("create", {
   deviceName: Flag.string("device-name").pipe(
     Flag.withDescription("Label shown while pairing this host."),
   ),
+  relayUrl: relayUrlFlag,
   wait: Flag.boolean("wait").pipe(
     Flag.withDescription("Wait for status updates until paired/revoked/expired."),
     Flag.withDefault(true),
@@ -1725,14 +1774,16 @@ const remoteCreateCommand = Command.make("create", {
   json: jsonFlag,
 }).pipe(
   Command.withDescription("Create a host pairing token and QR for remote linking."),
-  Command.withHandler(({ deviceName, wait, waitTimeoutMs, json, ...flags }) =>
+  Command.withHandler(({ deviceName, relayUrl, wait, waitTimeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
       const host = yield* resolveLocalDaemonConnection(flags);
+      const relayUrlOverride = Option.getOrUndefined(relayUrl);
       const result = yield* Effect.promise(() =>
         createCliPairingSession({
           wsUrl: host.wsUrl,
           authToken: host.authToken,
           name: deviceName,
+          ...(relayUrlOverride ? { relayUrl: relayUrlOverride } : {}),
         }),
       );
       const qr = yield* renderQrToken(result.connectionString);
@@ -1904,7 +1955,7 @@ const remoteLinkCommand = Command.make("link", {
   Command.withDescription("Claim a pairing token and save the remote host."),
   Command.withHandler(({ token, name, json, ...flags }) =>
     Effect.gen(function* () {
-      const draft = yield* resolveRemoteLinkDraft(token);
+      const draft = yield* resolveRemoteLinkDraft(flags, token);
       const result = yield* runCliRemoteConnectionCommand(
         flags,
         addCliRemoteConnection({
@@ -1930,7 +1981,7 @@ const remoteLinkCommand = Command.make("link", {
       }
       const verb = result.status === "created" ? pc.green("Linked") : pc.yellow("Updated");
       return yield* writeStdout(
-        `${verb} remote "${result.connection.name}" (${result.connection.wsUrl}) [${result.connection.id}]\n`,
+        `${verb} remote "${result.connection.name}" (${formatRemoteConnectionTarget(result.connection)}) [${result.connection.id}]\n`,
       );
     }),
   ),
@@ -1988,7 +2039,7 @@ const remoteRemoveCommand = Command.make("remove", {
           return;
         }
         return yield* writeStdout(
-          `${pc.green("Removed")} remote "${entry.name}" (${entry.wsUrl}).\n`,
+          `${pc.green("Removed")} remote "${entry.name}" (${formatRemoteConnectionTarget(entry)}).\n`,
         );
       }
       yield* writeStdout(`${pc.green("Removed")} ${String(removed.length)} remote hosts.\n`);
@@ -2032,22 +2083,12 @@ const remotePingCommand = Command.make("ping", {
         : interactive
           ? yield* promptRemoteConnectionSelection(connections, "ping")
           : "__all__";
-      const normalizedResolvedSelector = (() => {
-        try {
-          return normalizeWsUrl(resolvedSelector);
-        } catch {
-          return null;
-        }
-      })();
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const dataConfig = yield* resolveDataConfig(flags, logLevel);
       const selectedConnections =
         resolvedSelector === "__all__" || resolvedSelector === "all"
           ? connections
-          : connections.filter(
-              (entry) =>
-                entry.id === resolvedSelector ||
-                entry.name === resolvedSelector ||
-                entry.wsUrl === normalizedResolvedSelector,
-            );
+          : connections.filter((entry) => remoteConnectionMatchesSelector(entry, resolvedSelector));
       if (selectedConnections.length === 0) {
         return yield* new DaemonCommandError({
           message: `No linked remote matched '${resolvedSelector}'.`,
@@ -2078,6 +2119,7 @@ const remotePingCommand = Command.make("ping", {
                 wsUrl: connection.wsUrl,
                 authToken: connection.authToken,
                 timeoutMs: resolvedTimeoutMs,
+                stateDir: dataConfig.stateDir,
               }),
             ).pipe(
               Effect.map((ping) => ({
@@ -2137,6 +2179,7 @@ const daemonStartCommand = Command.make("start", {
   Command.withDescription("Start the ace server daemon in the background (idempotent)."),
   Command.withHandler(({ json, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(
         {
@@ -2187,6 +2230,7 @@ const daemonRestartCommand = Command.make("restart", {
   Command.withDescription("Restart the background daemon process."),
   Command.withHandler(({ timeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
+      yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const dataConfig = yield* resolveDataConfig(
         {

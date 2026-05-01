@@ -1,0 +1,1 @@
+export { loadWebRelayDeviceIdentity } from "./relaySecureStorage";

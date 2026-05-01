@@ -26,7 +26,9 @@ import {
   type ThreadId,
   WS_METHODS,
 } from "@ace/contracts";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { randomUUID } from "@ace/shared/ids";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 import {
   createWsRpcProtocolLayer,
   makeWsRpcProtocolClient,
@@ -35,6 +37,8 @@ import {
 } from "@ace/shared/wsRpcProtocol";
 import { Duration, Effect, Exit, ManagedRuntime, Scope, Stream } from "effect";
 import { RpcClient } from "effect/unstable/rpc";
+import { loadMobileRelayDeviceIdentity } from "../relayDeviceIdentity";
+import { resolveMobileSecureRelayConnectionUrl } from "../relaySecureStorage";
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY = Duration.millis(300);
 
@@ -69,6 +73,21 @@ interface MobileWsTransportOptions {
   readonly url: string;
   readonly authToken?: string;
   readonly clientSessionId?: string;
+}
+
+interface MobileRpcTransportLike {
+  readonly dispose: () => Promise<void>;
+  readonly getConnectionIdentity: () => WsClientConnectionIdentity;
+  readonly onConnectionStateChange: (
+    listener: (state: MobileWsClientConnectionState) => void,
+  ) => () => void;
+  readonly request: <TSuccess>(
+    execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
+  ) => Promise<TSuccess>;
+  readonly subscribe: <TValue>(
+    connect: (client: WsRpcProtocolClient) => Stream.Stream<TValue, Error, never>,
+    listener: (value: TValue) => void,
+  ) => () => void;
 }
 
 class MobileWsTransport {
@@ -289,8 +308,43 @@ export interface MobileWsClient {
   };
 }
 
+function createRelayConnectionId(): string {
+  return `mobile-connection-${randomUUID()}`;
+}
+
+function createMobileTransport(options: MobileWsTransportOptions): MobileRpcTransportLike {
+  if (!parseRelayConnectionUrl(options.url)) {
+    return new MobileWsTransport(options);
+  }
+  const transport = new RelayRpcTransport({
+    connectionUrl: options.url,
+    clientSessionId: options.clientSessionId?.trim() || randomUUID(),
+    connectionId: createRelayConnectionId(),
+    deviceName: "ace mobile",
+    loadIdentity: loadMobileRelayDeviceIdentity,
+    resolveConnectionUrl: resolveMobileSecureRelayConnectionUrl,
+  });
+  return {
+    dispose: () => transport.dispose(),
+    getConnectionIdentity: () => transport.getConnectionIdentity(),
+    onConnectionStateChange: (listener) =>
+      transport.onConnectionStateChange((state) => {
+        if (state.kind === "disconnected") {
+          listener({
+            kind: "disconnected",
+            ...(state.error ? { error: state.error } : {}),
+          });
+          return;
+        }
+        listener({ kind: "connected" });
+      }),
+    request: (execute) => transport.request(execute),
+    subscribe: (connect, listener) => transport.subscribe(connect, listener),
+  };
+}
+
 export function createMobileWsClient(options: MobileWsTransportOptions): MobileWsClient {
-  const transport = new MobileWsTransport(options);
+  const transport = createMobileTransport(options);
   const streamIdentity = transport.getConnectionIdentity();
   const withTerminalId = <
     T extends Record<string, unknown> & { readonly terminalId?: string | undefined },

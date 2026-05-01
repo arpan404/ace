@@ -59,6 +59,7 @@ import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./pro
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { RelayHostManagerService } from "./relayHostManager";
 import {
   getLspToolsStatus,
   installLspTool,
@@ -241,6 +242,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const config = yield* ServerConfig;
     const lifecycleEvents = yield* ServerLifecycleEvents;
     const serverSettings = yield* ServerSettingsService;
+    const relayHostManager = yield* RelayHostManagerService;
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceEditor = yield* WorkspaceEditor;
@@ -260,6 +262,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         providers,
         availableEditors: resolveAvailableEditors(),
         settings,
+        relay: yield* relayHostManager.getStatus,
       };
     });
 
@@ -831,6 +834,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 payload: { settings },
               })),
             );
+            const relayUpdates = relayHostManager.streamChanges.pipe(
+              Stream.map((relay) => ({
+                version: 1 as const,
+                type: "relayUpdated" as const,
+                payload: { relay },
+              })),
+            );
 
             return filterCurrentClientStream(
               normalizeStreamIdentity(input),
@@ -840,7 +850,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                   type: "snapshot" as const,
                   config: yield* loadServerConfig,
                 }),
-                Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+                Stream.merge(
+                  keybindingsUpdates,
+                  Stream.merge(providerStatuses, Stream.merge(settingsUpdates, relayUpdates)),
+                ),
               ),
             );
           }),
@@ -867,10 +880,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
 
 export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
-    const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
+    const wsUpgradeAttempts = new Map<string, { count: number; resetAt: number }>();
+    const websocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
       Effect.provide(Layer.mergeAll(WsRpcLayer, RpcSerialization.layerJson)),
     );
-    const wsUpgradeAttempts = new Map<string, { count: number; resetAt: number }>();
 
     const takeWsUpgradeBudget = (clientKey: string, now = Date.now()) => {
       for (const [key, value] of wsUpgradeAttempts.entries()) {
@@ -905,13 +918,26 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       } as const;
     };
 
+    const releaseWsUpgradeBudget = (clientKey: string) => {
+      const current = wsUpgradeAttempts.get(clientKey);
+      if (!current) {
+        return;
+      }
+      if (current.count <= 1) {
+        wsUpgradeAttempts.delete(clientKey);
+        return;
+      }
+      current.count -= 1;
+    };
+
     return HttpRouter.add(
       "GET",
       "/ws",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const config = yield* ServerConfig;
-        const rateLimit = takeWsUpgradeBudget(resolveWsRateLimitKey(request.headers));
+        const clientKey = resolveWsRateLimitKey(request.headers);
+        const rateLimit = takeWsUpgradeBudget(clientKey);
         if (!rateLimit.allowed) {
           return HttpServerResponse.text("Too many WebSocket upgrade attempts", {
             status: 429,
@@ -935,13 +961,15 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }
         }
+
         if ((clientSessionId && !connectionId) || (!clientSessionId && connectionId)) {
           return HttpServerResponse.text("Invalid WebSocket client identity", { status: 400 });
         }
+        releaseWsUpgradeBudget(clientKey);
         if (clientSessionId && connectionId) {
           registerWsClientSession(clientSessionId, connectionId);
         }
-        return yield* rpcWebSocketHttpEffect;
+        return yield* websocketHttpEffect;
       }),
     );
   }),

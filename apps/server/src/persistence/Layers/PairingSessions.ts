@@ -21,36 +21,60 @@ const makePairingSessionRepository = Effect.gen(function* () {
           secret,
           ws_url,
           auth_token,
+          relay_url,
+          host_device_id,
+          host_identity_public_key,
           name,
           created_at_ms,
           expires_at_ms,
+          relay_auth_key,
           claim_id,
           claim_requester_name,
           claim_requested_at_ms,
           resolution,
-          resolved_at_ms
+          resolved_at_ms,
+          viewer_device_id,
+          viewer_identity_public_key
         )
         VALUES (
           ${session.sessionId},
           ${session.secret},
           ${session.wsUrl},
           ${session.authToken},
+          ${session.relayUrl},
+          ${session.hostDeviceId},
+          ${session.hostIdentityPublicKey},
           ${session.name},
           ${session.createdAtMs},
           ${session.expiresAtMs},
+          ${session.relayAuthKey},
           ${session.claimId},
           ${session.claimRequesterName},
           ${session.claimRequestedAtMs},
           ${session.resolution},
-          ${session.resolvedAtMs}
+          ${session.resolvedAtMs},
+          ${session.viewerDeviceId},
+          ${session.viewerIdentityPublicKey}
         )
         ON CONFLICT (session_id)
         DO UPDATE SET
+          secret = excluded.secret,
+          ws_url = excluded.ws_url,
+          auth_token = excluded.auth_token,
+          relay_url = excluded.relay_url,
+          host_device_id = excluded.host_device_id,
+          host_identity_public_key = excluded.host_identity_public_key,
+          name = excluded.name,
+          created_at_ms = excluded.created_at_ms,
+          expires_at_ms = excluded.expires_at_ms,
+          relay_auth_key = excluded.relay_auth_key,
           claim_id = excluded.claim_id,
           claim_requester_name = excluded.claim_requester_name,
           claim_requested_at_ms = excluded.claim_requested_at_ms,
           resolution = excluded.resolution,
-          resolved_at_ms = excluded.resolved_at_ms
+          resolved_at_ms = excluded.resolved_at_ms,
+          viewer_device_id = excluded.viewer_device_id,
+          viewer_identity_public_key = excluded.viewer_identity_public_key
       `,
   });
 
@@ -64,14 +88,20 @@ const makePairingSessionRepository = Effect.gen(function* () {
           secret,
           ws_url AS "wsUrl",
           auth_token AS "authToken",
+          relay_url AS "relayUrl",
+          host_device_id AS "hostDeviceId",
+          host_identity_public_key AS "hostIdentityPublicKey",
           name,
           created_at_ms AS "createdAtMs",
           expires_at_ms AS "expiresAtMs",
+          relay_auth_key AS "relayAuthKey",
           claim_id AS "claimId",
           claim_requester_name AS "claimRequesterName",
           claim_requested_at_ms AS "claimRequestedAtMs",
           resolution,
-          resolved_at_ms AS "resolvedAtMs"
+          resolved_at_ms AS "resolvedAtMs",
+          viewer_device_id AS "viewerDeviceId",
+          viewer_identity_public_key AS "viewerIdentityPublicKey"
         FROM pairing_sessions
         WHERE session_id = ${sessionId}
       `,
@@ -87,16 +117,50 @@ const makePairingSessionRepository = Effect.gen(function* () {
           secret,
           ws_url AS "wsUrl",
           auth_token AS "authToken",
+          relay_url AS "relayUrl",
+          host_device_id AS "hostDeviceId",
+          host_identity_public_key AS "hostIdentityPublicKey",
           name,
           created_at_ms AS "createdAtMs",
           expires_at_ms AS "expiresAtMs",
+          relay_auth_key AS "relayAuthKey",
           claim_id AS "claimId",
           claim_requester_name AS "claimRequesterName",
           claim_requested_at_ms AS "claimRequestedAtMs",
           resolution,
-          resolved_at_ms AS "resolvedAtMs"
+          resolved_at_ms AS "resolvedAtMs",
+          viewer_device_id AS "viewerDeviceId",
+          viewer_identity_public_key AS "viewerIdentityPublicKey"
         FROM pairing_sessions
         WHERE claim_id = ${claimId}
+      `,
+  });
+
+  const getAllSessionsRow = SqlSchema.findAll({
+    Request: Schema.Struct({}),
+    Result: PairingSessionRecord,
+    execute: () =>
+      sql`
+        SELECT
+          session_id AS "sessionId",
+          secret,
+          ws_url AS "wsUrl",
+          auth_token AS "authToken",
+          relay_url AS "relayUrl",
+          host_device_id AS "hostDeviceId",
+          host_identity_public_key AS "hostIdentityPublicKey",
+          name,
+          created_at_ms AS "createdAtMs",
+          expires_at_ms AS "expiresAtMs",
+          relay_auth_key AS "relayAuthKey",
+          claim_id AS "claimId",
+          claim_requester_name AS "claimRequesterName",
+          claim_requested_at_ms AS "claimRequestedAtMs",
+          resolution,
+          resolved_at_ms AS "resolvedAtMs",
+          viewer_device_id AS "viewerDeviceId",
+          viewer_identity_public_key AS "viewerIdentityPublicKey"
+        FROM pairing_sessions
       `,
   });
 
@@ -130,6 +194,11 @@ const makePairingSessionRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("PairingSessionRepository.getBySessionId:query")),
     );
 
+  const getAll: PairingSessionRepositoryShape["getAll"] = () =>
+    getAllSessionsRow({}).pipe(
+      Effect.mapError(toPersistenceSqlError("PairingSessionRepository.getAll:query")),
+    );
+
   const getByClaimId: PairingSessionRepositoryShape["getByClaimId"] = (claimId) =>
     getSessionByClaimIdRow({ claimId }).pipe(
       Effect.mapError(toPersistenceSqlError("PairingSessionRepository.getByClaimId:query")),
@@ -150,6 +219,7 @@ const makePairingSessionRepository = Effect.gen(function* () {
 
   return {
     upsert,
+    getAll,
     getBySessionId,
     getByClaimId,
     deleteBySessionId,

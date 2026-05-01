@@ -73,6 +73,7 @@ import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
+import { findDesktopPairingUrlInArgv, normalizeDesktopPairingUrl } from "./pairingProtocol";
 import {
   startDesktopBackgroundNotificationService,
   type DesktopBackgroundNotificationService,
@@ -104,6 +105,7 @@ const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed
 const WINDOW_RESUME_CHANNEL = "desktop:window-resume";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
+const PAIRING_URL_CHANNEL = "desktop:pairing-url";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
@@ -196,6 +198,7 @@ let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let desktopBackgroundNotificationService: DesktopBackgroundNotificationService | null = null;
+let pendingPairingUrls: string[] = [];
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const activeDesktopNotifications = new Map<string, Electron.Notification>();
@@ -361,6 +364,35 @@ function withReadyPrimaryWindow(effect: (window: BrowserWindow) => void): void {
   }
 
   run();
+}
+
+function flushPendingPairingUrls(window: BrowserWindow): void {
+  if (pendingPairingUrls.length === 0) {
+    return;
+  }
+
+  const urls = pendingPairingUrls;
+  pendingPairingUrls = [];
+  for (const pairingUrl of urls) {
+    writeDesktopLogHeader(`pairing-link deliver url=${sanitizeLogValue(pairingUrl)}`);
+    safelySendToWindow(window, PAIRING_URL_CHANNEL, pairingUrl);
+  }
+}
+
+function queueDesktopPairingUrl(input: string): void {
+  const pairingUrl = normalizeDesktopPairingUrl(input);
+  if (!pairingUrl) {
+    return;
+  }
+
+  pendingPairingUrls.push(pairingUrl);
+  writeDesktopLogHeader(`pairing-link queued url=${sanitizeLogValue(pairingUrl)}`);
+  if (!app.isReady()) {
+    return;
+  }
+  withReadyPrimaryWindow((window) => {
+    flushPendingPairingUrls(window);
+  });
 }
 
 function isDesktopWindowFocusedForNotifications(): boolean {
@@ -1292,6 +1324,17 @@ function registerDesktopProtocol(): void {
   });
 
   desktopProtocolRegistered = true;
+}
+
+function registerDesktopProtocolClient(): void {
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(DESKTOP_SCHEME, process.execPath, [
+      Path.resolve(process.argv[1] ?? ""),
+    ]);
+    return;
+  }
+
+  app.setAsDefaultProtocolClient(DESKTOP_SCHEME);
 }
 
 function dispatchMenuAction(action: DesktopMenuAction): void {
@@ -2678,6 +2721,7 @@ function createWindow(): BrowserWindow {
     window.setTitle(APP_DISPLAY_NAME);
     emitTitlebarLeftInsetChanged(window);
     emitUpdateState();
+    flushPendingPairingUrls(window);
   });
   window.on("focus", () => {
     emitWindowResume(window, "focus");
@@ -2731,6 +2775,27 @@ app.setPath("userData", resolveUserDataPath());
 
 configureAppIdentity();
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    writeDesktopLogHeader("second-instance received");
+    const window = getOrCreatePrimaryWindow();
+    focusPrimaryWindow(window);
+    const pairingUrl = findDesktopPairingUrlInArgv(argv);
+    if (pairingUrl) {
+      queueDesktopPairingUrl(pairingUrl);
+    }
+  });
+}
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  writeDesktopLogHeader(`open-url received url=${sanitizeLogValue(url)}`);
+  queueDesktopPairingUrl(url);
+});
+
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
   backendPort = await Effect.service(NetService).pipe(
@@ -2759,6 +2824,10 @@ async function bootstrap(): Promise<void> {
   mainWindow = createWindow();
   scheduleStartupCliInstall(mainWindow);
   writeDesktopLogHeader("bootstrap main window created");
+  const startupPairingUrl = findDesktopPairingUrlInArgv(process.argv);
+  if (startupPairingUrl) {
+    queueDesktopPairingUrl(startupPairingUrl);
+  }
 }
 
 app.on("before-quit", () => {
@@ -2813,6 +2882,7 @@ app
     }
     configureApplicationMenu();
     registerDesktopProtocol();
+    registerDesktopProtocolClient();
     configureAutoUpdater();
     void bootstrap().catch((error) => {
       handleFatalStartupError("bootstrap", error);

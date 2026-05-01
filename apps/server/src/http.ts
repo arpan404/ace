@@ -1,6 +1,7 @@
 import Mime from "@effect/platform-node/Mime";
 import Os from "node:os";
 import { DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM } from "@ace/contracts";
+import { resolveConfiguredRelayWebSocketUrl } from "@ace/shared/relay";
 import { Data, Effect, FileSystem, Layer, Option, Path } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
@@ -22,6 +23,10 @@ import {
 } from "./pairing";
 import { GitHubCli } from "./git/Services/GitHubCli";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
+import { getRelayDeviceIdentity } from "./relayIdentity";
+import { persistPairingSessionsSnapshot } from "./pairingPersistence";
+import { RelayHostManagerService } from "./relayHostManager";
+import { ServerSettingsService } from "./serverSettings";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "no-store";
@@ -48,6 +53,44 @@ class GitHubIssueImageFetchError extends Data.TaggedError("GitHubIssueImageFetch
 class BrowserRelayFetchError extends Data.TaggedError("BrowserRelayFetchError")<{
   readonly cause: unknown;
 }> {}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function resolveRequestedRelayUrl(input: {
+  readonly explicitRelayUrl?: string;
+  readonly persistedRelayUrl: string;
+  readonly allowInsecureLocalUrls: boolean;
+}):
+  | {
+      readonly ok: true;
+      readonly value: string;
+    }
+  | {
+      readonly ok: false;
+      readonly error: string;
+    } {
+  try {
+    return {
+      ok: true,
+      value: resolveConfiguredRelayWebSocketUrl({
+        ...(input.explicitRelayUrl ? { explicitRelayUrl: input.explicitRelayUrl } : {}),
+        ...(process.env.ACE_RELAY_URL ? { envRelayUrl: process.env.ACE_RELAY_URL } : {}),
+        persistedRelayUrl: input.persistedRelayUrl,
+        allowInsecureLocalUrls: input.allowInsecureLocalUrls,
+      }),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: formatErrorMessage(error),
+    };
+  }
+}
 
 const withSecurityHeaders = <T extends Parameters<typeof HttpServerResponse.setHeaders>[0]>(
   response: T,
@@ -753,17 +796,58 @@ const pairingCreateSessionRouteLayer = HttpRouter.add(
         respondJson({ error: "Pairing session body must be a JSON object." }, { status: 400 }),
       );
     }
-    const payload = body as { wsUrl?: unknown; name?: unknown };
-    if (typeof payload.wsUrl !== "string") {
+    const payload = body as { name?: unknown; relayUrl?: unknown };
+    const serverSettings = yield* ServerSettingsService;
+    const relayHostManager = yield* RelayHostManagerService;
+    const settings = yield* serverSettings.getSettings;
+    if (!settings.remoteRelay.enabled) {
       return withPairingHeaders(
-        respondJson({ error: "Pairing session requires a wsUrl string." }, { status: 400 }),
+        respondJson(
+          {
+            error:
+              "Remote relay is disabled. Enable it in settings or start the daemon with a relay URL before creating pairing links.",
+          },
+          { status: 409 },
+        ),
       );
     }
-    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
-    const pairingWsUrl = resolveAdvertisedWsUrl(payload.wsUrl, advertisedRequestUrl.hostname);
+    const relayIdentity = yield* getRelayDeviceIdentity();
+    const configuredRelayUrlResult = resolveRequestedRelayUrl({
+      persistedRelayUrl: settings.remoteRelay.defaultUrl,
+      allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
+    });
+    if (!configuredRelayUrlResult.ok) {
+      return withPairingHeaders(
+        respondJson({ error: configuredRelayUrlResult.error }, { status: 400 }),
+      );
+    }
+    if (typeof payload.relayUrl === "string") {
+      const requestedRelayUrlResult = resolveRequestedRelayUrl({
+        explicitRelayUrl: payload.relayUrl,
+        persistedRelayUrl: settings.remoteRelay.defaultUrl,
+        allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
+      });
+      if (!requestedRelayUrlResult.ok) {
+        return withPairingHeaders(
+          respondJson({ error: requestedRelayUrlResult.error }, { status: 400 }),
+        );
+      }
+      if (requestedRelayUrlResult.value !== configuredRelayUrlResult.value) {
+        return withPairingHeaders(
+          respondJson(
+            {
+              error:
+                "Only one relay server is allowed. Update the daemon relay URL in settings or restart it with --relay-url before creating a pairing link.",
+            },
+            { status: 409 },
+          ),
+        );
+      }
+    }
     const created = createPairingSession({
-      wsUrl: pairingWsUrl,
-      authToken: config.authToken ?? "",
+      relayUrl: configuredRelayUrlResult.value,
+      hostDeviceId: relayIdentity.deviceId,
+      hostIdentityPublicKey: relayIdentity.publicKey,
       ...(typeof payload.name === "string" ? { name: payload.name } : {}),
     });
     if (!created.ok) {
@@ -771,15 +855,9 @@ const pairingCreateSessionRouteLayer = HttpRouter.add(
         respondJson({ error: created.message }, { status: readPairingErrorStatus(created.code) }),
       );
     }
-    const claimUrl = resolvePairingClaimUrl(requestUrl.value);
-    const pollingUrl = resolveSessionPollingUrl(created.value.sessionId, requestUrl.value);
-    return withPairingHeaders(
-      respondJson({
-        ...created.value,
-        ...(claimUrl ? { claimUrl: claimUrl.toString() } : {}),
-        pollingUrl,
-      }),
-    );
+    yield* persistPairingSessionsSnapshot;
+    yield* relayHostManager.refreshRegistrations;
+    return withPairingHeaders(respondJson(created.value));
   }),
 );
 
@@ -835,6 +913,7 @@ const pairingResolveSessionRouteLayer = HttpRouter.add(
     if (Option.isNone(requestUrl)) {
       return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
     }
+    const relayHostManager = yield* RelayHostManagerService;
     const sessionId = readPairingResolveSessionId(requestUrl.value.pathname);
     if (!sessionId) {
       return withPairingHeaders(
@@ -870,6 +949,8 @@ const pairingResolveSessionRouteLayer = HttpRouter.add(
         respondJson({ error: resolved.message }, { status: readPairingErrorStatus(resolved.code) }),
       );
     }
+    yield* persistPairingSessionsSnapshot;
+    yield* relayHostManager.refreshRegistrations;
     return withPairingHeaders(respondJson(resolved.value));
   }),
 );
@@ -883,6 +964,7 @@ const pairingCreateClaimRouteLayer = HttpRouter.add(
     if (Option.isNone(requestUrl)) {
       return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
     }
+    const relayHostManager = yield* RelayHostManagerService;
     const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
     if (!body || typeof body !== "object") {
       return withPairingHeaders(
@@ -922,6 +1004,8 @@ const pairingCreateClaimRouteLayer = HttpRouter.add(
         ),
       );
     }
+    yield* persistPairingSessionsSnapshot;
+    yield* relayHostManager.refreshRegistrations;
     const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
     const pollUrl = new URL(
       `/api/pairing/claims/${encodeURIComponent(claimed.value.claimId)}`,
@@ -945,6 +1029,7 @@ const pairingRevokeSessionRouteLayer = HttpRouter.add(
     if (Option.isNone(requestUrl)) {
       return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
     }
+    const relayHostManager = yield* RelayHostManagerService;
     const sessionId = readPairingRevokeSessionId(requestUrl.value.pathname);
     if (!sessionId) {
       return withPairingHeaders(
@@ -964,6 +1049,8 @@ const pairingRevokeSessionRouteLayer = HttpRouter.add(
         respondJson({ error: revoked.message }, { status: readPairingErrorStatus(revoked.code) }),
       );
     }
+    yield* persistPairingSessionsSnapshot;
+    yield* relayHostManager.refreshRegistrations;
     return withPairingHeaders(respondJson(revoked.value));
   }),
 );

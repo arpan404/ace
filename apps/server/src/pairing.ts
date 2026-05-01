@@ -1,5 +1,11 @@
 import * as Crypto from "node:crypto";
+import {
+  RELAY_ROUTE_AUTH_MAX_AGE_MS,
+  deriveRelayPairingAuthKey,
+  verifyRelayRouteAuthProof,
+} from "@ace/shared/relay";
 import { Effect } from "effect";
+import type { ProjectionRepositoryError } from "./persistence/Errors";
 
 const DEFAULT_PAIRING_SESSION_TTL_MS = 5 * 60_000;
 const MIN_PAIRING_SESSION_TTL_MS = 30_000;
@@ -46,23 +52,33 @@ interface PairingClaimRecord {
 
 interface PairingSessionRecord {
   readonly sessionId: string;
-  readonly secret: string;
+  secret: string;
   readonly wsUrl: string;
   readonly authToken: string;
+  readonly relayUrl: string;
+  readonly hostDeviceId: string;
+  readonly hostIdentityPublicKey: string;
   readonly name: string;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
+  relayAuthKey: string | null;
   claim: PairingClaimRecord | null;
   resolution: "approved" | "rejected" | null;
   resolvedAtMs: number | null;
+  viewerDeviceId: string | null;
+  viewerIdentityPublicKey: string | null;
 }
 
 const pairingSessions = new Map<string, PairingSessionRecord>();
 const pairingClaimSessions = new Map<string, string>();
+const usedRelayRouteAuthorizations = new Map<string, number>();
 
 export interface CreatePairingSessionInput {
-  readonly wsUrl: string;
-  readonly authToken: string;
+  readonly wsUrl?: string;
+  readonly authToken?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
   readonly name?: string;
   readonly ttlMs?: number;
   readonly nowMs?: number;
@@ -73,6 +89,9 @@ export interface PairingSessionCreated {
   readonly secret: string;
   readonly expiresAt: string;
   readonly status: PairingSessionStatus;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
 }
 
 export interface PairingSessionView {
@@ -84,6 +103,9 @@ export interface PairingSessionView {
   readonly expiresAt: string;
   readonly requesterName?: string | undefined;
   readonly claimId?: string | undefined;
+  readonly relayUrl?: string | undefined;
+  readonly hostDeviceId?: string | undefined;
+  readonly viewerDeviceId?: string | undefined;
 }
 
 export interface ClaimPairingSessionInput {
@@ -129,6 +151,14 @@ function fail(code: PairingErrorCode, message: string): PairingFailure {
   return { ok: false, code, message };
 }
 
+function pruneUsedRelayRouteAuthorizations(nowMs: number): void {
+  for (const [key, expiresAtMs] of usedRelayRouteAuthorizations.entries()) {
+    if (expiresAtMs <= nowMs) {
+      usedRelayRouteAuthorizations.delete(key);
+    }
+  }
+}
+
 function clampTtlMs(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) {
     return DEFAULT_PAIRING_SESSION_TTL_MS;
@@ -158,6 +188,9 @@ function resolvePairingSessionStatus(
   record: PairingSessionRecord,
   nowMs: number,
 ): PairingSessionStatus {
+  if (record.relayUrl.length > 0 && record.resolution === "approved") {
+    return "approved";
+  }
   if (nowMs >= record.expiresAtMs) {
     return "expired";
   }
@@ -187,6 +220,9 @@ function toPairingSessionView(record: PairingSessionRecord, nowMs: number): Pair
           claimId: record.claim.claimId,
         }
       : {}),
+    ...(record.relayUrl ? { relayUrl: record.relayUrl } : {}),
+    ...(record.hostDeviceId ? { hostDeviceId: record.hostDeviceId } : {}),
+    ...(record.viewerDeviceId ? { viewerDeviceId: record.viewerDeviceId } : {}),
   };
 }
 
@@ -202,6 +238,9 @@ function isValidPairingWsUrl(value: string): boolean {
 function prunePairingSessions(nowMs = Date.now()): number {
   let removedCount = 0;
   for (const [sessionId, record] of pairingSessions.entries()) {
+    if (record.relayUrl.length > 0 && record.resolution === "approved") {
+      continue;
+    }
     if (record.expiresAtMs + PAIRING_SESSION_EXPIRED_GRACE_MS > nowMs) {
       continue;
     }
@@ -232,7 +271,14 @@ export function createPairingSession(
 ): PairingResult<PairingSessionCreated> {
   const nowMs = input.nowMs ?? Date.now();
   prunePairingSessions(nowMs);
-  if (!isValidPairingWsUrl(input.wsUrl)) {
+  const usingRelay =
+    typeof input.relayUrl === "string" &&
+    input.relayUrl.trim().length > 0 &&
+    typeof input.hostDeviceId === "string" &&
+    input.hostDeviceId.trim().length > 0 &&
+    typeof input.hostIdentityPublicKey === "string" &&
+    input.hostIdentityPublicKey.trim().length > 0;
+  if (!usingRelay && !isValidPairingWsUrl(input.wsUrl ?? "")) {
     return fail("invalid-ws-url", "Pairing host URL must use ws:// or wss://.");
   }
   const ttlMs = clampTtlMs(input.ttlMs);
@@ -242,14 +288,20 @@ export function createPairingSession(
   const record: PairingSessionRecord = {
     sessionId,
     secret,
-    wsUrl: input.wsUrl,
-    authToken: input.authToken,
+    wsUrl: input.wsUrl ?? "",
+    authToken: input.authToken ?? "",
+    relayUrl: input.relayUrl ?? "",
+    hostDeviceId: input.hostDeviceId ?? "",
+    hostIdentityPublicKey: input.hostIdentityPublicKey ?? "",
     name: normalizeOptionalName(input.name, "ace host", MAX_HOST_NAME_LENGTH),
     createdAtMs: nowMs,
     expiresAtMs,
+    relayAuthKey: null,
     claim: null,
     resolution: null,
     resolvedAtMs: null,
+    viewerDeviceId: null,
+    viewerIdentityPublicKey: null,
   };
   pairingSessions.set(sessionId, record);
   return succeed({
@@ -257,7 +309,111 @@ export function createPairingSession(
     secret,
     expiresAt: isoAt(expiresAtMs),
     status: "waiting-claim",
+    ...(record.relayUrl
+      ? {
+          relayUrl: record.relayUrl,
+          hostDeviceId: record.hostDeviceId,
+          hostIdentityPublicKey: record.hostIdentityPublicKey,
+        }
+      : {}),
   });
+}
+
+export function approveRelayPairingRequest(input: {
+  readonly sessionId: string;
+  readonly viewerDeviceId: string;
+  readonly viewerIdentityPublicKey: string;
+  readonly routeId: string;
+  readonly clientSessionId: string;
+  readonly connectionId: string;
+  readonly routeAuthIssuedAt: string;
+  readonly routeAuthProof: string;
+  readonly requesterName?: string;
+  readonly nowMs?: number;
+}): PairingResult<PairingSessionView> {
+  const nowMs = input.nowMs ?? Date.now();
+  pruneUsedRelayRouteAuthorizations(nowMs);
+  const recordResult = readPairingSession(input.sessionId, nowMs);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const routeAuthorizationKey = `${input.sessionId}\u0000${input.routeId}`;
+  if (usedRelayRouteAuthorizations.has(routeAuthorizationKey)) {
+    return fail("invalid-secret", "Relay route authorization has already been used.");
+  }
+  if (record.viewerDeviceId && record.viewerDeviceId !== input.viewerDeviceId) {
+    return fail("already-claimed", "Pairing session is already bound to another device.");
+  }
+  if (
+    record.viewerIdentityPublicKey &&
+    record.viewerIdentityPublicKey !== input.viewerIdentityPublicKey
+  ) {
+    return fail("already-claimed", "Pairing session is already bound to another device key.");
+  }
+  if (record.resolution === "rejected") {
+    return fail("already-claimed", "Pairing session is no longer pending.");
+  }
+  if (record.resolution !== "approved" && nowMs >= record.expiresAtMs) {
+    return fail("expired", "Pairing session has expired.");
+  }
+  if (record.relayUrl.trim().length === 0) {
+    return fail("invalid-secret", "Pairing session is not a relay pairing.");
+  }
+  let relayAuthKey = record.relayAuthKey;
+  if (!relayAuthKey) {
+    if (record.secret.trim().length === 0) {
+      return fail("invalid-secret", "Relay pairing secret is unavailable.");
+    }
+    relayAuthKey = deriveRelayPairingAuthKey({
+      pairingId: record.sessionId,
+      pairingSecret: record.secret,
+      hostDeviceId: record.hostDeviceId,
+      hostIdentityPublicKey: record.hostIdentityPublicKey,
+      viewerDeviceId: input.viewerDeviceId,
+      viewerIdentityPublicKey: input.viewerIdentityPublicKey,
+    });
+  } else if (
+    !record.viewerDeviceId ||
+    !record.viewerIdentityPublicKey ||
+    record.viewerDeviceId !== input.viewerDeviceId ||
+    record.viewerIdentityPublicKey !== input.viewerIdentityPublicKey
+  ) {
+    return fail("already-claimed", "Pairing session is already bound to another device.");
+  }
+  const proofValid = verifyRelayRouteAuthProof({
+    pairingAuthKey: relayAuthKey,
+    routeId: input.routeId,
+    clientSessionId: input.clientSessionId,
+    connectionId: input.connectionId,
+    viewerDeviceId: input.viewerDeviceId,
+    viewerIdentityPublicKey: input.viewerIdentityPublicKey,
+    issuedAt: input.routeAuthIssuedAt,
+    proof: input.routeAuthProof,
+    nowMs,
+  });
+  if (!proofValid) {
+    return fail("invalid-secret", "Relay pairing proof is invalid.");
+  }
+  usedRelayRouteAuthorizations.set(routeAuthorizationKey, nowMs + RELAY_ROUTE_AUTH_MAX_AGE_MS);
+  record.claim = {
+    claimId: record.claim?.claimId ?? Crypto.randomUUID(),
+    requesterName: normalizeOptionalName(
+      input.requesterName,
+      "Remote device",
+      MAX_REQUESTER_NAME_LENGTH,
+    ),
+    requestedAtMs: nowMs,
+  };
+  record.viewerDeviceId = input.viewerDeviceId;
+  record.viewerIdentityPublicKey = input.viewerIdentityPublicKey;
+  record.resolution = "approved";
+  record.resolvedAtMs = record.resolvedAtMs ?? nowMs;
+  record.relayAuthKey = relayAuthKey;
+  if (record.relayUrl.length > 0) {
+    record.secret = "";
+  }
+  return succeed(toPairingSessionView(record, nowMs));
 }
 
 export function getPairingSession(
@@ -401,6 +557,7 @@ export function getPairingClaim(
 export function __resetPairingStoreForTests(): void {
   pairingSessions.clear();
   pairingClaimSessions.clear();
+  usedRelayRouteAuthorizations.clear();
 }
 
 export async function persistPairingSessionsToDatabase(repo: {
@@ -409,15 +566,21 @@ export async function persistPairingSessionsToDatabase(repo: {
     secret: string;
     wsUrl: string;
     authToken: string;
+    relayUrl: string;
+    hostDeviceId: string;
+    hostIdentityPublicKey: string;
     name: string;
     createdAtMs: number;
     expiresAtMs: number;
+    relayAuthKey: string | null;
     claimId: string | null;
     claimRequesterName: string | null;
     claimRequestedAtMs: number | null;
     resolution: string | null;
     resolvedAtMs: number | null;
-  }) => Effect.Effect<void, never>;
+    viewerDeviceId: string | null;
+    viewerIdentityPublicKey: string | null;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
 }): Promise<void> {
   await Effect.runPromise(
     Effect.all(
@@ -427,14 +590,20 @@ export async function persistPairingSessionsToDatabase(repo: {
           secret: session.secret,
           wsUrl: session.wsUrl,
           authToken: session.authToken,
+          relayUrl: session.relayUrl,
+          hostDeviceId: session.hostDeviceId,
+          hostIdentityPublicKey: session.hostIdentityPublicKey,
           name: session.name,
           createdAtMs: session.createdAtMs,
           expiresAtMs: session.expiresAtMs,
+          relayAuthKey: session.relayAuthKey,
           claimId: session.claim?.claimId ?? null,
           claimRequesterName: session.claim?.requesterName ?? null,
           claimRequestedAtMs: session.claim?.requestedAtMs ?? null,
           resolution: session.resolution,
           resolvedAtMs: session.resolvedAtMs,
+          viewerDeviceId: session.viewerDeviceId,
+          viewerIdentityPublicKey: session.viewerIdentityPublicKey,
         }),
       ),
       { concurrency: "unbounded" },
@@ -449,16 +618,22 @@ export async function loadPairingSessionsFromDatabase(repo: {
       secret: string;
       wsUrl: string;
       authToken: string;
+      relayUrl: string;
+      hostDeviceId: string;
+      hostIdentityPublicKey: string;
       name: string;
       createdAtMs: number;
       expiresAtMs: number;
+      relayAuthKey: string | null;
       claimId: string | null;
       claimRequesterName: string | null;
       claimRequestedAtMs: number | null;
       resolution: string | null;
       resolvedAtMs: number | null;
+      viewerDeviceId: string | null;
+      viewerIdentityPublicKey: string | null;
     }>,
-    never
+    ProjectionRepositoryError
   >;
 }): Promise<void> {
   const sessions = await Effect.runPromise(repo.getAll());
@@ -468,9 +643,13 @@ export async function loadPairingSessionsFromDatabase(repo: {
       secret: session.secret,
       wsUrl: session.wsUrl,
       authToken: session.authToken,
+      relayUrl: session.relayUrl,
+      hostDeviceId: session.hostDeviceId,
+      hostIdentityPublicKey: session.hostIdentityPublicKey,
       name: session.name,
       createdAtMs: session.createdAtMs,
       expiresAtMs: session.expiresAtMs,
+      relayAuthKey: session.relayAuthKey,
       claim: session.claimId
         ? {
             claimId: session.claimId,
@@ -480,6 +659,8 @@ export async function loadPairingSessionsFromDatabase(repo: {
         : null,
       resolution: session.resolution as "approved" | "rejected" | null,
       resolvedAtMs: session.resolvedAtMs,
+      viewerDeviceId: session.viewerDeviceId,
+      viewerIdentityPublicKey: session.viewerIdentityPublicKey,
     });
     if (session.claimId) {
       pairingClaimSessions.set(session.claimId, session.sessionId);
