@@ -348,6 +348,10 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
+const INACTIVE_TERMINAL_VIEW_STATE = Object.freeze({
+  terminalOpen: false,
+  activeTerminalId: DEFAULT_THREAD_TERMINAL_ID,
+});
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
@@ -978,6 +982,9 @@ export default function ChatView({
 
   const terminalState = useTerminalStateStore(
     useShallow((state) => {
+      if (!activeForSideEffects) {
+        return INACTIVE_TERMINAL_VIEW_STATE;
+      }
       const selectedState = selectThreadTerminalState(state.terminalStateByThreadId, threadId);
       return {
         terminalOpen: selectedState.terminalOpen,
@@ -1134,7 +1141,9 @@ export default function ChatView({
   );
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
-  const providerStatuses = useConnectionServerProviders(activeServerConnectionUrl);
+  const providerStatuses = useConnectionServerProviders(activeServerConnectionUrl, {
+    enabled: activeForSideEffects,
+  });
   const localDraftThread = useMemo(
     () =>
       draftThread
@@ -1207,9 +1216,12 @@ export default function ChatView({
     },
     [threadId],
   );
-  const diffOpen = splitPane ? localDiffState.open : rightSidePanelDiffOpen;
-  const hasRightSidePanelContent = diffOpen || rightSidePanelMode !== null;
-  const rightSidePanelOpen = rightSidePanelVisible && hasRightSidePanelContent;
+  const rightSidePanelEnabled = !splitPane;
+  const effectiveRightSidePanelMode = rightSidePanelEnabled ? rightSidePanelMode : null;
+  const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
+  const hasRightSidePanelContent = diffOpen || effectiveRightSidePanelMode !== null;
+  const rightSidePanelOpen =
+    rightSidePanelEnabled && rightSidePanelVisible && hasRightSidePanelContent;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
@@ -1572,6 +1584,9 @@ export default function ChatView({
     [activeServerConnectionUrl],
   );
   useEffect(() => {
+    if (!activeForSideEffects) {
+      return;
+    }
     if (!activeThread?.id) {
       return;
     }
@@ -1580,7 +1595,7 @@ export default function ChatView({
     if (activeProjectId) {
       store.upsertProjectOwnership(activeServerConnectionUrl, activeProjectId);
     }
-  }, [activeProjectId, activeServerConnectionUrl, activeThread?.id]);
+  }, [activeForSideEffects, activeProjectId, activeServerConnectionUrl, activeThread?.id]);
   const activeEnvironmentIcon =
     activeRemoteHost && (activeRemoteHost.iconGlyph || activeRemoteHost.iconColor)
       ? {
@@ -2240,8 +2255,8 @@ export default function ChatView({
     activeThread?.branch ??
     branchesQuery.data?.branches.find((branch) => branch.current)?.name ??
     null;
-  const keybindings = useServerKeybindings();
-  const availableEditors = useServerAvailableEditors();
+  const keybindings = useServerKeybindings({ enabled: activeForSideEffects });
+  const availableEditors = useServerAvailableEditors({ enabled: activeForSideEffects });
   const handoffDisabledReason = useMemo(() => {
     if (!activeThread || !isServerThread) {
       return "Handoff is only available for saved threads.";
@@ -2639,11 +2654,13 @@ export default function ChatView({
   );
   const workspaceMode: ThreadWorkspaceMode = routeWorkspaceMode;
   const editorHostedInRightPanel =
-    rightSidePanelMode === "editor" || workspaceMode === "editor" || workspaceMode === "split";
+    effectiveRightSidePanelMode === "editor" ||
+    workspaceMode === "editor" ||
+    workspaceMode === "split";
   const headerWorkspaceMode: ThreadWorkspaceMode = editorHostedInRightPanel
     ? "split"
     : workspaceMode;
-  const browserOpen = browserMode !== "closed";
+  const browserOpen = rightSidePanelEnabled && browserMode !== "closed";
   const cleanupBrowserInstanceState = useCallback(
     (browserThreadId: ThreadId, options?: { resetVisibleState?: boolean }) => {
       browserControllerByThreadRef.current.delete(browserThreadId);
@@ -2675,7 +2692,7 @@ export default function ChatView({
     }
   }, []);
   useEffect(() => {
-    if (rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
+    if (!rightSidePanelEnabled || rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
       return;
     }
     setRightSidePanelDiffOpenState(true);
@@ -2683,17 +2700,21 @@ export default function ChatView({
     setLocalDiffState((previous) => ({ ...previous, open: true }));
   }, [
     rightSidePanelDiffOpen,
+    rightSidePanelEnabled,
     rightSidePanelMode,
     setLocalDiffState,
     setRightSidePanelDiffOpenState,
     setRightSidePanelReviewOpen,
   ]);
   useEffect(() => {
-    if (diffOpen) {
+    if (rightSidePanelEnabled && diffOpen) {
       setRightSidePanelReviewOpen(true);
     }
-  }, [diffOpen, setRightSidePanelReviewOpen]);
+  }, [diffOpen, rightSidePanelEnabled, setRightSidePanelReviewOpen]);
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     if (!rightSidePanelMode || rightSidePanelMode === "diff") {
       return;
     }
@@ -2701,12 +2722,23 @@ export default function ChatView({
       return;
     }
     setRightSidePanelLastNonDiffMode(rightSidePanelMode);
-  }, [rightSidePanelLastNonDiffMode, rightSidePanelMode, setRightSidePanelLastNonDiffMode]);
+  }, [
+    rightSidePanelEnabled,
+    rightSidePanelLastNonDiffMode,
+    rightSidePanelMode,
+    setRightSidePanelLastNonDiffMode,
+  ]);
   useEffect(() => {
-    if (browserOpen && isElectron && !diffOpen && rightSidePanelMode === null) {
+    if (
+      rightSidePanelEnabled &&
+      browserOpen &&
+      isElectron &&
+      !diffOpen &&
+      rightSidePanelMode === null
+    ) {
       setRightSidePanelMode("browser");
     }
-  }, [browserOpen, diffOpen, rightSidePanelMode, setRightSidePanelMode]);
+  }, [browserOpen, diffOpen, rightSidePanelEnabled, rightSidePanelMode, setRightSidePanelMode]);
   useEffect(() => {
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
       setRightSidePanelEditorOpen(true);
@@ -2721,6 +2753,11 @@ export default function ChatView({
     splitPane,
   ]);
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      activeBrowserThreadIdRef.current = null;
+      browserControllerRef.current = null;
+      return;
+    }
     activeBrowserThreadIdRef.current = activeThreadId;
     browserControllerRef.current = activeThreadId
       ? (browserControllerByThreadRef.current.get(activeThreadId) ?? null)
@@ -2730,8 +2767,11 @@ export default function ChatView({
         ? (browserRuntimeStateByThreadRef.current.get(activeThreadId)?.devToolsOpen ?? false)
         : false,
     );
-  }, [activeThreadId]);
+  }, [activeThreadId, rightSidePanelEnabled]);
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     if (!isElectron || !activeThreadId) {
       resetBrowserCacheState();
       setMountedBrowserInstances([]);
@@ -2743,8 +2783,11 @@ export default function ChatView({
     setMountedBrowserInstances((current) =>
       touchRecentBrowserInstance(current, activeThreadId, Date.now(), MAX_CACHED_BROWSER_INSTANCES),
     );
-  }, [activeThreadId, browserOpen, resetBrowserCacheState]);
+  }, [activeThreadId, browserOpen, resetBrowserCacheState, rightSidePanelEnabled]);
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     if (!isElectron || mountedBrowserInstances.length === 0) {
       return;
     }
@@ -2780,8 +2823,11 @@ export default function ChatView({
     return () => {
       window.clearTimeout(timeoutHandle);
     };
-  }, [activeThreadId, browserOpen, mountedBrowserInstances]);
+  }, [activeThreadId, browserOpen, mountedBrowserInstances, rightSidePanelEnabled]);
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     if (!isElectron || !activeThreadId) {
       return;
     }
@@ -2803,7 +2849,7 @@ export default function ChatView({
       window.removeEventListener("blur", trimBackgroundBrowserCache);
       document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
     };
-  }, [activeThreadId]);
+  }, [activeThreadId, rightSidePanelEnabled]);
   useEffect(() => {
     const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
       (entry) => entry.instanceId,
@@ -2856,6 +2902,9 @@ export default function ChatView({
   ]);
   const onWorkspaceModeChange = useCallback(
     (mode: ThreadWorkspaceMode) => {
+      if (splitPane) {
+        return;
+      }
       const nextMode =
         mode === "editor" && workspaceMode === "chat" ? persistedWorkspaceLayout : mode;
       if (nextMode === "editor" || nextMode === "split") {
@@ -2884,9 +2933,6 @@ export default function ChatView({
           ...previous,
           [threadId]: nextMode,
         }));
-      }
-      if (splitPane) {
-        return;
       }
       void navigate({
         to: "/$threadId",
@@ -2920,6 +2966,9 @@ export default function ChatView({
   }, []);
   const setRightSidePanelDiffOpen = useCallback(
     (nextDiffOpen: boolean) => {
+      if (!rightSidePanelEnabled) {
+        return;
+      }
       setRightSidePanelDiffOpenState(nextDiffOpen);
       setRightSidePanelReviewOpen(nextDiffOpen);
       setLocalDiffState((previous) => ({
@@ -2946,6 +2995,7 @@ export default function ChatView({
     },
     [
       rightSidePanelLastNonDiffMode,
+      rightSidePanelEnabled,
       rightSidePanelMode,
       setLocalDiffState,
       setRightSidePanelDiffOpenState,
@@ -2956,6 +3006,9 @@ export default function ChatView({
     ],
   );
   const onOpenRightSidePanelDiff = useCallback(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     if (diffOpen) {
       setRightSidePanelDiffOpenState(true);
       setRightSidePanelReviewOpen(true);
@@ -2966,6 +3019,7 @@ export default function ChatView({
     setRightSidePanelDiffOpen(true);
   }, [
     diffOpen,
+    rightSidePanelEnabled,
     setRightSidePanelDiffOpen,
     setRightSidePanelDiffOpenState,
     setRightSidePanelMode,
@@ -3655,34 +3709,39 @@ export default function ChatView({
   );
   const setTerminalOpen = useCallback(
     (open: boolean) => {
+      if (!activeForSideEffects) return;
       if (!activeThreadId) return;
       storeSetTerminalOpen(activeThreadId, open);
     },
-    [activeThreadId, storeSetTerminalOpen],
+    [activeForSideEffects, activeThreadId, storeSetTerminalOpen],
   );
   const setTerminalHeight = useCallback(
     (height: number) => {
+      if (!activeForSideEffects) return;
       if (!activeThreadId) return;
       storeSetTerminalHeight(activeThreadId, height);
     },
-    [activeThreadId, storeSetTerminalHeight],
+    [activeForSideEffects, activeThreadId, storeSetTerminalHeight],
   );
   const toggleTerminalVisibility = useCallback(() => {
+    if (!activeForSideEffects) return;
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
-  }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
+  }, [activeForSideEffects, activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
   const openBrowser = useCallback(() => {
+    if (!rightSidePanelEnabled) return;
     if (!isElectron) return;
     setRightSidePanelMode("browser");
     setBrowserMode("split");
     setRightSidePanelVisible(true);
-  }, [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
+  }, [rightSidePanelEnabled, setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
     setRightSidePanelMode((current) => (current === "browser" ? null : current));
   }, [setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
+    if (!rightSidePanelEnabled) return;
     if (rightSidePanelOpen) {
       setRightSidePanelVisible(false);
       return;
@@ -3693,15 +3752,22 @@ export default function ChatView({
     }
   }, [
     hasRightSidePanelContent,
+    rightSidePanelEnabled,
     rightSidePanelOpen,
     setRightSidePanelMode,
     setRightSidePanelVisible,
   ]);
   const onOpenRightSidePanelEditor = useCallback(() => {
+    if (!rightSidePanelEnabled) return;
     setRightSidePanelEditorOpen(true);
     setRightSidePanelMode("editor");
     setRightSidePanelVisible(true);
-  }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
+  }, [
+    rightSidePanelEnabled,
+    setRightSidePanelEditorOpen,
+    setRightSidePanelMode,
+    setRightSidePanelVisible,
+  ]);
   const openEditorFile = useEditorStateStore((state) => state.openFile);
   const workspaceRootsForInAppFileOpen = useMemo(
     () =>
@@ -3914,6 +3980,7 @@ export default function ChatView({
   );
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
+      if (!rightSidePanelEnabled) return;
       if (!isElectron || typeof url !== "string" || url.length === 0) return;
       setRightSidePanelMode("browser");
       setBrowserMode("split");
@@ -3925,7 +3992,7 @@ export default function ChatView({
       }
       controller.openUrl(url, options);
     },
-    [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
+    [rightSidePanelEnabled, setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -3956,21 +4023,25 @@ export default function ChatView({
   }, [openBrowser, openBrowserUrl]);
 
   useEffect(() => {
+    if (!rightSidePanelEnabled) return;
     if (!isElectron) return;
     return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
       if (typeof url !== "string" || url.length === 0) return;
       openBrowserUrl(url, { newTab: true });
     });
-  }, [openBrowserUrl]);
+  }, [openBrowserUrl, rightSidePanelEnabled]);
 
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     if (!isElectron) {
       return;
     }
 
     handleBrowserLaunchRequest();
     return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
-  }, [handleBrowserLaunchRequest]);
+  }, [handleBrowserLaunchRequest, rightSidePanelEnabled]);
 
   const syncBrowserSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4028,7 +4099,7 @@ export default function ChatView({
   );
   const handleBrowserSplitResizeKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (browserMode !== "split") {
+      if (!rightSidePanelEnabled || browserMode !== "split") {
         return;
       }
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
@@ -4055,10 +4126,13 @@ export default function ChatView({
         syncBrowserSplitWidth(0);
       }
     },
-    [browserMode, syncBrowserSplitWidth],
+    [browserMode, rightSidePanelEnabled, syncBrowserSplitWidth],
   );
 
   useEffect(() => {
+    if (!rightSidePanelEnabled || browserMode !== "split") {
+      return;
+    }
     const handlePointerMove = (event: PointerEvent) => {
       if (browserSplitResizePointerIdRef.current !== null) {
         handleBrowserSplitResizePointerMove(event);
@@ -4078,17 +4152,25 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [handleBrowserSplitResizePointerEnd, handleBrowserSplitResizePointerMove]);
+  }, [
+    browserMode,
+    handleBrowserSplitResizePointerEnd,
+    handleBrowserSplitResizePointerMove,
+    rightSidePanelEnabled,
+  ]);
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
     const clampedWidth = clampBrowserSplitWidth(storedBrowserSplitWidth, viewportWidth);
     browserSplitWidthRef.current = clampedWidth;
     lastSyncedBrowserSplitWidthRef.current = clampedWidth;
     setBrowserSplitWidth(clampedWidth);
-  }, [storedBrowserSplitWidth]);
+  }, [rightSidePanelEnabled, storedBrowserSplitWidth]);
 
   useEffect(() => {
-    if (browserMode !== "split") {
+    if (!rightSidePanelEnabled || browserMode !== "split") {
       return;
     }
 
@@ -4149,7 +4231,7 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [browserMode, syncBrowserSplitWidth]);
+  }, [browserMode, rightSidePanelEnabled, syncBrowserSplitWidth]);
 
   const syncWorkspaceEditorSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4207,6 +4289,9 @@ export default function ChatView({
   );
 
   useEffect(() => {
+    if (workspaceMode !== "split" || editorHostedInRightPanel) {
+      return;
+    }
     const handlePointerMove = (event: PointerEvent) => {
       if (workspaceEditorSplitResizePointerIdRef.current !== null) {
         handleWorkspaceEditorSplitResizePointerMove(event);
@@ -4226,9 +4311,17 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [handleWorkspaceEditorSplitResizePointerEnd, handleWorkspaceEditorSplitResizePointerMove]);
+  }, [
+    editorHostedInRightPanel,
+    handleWorkspaceEditorSplitResizePointerEnd,
+    handleWorkspaceEditorSplitResizePointerMove,
+    workspaceMode,
+  ]);
 
   useEffect(() => {
+    if (workspaceMode !== "split" || editorHostedInRightPanel) {
+      return;
+    }
     const viewportWidth = workspaceViewportRef.current?.clientWidth ?? window.innerWidth;
     const clampedWidth = clampWorkspaceEditorSplitWidth(
       storedWorkspaceEditorSplitWidth,
@@ -4237,7 +4330,7 @@ export default function ChatView({
     workspaceEditorSplitWidthRef.current = clampedWidth;
     lastSyncedWorkspaceEditorSplitWidthRef.current = clampedWidth;
     setWorkspaceEditorSplitWidth(clampedWidth);
-  }, [storedWorkspaceEditorSplitWidth]);
+  }, [editorHostedInRightPanel, storedWorkspaceEditorSplitWidth, workspaceMode]);
 
   useEffect(() => {
     if (workspaceMode !== "split" || editorHostedInRightPanel) {
@@ -4396,6 +4489,9 @@ export default function ChatView({
   );
 
   useEffect(() => {
+    if (!rightSidePanelOpen) {
+      return;
+    }
     const handlePointerMove = (event: PointerEvent) => {
       if (rightSidePanelResizePointerIdRef.current !== null) {
         handleRightSidePanelResizePointerMove(event);
@@ -4415,8 +4511,15 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [handleRightSidePanelResizePointerEnd, handleRightSidePanelResizePointerMove]);
+  }, [
+    handleRightSidePanelResizePointerEnd,
+    handleRightSidePanelResizePointerMove,
+    rightSidePanelOpen,
+  ]);
   useEffect(() => {
+    if (!activeForSideEffects) {
+      return;
+    }
     const resetResizeInteractions = () => {
       handleBrowserSplitResizePointerEnd();
       handleWorkspaceEditorSplitResizePointerEnd();
@@ -4437,15 +4540,19 @@ export default function ChatView({
     handleBrowserSplitResizePointerEnd,
     handleRightSidePanelResizePointerEnd,
     handleWorkspaceEditorSplitResizePointerEnd,
+    activeForSideEffects,
   ]);
 
   useEffect(() => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
     const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
     const clampedWidth = clampRightSidePanelWidth(storedRightSidePanelWidth, viewportWidth);
     rightSidePanelWidthRef.current = clampedWidth;
     lastSyncedRightSidePanelWidthRef.current = clampedWidth;
     setRightSidePanelWidth(clampedWidth);
-  }, [storedRightSidePanelWidth]);
+  }, [rightSidePanelEnabled, storedRightSidePanelWidth]);
 
   useEffect(() => {
     if (!rightSidePanelOpen || rightSidePanelFullscreen) {
@@ -4909,6 +5016,7 @@ export default function ChatView({
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!shortcutsEnabled) return;
     if (!isElectron) return;
     return window.desktopBridge?.onMenuAction((action) => {
@@ -4932,6 +5040,7 @@ export default function ChatView({
     });
   }, [
     activeThreadId,
+    activeForSideEffects,
     onOpenRightSidePanelDiff,
     shortcutsEnabled,
     toggleInteractionMode,
@@ -5164,6 +5273,7 @@ export default function ChatView({
     };
   }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
+    if (!activeForSideEffects) return;
     const nextThreadId = activeThread?.id ?? null;
     if (!nextThreadId) return;
     const jumpImmediately =
@@ -5191,6 +5301,7 @@ export default function ChatView({
       window.clearTimeout(timeout);
     };
   }, [
+    activeForSideEffects,
     activeThread?.id,
     cancelPendingInteractionAnchorAdjustment,
     cancelPendingStickToBottom,
@@ -5198,6 +5309,7 @@ export default function ChatView({
     scheduleStickToBottom,
   ]);
   useLayoutEffect(() => {
+    if (!activeForSideEffects) return;
     const composerForm = composerFormRef.current;
     if (!composerForm) return;
     const measureComposerFormWidth = () => composerForm.clientWidth;
@@ -5303,20 +5415,23 @@ export default function ChatView({
       }
     };
   }, [
+    activeForSideEffects,
     activeThread?.id,
     composerFooterActionLayoutKey,
     composerFooterHasWideActions,
     scheduleStickToBottom,
   ]);
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!shouldAutoScrollRef.current) return;
     scheduleStickToBottom();
-  }, [messageCount, scheduleStickToBottom]);
+  }, [activeForSideEffects, messageCount, scheduleStickToBottom]);
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!liveTurnInProgress) return;
     if (!shouldAutoScrollRef.current) return;
     scheduleStickToBottom();
-  }, [liveTurnInProgress, scheduleStickToBottom, timelineEntries]);
+  }, [activeForSideEffects, liveTurnInProgress, scheduleStickToBottom, timelineEntries]);
 
   useEffect(() => {
     setExpandedWorkGroups({});
@@ -5326,11 +5441,13 @@ export default function ChatView({
     setPullRequestDialogState(null);
     if (openSummaryOnNextThreadRef.current) {
       openSummaryOnNextThreadRef.current = false;
-      setRightSidePanelMode("summary");
-      setRightSidePanelVisible(true);
+      if (rightSidePanelEnabled) {
+        setRightSidePanelMode("summary");
+        setRightSidePanelVisible(true);
+      }
     }
     dismissedComposerTriggerRef.current = null;
-  }, [activeThread?.id, setRightSidePanelMode, setRightSidePanelVisible]);
+  }, [activeThread?.id, rightSidePanelEnabled, setRightSidePanelMode, setRightSidePanelVisible]);
 
   useEffect(() => {
     if (!composerMenuOpen) {
@@ -5349,9 +5466,10 @@ export default function ChatView({
   }, [activeThread?.id]);
 
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!activeThread?.id || terminalState.terminalOpen) return;
     return scheduleComposerFocus();
-  }, [activeThread?.id, scheduleComposerFocus, terminalState.terminalOpen]);
+  }, [activeForSideEffects, activeThread?.id, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
     composerImagesRef.current = composerImages;
@@ -5552,6 +5670,7 @@ export default function ChatView({
   }, [activeForSideEffects, activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
+    if (!activeForSideEffects) return;
     if (!shortcutsEnabled) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
@@ -5757,6 +5876,7 @@ export default function ChatView({
     return () => window.removeEventListener("keydown", handler);
   }, [
     activeProject,
+    activeForSideEffects,
     browserOpen,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
@@ -6795,7 +6915,7 @@ export default function ChatView({
         });
         // Switch to the summary surface when implementing so live plan and todo updates
         // stay in the same right-panel destination.
-        if (nextInteractionMode === "default") {
+        if (rightSidePanelEnabled && nextInteractionMode === "default") {
           setRightSidePanelMode("summary");
           setRightSidePanelVisible(true);
         }
@@ -6822,6 +6942,7 @@ export default function ChatView({
       isServerThread,
       persistThreadSettingsForNextTurn,
       resetLocalDispatch,
+      rightSidePanelEnabled,
       runtimeMode,
       selectedPromptEffort,
       selectedModelSelection,
@@ -7397,6 +7518,9 @@ export default function ChatView({
   const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
+      if (!rightSidePanelEnabled) {
+        return;
+      }
       setRightSidePanelDiffOpenState(true);
       setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
@@ -7404,6 +7528,7 @@ export default function ChatView({
       setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
     },
     [
+      rightSidePanelEnabled,
       setLocalDiffState,
       setRightSidePanelDiffOpenState,
       setRightSidePanelMode,
@@ -7493,6 +7618,7 @@ export default function ChatView({
       activeTurnInProgress: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
       backgroundMarkdownPrewarm: activeForSideEffects,
+      liveTimers: activeForSideEffects,
       scrollContainer: messagesScrollElement,
       timelineEntries,
       completionDividerBeforeEntryId,
@@ -7690,7 +7816,7 @@ export default function ChatView({
         }
       : null;
   const requestedRightSidePanelMode: RightSidePanelMode | null = rightSidePanelOpen
-    ? (rightSidePanelMode ?? (diffOpen ? "diff" : null))
+    ? (effectiveRightSidePanelMode ?? (diffOpen ? "diff" : null))
     : null;
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
@@ -7751,8 +7877,8 @@ export default function ChatView({
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
             keybindings={keybindings}
-            terminalAvailable={activeProject !== undefined}
-            terminalOpen={terminalState.terminalOpen}
+            terminalAvailable={activeForSideEffects && activeProject !== undefined}
+            terminalOpen={activeForSideEffects && terminalState.terminalOpen}
             terminalToggleShortcutLabel={terminalToggleShortcutLabel}
             rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
             gitCwd={gitCwd}

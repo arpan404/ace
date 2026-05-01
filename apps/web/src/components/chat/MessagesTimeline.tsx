@@ -162,6 +162,7 @@ interface MessagesTimelineProps {
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
   backgroundMarkdownPrewarm?: boolean;
+  liveTimers?: boolean;
   scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
@@ -193,6 +194,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnInProgress,
   activeTurnStartedAt,
   backgroundMarkdownPrewarm = true,
+  liveTimers = true,
   scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
@@ -740,15 +742,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <div className="min-w-0 py-1">
             <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
               <span className="inline-flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/28 animate-pulse" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/24 animate-pulse [animation-delay:200ms]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/20 animate-pulse [animation-delay:400ms]" />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
+                    liveTimers ? "animate-pulse" : null,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
+                    liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
+                    liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
+                  )}
+                />
               </span>
               <span>
                 {row.createdAt ? (
                   <WorkingTimer
                     createdAt={row.createdAt}
                     label={row.mode === "silent-thinking" ? "Getting started for" : "Working for"}
+                    live={liveTimers}
                   />
                 ) : row.mode === "silent-thinking" ? (
                   "Getting started..."
@@ -1062,9 +1080,11 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
+  live,
 }: {
   createdAt: string;
   label: string;
+  live: boolean;
 }) {
   const startedAtMs = Date.parse(createdAt);
   const [elapsed, setElapsed] = useState(() =>
@@ -1072,12 +1092,13 @@ const WorkingTimer = memo(function WorkingTimer({
   );
 
   useEffect(() => {
+    if (!live) return;
     if (!Number.isFinite(startedAtMs)) return;
     const timer = window.setInterval(() => {
       setElapsed(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [startedAtMs]);
+  }, [live, startedAtMs]);
 
   return (
     <>
