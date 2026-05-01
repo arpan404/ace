@@ -20,7 +20,13 @@ export const DEFAULT_ACE_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(homedir(), ".ace"),
 );
 export const DEFAULT_ACE_DEV_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(homedir(), ".ace-dev"),
+  path.join(homedir(), ".ace", "dev"),
+);
+export const DEFAULT_ACE_DEV_WEB_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".ace", "dev", "web"),
+);
+export const DEFAULT_ACE_DEV_DESKTOP_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".ace", "dev", "desktop"),
 );
 
 const MODE_ARGS = {
@@ -125,7 +131,7 @@ export function resolveOffset(config: {
 
 function resolveBaseDir({
   baseDir,
-  mode: _mode,
+  mode,
 }: {
   readonly baseDir: string | undefined;
   readonly mode: DevMode;
@@ -137,7 +143,13 @@ function resolveBaseDir({
     if (configured) {
       return path.resolve(configured);
     }
-    // Keep all dev flows isolated from normal app data under ~/.ace.
+    if (mode === "dev:web") {
+      return yield* DEFAULT_ACE_DEV_WEB_HOME;
+    }
+    if (mode === "dev:desktop") {
+      return yield* DEFAULT_ACE_DEV_DESKTOP_HOME;
+    }
+    // Keep generic dev flows isolated from normal app data under ~/.ace/dev.
     return yield* DEFAULT_ACE_DEV_HOME;
   });
 }

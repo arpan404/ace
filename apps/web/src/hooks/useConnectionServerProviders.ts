@@ -1,11 +1,9 @@
 import {
   DEFAULT_SERVER_SETTINGS,
-  type ProjectId,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerProvider,
   type ServerSettings,
-  type ThreadId,
 } from "@ace/contracts";
 import { useEffect, useMemo, useState } from "react";
 
@@ -33,11 +31,9 @@ function normalizeConnectionUrl(connectionUrl: string | null | undefined): strin
 export function resolveThreadOriginConnectionUrl(input: {
   explicitConnectionUrl?: string | null;
   localConnectionUrl?: string;
-  projectConnectionById: Readonly<Record<string, string>>;
-  projectId?: ProjectId | null;
+  projectConnectionUrl?: string | null;
   routeConnectionUrl?: string | null;
-  threadConnectionById: Readonly<Record<string, string>>;
-  threadId: ThreadId;
+  threadConnectionUrl?: string | null;
 }): string {
   const localConnectionUrl =
     normalizeConnectionUrl(input.localConnectionUrl) ?? resolveLocalConnectionUrl();
@@ -46,15 +42,12 @@ export function resolveThreadOriginConnectionUrl(input: {
     return explicitConnectionUrl;
   }
 
-  const threadConnectionUrl = normalizeConnectionUrl(input.threadConnectionById[input.threadId]);
+  const threadConnectionUrl = normalizeConnectionUrl(input.threadConnectionUrl);
   if (threadConnectionUrl) {
     return threadConnectionUrl;
   }
 
-  const projectConnectionUrl =
-    input.projectId === null || input.projectId === undefined
-      ? null
-      : normalizeConnectionUrl(input.projectConnectionById[input.projectId]);
+  const projectConnectionUrl = normalizeConnectionUrl(input.projectConnectionUrl);
   if (projectConnectionUrl) {
     return projectConnectionUrl;
   }

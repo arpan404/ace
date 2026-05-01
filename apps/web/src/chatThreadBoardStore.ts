@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { normalizePaneRatios } from "./lib/paneRatios";
-import { resolveStorage } from "./lib/storage";
+import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { normalizeThreadBoardConnectionUrl } from "./lib/threadBoardThreads";
 import { randomUUID } from "./lib/utils";
 
@@ -65,6 +65,7 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
     direction?: "down" | "left" | "right" | "up";
     sourcePaneId?: string | null;
     threadId: ThreadId;
+    title?: string | undefined;
   }) => string | null;
   openThreadInSplit: (
     splitId: string,
@@ -83,6 +84,11 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
     }>,
     options?: { sourcePaneId?: string | null },
   ) => string | null;
+  movePane: (input: {
+    direction: "down" | "left" | "right" | "up";
+    paneId: string;
+    targetPaneId: string;
+  }) => string | null;
   renameSplit: (splitId: string, title: string) => void;
   restoreSplit: (splitId: string, activePaneId?: string | null) => string | null;
   setActivePane: (paneId: string | null) => void;
@@ -117,9 +123,23 @@ type BoardStateFields = Pick<
 type InsertDirection = "down" | "left" | "right" | "up";
 
 const STORAGE_KEY = "ace:chat-thread-board:v1";
+const CHAT_THREAD_BOARD_PERSIST_DEBOUNCE_MS = 300;
+
+const chatThreadBoardDebouncedStorage = createDebouncedStorage(
+  typeof window !== "undefined" ? window.localStorage : createMemoryStorage(),
+  CHAT_THREAD_BOARD_PERSIST_DEBOUNCE_MS,
+);
+
+if (typeof window !== "undefined") {
+  const flushChatThreadBoardStorage = () => {
+    chatThreadBoardDebouncedStorage.flush();
+  };
+  window.addEventListener("beforeunload", flushChatThreadBoardStorage);
+  window.addEventListener("pagehide", flushChatThreadBoardStorage);
+}
 
 function createChatThreadBoardStorage() {
-  return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
+  return chatThreadBoardDebouncedStorage;
 }
 
 function createTimestamp(): string {
@@ -140,6 +160,10 @@ function createPane(input: {
     id: input.id ?? `pane-${randomUUID()}`,
     threadId: input.threadId,
   };
+}
+
+function getBoardThreadKey(input: { connectionUrl?: string | null; threadId: ThreadId }): string {
+  return `${input.threadId}\u0000${normalizeThreadBoardConnectionUrl(input.connectionUrl) ?? ""}`;
 }
 
 function createLayoutLeaf(paneId: string, id?: string): ChatThreadBoardLeafNode {
@@ -371,10 +395,16 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
     if (paneById.has(pane.id)) {
       continue;
     }
-    paneById.set(pane.id, {
-      ...pane,
-      connectionUrl: normalizeThreadBoardConnectionUrl(pane.connectionUrl),
-    });
+    const connectionUrl = normalizeThreadBoardConnectionUrl(pane.connectionUrl);
+    paneById.set(
+      pane.id,
+      pane.connectionUrl === connectionUrl
+        ? pane
+        : {
+            ...pane,
+            connectionUrl,
+          },
+    );
   }
 
   if (paneById.size === 0) {
@@ -407,6 +437,63 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
     layoutRoot,
     panes,
   };
+}
+
+function boardLayoutNodesEqual(
+  left: ChatThreadBoardLayoutNode | null,
+  right: ChatThreadBoardLayoutNode | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.kind !== right.kind || left.id !== right.id) {
+    return false;
+  }
+  if (left.kind === "pane" || right.kind === "pane") {
+    return left.kind === "pane" && right.kind === "pane" && left.paneId === right.paneId;
+  }
+  if (left.axis !== right.axis || left.children.length !== right.children.length) {
+    return false;
+  }
+  const leftRatios = normalizePaneRatios(left.ratios, left.children.length);
+  const rightRatios = normalizePaneRatios(right.ratios, right.children.length);
+  for (let index = 0; index < leftRatios.length; index += 1) {
+    if (leftRatios[index] !== rightRatios[index]) {
+      return false;
+    }
+  }
+  return left.children.every((child, index) =>
+    boardLayoutNodesEqual(child, right.children[index] ?? null),
+  );
+}
+
+function boardPanesEqual(
+  left: readonly ChatThreadBoardPaneState[],
+  right: readonly ChatThreadBoardPaneState[],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((leftPane, index) => {
+    const rightPane = right[index];
+    return (
+      rightPane !== undefined &&
+      leftPane.id === rightPane.id &&
+      leftPane.threadId === rightPane.threadId &&
+      leftPane.connectionUrl === rightPane.connectionUrl
+    );
+  });
+}
+
+function boardStatesEqual(left: BoardStateFields, right: BoardStateFields): boolean {
+  return (
+    left.activePaneId === right.activePaneId &&
+    boardPanesEqual(left.panes, right.panes) &&
+    boardLayoutNodesEqual(left.layoutRoot, right.layoutRoot)
+  );
 }
 
 function normalizeSplitState(
@@ -485,13 +572,41 @@ function normalizePersistedState(
 function saveBoardToActiveSplit(
   state: PersistedChatThreadBoardState,
   board: LegacyBoardStateFields,
+  input?: { title?: string | null | undefined },
 ): PersistedChatThreadBoardState {
   const normalizedBoard = normalizeBoardState(board);
-  if (!state.activeSplitId || normalizedBoard.panes.length <= 1) {
+  if (boardStatesEqual(state, normalizedBoard)) {
+    return state;
+  }
+
+  if (normalizedBoard.panes.length <= 1) {
     return {
       ...state,
       ...normalizedBoard,
-      activeSplitId: normalizedBoard.panes.length > 1 ? state.activeSplitId : null,
+      activeSplitId: null,
+      splits: state.activeSplitId
+        ? state.splits.filter((split) => split.id !== state.activeSplitId)
+        : state.splits,
+    };
+  }
+
+  if (!state.activeSplitId) {
+    const split = createSplitFromBoard({
+      board: normalizedBoard,
+      title: input?.title ?? createSplitTitle(state.splits.length + 1),
+    });
+    if (!split) {
+      return {
+        ...state,
+        ...normalizedBoard,
+        activeSplitId: null,
+      };
+    }
+    return {
+      ...state,
+      ...normalizedBoard,
+      activeSplitId: split.id,
+      splits: [...state.splits, split],
     };
   }
 
@@ -585,10 +700,20 @@ function boardStateFromOrderedThreads(input: {
   activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
   threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
 }): BoardStateFields {
-  const normalizedThreads = input.threads.map((thread) => ({
-    connectionUrl: normalizeThreadBoardConnectionUrl(thread.connectionUrl),
-    threadId: thread.threadId,
-  }));
+  const seenThreadKeys = new Set<string>();
+  const normalizedThreads: Array<{ connectionUrl: string | null; threadId: ThreadId }> = [];
+  for (const thread of input.threads) {
+    const normalizedThread = {
+      connectionUrl: normalizeThreadBoardConnectionUrl(thread.connectionUrl),
+      threadId: thread.threadId,
+    };
+    const threadKey = getBoardThreadKey(normalizedThread);
+    if (seenThreadKeys.has(threadKey)) {
+      continue;
+    }
+    seenThreadKeys.add(threadKey);
+    normalizedThreads.push(normalizedThread);
+  }
   if (normalizedThreads.length === 0) {
     return createDefaultBoardState();
   }
@@ -613,28 +738,37 @@ function boardStateFromOrderedThreads(input: {
   });
 }
 
+function boardStateFromRouteThread(
+  state: BoardStateFields,
+  input: { connectionUrl?: string | null; threadId: ThreadId },
+): BoardStateFields {
+  const normalizedConnectionUrl = normalizeThreadBoardConnectionUrl(input.connectionUrl);
+  const reusablePane =
+    state.panes.length === 1 &&
+    state.panes[0]?.threadId === input.threadId &&
+    state.panes[0]?.connectionUrl === normalizedConnectionUrl
+      ? state.panes[0]
+      : null;
+  const pane =
+    reusablePane ??
+    createPane({
+      connectionUrl: normalizedConnectionUrl,
+      threadId: input.threadId,
+    });
+
+  return normalizeBoardState({
+    activePaneId: pane.id,
+    layoutRoot: buildLinearLayoutFromPaneIds([pane.id]),
+    panes: [pane],
+  });
+}
+
 function findPaneIndex(
   panes: readonly ChatThreadBoardPaneState[],
   input: { connectionUrl?: string | null; threadId: ThreadId },
 ): number {
-  const normalizedConnectionUrl = normalizeThreadBoardConnectionUrl(input.connectionUrl);
-  return panes.findIndex(
-    (pane) => pane.threadId === input.threadId && pane.connectionUrl === normalizedConnectionUrl,
-  );
-}
-
-function withUpdatedPane(
-  state: BoardStateFields,
-  paneId: string,
-  updater: (pane: ChatThreadBoardPaneState) => ChatThreadBoardPaneState,
-): BoardStateFields {
-  const paneIndex = state.panes.findIndex((pane) => pane.id === paneId);
-  if (paneIndex < 0) {
-    return state;
-  }
-  const panes = [...state.panes];
-  panes[paneIndex] = updater(panes[paneIndex]!);
-  return normalizeBoardState({ ...state, panes });
+  const targetKey = getBoardThreadKey(input);
+  return panes.findIndex((pane) => getBoardThreadKey(pane) === targetKey);
 }
 
 function findAnchorPaneId(state: BoardStateFields, preferredPaneId?: string | null): string | null {
@@ -749,16 +883,36 @@ function insertPaneIntoBoard(
   });
 }
 
-function replacePaneThread(
+function movePaneInBoard(
   state: BoardStateFields,
-  paneId: string,
-  input: { connectionUrl?: string | null; threadId: ThreadId },
+  input: { direction: InsertDirection; paneId: string; targetPaneId: string },
 ): BoardStateFields {
-  return withUpdatedPane(state, paneId, (pane) => ({
-    ...pane,
-    connectionUrl: normalizeThreadBoardConnectionUrl(input.connectionUrl),
-    threadId: input.threadId,
-  }));
+  if (input.paneId === input.targetPaneId || state.panes.length <= 1) {
+    return state;
+  }
+  const sourcePane = state.panes.find((pane) => pane.id === input.paneId);
+  if (!sourcePane || !layoutContainsPaneId(state.layoutRoot, input.targetPaneId)) {
+    return state;
+  }
+
+  const layoutRootWithoutSource = removePaneFromLayout(state.layoutRoot, input.paneId);
+  if (
+    !layoutRootWithoutSource ||
+    !layoutContainsPaneId(layoutRootWithoutSource, input.targetPaneId)
+  ) {
+    return state;
+  }
+
+  const moved = insertPaneIntoLayout(layoutRootWithoutSource, sourcePane.id, {
+    direction: input.direction,
+    sourcePaneId: input.targetPaneId,
+  });
+
+  return normalizeBoardState({
+    activePaneId: sourcePane.id,
+    layoutRoot: moved.layoutRoot,
+    panes: state.panes,
+  });
 }
 
 function removePaneFromLayout(
@@ -832,6 +986,17 @@ function openThreadsInBoardState(
   let sourcePaneId = findAnchorPaneId(state, options?.sourcePaneId);
 
   for (const input of inputs) {
+    const existingPaneIndex = findPaneIndex(board.panes, input);
+    if (existingPaneIndex >= 0) {
+      lastOpenedPaneId = board.panes[existingPaneIndex]!.id;
+      sourcePaneId = lastOpenedPaneId;
+      board = normalizeBoardState({
+        ...board,
+        activePaneId: lastOpenedPaneId,
+      });
+      continue;
+    }
+
     const pane = createPane(input);
     board = insertPaneIntoBoard(board, pane, {
       direction: "right",
@@ -955,6 +1120,7 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
               ...(input.direction ? { direction: input.direction } : {}),
               ...(input.sourcePaneId ? { sourcePaneId: input.sourcePaneId } : {}),
             }),
+            { title: input.title },
           );
         });
         return openedPaneId;
@@ -1005,6 +1171,18 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
         });
         return lastOpenedPaneId;
       },
+      movePane: (input) => {
+        let movedPaneId: string | null = null;
+        set((state) => {
+          const nextBoard = movePaneInBoard(state, input);
+          if (nextBoard === state || nextBoard.activePaneId !== input.paneId) {
+            return state;
+          }
+          movedPaneId = input.paneId;
+          return saveBoardToActiveSplit(state, nextBoard);
+        });
+        return movedPaneId;
+      },
       renameSplit: (splitId, title) => {
         set((state) => {
           const trimmed = title.trim();
@@ -1032,6 +1210,9 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
             panes: split.panes,
           });
           restoredPaneId = board.activePaneId;
+          if (state.activeSplitId === split.id && boardStatesEqual(state, board)) {
+            return state;
+          }
           return {
             ...state,
             ...board,
@@ -1041,11 +1222,14 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
         return restoredPaneId;
       },
       setActivePane: (paneId) => {
-        set((state) =>
-          paneId === null || state.panes.some((pane) => pane.id === paneId)
+        set((state) => {
+          if (paneId === state.activePaneId) {
+            return state;
+          }
+          return paneId === null || state.panes.some((pane) => pane.id === paneId)
             ? saveBoardToActiveSplit(state, { ...state, activePaneId: paneId })
-            : state,
-        );
+            : state;
+        });
       },
       setActiveSplit: (splitId) => {
         set((state) => ({
@@ -1064,51 +1248,11 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
       syncRouteThread: (input) => {
         let paneId = "";
         set((state) => {
-          const existingPaneIndex = findPaneIndex(state.panes, input);
-          if (existingPaneIndex >= 0) {
-            paneId = state.panes[existingPaneIndex]!.id;
-            return {
-              ...state,
-              activePaneId: paneId,
-              activeSplitId: null,
-            };
-          }
-
-          if (state.panes.length === 0) {
-            const pane = createPane(input);
-            paneId = pane.id;
-            return {
-              ...state,
-              ...insertPaneIntoBoard(state, pane),
-              activeSplitId: null,
-            };
-          }
-
-          if (state.panes.length === 1) {
-            const solePane = state.panes[0]!;
-            paneId = solePane.id;
-            return {
-              ...state,
-              ...replacePaneThread(state, solePane.id, input),
-              activeSplitId: null,
-            };
-          }
-
-          const activePaneId = findAnchorPaneId(state);
-          if (!activePaneId) {
-            const pane = createPane(input);
-            paneId = pane.id;
-            return {
-              ...state,
-              ...insertPaneIntoBoard(state, pane),
-              activeSplitId: null,
-            };
-          }
-          paneId = activePaneId;
+          const board = boardStateFromRouteThread(state, input);
+          paneId = board.activePaneId ?? "";
           return {
             ...state,
-            ...replacePaneThread(state, activePaneId, input),
-            activePaneId,
+            ...board,
             activeSplitId: null,
           };
         });

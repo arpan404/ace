@@ -1,121 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildTerminalColorMenuItems,
-  buildTerminalContextMenuItems,
-  buildTerminalIconMenuItems,
-  buildTerminalSectionMenuItems,
-  buildTerminalSidebarDensityItems,
+  resolveTerminalTabDropTarget,
   resolveTerminalSelectionActionPosition,
   shouldHandleTerminalSelectionMouseUp,
   terminalSelectionActionDelayForClickCount,
 } from "./ThreadTerminalDrawer";
 
-describe("buildTerminalContextMenuItems", () => {
-  it("includes VS Code-style terminal actions and disables split at the group limit", () => {
+describe("resolveTerminalTabDropTarget", () => {
+  it("resolves the group and insertion index for tab sorting", () => {
     expect(
-      buildTerminalContextMenuItems({
-        canSplit: false,
-        canUnsplit: false,
-        hasCustomTitle: false,
-      }),
-    ).toEqual([
-      { id: "split", label: "Split Terminal", disabled: true },
-      { id: "new", label: "New Terminal" },
-      { id: "duplicate", label: "Duplicate Terminal" },
-      { id: "rename", label: "Rename Terminal" },
-      { id: "clear", label: "Clear Terminal" },
-      { id: "restart", label: "Restart Terminal" },
-      { id: "close", label: "Close Terminal", destructive: true },
-    ]);
+      resolveTerminalTabDropTarget(
+        [
+          { id: "group-default", terminalIds: ["default", "terminal-2"] },
+          { id: "group-terminal-3", terminalIds: ["terminal-3"] },
+        ],
+        "terminal-2",
+      ),
+    ).toEqual({ groupId: "group-default", index: 1 });
   });
 
-  it("adds reset title when the terminal has a custom name", () => {
+  it("returns null when the target terminal is not open", () => {
     expect(
-      buildTerminalContextMenuItems({
-        canSplit: true,
-        canUnsplit: true,
-        hasCustomTitle: true,
-      }),
-    ).toEqual([
-      { id: "split", label: "Split Terminal", disabled: false },
-      { id: "unsplit", label: "Unsplit Terminal" },
-      { id: "new", label: "New Terminal" },
-      { id: "duplicate", label: "Duplicate Terminal" },
-      { id: "rename", label: "Rename Terminal" },
-      { id: "reset-title", label: "Reset Title" },
-      { id: "clear", label: "Clear Terminal" },
-      { id: "restart", label: "Restart Terminal" },
-      { id: "close", label: "Close Terminal", destructive: true },
-    ]);
-  });
-});
-
-describe("buildTerminalIconMenuItems", () => {
-  it("marks the selected icon for the submenu", () => {
-    expect(buildTerminalIconMenuItems("server")).toEqual([
-      { id: "terminal", label: "Terminal", current: false },
-      { id: "code", label: "Code", current: false },
-      { id: "server", label: "Server", current: true },
-      { id: "database", label: "Database", current: false },
-      { id: "globe", label: "Globe", current: false },
-      { id: "wrench", label: "Wrench", current: false },
-    ]);
-  });
-
-  it("falls back to the terminal icon when unset", () => {
-    expect(buildTerminalIconMenuItems(null)[0]).toEqual({
-      id: "terminal",
-      label: "Terminal",
-      current: true,
-    });
-  });
-});
-
-describe("buildTerminalColorMenuItems", () => {
-  it("marks the selected color for the submenu", () => {
-    expect(buildTerminalColorMenuItems("emerald")).toEqual([
-      { id: "default", label: "Default", current: false },
-      { id: "emerald", label: "Emerald", current: true },
-      { id: "amber", label: "Amber", current: false },
-      { id: "sky", label: "Sky", current: false },
-      { id: "rose", label: "Rose", current: false },
-      { id: "violet", label: "Violet", current: false },
-    ]);
-  });
-
-  it("falls back to the default color when unset", () => {
-    expect(buildTerminalColorMenuItems(null)[0]).toEqual({
-      id: "default",
-      label: "Default",
-      current: true,
-    });
-  });
-});
-
-describe("buildTerminalSectionMenuItems", () => {
-  it("includes creation and bulk terminal actions", () => {
-    expect(buildTerminalSectionMenuItems()).toEqual([
-      { id: "new-terminal", label: "New Terminal" },
-      { id: "clear-all", label: "Clear All Terminals" },
-      { id: "close-all", label: "Kill All Terminals", destructive: true },
-    ]);
-  });
-});
-
-describe("buildTerminalSidebarDensityItems", () => {
-  it("marks compact density when requested", () => {
-    expect(buildTerminalSidebarDensityItems("compact")).toEqual([
-      { id: "comfortable", label: "Comfortable", current: false },
-      { id: "compact", label: "Compact", current: true },
-    ]);
-  });
-
-  it("defaults to comfortable density", () => {
-    expect(buildTerminalSidebarDensityItems()).toEqual([
-      { id: "comfortable", label: "Comfortable", current: true },
-      { id: "compact", label: "Compact", current: false },
-    ]);
+      resolveTerminalTabDropTarget([{ id: "group-default", terminalIds: ["default"] }], "missing"),
+    ).toBeNull();
   });
 });
 

@@ -1,9 +1,10 @@
 import { type MessageId, type TurnId } from "@ace/contracts";
 import { IconTerminal } from "@tabler/icons-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import {
   Fragment,
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -17,6 +18,12 @@ import {
   getChatMessageRenderableText,
   resolveAssistantMessageRenderHint,
 } from "../../lib/chat/messageText";
+import {
+  buildMarkdownRenderAnalysisCacheKey,
+  shouldWorkerizeMarkdownRenderAnalysis,
+  type MarkdownRenderAnalysisInput,
+} from "../../lib/chat/markdownRenderAnalysis";
+import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -44,16 +51,14 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
-import {
-  computeMessageDurationStart,
-  normalizeCompactToolLabel,
-} from "~/lib/chat/messagesTimeline";
+import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import {
@@ -61,13 +66,101 @@ import {
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
+import {
+  buildTimelineRows,
+  isCompletedAssistantMessageRow,
+  isEventInActiveTurn,
+  shouldWorkerizeTimelineRows,
+  type AssistantTimelineMessage,
+  type BuildTimelineRowsInput,
+  type SystemTimelineMessage,
+  type TimelineMetaGroupEntry,
+  type TimelineMessage,
+  type TimelineProposedPlan,
+  type TimelineRow,
+  type TimelineWorkEntry,
+  type UserTimelineMessage,
+} from "~/lib/chat/timelineRows";
+import {
+  buildTimelineRowsCacheKey,
+  prewarmTimelineRows,
+  readCachedTimelineRows,
+  writeCachedTimelineRows,
+} from "~/lib/chat/timelineRowsClient";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
+const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
+const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
+const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
+const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
+const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
+
+function canResolveTimelineRowsInWorker(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof document !== "undefined" &&
+    typeof Worker !== "undefined" &&
+    typeof document.createElement === "function"
+  );
+}
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
+interface AssistantMarkdownAnalysisPrewarmJob {
+  readonly cacheKey: string;
+  readonly input: MarkdownRenderAnalysisInput;
+}
+interface AssistantMarkdownIdleDeadline {
+  readonly didTimeout: boolean;
+  timeRemaining(): number;
+}
+
+type AssistantMarkdownIdleHandle =
+  | { readonly kind: "idle"; readonly id: number }
+  | { readonly kind: "timeout"; readonly id: number };
+
+function requestAssistantMarkdownIdleCallback(
+  callback: (deadline: AssistantMarkdownIdleDeadline) => void,
+): AssistantMarkdownIdleHandle {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (
+      callback: (deadline: AssistantMarkdownIdleDeadline) => void,
+      options?: { timeout: number },
+    ) => number;
+  };
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    return {
+      kind: "idle",
+      id: idleWindow.requestIdleCallback(callback, {
+        timeout: ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS,
+      }),
+    };
+  }
+  return {
+    kind: "timeout",
+    id: window.setTimeout(() => {
+      callback({
+        didTimeout: true,
+        timeRemaining: () => 0,
+      });
+    }, ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS),
+  };
+}
+
+function cancelAssistantMarkdownIdleCallback(handle: AssistantMarkdownIdleHandle): void {
+  if (handle.kind === "timeout") {
+    window.clearTimeout(handle.id);
+    return;
+  }
+  const idleWindow = window as Window & {
+    cancelIdleCallback?: (id: number) => void;
+  };
+  idleWindow.cancelIdleCallback?.(handle.id);
+}
 
 function readCachedTimelineRowHeight(cacheKey: string): number | null {
   const cachedHeight = timelineRowHeightCache.get(cacheKey);
@@ -107,7 +200,9 @@ interface MessagesTimelineProps {
   continueWithGitHubIssuesDisabledReason?: string;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
-  scrollContainer: HTMLDivElement | null;
+  backgroundMarkdownPrewarm?: boolean;
+  getScrollContainer: () => HTMLDivElement | null;
+  liveTimers?: boolean;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
@@ -137,7 +232,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   continueWithGitHubIssuesDisabledReason,
   activeTurnInProgress,
   activeTurnStartedAt,
-  scrollContainer,
+  backgroundMarkdownPrewarm = true,
+  getScrollContainer,
+  liveTimers = true,
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -157,16 +254,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
 }: MessagesTimelineProps) {
-  const rows = useMemo<TimelineRow[]>(
-    () =>
-      buildTimelineRows({
-        timelineEntries,
-        activeTurnInProgress,
-        activeTurnStartedAt,
-        completionDividerBeforeEntryId,
-        completionSummary,
-        isWorking,
-      }),
+  const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
+    () => ({
+      timelineEntries,
+      activeTurnInProgress,
+      activeTurnStartedAt,
+      completionDividerBeforeEntryId,
+      completionSummary,
+      isWorking,
+    }),
     [
       activeTurnInProgress,
       timelineEntries,
@@ -176,6 +272,45 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
     ],
   );
+  const shouldResolveTimelineRowsInWorker = useMemo(
+    () => canResolveTimelineRowsInWorker() && shouldWorkerizeTimelineRows(timelineRowsInput),
+    [timelineRowsInput],
+  );
+  const timelineRowsCacheKey = useMemo(
+    () => buildTimelineRowsCacheKey(timelineRowsInput),
+    [timelineRowsInput],
+  );
+  const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
+  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
+    if (cachedTimelineRows) {
+      return cachedTimelineRows;
+    }
+    return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
+  }, [cachedTimelineRows, timelineRowsInput]);
+  const rows = useMemo(
+    () => (syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS),
+    [syncTimelineRows],
+  );
+
+  useEffect(() => {
+    if (cachedTimelineRows) {
+      return;
+    }
+    writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
+  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
+
+  useEffect(() => {
+    if (!shouldResolveTimelineRowsInWorker || cachedTimelineRows) {
+      return;
+    }
+    prewarmTimelineRows(timelineRowsCacheKey, timelineRowsInput);
+  }, [
+    cachedTimelineRows,
+    shouldResolveTimelineRowsInWorker,
+    timelineRowsCacheKey,
+    timelineRowsInput,
+  ]);
+
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
@@ -183,6 +318,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   >({});
   const [timelineRootElement, setTimelineRootElement] = useState<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+  const [renderedAssistantMarkdownMessageIds, setRenderedAssistantMarkdownMessageIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
@@ -197,7 +335,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
 
     let pendingWidth: number | null = null;
-    let frameId: number | null = null;
+    let timeoutId: number | null = null;
 
     const updateWidth = (nextWidth: number) => {
       setTimelineWidthPx((current) =>
@@ -206,17 +344,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
     const scheduleWidthUpdate = (nextWidth: number) => {
       pendingWidth = nextWidth;
-      if (frameId !== null) {
-        return;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
+      timeoutId = window.setTimeout(() => {
+        timeoutId = null;
         const width = pendingWidth;
         pendingWidth = null;
         if (width !== null) {
           updateWidth(width);
         }
-      });
+      }, TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS);
     };
 
     updateWidth(timelineRootElement.clientWidth);
@@ -235,8 +373,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     observer.observe(timelineRootElement);
     return () => {
       observer.disconnect();
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
     };
   }, [timelineRootElement]);
@@ -263,6 +401,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [virtualizedRows],
   );
   const measuredRowElementByIdRef = useRef(new Map<string, HTMLDivElement>());
+  const measuredRowVirtualIndexByIdRef = useRef(new Map<string, number>());
+  const measuredRowMeasurementFrameByIdRef = useRef(new Map<string, number>());
+  const measuredRowResizeObserverByIdRef = useRef(new Map<string, ResizeObserver>());
+  const measuredRowHeightByIdRef = useRef(new Map<string, number>());
   const estimateVirtualizedRowSize = useCallback(
     (index: number) =>
       estimateTimelineRowHeight(virtualizedRows[index], {
@@ -275,38 +417,400 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     count: virtualizedRows.length,
     estimateSize: estimateVirtualizedRowSize,
     getItemKey: getVirtualRowKey,
-    getScrollElement: () => scrollContainer,
+    getScrollElement: getScrollContainer,
+    initialRect: { width: 0, height: TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX },
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
+    useAnimationFrameWithResizeObserver: true,
   });
-  const shouldUseVirtualizedBuffer =
-    scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
-  const registerMeasuredRowElement = useCallback(
-    (rowId: string, element: HTMLDivElement | null) => {
-      if (element) {
-        measuredRowElementByIdRef.current.set(rowId, element);
-        rowVirtualizer.measureElement(element);
+  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0 && !activeTurnInProgress;
+  const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
+  const shouldPrewarmAssistantMarkdown =
+    shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
+  const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
+  const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
+    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
+    : [];
+  const mountedVirtualizedAssistantMarkdownMessageIdKey =
+    mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
+  const mountedVirtualizedAssistantMarkdownMessageIdSet = useMemo(
+    () =>
+      new Set(
+        mountedVirtualizedAssistantMarkdownMessageIdKey.length > 0
+          ? mountedVirtualizedAssistantMarkdownMessageIdKey.split("\0")
+          : [],
+      ),
+    [mountedVirtualizedAssistantMarkdownMessageIdKey],
+  );
+  const immediateAssistantMarkdownMessageIds = useMemo(
+    () =>
+      shouldPrioritizeAssistantMarkdown
+        ? deriveImmediateAssistantMarkdownMessageIds(rows, firstUnvirtualizedRowIndex)
+        : [],
+    [firstUnvirtualizedRowIndex, rows, shouldPrioritizeAssistantMarkdown],
+  );
+  const immediateAssistantMarkdownMessageIdSet = useMemo(
+    () => new Set(immediateAssistantMarkdownMessageIds),
+    [immediateAssistantMarkdownMessageIds],
+  );
+  const allAssistantMarkdownMessageIds = useMemo(
+    () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
+    [rows],
+  );
+  const pendingAssistantMarkdownMessageIds = useMemo(
+    () =>
+      shouldPrewarmAssistantMarkdown
+        ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
+            firstUnvirtualizedRowIndex,
+            immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
+            mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
+            renderedMessageIds: renderedAssistantMarkdownMessageIds,
+          })
+        : [],
+    [
+      firstUnvirtualizedRowIndex,
+      immediateAssistantMarkdownMessageIdSet,
+      mountedVirtualizedAssistantMarkdownMessageIdSet,
+      renderedAssistantMarkdownMessageIds,
+      rows,
+      shouldPrewarmAssistantMarkdown,
+    ],
+  );
+  const assistantMarkdownAnalysisPrewarmJobs = useMemo(() => {
+    if (!shouldPrewarmAssistantMarkdown) {
+      return [];
+    }
+
+    const jobsByMessageId = new Map<string, AssistantMarkdownAnalysisPrewarmJob>();
+    for (const row of rows) {
+      if (!isCompletedAssistantMessageRow(row)) {
+        continue;
+      }
+      const messageText = getChatMessageRenderableText(row.message);
+      const input: MarkdownRenderAnalysisInput = {
+        text: messageText,
+        isStreaming: Boolean(row.message.streaming),
+        renderPlainText: false,
+        ...(row.message.streamingTextState
+          ? {
+              streamingTextState: {
+                totalLineCount: row.message.streamingTextState.totalLineCount,
+                truncatedCharCount: row.message.streamingTextState.truncatedCharCount,
+                truncatedLineCount: row.message.streamingTextState.truncatedLineCount,
+              },
+            }
+          : {}),
+      };
+      if (!shouldWorkerizeMarkdownRenderAnalysis(input)) {
+        continue;
+      }
+      jobsByMessageId.set(String(row.message.id), {
+        cacheKey: buildMarkdownRenderAnalysisCacheKey(
+          input,
+          buildAssistantMarkdownAnalysisStableKey(row.message, messageText),
+        ),
+        input,
+      });
+    }
+
+    const jobs: AssistantMarkdownAnalysisPrewarmJob[] = [];
+    const seenCacheKeys = new Set<string>();
+    for (const messageId of immediateAssistantMarkdownMessageIds) {
+      const job = jobsByMessageId.get(messageId);
+      if (!job || seenCacheKeys.has(job.cacheKey)) {
+        continue;
+      }
+      seenCacheKeys.add(job.cacheKey);
+      jobs.push(job);
+    }
+    for (const messageId of pendingAssistantMarkdownMessageIds) {
+      const job = jobsByMessageId.get(messageId);
+      if (!job || seenCacheKeys.has(job.cacheKey)) {
+        continue;
+      }
+      seenCacheKeys.add(job.cacheKey);
+      jobs.push(job);
+    }
+    return jobs;
+  }, [
+    immediateAssistantMarkdownMessageIds,
+    pendingAssistantMarkdownMessageIds,
+    rows,
+    shouldPrewarmAssistantMarkdown,
+  ]);
+  const allAssistantMarkdownMessageIdKey = allAssistantMarkdownMessageIds.join("\0");
+  const immediateAssistantMarkdownMessageIdKey = immediateAssistantMarkdownMessageIds.join("\0");
+  const pendingAssistantMarkdownMessageIdKey = pendingAssistantMarkdownMessageIds.join("\0");
+  const assistantMarkdownAnalysisPrewarmJobKey = assistantMarkdownAnalysisPrewarmJobs
+    .map((job) => job.cacheKey)
+    .join("\0");
+  const assistantMarkdownPriorityRef = useRef({
+    allMessageIds: allAssistantMarkdownMessageIds,
+    immediateMessageIds: immediateAssistantMarkdownMessageIds,
+    mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
+    pendingMessageIds: pendingAssistantMarkdownMessageIds,
+  });
+  assistantMarkdownPriorityRef.current = {
+    allMessageIds: allAssistantMarkdownMessageIds,
+    immediateMessageIds: immediateAssistantMarkdownMessageIds,
+    mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
+    pendingMessageIds: pendingAssistantMarkdownMessageIds,
+  };
+
+  useEffect(() => {
+    if (!shouldPrioritizeAssistantMarkdown) {
+      setRenderedAssistantMarkdownMessageIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+      return;
+    }
+    const { allMessageIds, immediateMessageIds, mountedMessageIds } =
+      assistantMarkdownPriorityRef.current;
+    const validMessageIds = new Set(allMessageIds);
+    setRenderedAssistantMarkdownMessageIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const messageId of current) {
+        if (!validMessageIds.has(messageId)) {
+          changed = true;
+          continue;
+        }
+        next.add(messageId);
+      }
+      for (const messageId of immediateMessageIds) {
+        if (!next.has(messageId)) {
+          changed = true;
+          next.add(messageId);
+        }
+      }
+      for (const messageId of mountedMessageIds) {
+        if (!next.has(messageId)) {
+          changed = true;
+          next.add(messageId);
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [
+    allAssistantMarkdownMessageIdKey,
+    immediateAssistantMarkdownMessageIdKey,
+    mountedVirtualizedAssistantMarkdownMessageIdKey,
+    shouldPrioritizeAssistantMarkdown,
+  ]);
+
+  useEffect(() => {
+    if (!shouldPrewarmAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const pendingMessageIds = assistantMarkdownPriorityRef.current.pendingMessageIds;
+
+    let cancelled = false;
+    let cursor = 0;
+    let idleHandle: AssistantMarkdownIdleHandle | null = null;
+
+    const activateNextBatch = (deadline: AssistantMarkdownIdleDeadline) => {
+      if (cancelled) {
         return;
       }
-      measuredRowElementByIdRef.current.delete(rowId);
-    },
-    [rowVirtualizer],
-  );
-  const handleMeasuredRowLayoutChange = useCallback(
-    (rowId: string) => {
-      const element = measuredRowElementByIdRef.current.get(rowId);
-      if (element) {
-        rowVirtualizer.measureElement(element);
+      const batch: string[] = [];
+      while (
+        cursor < pendingMessageIds.length &&
+        batch.length < ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE &&
+        (batch.length === 0 || deadline.didTimeout || deadline.timeRemaining() > 6)
+      ) {
+        const messageId = pendingMessageIds[cursor];
+        cursor += 1;
+        if (messageId) {
+          batch.push(messageId);
+        }
       }
+      if (batch.length > 0) {
+        startTransition(() => {
+          setRenderedAssistantMarkdownMessageIds((current) => {
+            let changed = false;
+            const next = new Set(current);
+            for (const messageId of batch) {
+              if (!next.has(messageId)) {
+                changed = true;
+                next.add(messageId);
+              }
+            }
+            return changed ? next : current;
+          });
+        });
+      }
+      if (cursor >= pendingMessageIds.length) {
+        return;
+      }
+      idleHandle = requestAssistantMarkdownIdleCallback(activateNextBatch);
+    };
+
+    idleHandle = requestAssistantMarkdownIdleCallback(activateNextBatch);
+    return () => {
+      cancelled = true;
+      if (idleHandle !== null) {
+        cancelAssistantMarkdownIdleCallback(idleHandle);
+      }
+    };
+  }, [pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
+  useEffect(() => {
+    if (!shouldPrewarmAssistantMarkdown || assistantMarkdownAnalysisPrewarmJobs.length === 0) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+    let cursor = 0;
+    let idleHandle: AssistantMarkdownIdleHandle | null = null;
+
+    const prewarmNextBatch = (deadline: AssistantMarkdownIdleDeadline) => {
+      if (cancelled) {
+        return;
+      }
+      let processed = 0;
+      while (
+        cursor < assistantMarkdownAnalysisPrewarmJobs.length &&
+        processed < ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE &&
+        (processed === 0 || deadline.didTimeout || deadline.timeRemaining() > 6)
+      ) {
+        const job = assistantMarkdownAnalysisPrewarmJobs[cursor];
+        cursor += 1;
+        if (!job) {
+          continue;
+        }
+        prewarmMarkdownRenderAnalysis(job.cacheKey, job.input);
+        processed += 1;
+      }
+      if (cursor >= assistantMarkdownAnalysisPrewarmJobs.length) {
+        return;
+      }
+      idleHandle = requestAssistantMarkdownIdleCallback(prewarmNextBatch);
+    };
+
+    idleHandle = requestAssistantMarkdownIdleCallback(prewarmNextBatch);
+    return () => {
+      cancelled = true;
+      if (idleHandle !== null) {
+        cancelAssistantMarkdownIdleCallback(idleHandle);
+      }
+    };
+  }, [
+    assistantMarkdownAnalysisPrewarmJobKey,
+    assistantMarkdownAnalysisPrewarmJobs,
+    shouldPrewarmAssistantMarkdown,
+  ]);
+  const scheduleMeasuredRowResize = useCallback(
+    (rowId: string, nextHeight: number) => {
+      const pendingFrameId = measuredRowMeasurementFrameByIdRef.current.get(rowId);
+      if (pendingFrameId !== undefined && typeof window !== "undefined") {
+        window.cancelAnimationFrame(pendingFrameId);
+        measuredRowMeasurementFrameByIdRef.current.delete(rowId);
+      }
+
+      const applyResize = () => {
+        const index = measuredRowVirtualIndexByIdRef.current.get(rowId);
+        if (index === undefined) {
+          return;
+        }
+        const cachedHeight = measuredRowHeightByIdRef.current.get(rowId);
+        if (cachedHeight === nextHeight) {
+          return;
+        }
+        measuredRowHeightByIdRef.current.set(rowId, nextHeight);
+        rowVirtualizer.resizeItem(index, nextHeight);
+      };
+
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        const frameId = window.requestAnimationFrame(() => {
+          measuredRowMeasurementFrameByIdRef.current.delete(rowId);
+          applyResize();
+        });
+        measuredRowMeasurementFrameByIdRef.current.set(rowId, frameId);
+        return;
+      }
+      applyResize();
     },
     [rowVirtualizer],
   );
 
-  const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
-    const onMeasuredLayoutChange = shouldUseVirtualizedBuffer
-      ? () => {
-          handleMeasuredRowLayoutChange(row.id);
+  const registerMeasuredRowElement = useCallback(
+    (rowId: string, index: number, element: HTMLDivElement | null) => {
+      measuredRowVirtualIndexByIdRef.current.set(rowId, index);
+
+      const pendingFrameId = measuredRowMeasurementFrameByIdRef.current.get(rowId);
+      if (pendingFrameId !== undefined && typeof window !== "undefined") {
+        window.cancelAnimationFrame(pendingFrameId);
+        measuredRowMeasurementFrameByIdRef.current.delete(rowId);
+      }
+
+      const observer = measuredRowResizeObserverByIdRef.current.get(rowId);
+      if (observer) {
+        observer.disconnect();
+        measuredRowResizeObserverByIdRef.current.delete(rowId);
+      }
+
+      if (!element) {
+        measuredRowElementByIdRef.current.delete(rowId);
+        measuredRowVirtualIndexByIdRef.current.delete(rowId);
+        measuredRowHeightByIdRef.current.delete(rowId);
+        return;
+      }
+
+      measuredRowElementByIdRef.current.set(rowId, element);
+
+      if (typeof ResizeObserver === "undefined") {
+        scheduleMeasuredRowResize(rowId, Math.ceil(element.offsetHeight));
+        return;
+      }
+
+      const resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) {
+          return;
         }
-      : undefined;
+        const borderBoxSize = Array.isArray(entry.borderBoxSize)
+          ? entry.borderBoxSize[0]
+          : entry.borderBoxSize;
+        const nextHeight = Math.ceil(borderBoxSize?.blockSize ?? entry.contentRect.height);
+        scheduleMeasuredRowResize(rowId, nextHeight);
+      });
+      resizeObserver.observe(element, { box: "border-box" });
+      measuredRowResizeObserverByIdRef.current.set(rowId, resizeObserver);
+    },
+    [scheduleMeasuredRowResize],
+  );
+
+  useEffect(() => {
+    const measuredRowMeasurementFrameById = measuredRowMeasurementFrameByIdRef.current;
+    const measuredRowResizeObserverById = measuredRowResizeObserverByIdRef.current;
+    const measuredRowElementById = measuredRowElementByIdRef.current;
+    const measuredRowVirtualIndexById = measuredRowVirtualIndexByIdRef.current;
+    const measuredRowHeightById = measuredRowHeightByIdRef.current;
+
+    return () => {
+      if (typeof window === "undefined") {
+        measuredRowMeasurementFrameById.clear();
+      } else {
+        for (const frameId of measuredRowMeasurementFrameById.values()) {
+          window.cancelAnimationFrame(frameId);
+        }
+      }
+      for (const observer of measuredRowResizeObserverById.values()) {
+        observer.disconnect();
+      }
+      measuredRowMeasurementFrameById.clear();
+      measuredRowResizeObserverById.clear();
+      measuredRowElementById.clear();
+      measuredRowVirtualIndexById.clear();
+      measuredRowHeightById.clear();
+    };
+  }, []);
+
+  const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
     return (
       <div
         className="group/timeline relative pb-3"
@@ -461,6 +965,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               turnSummary !== null &&
               turnSummary.files.length > 0 &&
               !(activeTurnInProgress && isEventInActiveTurn(row.createdAt, activeTurnStartedAtMs));
+            const assistantMessageId = String(row.message.id);
+            const shouldRenderAssistantMarkdown =
+              !shouldPrioritizeAssistantMarkdown ||
+              row.message.streaming ||
+              immediateAssistantMarkdownMessageIdSet.has(assistantMessageId) ||
+              mountedVirtualizedAssistantMarkdownMessageIdSet.has(assistantMessageId) ||
+              renderedAssistantMarkdownMessageIds.has(assistantMessageId);
 
             return (
               <div className="min-w-0">
@@ -474,8 +985,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   message={row.message}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
+                  renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
-                  {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
                 />
                 {shouldShowTurnSummary && (
                   <div className="mt-2.5 rounded-xl border border-border/45 bg-background/35 px-4 py-3">
@@ -501,7 +1012,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onOpenFilePath={onOpenFilePath}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
-            {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
           />
         )}
 
@@ -509,15 +1019,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <div className="min-w-0 py-1">
             <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
               <span className="inline-flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/28 animate-pulse" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/24 animate-pulse [animation-delay:200ms]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/20 animate-pulse [animation-delay:400ms]" />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
+                    liveTimers ? "animate-pulse" : null,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
+                    liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
+                    liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
+                  )}
+                />
               </span>
               <span>
                 {row.createdAt ? (
                   <WorkingTimer
                     createdAt={row.createdAt}
                     label={row.mode === "silent-thinking" ? "Getting started for" : "Working for"}
+                    live={liveTimers}
                   />
                 ) : row.mode === "silent-thinking" ? (
                   "Getting started..."
@@ -595,7 +1121,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           className="relative"
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          {virtualItems.map((virtualRow) => {
             const row = virtualizedRows[virtualRow.index];
             if (!row) {
               return null;
@@ -604,7 +1130,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div
                 key={`row:${row.id}`}
                 ref={(element) => {
-                  registerMeasuredRowElement(row.id, element);
+                  registerMeasuredRowElement(row.id, virtualRow.index, element);
                 }}
                 data-index={virtualRow.index}
                 className="absolute top-0 left-0 w-full"
@@ -627,70 +1153,84 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
 });
 
-type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
-type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
-type UserTimelineMessage = TimelineMessage & { role: "user" };
-type AssistantTimelineMessage = TimelineMessage & { role: "assistant" };
-type SystemTimelineMessage = TimelineMessage & { role: "system" };
-type TimelineProposedPlan = Extract<TimelineEntry, { kind: "proposed-plan" }>["proposedPlan"];
-type TimelineWorkEntry = Extract<TimelineEntry, { kind: "work" }>["entry"];
-type TimelineMetaGroupEntry =
-  | {
-      kind: "intent";
-      id: string;
-      createdAt: string;
-      text: string;
+function deriveMountedVirtualizedAssistantMarkdownMessageIds(
+  virtualItems: ReadonlyArray<VirtualItem>,
+  virtualizedRows: ReadonlyArray<TimelineRow>,
+): string[] {
+  const messageIds: string[] = [];
+  for (const virtualItem of virtualItems) {
+    const row = virtualizedRows[virtualItem.index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
     }
-  | {
-      kind: "work";
-      id: string;
-      createdAt: string;
-      workEntry: TimelineWorkEntry;
-    };
-type TimelineRow =
-  | {
-      kind: "work";
-      id: string;
-      createdAt: string;
-      workEntry: TimelineWorkEntry;
+    messageIds.push(String(row.message.id));
+  }
+  return messageIds;
+}
+
+function buildAssistantMarkdownAnalysisStableKey(
+  message: AssistantTimelineMessage,
+  messageText: string,
+): string {
+  return `${message.id}:${message.streaming ? "streaming" : (message.completedAt ?? "complete")}:${messageText.length}`;
+}
+
+function deriveImmediateAssistantMarkdownMessageIds(
+  rows: ReadonlyArray<TimelineRow>,
+  firstUnvirtualizedRowIndex: number,
+): string[] {
+  const messageIds = new Set<string>();
+  for (let index = firstUnvirtualizedRowIndex; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
     }
-  | {
-      kind: "work-group";
-      id: string;
-      createdAt: string;
-      entries: TimelineMetaGroupEntry[];
-      summaryEndAt: string | null;
+    messageIds.add(String(row.message.id));
+  }
+
+  let assistantMessageCount = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
     }
-  | {
-      kind: "intent";
-      id: string;
-      createdAt: string;
-      text: string;
+    messageIds.add(String(row.message.id));
+    assistantMessageCount += 1;
+    if (assistantMessageCount >= IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES) {
+      break;
     }
-  | {
-      kind: "message";
-      id: string;
-      createdAt: string;
-      message: TimelineMessage;
-      durationStart: string;
-      completionSummary: string | null;
-      isAssistantTurnTerminal?: boolean;
-      showAssistantTiming?: boolean;
-      showAssistantSummaryByDefault?: boolean;
+  }
+
+  return [...messageIds];
+}
+
+export function derivePendingAssistantMarkdownMessageIdsBottomUp(
+  rows: ReadonlyArray<TimelineRow>,
+  input: {
+    firstUnvirtualizedRowIndex: number;
+    immediateMessageIds: ReadonlySet<string>;
+    mountedMessageIds: ReadonlySet<string>;
+    renderedMessageIds: ReadonlySet<string>;
+  },
+): string[] {
+  const messageIds: string[] = [];
+  for (let index = input.firstUnvirtualizedRowIndex - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
     }
-  | {
-      kind: "proposed-plan";
-      id: string;
-      createdAt: string;
-      proposedPlan: TimelineProposedPlan;
+    const messageId = String(row.message.id);
+    if (
+      input.immediateMessageIds.has(messageId) ||
+      input.mountedMessageIds.has(messageId) ||
+      input.renderedMessageIds.has(messageId)
+    ) {
+      continue;
     }
-  | {
-      kind: "working";
-      id: string;
-      createdAt: string | null;
-      mode: "live" | "silent-thinking";
-      intentText: string | null;
-    };
+    messageIds.push(messageId);
+  }
+  return messageIds;
+}
 
 export function deriveFirstUnvirtualizedTimelineRowIndex(
   rows: ReadonlyArray<TimelineRow>,
@@ -753,9 +1293,11 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
+  live,
 }: {
   createdAt: string;
   label: string;
+  live: boolean;
 }) {
   const startedAtMs = Date.parse(createdAt);
   const [elapsed, setElapsed] = useState(() =>
@@ -763,12 +1305,13 @@ const WorkingTimer = memo(function WorkingTimer({
   );
 
   useEffect(() => {
+    if (!live) return;
     if (!Number.isFinite(startedAtMs)) return;
     const timer = window.setInterval(() => {
       setElapsed(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [startedAtMs]);
+  }, [live, startedAtMs]);
 
   return (
     <>
@@ -777,383 +1320,8 @@ const WorkingTimer = memo(function WorkingTimer({
   );
 });
 
-function buildTimelineRows(input: {
-  timelineEntries: ReadonlyArray<TimelineEntry>;
-  activeTurnInProgress: boolean;
-  activeTurnStartedAt: string | null;
-  completionDividerBeforeEntryId: string | null;
-  completionSummary: string | null;
-  isWorking: boolean;
-}): TimelineRow[] {
-  const nextRows: TimelineRow[] = [];
-  const terminalAssistantMessageIds = new Set<string>();
-  const assistantMessageIdsWithoutLaterUser = new Set<string>();
-  const lastAssistantMessageIdByTurnId = new Map<string, string>();
-  for (const timelineEntry of input.timelineEntries) {
-    if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
-      continue;
-    }
-    const turnId = timelineEntry.message.turnId;
-    if (turnId) {
-      lastAssistantMessageIdByTurnId.set(turnId, timelineEntry.id);
-      continue;
-    }
-    terminalAssistantMessageIds.add(timelineEntry.id);
-  }
-  for (const messageId of lastAssistantMessageIdByTurnId.values()) {
-    terminalAssistantMessageIds.add(messageId);
-  }
-  let seenLaterUserMessage = false;
-  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
-    const timelineEntry = input.timelineEntries[index];
-    if (timelineEntry?.kind !== "message") {
-      continue;
-    }
-    if (timelineEntry.message.role === "user") {
-      seenLaterUserMessage = true;
-      continue;
-    }
-    if (timelineEntry.message.role === "assistant" && !seenLaterUserMessage) {
-      assistantMessageIdsWithoutLaterUser.add(timelineEntry.id);
-    }
-  }
-  const activeTurnStartedAtMs =
-    typeof input.activeTurnStartedAt === "string"
-      ? Date.parse(input.activeTurnStartedAt)
-      : Number.NaN;
-  const liveWorkEntryId = findTrailingLiveWorkEntryId(input.timelineEntries, {
-    activeTurnInProgress: input.activeTurnInProgress,
-    activeTurnStartedAtMs,
-  });
-  const messageDurationStartById = computeMessageDurationStart(
-    input.timelineEntries.flatMap((timelineEntry) => {
-      if (timelineEntry?.kind !== "message") {
-        return [];
-      }
-
-      return [
-        {
-          id: timelineEntry.message.id,
-          role: timelineEntry.message.role,
-          createdAt: timelineEntry.message.createdAt,
-          ...(timelineEntry.message.completedAt
-            ? { completedAt: timelineEntry.message.completedAt }
-            : {}),
-        },
-      ];
-    }),
-  );
-  let hasRenderableCurrentTurnOutput = false;
-  let lastMessageBoundaryAt: string | null = null;
-  let activeTurnUserMessageCreatedAt: string | null = null;
-  let pendingMetaRowId: string | null = null;
-  let pendingMetaCreatedAt: string | null = null;
-  let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
-  let pendingIntentEntries: Array<Extract<TimelineMetaGroupEntry, { kind: "intent" }>> = [];
-  let activeLiveIntentText: string | null = null;
-
-  const resetPendingMetaEntries = () => {
-    pendingMetaEntries = [];
-    pendingMetaRowId = null;
-    pendingMetaCreatedAt = null;
-  };
-
-  const appendPendingIntentEntriesToMeta = (preferredRowId: string | null) => {
-    if (pendingIntentEntries.length === 0) {
-      return;
-    }
-
-    if (!pendingMetaCreatedAt) {
-      pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? null;
-    }
-    if (!pendingMetaRowId) {
-      pendingMetaRowId = preferredRowId ?? pendingIntentEntries[0]?.id ?? null;
-    }
-
-    pendingMetaEntries.push(...pendingIntentEntries);
-    pendingIntentEntries = [];
-  };
-
-  const consumeLatestPendingIntentText = () => {
-    const latestIntentText = pendingIntentEntries.at(-1)?.text ?? null;
-    pendingIntentEntries = [];
-    return latestIntentText;
-  };
-
-  const flushPendingMetaEntries = (
-    nextEventCreatedAt: string | null,
-    options?: { includePendingIntents?: boolean },
-  ) => {
-    if (options?.includePendingIntents !== false) {
-      appendPendingIntentEntriesToMeta(null);
-    }
-
-    if (pendingMetaEntries.length === 0 || !pendingMetaRowId || !pendingMetaCreatedAt) {
-      resetPendingMetaEntries();
-      return;
-    }
-
-    if (shouldCollapseMetaEntries(pendingMetaEntries)) {
-      const shouldHideLiveElapsed =
-        input.activeTurnInProgress &&
-        isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
-      nextRows.push({
-        kind: "work-group",
-        id: pendingMetaRowId,
-        createdAt: pendingMetaCreatedAt,
-        entries: pendingMetaEntries,
-        summaryEndAt: shouldHideLiveElapsed
-          ? null
-          : resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
-      });
-    } else {
-      for (const entry of pendingMetaEntries) {
-        if (entry.kind === "work") {
-          nextRows.push({
-            kind: "work",
-            id: entry.id,
-            createdAt: entry.createdAt,
-            workEntry: entry.workEntry,
-          });
-          continue;
-        }
-
-        nextRows.push({
-          kind: "intent",
-          id: entry.id,
-          createdAt: entry.createdAt,
-          text: entry.text,
-        });
-      }
-    }
-
-    resetPendingMetaEntries();
-  };
-
-  const pushPendingWorkEntry = (timelineEntry: Extract<TimelineEntry, { kind: "work" }>) => {
-    if (timelineEntry.id === liveWorkEntryId) {
-      flushPendingMetaEntries(timelineEntry.createdAt, { includePendingIntents: false });
-      const liveIntentText = consumeLatestPendingIntentText();
-      nextRows.push({
-        kind: "work",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        workEntry: withInlineIntentText(timelineEntry.entry, liveIntentText),
-      });
-      return;
-    }
-
-    if (pendingMetaEntries.length === 0) {
-      if (pendingIntentEntries.length > 0) {
-        pendingMetaEntries = [...pendingIntentEntries];
-        pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? timelineEntry.createdAt;
-        pendingIntentEntries = [];
-      } else {
-        pendingMetaCreatedAt = timelineEntry.createdAt;
-      }
-      pendingMetaRowId = timelineEntry.id;
-    } else {
-      appendPendingIntentEntriesToMeta(pendingMetaRowId);
-    }
-
-    pendingMetaEntries.push({
-      kind: "work",
-      id: timelineEntry.id,
-      createdAt: timelineEntry.createdAt,
-      workEntry: timelineEntry.entry,
-    });
-  };
-
-  for (const timelineEntry of input.timelineEntries) {
-    if (!timelineEntry) {
-      continue;
-    }
-
-    if (timelineEntry.kind === "work") {
-      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
-        hasRenderableCurrentTurnOutput = true;
-      }
-      pushPendingWorkEntry(timelineEntry);
-      continue;
-    }
-
-    if (timelineEntry.kind === "intent") {
-      pendingIntentEntries.push({
-        kind: "intent",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        text: timelineEntry.text,
-      });
-      continue;
-    }
-
-    flushPendingMetaEntries(timelineEntry.createdAt);
-
-    if (timelineEntry.kind === "proposed-plan") {
-      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
-        hasRenderableCurrentTurnOutput = true;
-      }
-      nextRows.push({
-        kind: "proposed-plan",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        proposedPlan: timelineEntry.proposedPlan,
-      });
-      continue;
-    }
-
-    if (
-      timelineEntry.message.role === "assistant" &&
-      shouldSkipAssistantMessageRow(timelineEntry.message)
-    ) {
-      continue;
-    }
-
-    if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
-      hasRenderableCurrentTurnOutput = true;
-    }
-
-    const durationStart =
-      messageDurationStartById.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt;
-    if (timelineEntry.message.role === "user") {
-      lastMessageBoundaryAt = timelineEntry.message.createdAt;
-      if (
-        Number.isNaN(activeTurnStartedAtMs) ||
-        isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
-      ) {
-        activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
-      }
-    }
-
-    nextRows.push({
-      kind: "message",
-      id: timelineEntry.id,
-      createdAt: timelineEntry.createdAt,
-      message: timelineEntry.message,
-      durationStart,
-      completionSummary:
-        timelineEntry.message.role === "assistant" &&
-        input.completionDividerBeforeEntryId === timelineEntry.id
-          ? input.completionSummary
-          : null,
-      isAssistantTurnTerminal:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id),
-      showAssistantTiming:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id) &&
-        !(
-          input.activeTurnInProgress &&
-          isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
-        ),
-      showAssistantSummaryByDefault:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id) &&
-        assistantMessageIdsWithoutLaterUser.has(timelineEntry.id),
-    });
-
-    if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
-      lastMessageBoundaryAt = timelineEntry.message.completedAt;
-    }
-  }
-
-  if (input.isWorking && pendingIntentEntries.length > 0) {
-    flushPendingMetaEntries(null, { includePendingIntents: false });
-    activeLiveIntentText = consumeLatestPendingIntentText();
-  } else {
-    flushPendingMetaEntries(null);
-  }
-
-  const liveDurationStartAt =
-    activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
-
-  if (input.isWorking) {
-    nextRows.push({
-      kind: "working",
-      id: "working-indicator-row",
-      createdAt: liveDurationStartAt,
-      mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
-      intentText: activeLiveIntentText,
-    });
-  }
-
-  return nextRows;
-}
-
 function workGroupId(rowId: string): string {
   return `work-group:${rowId}`;
-}
-
-function shouldCollapseMetaEntries(entries: ReadonlyArray<TimelineMetaGroupEntry>): boolean {
-  if (entries.some((entry) => entry.kind === "intent")) {
-    return true;
-  }
-
-  if (entries.length !== 1) {
-    return entries.length > 0;
-  }
-
-  const [entry] = entries;
-  return (
-    entry?.kind === "work" &&
-    (entry.workEntry.tone === "thinking" || entry.workEntry.tone === "tool")
-  );
-}
-
-function isEventInActiveTurn(createdAt: string, activeTurnStartedAtMs: number): boolean {
-  if (Number.isNaN(activeTurnStartedAtMs)) {
-    return false;
-  }
-  const createdAtMs = Date.parse(createdAt);
-  return !Number.isNaN(createdAtMs) && createdAtMs >= activeTurnStartedAtMs;
-}
-
-function resolveWorkGroupSummaryEndAt(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
-  nextEventCreatedAt: string | null,
-): string | null {
-  if (typeof nextEventCreatedAt === "string") {
-    return nextEventCreatedAt;
-  }
-  return entries.at(-1)?.createdAt ?? null;
-}
-
-function withInlineIntentText(
-  workEntry: TimelineWorkEntry,
-  intentText: string | null,
-): TimelineWorkEntry {
-  if (!intentText || workEntry.intentText === intentText) {
-    return workEntry;
-  }
-  return {
-    ...workEntry,
-    intentText,
-  };
-}
-
-function findTrailingLiveWorkEntryId(
-  timelineEntries: ReadonlyArray<TimelineEntry>,
-  input: {
-    activeTurnInProgress: boolean;
-    activeTurnStartedAtMs: number;
-  },
-): string | null {
-  if (!input.activeTurnInProgress) {
-    return null;
-  }
-
-  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
-    const entry = timelineEntries[index];
-    if (!entry) {
-      continue;
-    }
-    if (entry.kind === "work") {
-      return isEventInActiveTurn(entry.createdAt, input.activeTurnStartedAtMs) ? entry.id : null;
-    }
-    return null;
-  }
-
-  return null;
 }
 
 function getUserMessageTextForHeightEstimate(userPromptText: string): string {
@@ -1421,13 +1589,6 @@ function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGro
   return [{ label: entries.length === 1 ? "log entry" : "log entries", count: entries.length }];
 }
 
-function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
-  if (message.role !== "assistant" || message.streaming) {
-    return false;
-  }
-  return message.text.trim().length === 0;
-}
-
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
   return message.role === "user";
 }
@@ -1655,6 +1816,18 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   );
 });
 
+const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendingPlaceholder() {
+  return (
+    <div
+      className="space-y-2 py-1 text-sm text-muted-foreground/58"
+      data-assistant-markdown-pending="true"
+    >
+      <div className="h-3.5 w-2/3 rounded bg-muted-foreground/9" />
+      <div className="h-3.5 w-1/2 rounded bg-muted-foreground/7" />
+    </div>
+  );
+});
+
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
   completionSummary: string | null;
   durationStart: string;
@@ -1663,9 +1836,9 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
-  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  renderMarkdown: boolean;
   timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
@@ -1690,17 +1863,38 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
 
   return (
     <div className="min-w-0">
-      <ChatMarkdown
-        text={messageText}
-        cwd={props.markdownCwd}
-        isStreaming={Boolean(props.message.streaming)}
-        onOpenBrowserUrl={onOpenBrowserUrl}
-        onOpenFilePath={onOpenFilePath}
-        {...(props.message.streamingTextState
-          ? { streamingTextState: props.message.streamingTextState }
-          : {})}
-        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
-      />
+      {props.renderMarkdown ? (
+        <ChatMarkdown
+          key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
+          analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
+            {
+              text: messageText,
+              isStreaming: Boolean(props.message.streaming),
+              renderPlainText: false,
+              ...(props.message.streamingTextState
+                ? {
+                    streamingTextState: {
+                      totalLineCount: props.message.streamingTextState.totalLineCount,
+                      truncatedCharCount: props.message.streamingTextState.truncatedCharCount,
+                      truncatedLineCount: props.message.streamingTextState.truncatedLineCount,
+                    },
+                  }
+                : {}),
+            },
+            buildAssistantMarkdownAnalysisStableKey(props.message, messageText),
+          )}
+          text={messageText}
+          cwd={props.markdownCwd}
+          isStreaming={Boolean(props.message.streaming)}
+          onOpenBrowserUrl={onOpenBrowserUrl}
+          onOpenFilePath={onOpenFilePath}
+          {...(props.message.streamingTextState
+            ? { streamingTextState: props.message.streamingTextState }
+            : {})}
+        />
+      ) : (
+        <AssistantMarkdownPendingPlaceholder />
+      )}
       {completedAtLabel && elapsedLabel && (
         <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
           <span
@@ -1782,7 +1976,6 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
 const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
-  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   proposedPlan: TimelineProposedPlan;
@@ -1798,7 +1991,6 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
         onOpenBrowserUrl={onOpenBrowserUrl}
         onOpenFilePath={onOpenFilePath}
         workspaceRoot={props.workspaceRoot}
-        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />
     </div>
   );

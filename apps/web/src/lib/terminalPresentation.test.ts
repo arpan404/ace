@@ -5,7 +5,9 @@ import {
   buildTerminalFallbackTitle,
   deriveTerminalTitleFromCommand,
   extractTerminalOscTitle,
+  normalizeTerminalDisplayTitle,
   normalizeTerminalPaneRatios,
+  resolveTerminalDisplayTitle,
   resizeTerminalPaneRatios,
 } from "./terminalPresentation";
 
@@ -22,7 +24,15 @@ describe("deriveTerminalTitleFromCommand", () => {
     expect(deriveTerminalTitleFromCommand("python scripts/release.py")).toBe("python release.py");
     expect(deriveTerminalTitleFromCommand('bash -lc "rg queuedSteerRequest src"')).toBe("rg");
     expect(deriveTerminalTitleFromCommand("oa --model gpt-5.4 bun run dev")).toBe("bun dev");
+    expect(deriveTerminalTitleFromCommand("sleep 10")).toBe("sleep");
+    expect(deriveTerminalTitleFromCommand("./scripts/release")).toBe("release");
     expect(deriveTerminalTitleFromCommand("oa")).toBeNull();
+  });
+
+  it("rejects low-signal bare tokens instead of promoting terminal noise", () => {
+    expect(deriveTerminalTitleFromCommand("oaodododododocodod")).toBeNull();
+    expect(deriveTerminalTitleFromCommand("oaaadodccod")).toBeNull();
+    expect(deriveTerminalTitleFromCommand("bun disOAt:OA0A[5")).toBeNull();
   });
 });
 
@@ -41,6 +51,16 @@ describe("applyTerminalInputToBuffer", () => {
     });
     expect(applyTerminalInputToBuffer("bun run dev", "\u0015")).toEqual({
       buffer: "",
+      submittedCommand: null,
+    });
+  });
+
+  it("ignores terminal navigation escape sequences while tracking command input", () => {
+    const first = applyTerminalInputToBuffer("", "bun run dev");
+    const second = applyTerminalInputToBuffer(first.buffer, "\u001b[A\u001b[B\u001b[1;5D");
+
+    expect(second).toEqual({
+      buffer: "bun run dev",
       submittedCommand: null,
     });
   });
@@ -73,15 +93,73 @@ describe("terminal pane ratios", () => {
 });
 
 describe("buildTerminalFallbackTitle", () => {
-  it("returns stable terminal labels independent of cwd", () => {
-    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe(
-      "Terminal 1",
-    );
+  it("returns the generic terminal label independent of cwd or id", () => {
+    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe("Terminal");
     expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-2")).toBe(
-      "Terminal 3",
+      "Terminal",
     );
     expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-abc123")).toBe(
-      "Terminal C123",
+      "Terminal",
     );
+  });
+});
+
+describe("normalizeTerminalDisplayTitle", () => {
+  it("keeps command-derived titles", () => {
+    expect(normalizeTerminalDisplayTitle("bun run dev")).toBe("bun dev");
+    expect(normalizeTerminalDisplayTitle("bun dev")).toBe("bun dev");
+    expect(normalizeTerminalDisplayTitle("git status")).toBe("git status");
+    expect(normalizeTerminalDisplayTitle("docker compose up")).toBe("docker compose up");
+    expect(normalizeTerminalDisplayTitle("rg queued src")).toBe("rg");
+    expect(normalizeTerminalDisplayTitle("sleep 10")).toBe("sleep");
+  });
+
+  it("rejects generated terminal and shell titles", () => {
+    expect(normalizeTerminalDisplayTitle("Terminal EC9E")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("Workspace shell")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("zsh")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("oaoaoa:web")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("oaodododododocodod")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("bun disOAt:OA0A[5")).toBeNull();
+  });
+});
+
+describe("resolveTerminalDisplayTitle", () => {
+  it("shows command-derived titles only while the terminal is running", () => {
+    const base = {
+      autoTitle: "clear",
+      cwd: "/Users/arpanbhandari/Code/ace",
+      terminalId: "terminal-2",
+    };
+
+    expect(resolveTerminalDisplayTitle({ ...base, isRunning: true })).toBe("clear");
+    expect(resolveTerminalDisplayTitle({ ...base, isRunning: false })).toBe("Terminal");
+  });
+
+  it("falls back to Terminal for non-command generated titles", () => {
+    expect(
+      resolveTerminalDisplayTitle({
+        autoTitle: "Terminal EC9E",
+        cwd: "/Users/arpanbhandari/Code/ace",
+        isRunning: true,
+        terminalId: "terminal-2",
+      }),
+    ).toBe("Terminal");
+    expect(
+      resolveTerminalDisplayTitle({
+        autoTitle: "oaoaoa:web",
+        cwd: "/Users/arpanbhandari/Code/ace",
+        isRunning: true,
+        terminalId: "terminal-2",
+      }),
+    ).toBe("Terminal");
+    expect(
+      resolveTerminalDisplayTitle({
+        autoTitle: "oaodododododocodod",
+        cwd: "/Users/arpanbhandari/Code/ace",
+        isRunning: true,
+        terminalId: "terminal-2",
+      }),
+    ).toBe("Terminal");
   });
 });

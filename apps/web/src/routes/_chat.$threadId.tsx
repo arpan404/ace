@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -10,68 +10,33 @@ import {
   readCachedHydratedThread,
   resolveThreadHydrationRetryDelayMs,
 } from "../lib/threadHydrationCache";
-import { getThreadById, useStore } from "../store";
+import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
-import {
-  THREAD_BOARD_THREADS_SEARCH_PARAM,
-  THREAD_BOARD_ACTIVE_SEARCH_PARAM,
-  THREAD_BOARD_PANE_SEARCH_PARAM,
-  THREAD_BOARD_SPLIT_SEARCH_PARAM,
-  decodeThreadBoardRoutePane,
-  parseThreadBoardRoutePanes,
-} from "../lib/chatThreadBoardRouteSearch";
 import { useHostConnectionStore } from "../hostConnectionStore";
 
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
-  readonly active?: string;
   readonly connection?: string;
-  readonly pane?: string;
-  readonly split?: string;
-  readonly threads?: string;
 }
 
 function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThreadRouteSearch {
   const diffSearch = parseDiffRouteSearch(search);
-  const active =
-    typeof search[THREAD_BOARD_ACTIVE_SEARCH_PARAM] === "string"
-      ? search[THREAD_BOARD_ACTIVE_SEARCH_PARAM].trim()
-      : "";
-  const threads =
-    typeof search[THREAD_BOARD_THREADS_SEARCH_PARAM] === "string"
-      ? search[THREAD_BOARD_THREADS_SEARCH_PARAM].trim()
-      : "";
-  const split =
-    typeof search[THREAD_BOARD_SPLIT_SEARCH_PARAM] === "string"
-      ? search[THREAD_BOARD_SPLIT_SEARCH_PARAM].trim()
-      : "";
-  const pane =
-    typeof search[THREAD_BOARD_PANE_SEARCH_PARAM] === "string"
-      ? search[THREAD_BOARD_PANE_SEARCH_PARAM].trim()
-      : "";
   const connectionRaw =
     typeof search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] === "string"
       ? search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM].trim()
       : "";
-  const boardSearch = {
-    ...diffSearch,
-    ...(active.length > 0 ? { active } : {}),
-    ...(pane.length > 0 ? { pane } : {}),
-    ...(split.length > 0 ? { split } : {}),
-    ...(threads.length > 0 ? { threads } : {}),
-  };
   if (connectionRaw.length === 0) {
-    return boardSearch;
+    return diffSearch;
   }
   try {
     return {
-      ...boardSearch,
+      ...diffSearch,
       connection: normalizeWsUrl(connectionRaw),
     };
   } catch {
-    return boardSearch;
+    return diffSearch;
   }
 }
 
@@ -84,20 +49,7 @@ function ChatThreadRouteView() {
   });
   const search = Route.useSearch();
   const routeConnectionUrl = search.connection;
-  const routeBoardPanes = useMemo(
-    () => parseThreadBoardRoutePanes(search.threads),
-    [search.threads],
-  );
-  const routePathBoardPane = useMemo(
-    () => ({ connectionUrl: routeConnectionUrl ?? null, threadId }),
-    [routeConnectionUrl, threadId],
-  );
-  const routeActiveBoardPane = useMemo(
-    () => (search.active ? decodeThreadBoardRoutePane(search.active) : null),
-    [search.active],
-  );
-  const routePaneId = useMemo(() => search.pane?.trim() || null, [search.pane]);
-  const serverThread = useStore((store) => getThreadById(store.threads, threadId));
+  const serverThread = useStore((store) => getThreadByIdFromState(store, threadId));
   const threadExists = serverThread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
@@ -289,14 +241,7 @@ function ChatThreadRouteView() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <ThreadBoard
-        threadId={threadId}
-        connectionUrl={routeConnectionUrl ?? null}
-        routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
-        routePaneId={routePaneId}
-        routeSplitId={search.split ?? null}
-        routeThreads={routeBoardPanes}
-      />
+      <ThreadBoard threadId={threadId} connectionUrl={routeConnectionUrl ?? null} />
     </SidebarInset>
   );
 }
@@ -304,15 +249,7 @@ function ChatThreadRouteView() {
 export const Route = createFileRoute("/_chat/$threadId")({
   validateSearch: (search) => parseChatThreadRouteSearch(search),
   search: {
-    middlewares: [
-      retainSearchParams<ChatThreadRouteSearch>([
-        "diff",
-        "connection",
-        "threads",
-        "active",
-        "split",
-      ]),
-    ],
+    middlewares: [retainSearchParams<ChatThreadRouteSearch>(["diff", "connection"])],
   },
   component: ChatThreadRouteView,
 });

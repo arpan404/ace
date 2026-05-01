@@ -354,7 +354,12 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";
 
   return (
-    <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4")}>
+    <div
+      className={cn(
+        "shrink-0 px-3 pt-1.5 sm:px-5 sm:pt-2",
+        props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4",
+      )}
+    >
       <form
         ref={props.composerFormRef}
         onSubmit={props.onSubmit}

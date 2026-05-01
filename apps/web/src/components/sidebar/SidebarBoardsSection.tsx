@@ -19,7 +19,7 @@ const SIDEBAR_SPLIT_SORT_LABELS: Record<SidebarSplitSortOrder, string> = {
 };
 
 export function SidebarBoardsSection(props: {
-  activeRouteSplitId: string | null;
+  activeSplitId: string | null;
   boardsSectionExpanded: boolean;
   canCollapseSplitList: boolean;
   canCreateBoard: boolean;
@@ -141,7 +141,7 @@ export function SidebarBoardsSection(props: {
           <SidebarMenu>
             {props.visibleSavedBoards.map((split) => {
               const paneCount = split.panes.length;
-              const isActiveSplit = props.activeRouteSplitId === split.id;
+              const isActiveSplit = props.activeSplitId === split.id;
               return (
                 <SidebarMenuItem
                   key={split.id}

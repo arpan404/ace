@@ -125,10 +125,34 @@ html.native-window-resizing *::after {
   contain: layout paint;
 }
 
+[data-slot="sidebar-content"] [data-slot="sidebar-group-content"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-sub"] {
+  contain: layout paint style;
+}
+
 [data-slot="sidebar-content"] [data-slot="sidebar-menu-item"],
 [data-slot="sidebar-content"] [data-slot="sidebar-menu-sub-item"] {
+  contain: layout paint style;
   content-visibility: auto;
   contain-intrinsic-size: auto 32px;
+}
+
+.sidebar-resizing [data-slot="sidebar-content"] {
+  pointer-events: none;
+}
+
+.sidebar-resizing [data-slot="sidebar-content"] * {
+  transition-duration: 0ms !important;
+}
+
+.thread-board-layout-active [data-slot="sidebar-wrapper"],
+.thread-board-layout-active [data-slot="sidebar-gap"],
+.thread-board-layout-active [data-slot="sidebar-container"],
+.thread-board-layout-active [data-slot="sidebar-inset"],
+.thread-board-layout-active [data-slot="sidebar"],
+.thread-board-layout-active [data-slot="sidebar"] * {
+  transition-duration: 0ms !important;
 }
 
 :root {
