@@ -1,9 +1,31 @@
 import { Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { encodeRpcProtocolMessage, reviveRpcProtocolMessage } from "./relayRpcTransport";
+import {
+  encodeRpcProtocolMessage,
+  formatRelayTransportErrorMessage,
+  reviveRpcProtocolMessage,
+} from "./relayRpcTransport";
 
 describe("relayRpcTransport RPC serialization", () => {
+  it("formats object-shaped relay errors without falling back to [object Object]", () => {
+    expect(
+      formatRelayTransportErrorMessage({
+        code: 1006,
+        reason: "socket closed",
+      }),
+    ).toBe('{"code":1006,"reason":"socket closed"}');
+  });
+
+  it("prefers embedded message fields when formatting relay errors", () => {
+    expect(
+      formatRelayTransportErrorMessage({
+        message: "relay route closed",
+        code: 1006,
+      }),
+    ).toBe("relay route closed");
+  });
+
   it("serializes bigint request ids as strings", () => {
     const encoded = encodeRpcProtocolMessage({
       _tag: "Request",

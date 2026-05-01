@@ -10,6 +10,7 @@ import {
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
+  type ServerProvider,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_DISPLAY_NAMES,
@@ -26,6 +27,7 @@ import {
 import * as Schema from "effect/Schema";
 import { buildProviderModelSelection } from "@ace/shared/model";
 import { truncate } from "@ace/shared/String";
+import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ComponentProps,
@@ -297,7 +299,7 @@ import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
-  useConnectionServerProviders,
+  useConnectionServerConfig,
   resolveThreadOriginConnectionUrl,
 } from "~/hooks/useConnectionServerProviders";
 import { useServerAvailableEditors, useServerKeybindings } from "~/rpc/serverState";
@@ -344,6 +346,7 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
+const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
@@ -574,10 +577,8 @@ export default function ChatView({
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
-  const providerSettings = useSetting("providers");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
-  const modelSettings = useMemo(() => ({ providers: providerSettings }), [providerSettings]);
   const {
     activeDraftThread: currentRouteDraftThread,
     activeThread: currentRouteThread,
@@ -1018,7 +1019,14 @@ export default function ChatView({
   );
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
-  const providerStatuses = useConnectionServerProviders(activeServerConnectionUrl);
+  const connectionServerConfig = useConnectionServerConfig(activeServerConnectionUrl);
+  const providerStatuses = useMemo(
+    () => connectionServerConfig?.providers ?? EMPTY_PROVIDER_STATUSES,
+    [connectionServerConfig?.providers],
+  );
+  const providerSettings =
+    connectionServerConfig?.settings.providers ?? DEFAULT_UNIFIED_SETTINGS.providers;
+  const modelSettings = useMemo(() => ({ providers: providerSettings }), [providerSettings]);
   const localDraftThread = useMemo(
     () =>
       draftThread
