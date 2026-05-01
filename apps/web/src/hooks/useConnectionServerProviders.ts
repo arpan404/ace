@@ -5,7 +5,7 @@ import { reportBackgroundError } from "../lib/async";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
 import { getRouteRpcClient } from "../lib/remoteWsRouter";
 import { normalizeWsUrl } from "../lib/remoteHosts";
-import { useServerConfig } from "../rpc/serverState";
+import { useServerProviders } from "../rpc/serverState";
 
 const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 const remoteProvidersByConnectionUrl = new Map<string, ReadonlyArray<ServerProvider>>();
@@ -56,19 +56,24 @@ export function resolveThreadOriginConnectionUrl(input: {
 
 export function useConnectionServerProviders(
   connectionUrl: string | null | undefined,
+  options?: { enabled?: boolean },
 ): ReadonlyArray<ServerProvider> {
-  const serverConfig = useServerConfig();
+  const enabled = options?.enabled ?? true;
   const localConnectionUrl = resolveLocalConnectionUrl();
   const normalizedConnectionUrl = useMemo(
     () => normalizeConnectionUrl(connectionUrl) ?? localConnectionUrl,
     [connectionUrl, localConnectionUrl],
   );
   const isLocalConnection = normalizedConnectionUrl === localConnectionUrl;
+  const localProviders = useServerProviders({ enabled: enabled && isLocalConnection });
   const [remoteProviders, setRemoteProviders] = useState<ReadonlyArray<ServerProvider>>(
     remoteProvidersByConnectionUrl.get(normalizedConnectionUrl) ?? EMPTY_SERVER_PROVIDERS,
   );
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     if (isLocalConnection) {
       return;
     }
@@ -111,10 +116,14 @@ export function useConnectionServerProviders(
       canceled = true;
       unsubscribe();
     };
-  }, [isLocalConnection, normalizedConnectionUrl]);
+  }, [enabled, isLocalConnection, normalizedConnectionUrl]);
+
+  if (!enabled) {
+    return EMPTY_SERVER_PROVIDERS;
+  }
 
   if (isLocalConnection) {
-    return serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
+    return localProviders;
   }
 
   return remoteProviders;

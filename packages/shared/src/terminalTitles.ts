@@ -82,6 +82,7 @@ const KNOWN_COMMAND_TITLE_BINARIES = new Set([
   "wrangler",
   "xcodebuild",
 ]);
+const TERMINAL_INPUT_RESIDUE_REGEX = /(?:\[[0-9;?]*[~A-Za-z]|(?:^|[:\s])O[A-D](?:[0-9A-D]*)?)/;
 
 function basename(pathValue: string): string {
   const normalized = pathValue.trim().replace(/[\\/]+$/, "");
@@ -115,9 +116,41 @@ function tokenizeCommand(command: string): string[] {
   return matches?.map((token) => stripQuotes(token)) ?? [];
 }
 
+function hasTerminalControlCode(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0x1b || code === 0x9b) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasTerminalInputResidue(value: string | undefined): boolean {
+  return (
+    typeof value === "string" &&
+    (hasTerminalControlCode(value) || TERMINAL_INPUT_RESIDUE_REGEX.test(value))
+  );
+}
+
+function titleFromPackageManagerCommand(
+  binary: string,
+  arg1: string | undefined,
+  arg2: string | undefined,
+) {
+  if (arg1 && ["run", "x", "exec"].includes(arg1) && arg2) {
+    return hasTerminalInputResidue(arg2) ? null : `${binary} ${arg2}`;
+  }
+  if (arg1) {
+    return hasTerminalInputResidue(arg1) ? null : `${binary} ${arg1}`;
+  }
+  return binary;
+}
+
 export function deriveTerminalTitleFromCommand(command: string): string | null {
   const normalized = command.trim();
   if (normalized.length === 0) return null;
+  if (hasTerminalInputResidue(normalized)) return null;
 
   const primarySegment = normalized.split(TERMINAL_COMMAND_CONNECTOR)[0]?.trim() ?? "";
   if (primarySegment.length === 0) return null;
@@ -158,9 +191,7 @@ export function deriveTerminalTitleFromCommand(command: string): string | null {
   }
 
   if (["bun", "npm", "pnpm", "yarn"].includes(binary)) {
-    if (arg1 && ["run", "x", "exec"].includes(arg1) && arg2) return `${binary} ${arg2}`;
-    if (arg1) return `${binary} ${arg1}`;
-    return binary;
+    return titleFromPackageManagerCommand(binary, arg1, arg2);
   }
 
   if (binary === "git") {
@@ -195,6 +226,40 @@ export function deriveTerminalTitleFromCommand(command: string): string | null {
   }
 
   return null;
+}
+
+function skipTerminalEscapeSequence(data: string, escapeIndex: number): number {
+  const next = data[escapeIndex + 1];
+  if (!next) return escapeIndex;
+
+  if (next === "[") {
+    for (let index = escapeIndex + 2; index < data.length; index += 1) {
+      const code = data.charCodeAt(index);
+      if (code >= 0x40 && code <= 0x7e) {
+        return index;
+      }
+    }
+    return data.length - 1;
+  }
+
+  if (next === "O") {
+    return Math.min(escapeIndex + 2, data.length - 1);
+  }
+
+  if (next === "]") {
+    for (let index = escapeIndex + 2; index < data.length; index += 1) {
+      const code = data.charCodeAt(index);
+      if (code === 0x07) {
+        return index;
+      }
+      if (code === 0x1b && data[index + 1] === "\\") {
+        return index + 1;
+      }
+    }
+    return data.length - 1;
+  }
+
+  return escapeIndex + 1;
 }
 
 export function extractTerminalOscTitle(data: string): string | null {
@@ -232,6 +297,7 @@ export function applyTerminalInputToBuffer(
     if (!chunk) continue;
 
     if (chunk === "\u001b") {
+      index = skipTerminalEscapeSequence(data, index);
       continue;
     }
     if (chunk === "\r" || chunk === "\n") {

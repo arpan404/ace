@@ -844,6 +844,10 @@ export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
+  const readSidebarThreadSummary = useCallback(
+    (threadId: ThreadId) => useStore.getState().sidebarThreadsById[threadId],
+    [],
+  );
   const savedSplitBoard = useChatThreadBoardStore(
     useShallow((store) => ({
       activePaneId: store.activePaneId,
@@ -2642,7 +2646,7 @@ export default function Sidebar() {
     async (threadId: ThreadId, position: { x: number; y: number }) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = sidebarThreadsById[threadId];
+      const thread = readSidebarThreadSummary(threadId);
       if (!thread) return;
       const threadWorkspacePath =
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
@@ -2723,7 +2727,7 @@ export default function Sidebar() {
       openThreadInSplit,
       pinnedThreadIds,
       projectCwdById,
-      sidebarThreadsById,
+      readSidebarThreadSummary,
       togglePinnedThread,
     ],
   );
@@ -2757,7 +2761,7 @@ export default function Sidebar() {
 
       if (clicked === "mark-unread") {
         for (const id of ids) {
-          const thread = sidebarThreadsById[id];
+          const thread = readSidebarThreadSummary(id);
           markThreadUnread(id, thread?.latestTurn?.completedAt);
         }
         clearSelection();
@@ -2788,9 +2792,9 @@ export default function Sidebar() {
       deleteThread,
       markThreadUnread,
       openThreadsInSplit,
+      readSidebarThreadSummary,
       removeFromSelection,
       selectedThreadIds,
-      sidebarThreadsById,
     ],
   );
 
@@ -2822,7 +2826,7 @@ export default function Sidebar() {
       }
       setSelectionAnchor(threadId);
       useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
-      const thread = sidebarThreadsById[threadId];
+      const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
         startTransition(() => {
@@ -2851,16 +2855,16 @@ export default function Sidebar() {
       localDeviceConnectionUrl,
       navigate,
       rangeSelectTo,
+      readSidebarThreadSummary,
       selectedThreadIds.size,
       setSelectionAnchor,
-      sidebarThreadsById,
       toggleThreadSelection,
     ],
   );
 
   const prefetchThreadHistory = useCallback(
     (threadId: ThreadId) => {
-      const thread = sidebarThreadsById[threadId];
+      const thread = readSidebarThreadSummary(threadId);
       if (!thread) {
         return;
       }
@@ -2872,12 +2876,12 @@ export default function Sidebar() {
         expectedUpdatedAt: thread.updatedAt ?? null,
       });
     },
-    [sidebarThreadsById],
+    [readSidebarThreadSummary],
   );
 
   const navigateToThread = useCallback(
     (threadId: ThreadId) => {
-      const thread = sidebarThreadsById[threadId];
+      const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
         startTransition(() => {
@@ -2901,7 +2905,13 @@ export default function Sidebar() {
         });
       });
     },
-    [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor, sidebarThreadsById],
+    [
+      clearSelection,
+      navigate,
+      readSidebarThreadSummary,
+      selectedThreadIds.size,
+      setSelectionAnchor,
+    ],
   );
   const navigateToThreadOnConnection = useCallback(
     (connectionUrl: string, threadId: ThreadId) => {
@@ -2910,7 +2920,7 @@ export default function Sidebar() {
       }
       setSelectionAnchor(threadId);
       useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
-      const thread = sidebarThreadsById[threadId];
+      const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
         startTransition(() => {
@@ -2939,9 +2949,9 @@ export default function Sidebar() {
       localDeviceConnectionUrl,
       navigate,
       navigateToThread,
+      readSidebarThreadSummary,
       selectedThreadIds.size,
       setSelectionAnchor,
-      sidebarThreadsById,
     ],
   );
 
@@ -3897,22 +3907,24 @@ export default function Sidebar() {
         ),
     [sidebarThreadsById],
   );
-  const splitPickerThreadOptions = useMemo(
-    () =>
-      sortedActiveThreads.map((thread) => ({
-        connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
-        id: thread.id,
-        projectId: thread.projectId,
-        projectName: projectById.get(thread.projectId)?.name ?? "Unknown project",
-        title: thread.title.trim() || "Untitled thread",
-        updatedAt: Math.max(
-          resolveIsoTimestamp(thread.latestUserMessageAt ?? undefined),
-          resolveIsoTimestamp(thread.updatedAt),
-          resolveIsoTimestamp(thread.createdAt),
-        ),
-      })),
-    [projectById, sortedActiveThreads],
-  );
+  const splitPickerAvailableThreadCount = sortedActiveThreads.length;
+  const splitPickerThreadOptions = useMemo(() => {
+    if (!splitPickerOpen) {
+      return [];
+    }
+    return sortedActiveThreads.map((thread) => ({
+      connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
+      id: thread.id,
+      projectId: thread.projectId,
+      projectName: projectById.get(thread.projectId)?.name ?? "Unknown project",
+      title: thread.title.trim() || "Untitled thread",
+      updatedAt: Math.max(
+        resolveIsoTimestamp(thread.latestUserMessageAt ?? undefined),
+        resolveIsoTimestamp(thread.updatedAt),
+        resolveIsoTimestamp(thread.createdAt),
+      ),
+    }));
+  }, [projectById, sortedActiveThreads, splitPickerOpen]);
   const splitPickerProjectFilterOptions = useMemo(() => {
     const projectOptions = new Map<string, string>();
     for (const thread of splitPickerThreadOptions) {
@@ -5276,7 +5288,7 @@ export default function Sidebar() {
       </Dialog>
       <SidebarSplitPickerDialog
         open={splitPickerOpen}
-        availableThreadCount={splitPickerThreadOptions.length}
+        availableThreadCount={splitPickerAvailableThreadCount}
         query={splitPickerQuery}
         projectFilter={splitPickerProjectFilter}
         projectFilterOptions={splitPickerProjectFilterOptions}
@@ -5733,12 +5745,12 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            {savedBoards.length > 0 || splitPickerThreadOptions.length >= 2 ? (
+            {savedBoards.length > 0 || splitPickerAvailableThreadCount >= 2 ? (
               <SidebarBoardsSection
                 activeRouteSplitId={activeRouteSplitId}
                 boardsSectionExpanded={boardsSectionExpanded}
                 canCollapseSplitList={canCollapseSplitList}
-                canCreateBoard={splitPickerThreadOptions.length >= 2}
+                canCreateBoard={splitPickerAvailableThreadCount >= 2}
                 dragOverBoardId={
                   boardThreadDragState?.overTargetKey &&
                   savedBoards.some((split) => split.id === boardThreadDragState.overTargetKey)

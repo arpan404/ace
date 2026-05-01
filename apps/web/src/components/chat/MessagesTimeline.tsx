@@ -55,6 +55,7 @@ import {
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import {
@@ -68,10 +69,59 @@ const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
-const ASSISTANT_MARKDOWN_IDLE_BATCH_DELAY_MS = 64;
+const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
+const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
+const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
+interface AssistantMarkdownIdleDeadline {
+  readonly didTimeout: boolean;
+  timeRemaining(): number;
+}
+
+type AssistantMarkdownIdleHandle =
+  | { readonly kind: "idle"; readonly id: number }
+  | { readonly kind: "timeout"; readonly id: number };
+
+function requestAssistantMarkdownIdleCallback(
+  callback: (deadline: AssistantMarkdownIdleDeadline) => void,
+): AssistantMarkdownIdleHandle {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (
+      callback: (deadline: AssistantMarkdownIdleDeadline) => void,
+      options?: { timeout: number },
+    ) => number;
+  };
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    return {
+      kind: "idle",
+      id: idleWindow.requestIdleCallback(callback, {
+        timeout: ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS,
+      }),
+    };
+  }
+  return {
+    kind: "timeout",
+    id: window.setTimeout(() => {
+      callback({
+        didTimeout: true,
+        timeRemaining: () => 0,
+      });
+    }, ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS),
+  };
+}
+
+function cancelAssistantMarkdownIdleCallback(handle: AssistantMarkdownIdleHandle): void {
+  if (handle.kind === "timeout") {
+    window.clearTimeout(handle.id);
+    return;
+  }
+  const idleWindow = window as Window & {
+    cancelIdleCallback?: (id: number) => void;
+  };
+  idleWindow.cancelIdleCallback?.(handle.id);
+}
 
 function readCachedTimelineRowHeight(cacheKey: string): number | null {
   const cachedHeight = timelineRowHeightCache.get(cacheKey);
@@ -111,6 +161,8 @@ interface MessagesTimelineProps {
   continueWithGitHubIssuesDisabledReason?: string;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  backgroundMarkdownPrewarm?: boolean;
+  liveTimers?: boolean;
   scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
@@ -141,6 +193,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   continueWithGitHubIssuesDisabledReason,
   activeTurnInProgress,
   activeTurnStartedAt,
+  backgroundMarkdownPrewarm = true,
+  liveTimers = true,
   scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
@@ -163,14 +217,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const rows = useMemo<TimelineRow[]>(
     () =>
-      buildTimelineRows({
-        timelineEntries,
-        activeTurnInProgress,
-        activeTurnStartedAt,
-        completionDividerBeforeEntryId,
-        completionSummary,
-        isWorking,
-      }),
+      measureRenderWork("chat.buildTimelineRows", () =>
+        buildTimelineRows({
+          timelineEntries,
+          activeTurnInProgress,
+          activeTurnStartedAt,
+          completionDividerBeforeEntryId,
+          completionSummary,
+          isWorking,
+        }),
+      ),
     [
       activeTurnInProgress,
       timelineEntries,
@@ -204,7 +260,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
 
     let pendingWidth: number | null = null;
-    let frameId: number | null = null;
+    let timeoutId: number | null = null;
 
     const updateWidth = (nextWidth: number) => {
       setTimelineWidthPx((current) =>
@@ -213,17 +269,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
     const scheduleWidthUpdate = (nextWidth: number) => {
       pendingWidth = nextWidth;
-      if (frameId !== null) {
-        return;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
+      timeoutId = window.setTimeout(() => {
+        timeoutId = null;
         const width = pendingWidth;
         pendingWidth = null;
         if (width !== null) {
           updateWidth(width);
         }
-      });
+      }, TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS);
     };
 
     updateWidth(timelineRootElement.clientWidth);
@@ -242,8 +298,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     observer.observe(timelineRootElement);
     return () => {
       observer.disconnect();
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
     };
   }, [timelineRootElement]);
@@ -288,6 +344,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldUseVirtualizedBuffer =
     scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
+  const shouldPrewarmAssistantMarkdown =
+    shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
     ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
@@ -310,7 +368,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
     [rows],
   );
-  const pendingAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
+  const pendingAssistantMarkdownMessageIds = shouldPrewarmAssistantMarkdown
     ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
         firstUnvirtualizedRowIndex,
         immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
@@ -378,7 +436,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
 
   useEffect(() => {
-    if (!shouldPrioritizeAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
+    if (!shouldPrewarmAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
       return;
     }
     if (typeof window === "undefined") {
@@ -388,14 +446,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
     let cancelled = false;
     let cursor = 0;
-    let timerId: number | null = null;
+    let idleHandle: AssistantMarkdownIdleHandle | null = null;
 
-    const activateNextBatch = () => {
+    const activateNextBatch = (deadline: AssistantMarkdownIdleDeadline) => {
       if (cancelled) {
         return;
       }
-      const batch = pendingMessageIds.slice(cursor, cursor + ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE);
-      cursor += batch.length;
+      const batch: string[] = [];
+      while (
+        cursor < pendingMessageIds.length &&
+        batch.length < ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE &&
+        (batch.length === 0 || deadline.didTimeout || deadline.timeRemaining() > 6)
+      ) {
+        const messageId = pendingMessageIds[cursor];
+        cursor += 1;
+        if (messageId) {
+          batch.push(messageId);
+        }
+      }
       if (batch.length > 0) {
         startTransition(() => {
           setRenderedAssistantMarkdownMessageIds((current) => {
@@ -414,17 +482,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (cursor >= pendingMessageIds.length) {
         return;
       }
-      timerId = window.setTimeout(activateNextBatch, ASSISTANT_MARKDOWN_IDLE_BATCH_DELAY_MS);
+      idleHandle = requestAssistantMarkdownIdleCallback(activateNextBatch);
     };
 
-    timerId = window.setTimeout(activateNextBatch, ASSISTANT_MARKDOWN_IDLE_BATCH_DELAY_MS);
+    idleHandle = requestAssistantMarkdownIdleCallback(activateNextBatch);
     return () => {
       cancelled = true;
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
+      if (idleHandle !== null) {
+        cancelAssistantMarkdownIdleCallback(idleHandle);
       }
     };
-  }, [pendingAssistantMarkdownMessageIdKey, shouldPrioritizeAssistantMarkdown]);
+  }, [pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
   const registerMeasuredRowElement = useCallback(
     (rowId: string, element: HTMLDivElement | null) => {
       if (element) {
@@ -445,12 +513,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     },
     [rowVirtualizer],
   );
+  const handleMeasuredRowLayoutChangeRef = useRef(handleMeasuredRowLayoutChange);
+  handleMeasuredRowLayoutChangeRef.current = handleMeasuredRowLayoutChange;
+  const measuredRowLayoutChangeCallbackByIdRef = useRef(new Map<string, () => void>());
+  const getMeasuredRowLayoutChangeCallback = useCallback((rowId: string) => {
+    const cached = measuredRowLayoutChangeCallbackByIdRef.current.get(rowId);
+    if (cached) {
+      return cached;
+    }
+    const callback = () => {
+      handleMeasuredRowLayoutChangeRef.current(rowId);
+    };
+    measuredRowLayoutChangeCallbackByIdRef.current.set(rowId, callback);
+    return callback;
+  }, []);
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
     const onMeasuredLayoutChange = shouldUseVirtualizedBuffer
-      ? () => {
-          handleMeasuredRowLayoutChange(row.id);
-        }
+      ? getMeasuredRowLayoutChangeCallback(row.id)
       : undefined;
     return (
       <div
@@ -662,15 +742,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <div className="min-w-0 py-1">
             <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
               <span className="inline-flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/28 animate-pulse" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/24 animate-pulse [animation-delay:200ms]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/20 animate-pulse [animation-delay:400ms]" />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
+                    liveTimers ? "animate-pulse" : null,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
+                    liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
+                    liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
+                  )}
+                />
               </span>
               <span>
                 {row.createdAt ? (
                   <WorkingTimer
                     createdAt={row.createdAt}
                     label={row.mode === "silent-thinking" ? "Getting started for" : "Working for"}
+                    live={liveTimers}
                   />
                 ) : row.mode === "silent-thinking" ? (
                   "Getting started..."
@@ -984,9 +1080,11 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
+  live,
 }: {
   createdAt: string;
   label: string;
+  live: boolean;
 }) {
   const startedAtMs = Date.parse(createdAt);
   const [elapsed, setElapsed] = useState(() =>
@@ -994,12 +1092,13 @@ const WorkingTimer = memo(function WorkingTimer({
   );
 
   useEffect(() => {
+    if (!live) return;
     if (!Number.isFinite(startedAtMs)) return;
     const timer = window.setInterval(() => {
       setElapsed(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [startedAtMs]);
+  }, [live, startedAtMs]);
 
   return (
     <>
@@ -1936,6 +2035,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
     <div className="min-w-0">
       {props.renderMarkdown ? (
         <ChatMarkdown
+          key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
           text={messageText}
           cwd={props.markdownCwd}
           isStreaming={Boolean(props.message.streaming)}

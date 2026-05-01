@@ -2,6 +2,7 @@ import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pie
 import { CheckIcon, CopyIcon, GlobeIcon } from "lucide-react";
 import React, {
   Children,
+  Profiler,
   Suspense,
   isValidElement,
   use,
@@ -34,6 +35,7 @@ import {
   shouldUseLargeMarkdownPreview,
 } from "../lib/chat/messageText";
 import { normalizeBrowserHttpUrl } from "../lib/browser/url";
+import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/renderProfiling";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
@@ -86,6 +88,18 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const INLINE_MARKDOWN_SIGNAL_REGEX =
+  /`|\*\*?|\[[^\]]+\]\(|!\[|https?:\/\/|www\.|<\w[\s\S]*?>|<\/\w+>/i;
+const BLOCK_MARKDOWN_SIGNAL_REGEX =
+  /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s+|\d+[.)]\s+|>\s+|```|~~~|\|.+\|)/;
+const ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX = /```|~~~|!\[|<img|<video|<iframe|<details|<table/i;
+const onMarkdownProfilerRender = (
+  _id: string,
+  phase: "mount" | "update" | "nested-update",
+  actualDuration: number,
+) => {
+  recordReactRenderProfile("chat.markdown.render", phase, actualDuration);
+};
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
@@ -168,6 +182,25 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     highlighterPromiseCache.set(language, promise);
   }
   return promise;
+}
+
+function shouldUsePlainTextMarkdownFastPath(text: string): boolean {
+  if (text.length === 0) {
+    return true;
+  }
+  return !INLINE_MARKDOWN_SIGNAL_REGEX.test(text) && !BLOCK_MARKDOWN_SIGNAL_REGEX.test(text);
+}
+
+function shouldObserveMarkdownLayout(input: {
+  readonly text: string;
+  readonly isStreaming: boolean;
+  readonly renderPlainText: boolean;
+  readonly useLargePreview: boolean;
+}): boolean {
+  if (input.isStreaming || input.renderPlainText || input.useLargePreview) {
+    return true;
+  }
+  return ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX.test(input.text);
 }
 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
@@ -301,7 +334,15 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function MarkdownBody({
+const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
+  return (
+    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+      {text}
+    </div>
+  );
+});
+
+const MarkdownBody = memo(function MarkdownBody({
   children,
   isStreaming,
   markdownComponents,
@@ -310,17 +351,27 @@ function MarkdownBody({
   isStreaming: boolean;
   markdownComponents: Components;
 }) {
+  const markdown = (
+    <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+      {children}
+    </ReactMarkdown>
+  );
+
   return (
     <div
       className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
       data-streaming-markdown={isStreaming ? "true" : undefined}
     >
-      <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
-        {children}
-      </ReactMarkdown>
+      {isRenderProfilingEnabled() ? (
+        <Profiler id="chat-markdown" onRender={onMarkdownProfilerRender}>
+          {markdown}
+        </Profiler>
+      ) : (
+        markdown
+      )}
     </div>
   );
-}
+});
 
 function PreviewTextPanel({
   text,
@@ -431,6 +482,19 @@ function ChatMarkdown({
     !isStreaming &&
     renderPreference !== "markdown" &&
     shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
+  const shouldFastPathPlainText =
+    !isStreaming &&
+    !renderPlainText &&
+    !useLargePreview &&
+    shouldUsePlainTextMarkdownFastPath(text);
+  const shouldObserveLayout =
+    onLayoutChange !== undefined &&
+    shouldObserveMarkdownLayout({
+      text,
+      isStreaming,
+      renderPlainText,
+      useLargePreview,
+    });
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();
     if (api) {
@@ -581,7 +645,7 @@ function ChatMarkdown({
   }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
 
   useEffect(() => {
-    if (!onLayoutChange || typeof ResizeObserver === "undefined") {
+    if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;
     }
     const rootElement = rootRef.current;
@@ -615,36 +679,51 @@ function ChatMarkdown({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [onLayoutChange]);
+  }, [onLayoutChange, shouldObserveLayout]);
 
-  let content: ReactNode;
-  if (renderPlainText) {
-    content = <PreviewTextPanel text={text} />;
-  } else if (
-    isStreaming &&
-    streamingTextState &&
-    (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
-  ) {
-    content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
-  } else if (useLargePreview) {
-    content = (
-      <LargeMarkdownPreview
-        text={text}
-        isTransitionPending={isMarkdownTransitionPending}
-        onRenderMarkdown={() => {
-          startMarkdownTransition(() => {
-            setRenderPreference("markdown");
-          });
-        }}
-      />
-    );
-  } else {
-    content = (
+  const content = useMemo<ReactNode>(() => {
+    if (renderPlainText) {
+      return <PreviewTextPanel text={text} />;
+    }
+    if (
+      isStreaming &&
+      streamingTextState &&
+      (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
+    ) {
+      return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+    }
+    if (useLargePreview) {
+      return (
+        <LargeMarkdownPreview
+          text={text}
+          isTransitionPending={isMarkdownTransitionPending}
+          onRenderMarkdown={() => {
+            startMarkdownTransition(() => {
+              setRenderPreference("markdown");
+            });
+          }}
+        />
+      );
+    }
+    if (shouldFastPathPlainText) {
+      return <PlainMarkdownText text={text} />;
+    }
+    return (
       <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
         {text}
       </MarkdownBody>
     );
-  }
+  }, [
+    isMarkdownTransitionPending,
+    isStreaming,
+    markdownComponents,
+    renderPlainText,
+    startMarkdownTransition,
+    streamingTextState,
+    shouldFastPathPlainText,
+    text,
+    useLargePreview,
+  ]);
 
   return (
     <div ref={rootRef} className="w-full min-w-0">
