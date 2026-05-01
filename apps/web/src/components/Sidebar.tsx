@@ -3907,22 +3907,24 @@ export default function Sidebar() {
         ),
     [sidebarThreadsById],
   );
-  const splitPickerThreadOptions = useMemo(
-    () =>
-      sortedActiveThreads.map((thread) => ({
-        connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
-        id: thread.id,
-        projectId: thread.projectId,
-        projectName: projectById.get(thread.projectId)?.name ?? "Unknown project",
-        title: thread.title.trim() || "Untitled thread",
-        updatedAt: Math.max(
-          resolveIsoTimestamp(thread.latestUserMessageAt ?? undefined),
-          resolveIsoTimestamp(thread.updatedAt),
-          resolveIsoTimestamp(thread.createdAt),
-        ),
-      })),
-    [projectById, sortedActiveThreads],
-  );
+  const splitPickerAvailableThreadCount = sortedActiveThreads.length;
+  const splitPickerThreadOptions = useMemo(() => {
+    if (!splitPickerOpen) {
+      return [];
+    }
+    return sortedActiveThreads.map((thread) => ({
+      connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
+      id: thread.id,
+      projectId: thread.projectId,
+      projectName: projectById.get(thread.projectId)?.name ?? "Unknown project",
+      title: thread.title.trim() || "Untitled thread",
+      updatedAt: Math.max(
+        resolveIsoTimestamp(thread.latestUserMessageAt ?? undefined),
+        resolveIsoTimestamp(thread.updatedAt),
+        resolveIsoTimestamp(thread.createdAt),
+      ),
+    }));
+  }, [projectById, sortedActiveThreads, splitPickerOpen]);
   const splitPickerProjectFilterOptions = useMemo(() => {
     const projectOptions = new Map<string, string>();
     for (const thread of splitPickerThreadOptions) {
@@ -5286,7 +5288,7 @@ export default function Sidebar() {
       </Dialog>
       <SidebarSplitPickerDialog
         open={splitPickerOpen}
-        availableThreadCount={splitPickerThreadOptions.length}
+        availableThreadCount={splitPickerAvailableThreadCount}
         query={splitPickerQuery}
         projectFilter={splitPickerProjectFilter}
         projectFilterOptions={splitPickerProjectFilterOptions}
@@ -5743,12 +5745,12 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            {savedBoards.length > 0 || splitPickerThreadOptions.length >= 2 ? (
+            {savedBoards.length > 0 || splitPickerAvailableThreadCount >= 2 ? (
               <SidebarBoardsSection
                 activeRouteSplitId={activeRouteSplitId}
                 boardsSectionExpanded={boardsSectionExpanded}
                 canCollapseSplitList={canCollapseSplitList}
-                canCreateBoard={splitPickerThreadOptions.length >= 2}
+                canCreateBoard={splitPickerAvailableThreadCount >= 2}
                 dragOverBoardId={
                   boardThreadDragState?.overTargetKey &&
                   savedBoards.some((split) => split.id === boardThreadDragState.overTargetKey)
