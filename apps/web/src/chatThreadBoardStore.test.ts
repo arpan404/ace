@@ -132,6 +132,37 @@ describe("chatThreadBoardStore", () => {
     expect(state.activePaneId).toBe(sourcePaneId);
   });
 
+  it("preserves existing pane objects when rearranging a board", () => {
+    const store = useChatThreadBoardStore.getState();
+    const firstPaneId = store.syncRouteThread({ threadId: THREAD_A });
+
+    store.openThreadsInBoard([{ threadId: THREAD_B }, { threadId: THREAD_C }], {
+      sourcePaneId: firstPaneId,
+    });
+    const beforeMove = useChatThreadBoardStore.getState();
+    const beforePaneById = new Map(beforeMove.panes.map((pane) => [pane.id, pane]));
+    const sourcePaneId = beforeMove.panes.find((pane) => pane.threadId === THREAD_C)?.id;
+    const targetPaneId = beforeMove.panes.find((pane) => pane.threadId === THREAD_A)?.id;
+
+    expect(sourcePaneId).toBeTruthy();
+    expect(targetPaneId).toBeTruthy();
+
+    store.movePane({
+      direction: "left",
+      paneId: sourcePaneId!,
+      targetPaneId: targetPaneId!,
+    });
+    const state = useChatThreadBoardStore.getState();
+
+    for (const pane of state.panes) {
+      expect(pane).toBe(beforePaneById.get(pane.id));
+    }
+    const activeSplit = state.splits.find((split) => split.id === state.activeSplitId);
+    for (const pane of activeSplit?.panes ?? []) {
+      expect(pane).toBe(beforePaneById.get(pane.id));
+    }
+  });
+
   it("can open duplicate panes for the same thread in a saved board when explicitly allowed", () => {
     const store = useChatThreadBoardStore.getState();
     const splitId = store.createSplit({
@@ -213,6 +244,32 @@ describe("chatThreadBoardStore", () => {
 
     expect(restoredPaneId).toBe(beforeRestore.activePaneId);
     expect(afterRestore).toBe(beforeRestore);
+  });
+
+  it("switches between saved boards through store state", () => {
+    const store = useChatThreadBoardStore.getState();
+    const firstSplitId = store.createSplit({
+      activeThread: { threadId: THREAD_B },
+      threads: [{ threadId: THREAD_A }, { threadId: THREAD_B }],
+      title: "First board",
+    });
+    const secondSplitId = store.createSplit({
+      activeThread: { threadId: THREAD_C },
+      threads: [{ threadId: THREAD_A }, { threadId: THREAD_C }],
+      title: "Second board",
+    });
+
+    expect(firstSplitId).toBeTruthy();
+    expect(secondSplitId).toBeTruthy();
+    expect(useChatThreadBoardStore.getState().activeSplitId).toBe(secondSplitId);
+
+    const restoredPaneId = store.restoreSplit(firstSplitId!);
+    const state = useChatThreadBoardStore.getState();
+
+    expect(restoredPaneId).toBeTruthy();
+    expect(state.activeSplitId).toBe(firstSplitId);
+    expect(state.panes.map((pane) => pane.threadId)).toEqual([THREAD_A, THREAD_B]);
+    expect(state.splits.find((split) => split.id === secondSplitId)?.panes).toHaveLength(2);
   });
 
   it("does not rewrite state when focusing the already active pane", () => {

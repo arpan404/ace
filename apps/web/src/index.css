@@ -146,6 +146,15 @@ html.native-window-resizing *::after {
   transition-duration: 0ms !important;
 }
 
+.thread-board-layout-active [data-slot="sidebar-wrapper"],
+.thread-board-layout-active [data-slot="sidebar-gap"],
+.thread-board-layout-active [data-slot="sidebar-container"],
+.thread-board-layout-active [data-slot="sidebar-inset"],
+.thread-board-layout-active [data-slot="sidebar"],
+.thread-board-layout-active [data-slot="sidebar"] * {
+  transition-duration: 0ms !important;
+}
+
 :root {
   color-scheme: light;
   --radius: 0.5rem;
