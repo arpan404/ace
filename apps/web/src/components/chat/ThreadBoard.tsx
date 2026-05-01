@@ -173,17 +173,6 @@ function ThreadBoardDropHint(props: { isSinglePane: boolean }) {
   );
 }
 
-function isThreadBoardInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-  return (
-    target.closest(
-      "button, a, input, textarea, select, summary, [contenteditable='true'], [role='button'], [role='textbox'], [data-chat-composer-form], [data-scroll-anchor-target]",
-    ) !== null
-  );
-}
-
 function isThreadBoardDrag(dataTransfer: DataTransfer | null): boolean {
   return dataTransfer?.types.includes(THREAD_BOARD_DRAG_MIME) ?? false;
 }
@@ -211,7 +200,6 @@ function ThreadBoardPane(props: {
     pane: ChatThreadBoardPaneState,
     label: string,
   ) => (event: ReactDragEvent<HTMLButtonElement>) => void;
-  onPromote: () => void;
   setActivePane: (paneId: string) => void;
 }) {
   const { pane } = props;
@@ -238,14 +226,13 @@ function ThreadBoardPane(props: {
       onDragOver={props.onDragOver}
       onDrop={props.onDrop}
       onPointerDown={() => {
-        props.setActivePane(pane.id);
+        if (props.activePaneId !== pane.id) {
+          props.setActivePane(pane.id);
+        }
       }}
       onFocusCapture={() => {
-        props.setActivePane(pane.id);
-      }}
-      onClick={(event) => {
-        if (!props.isPrimary && !isThreadBoardInteractiveTarget(event.target)) {
-          props.onPromote();
+        if (props.activePaneId !== pane.id) {
+          props.setActivePane(pane.id);
         }
       }}
     >
@@ -563,23 +550,6 @@ export function ThreadBoard(props: {
         })),
       }),
     [savedSplitCount],
-  );
-
-  const promotePane = useCallback(
-    (pane: ChatThreadBoardPaneState) => {
-      setActivePane(pane.id);
-      startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: pane.threadId },
-          search: buildThreadBoardRouteSearch(panes, pane, {
-            paneId: pane.id,
-            splitId: props.routeSplitId ?? null,
-          }),
-        });
-      });
-    },
-    [navigate, panes, props.routeSplitId, setActivePane],
   );
 
   const handleClosePane = useCallback(
@@ -964,9 +934,6 @@ export function ThreadBoard(props: {
           onDrop={handlePaneDrop(pane)}
           onPaneDragEnd={handlePaneDragEnd}
           onPaneDragStart={handlePaneDragStart}
-          onPromote={() => {
-            promotePane(pane);
-          }}
           setActivePane={setActivePane}
         />
       );
@@ -985,7 +952,6 @@ export function ThreadBoard(props: {
       handlePaneDragStart,
       paneById,
       primaryPane,
-      promotePane,
       setActivePane,
       threadDragActive,
     ],
@@ -1113,7 +1079,6 @@ export function ThreadBoard(props: {
           onDragLeave={handlePaneDragLeave(singlePane.id)}
           onDragOver={handlePaneDragOver(singlePane)}
           onDrop={handlePaneDrop(singlePane)}
-          onPromote={() => {}}
           setActivePane={() => {}}
         />
       </div>

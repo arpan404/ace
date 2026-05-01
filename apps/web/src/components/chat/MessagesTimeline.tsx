@@ -96,6 +96,7 @@ const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
+const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 
 function canResolveTimelineRowsInWorker(): boolean {
@@ -200,8 +201,8 @@ interface MessagesTimelineProps {
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
   backgroundMarkdownPrewarm?: boolean;
+  getScrollContainer: () => HTMLDivElement | null;
   liveTimers?: boolean;
-  scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
@@ -232,8 +233,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnInProgress,
   activeTurnStartedAt,
   backgroundMarkdownPrewarm = true,
+  getScrollContainer,
   liveTimers = true,
-  scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -400,6 +401,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [virtualizedRows],
   );
   const measuredRowElementByIdRef = useRef(new Map<string, HTMLDivElement>());
+  const measuredRowVirtualIndexByIdRef = useRef(new Map<string, number>());
+  const measuredRowMeasurementFrameByIdRef = useRef(new Map<string, number>());
+  const measuredRowResizeObserverByIdRef = useRef(new Map<string, ResizeObserver>());
+  const measuredRowHeightByIdRef = useRef(new Map<string, number>());
   const estimateVirtualizedRowSize = useCallback(
     (index: number) =>
       estimateTimelineRowHeight(virtualizedRows[index], {
@@ -412,11 +417,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     count: virtualizedRows.length,
     estimateSize: estimateVirtualizedRowSize,
     getItemKey: getVirtualRowKey,
-    getScrollElement: () => scrollContainer,
+    getScrollElement: getScrollContainer,
+    initialRect: { width: 0, height: TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX },
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
+    useAnimationFrameWithResizeObserver: true,
   });
-  const shouldUseVirtualizedBuffer =
-    scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
+  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0 && !activeTurnInProgress;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
   const shouldPrewarmAssistantMarkdown =
     shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
@@ -697,45 +703,114 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     assistantMarkdownAnalysisPrewarmJobs,
     shouldPrewarmAssistantMarkdown,
   ]);
-  const registerMeasuredRowElement = useCallback(
-    (rowId: string, element: HTMLDivElement | null) => {
-      if (element) {
-        measuredRowElementByIdRef.current.set(rowId, element);
-        rowVirtualizer.measureElement(element);
+  const scheduleMeasuredRowResize = useCallback(
+    (rowId: string, nextHeight: number) => {
+      const pendingFrameId = measuredRowMeasurementFrameByIdRef.current.get(rowId);
+      if (pendingFrameId !== undefined && typeof window !== "undefined") {
+        window.cancelAnimationFrame(pendingFrameId);
+        measuredRowMeasurementFrameByIdRef.current.delete(rowId);
+      }
+
+      const applyResize = () => {
+        const index = measuredRowVirtualIndexByIdRef.current.get(rowId);
+        if (index === undefined) {
+          return;
+        }
+        const cachedHeight = measuredRowHeightByIdRef.current.get(rowId);
+        if (cachedHeight === nextHeight) {
+          return;
+        }
+        measuredRowHeightByIdRef.current.set(rowId, nextHeight);
+        rowVirtualizer.resizeItem(index, nextHeight);
+      };
+
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        const frameId = window.requestAnimationFrame(() => {
+          measuredRowMeasurementFrameByIdRef.current.delete(rowId);
+          applyResize();
+        });
+        measuredRowMeasurementFrameByIdRef.current.set(rowId, frameId);
         return;
       }
-      measuredRowElementByIdRef.current.delete(rowId);
+      applyResize();
     },
     [rowVirtualizer],
   );
-  const handleMeasuredRowLayoutChange = useCallback(
-    (rowId: string) => {
-      const element = measuredRowElementByIdRef.current.get(rowId);
-      if (element) {
-        rowVirtualizer.measureElement(element);
+
+  const registerMeasuredRowElement = useCallback(
+    (rowId: string, index: number, element: HTMLDivElement | null) => {
+      measuredRowVirtualIndexByIdRef.current.set(rowId, index);
+
+      const pendingFrameId = measuredRowMeasurementFrameByIdRef.current.get(rowId);
+      if (pendingFrameId !== undefined && typeof window !== "undefined") {
+        window.cancelAnimationFrame(pendingFrameId);
+        measuredRowMeasurementFrameByIdRef.current.delete(rowId);
       }
+
+      const observer = measuredRowResizeObserverByIdRef.current.get(rowId);
+      if (observer) {
+        observer.disconnect();
+        measuredRowResizeObserverByIdRef.current.delete(rowId);
+      }
+
+      if (!element) {
+        measuredRowElementByIdRef.current.delete(rowId);
+        measuredRowVirtualIndexByIdRef.current.delete(rowId);
+        measuredRowHeightByIdRef.current.delete(rowId);
+        return;
+      }
+
+      measuredRowElementByIdRef.current.set(rowId, element);
+
+      if (typeof ResizeObserver === "undefined") {
+        scheduleMeasuredRowResize(rowId, Math.ceil(element.offsetHeight));
+        return;
+      }
+
+      const resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) {
+          return;
+        }
+        const borderBoxSize = Array.isArray(entry.borderBoxSize)
+          ? entry.borderBoxSize[0]
+          : entry.borderBoxSize;
+        const nextHeight = Math.ceil(borderBoxSize?.blockSize ?? entry.contentRect.height);
+        scheduleMeasuredRowResize(rowId, nextHeight);
+      });
+      resizeObserver.observe(element, { box: "border-box" });
+      measuredRowResizeObserverByIdRef.current.set(rowId, resizeObserver);
     },
-    [rowVirtualizer],
+    [scheduleMeasuredRowResize],
   );
-  const handleMeasuredRowLayoutChangeRef = useRef(handleMeasuredRowLayoutChange);
-  handleMeasuredRowLayoutChangeRef.current = handleMeasuredRowLayoutChange;
-  const measuredRowLayoutChangeCallbackByIdRef = useRef(new Map<string, () => void>());
-  const getMeasuredRowLayoutChangeCallback = useCallback((rowId: string) => {
-    const cached = measuredRowLayoutChangeCallbackByIdRef.current.get(rowId);
-    if (cached) {
-      return cached;
-    }
-    const callback = () => {
-      handleMeasuredRowLayoutChangeRef.current(rowId);
+
+  useEffect(() => {
+    const measuredRowMeasurementFrameById = measuredRowMeasurementFrameByIdRef.current;
+    const measuredRowResizeObserverById = measuredRowResizeObserverByIdRef.current;
+    const measuredRowElementById = measuredRowElementByIdRef.current;
+    const measuredRowVirtualIndexById = measuredRowVirtualIndexByIdRef.current;
+    const measuredRowHeightById = measuredRowHeightByIdRef.current;
+
+    return () => {
+      if (typeof window === "undefined") {
+        measuredRowMeasurementFrameById.clear();
+      } else {
+        for (const frameId of measuredRowMeasurementFrameById.values()) {
+          window.cancelAnimationFrame(frameId);
+        }
+      }
+      for (const observer of measuredRowResizeObserverById.values()) {
+        observer.disconnect();
+      }
+      measuredRowMeasurementFrameById.clear();
+      measuredRowResizeObserverById.clear();
+      measuredRowElementById.clear();
+      measuredRowVirtualIndexById.clear();
+      measuredRowHeightById.clear();
     };
-    measuredRowLayoutChangeCallbackByIdRef.current.set(rowId, callback);
-    return callback;
   }, []);
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
-    const onMeasuredLayoutChange = shouldUseVirtualizedBuffer
-      ? getMeasuredRowLayoutChangeCallback(row.id)
-      : undefined;
     return (
       <div
         className="group/timeline relative pb-3"
@@ -912,7 +987,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   onOpenFilePath={onOpenFilePath}
                   renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
-                  {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
                 />
                 {shouldShowTurnSummary && (
                   <div className="mt-2.5 rounded-xl border border-border/45 bg-background/35 px-4 py-3">
@@ -938,7 +1012,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onOpenFilePath={onOpenFilePath}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
-            {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
           />
         )}
 
@@ -1057,7 +1130,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div
                 key={`row:${row.id}`}
                 ref={(element) => {
-                  registerMeasuredRowElement(row.id, element);
+                  registerMeasuredRowElement(row.id, virtualRow.index, element);
                 }}
                 data-index={virtualRow.index}
                 className="absolute top-0 left-0 w-full"
@@ -1763,7 +1836,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
-  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   renderMarkdown: boolean;
@@ -1819,7 +1891,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           {...(props.message.streamingTextState
             ? { streamingTextState: props.message.streamingTextState }
             : {})}
-          {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
         />
       ) : (
         <AssistantMarkdownPendingPlaceholder />
@@ -1905,7 +1976,6 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
 const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
-  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   proposedPlan: TimelineProposedPlan;
@@ -1921,7 +1991,6 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
         onOpenBrowserUrl={onOpenBrowserUrl}
         onOpenFilePath={onOpenFilePath}
         workspaceRoot={props.workspaceRoot}
-        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />
     </div>
   );

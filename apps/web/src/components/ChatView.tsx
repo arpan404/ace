@@ -655,7 +655,8 @@ export default function ChatView({
   splitPane = false,
   threadId,
 }: ChatViewProps) {
-  const activeForSideEffects = !splitPane || activeInBoard;
+  const activeForSideEffects = true;
+  const ownsGlobalSideEffects = !splitPane || activeInBoard;
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const dismissStoreThreadError = useStore((store) => store.dismissThreadError);
@@ -665,13 +666,13 @@ export default function ChatView({
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
   const trackedActiveThreadId = useUiStateStore((store) =>
-    activeForSideEffects ? store.activeThreadId : null,
+    ownsGlobalSideEffects ? store.activeThreadId : null,
   );
   const previousActiveThreadId = useUiStateStore((store) =>
-    activeForSideEffects ? store.previousActiveThreadId : null,
+    ownsGlobalSideEffects ? store.previousActiveThreadId : null,
   );
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
-    activeForSideEffects ? store.threadLastVisitedAtById[threadId] : undefined,
+    ownsGlobalSideEffects ? store.threadLastVisitedAtById[threadId] : undefined,
   );
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
@@ -869,7 +870,6 @@ export default function ChatView({
     LastInvokedScriptByProjectSchema,
   );
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const [messagesScrollElement, setMessagesScrollElement] = useState<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
   const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
@@ -898,8 +898,8 @@ export default function ChatView({
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
     messagesScrollRef.current = element;
-    setMessagesScrollElement(element);
   }, []);
+  const getMessagesScrollContainer = useCallback(() => messagesScrollRef.current, []);
   useEffect(() => {
     const syncComposerDraftRefs = (state: ReturnType<typeof useComposerDraftStore.getState>) => {
       const draft = getComposerThreadDraftState(state, threadId);
@@ -1085,7 +1085,7 @@ export default function ChatView({
     [threadId],
   );
   const rightSidePanelEnabled = true;
-  const rightSidePanelInteractive = rightSidePanelEnabled && activeForSideEffects;
+  const rightSidePanelInteractive = rightSidePanelEnabled;
   const effectiveRightSidePanelMode = rightSidePanelEnabled ? rightSidePanelMode : null;
   const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
   const hasRightSidePanelContent = diffOpen || effectiveRightSidePanelMode !== null;
@@ -1128,9 +1128,9 @@ export default function ChatView({
 
   // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
   useLayoutEffect(() => {
-    if (!activeForSideEffects) return;
+    if (!ownsGlobalSideEffects) return;
     trackActiveThread(activeThreadId);
-  }, [activeForSideEffects, activeThreadId, trackActiveThread]);
+  }, [activeThreadId, ownsGlobalSideEffects, trackActiveThread]);
 
   useEffect(() => {
     directThreadHydrationFailureCountRef.current = 0;
@@ -3648,16 +3648,16 @@ export default function ChatView({
   }, [openBrowser, openBrowserUrl]);
 
   useEffect(() => {
-    if (!rightSidePanelInteractive) return;
+    if (!ownsGlobalSideEffects || !rightSidePanelInteractive) return;
     if (!isElectron) return;
     return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
       if (typeof url !== "string" || url.length === 0) return;
       openBrowserUrl(url, { newTab: true });
     });
-  }, [openBrowserUrl, rightSidePanelInteractive]);
+  }, [openBrowserUrl, ownsGlobalSideEffects, rightSidePanelInteractive]);
 
   useEffect(() => {
-    if (!rightSidePanelInteractive) {
+    if (!ownsGlobalSideEffects || !rightSidePanelInteractive) {
       return;
     }
     if (!isElectron) {
@@ -3666,7 +3666,7 @@ export default function ChatView({
 
     handleBrowserLaunchRequest();
     return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
-  }, [handleBrowserLaunchRequest, rightSidePanelInteractive]);
+  }, [handleBrowserLaunchRequest, ownsGlobalSideEffects, rightSidePanelInteractive]);
 
   const syncBrowserSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4142,7 +4142,7 @@ export default function ChatView({
     rightSidePanelOpen,
   ]);
   useEffect(() => {
-    if (!activeForSideEffects) {
+    if (!ownsGlobalSideEffects) {
       return;
     }
     const resetResizeInteractions = () => {
@@ -4165,7 +4165,7 @@ export default function ChatView({
     handleBrowserSplitResizePointerEnd,
     handleRightSidePanelResizePointerEnd,
     handleWorkspaceEditorSplitResizePointerEnd,
-    activeForSideEffects,
+    ownsGlobalSideEffects,
   ]);
 
   useEffect(() => {
@@ -4659,7 +4659,7 @@ export default function ChatView({
     handleInteractionModeChange(currentInteractionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, readCurrentComposerExecutionModeState]);
   useEffect(() => {
-    if (!activeForSideEffects) return;
+    if (!ownsGlobalSideEffects) return;
     if (!shortcutsEnabled) return;
     if (!isElectron) return;
     return window.desktopBridge?.onMenuAction((action) => {
@@ -4683,7 +4683,7 @@ export default function ChatView({
     });
   }, [
     activeThreadId,
-    activeForSideEffects,
+    ownsGlobalSideEffects,
     onOpenRightSidePanelDiff,
     shortcutsEnabled,
     toggleInteractionMode,
@@ -4983,10 +4983,10 @@ export default function ChatView({
   }, [activeThread?.id]);
 
   useEffect(() => {
-    if (!activeForSideEffects) return;
+    if (!ownsGlobalSideEffects) return;
     if (!activeThread?.id || terminalState.terminalOpen) return;
     return scheduleComposerFocus();
-  }, [activeForSideEffects, activeThread?.id, scheduleComposerFocus, terminalState.terminalOpen]);
+  }, [ownsGlobalSideEffects, activeThread?.id, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -5086,7 +5086,7 @@ export default function ChatView({
   useEffect(() => {
     if (!activeThreadId) return;
     const current = Boolean(terminalState.terminalOpen);
-    if (!activeForSideEffects) {
+    if (!ownsGlobalSideEffects) {
       terminalOpenByThreadRef.current[activeThreadId] = current;
       return;
     }
@@ -5102,10 +5102,10 @@ export default function ChatView({
     }
 
     terminalOpenByThreadRef.current[activeThreadId] = current;
-  }, [activeForSideEffects, activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
+  }, [ownsGlobalSideEffects, activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
-    if (!activeForSideEffects) return;
+    if (!ownsGlobalSideEffects) return;
     if (!shortcutsEnabled) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
@@ -5311,8 +5311,8 @@ export default function ChatView({
     return () => window.removeEventListener("keydown", handler);
   }, [
     activeProject,
-    activeForSideEffects,
     browserOpen,
+    ownsGlobalSideEffects,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
@@ -6591,7 +6591,7 @@ export default function ChatView({
       activeTurnStartedAt: activeWorkStartedAt,
       backgroundMarkdownPrewarm: activeForSideEffects,
       liveTimers: activeForSideEffects,
-      scrollContainer: messagesScrollElement,
+      getScrollContainer: getMessagesScrollContainer,
       timelineEntries,
       completionDividerBeforeEntryId,
       completionSummary,
@@ -6627,7 +6627,7 @@ export default function ChatView({
       isThreadHistoryLoading,
       isWorking,
       latestTurnSettled,
-      messagesScrollElement,
+      getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
       onRevertUserMessage,

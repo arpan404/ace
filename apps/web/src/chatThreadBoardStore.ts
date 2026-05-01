@@ -557,6 +557,9 @@ function saveBoardToActiveSplit(
   input?: { title?: string | null | undefined },
 ): PersistedChatThreadBoardState {
   const normalizedBoard = normalizeBoardState(board);
+  if (boardStatesEqual(state, normalizedBoard)) {
+    return state;
+  }
 
   if (normalizedBoard.panes.length <= 1) {
     return {
@@ -1201,11 +1204,14 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
         return restoredPaneId;
       },
       setActivePane: (paneId) => {
-        set((state) =>
-          paneId === null || state.panes.some((pane) => pane.id === paneId)
+        set((state) => {
+          if (paneId === state.activePaneId) {
+            return state;
+          }
+          return paneId === null || state.panes.some((pane) => pane.id === paneId)
             ? saveBoardToActiveSplit(state, { ...state, activePaneId: paneId })
-            : state,
-        );
+            : state;
+        });
       },
       setActiveSplit: (splitId) => {
         set((state) => ({

@@ -125,7 +125,6 @@ export function AgentAttentionNotificationBridge() {
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
   const permissionOfferToastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
-  const permissionOfferResetTimerRef = useRef<number | null>(null);
   const notificationSessionStartedAtRef = useRef(new Date().toISOString());
   const lastKnownFocusStateRef = useRef(isAppFocused);
   const connectionUnsubscribeByUrlRef = useRef(new Map<string, () => void>());
@@ -357,9 +356,8 @@ export function AgentAttentionNotificationBridge() {
     [localConnectionUrl],
   );
   const resetPermissionOfferTracking = useCallback(() => {
-    if (permissionOfferResetTimerRef.current !== null) {
-      window.clearTimeout(permissionOfferResetTimerRef.current);
-      permissionOfferResetTimerRef.current = null;
+    if (permissionOfferToastIdRef.current !== null) {
+      toastManager.close(permissionOfferToastIdRef.current);
     }
     permissionOfferToastIdRef.current = null;
   }, []);
@@ -703,11 +701,13 @@ export function AgentAttentionNotificationBridge() {
         hasPromptedForPermission: hasPromptedForPermissionRef.current,
       })
     ) {
+      resetPermissionOfferTracking();
       return;
     }
     if (permissionOfferToastIdRef.current !== null) {
       return;
     }
+    hasPromptedForPermissionRef.current = true;
     const toastId = toastManager.add({
       type: "info",
       title: "Enable agent notifications",
@@ -756,12 +756,6 @@ export function AgentAttentionNotificationBridge() {
       },
     });
     permissionOfferToastIdRef.current = toastId;
-    permissionOfferResetTimerRef.current = window.setTimeout(() => {
-      permissionOfferResetTimerRef.current = null;
-      if (permissionOfferToastIdRef.current === toastId) {
-        permissionOfferToastIdRef.current = null;
-      }
-    }, PERMISSION_OFFER_DISMISS_MS);
   }, [
     attentionRequests.length,
     desktopNotificationBridge,
