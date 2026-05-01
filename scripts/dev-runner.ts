@@ -125,7 +125,7 @@ export function resolveOffset(config: {
 
 function resolveBaseDir({
   baseDir,
-  mode: _mode,
+  mode,
 }: {
   readonly baseDir: string | undefined;
   readonly mode: DevMode;
@@ -137,7 +137,10 @@ function resolveBaseDir({
     if (configured) {
       return path.resolve(configured);
     }
-    // Keep all dev flows isolated from normal app data under ~/.ace.
+    if (mode === "dev:web") {
+      return yield* DEFAULT_ACE_HOME;
+    }
+    // Keep non-browser dev flows isolated from normal app data under ~/.ace.
     return yield* DEFAULT_ACE_DEV_HOME;
   });
 }

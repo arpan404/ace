@@ -92,6 +92,28 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    it.effect("defaults ACE_HOME to ~/.ace for dev:web when not provided", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:web",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          aceHome: undefined,
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace"));
+        assert.equal(env.ACE_DAEMONIZED, "1");
+      }),
+    );
+
     it.effect("supports explicit typed overrides", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
