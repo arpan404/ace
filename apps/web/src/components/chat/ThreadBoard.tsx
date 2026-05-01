@@ -330,7 +330,7 @@ function ThreadBoardPane(props: {
             "pointer-events-none absolute inset-0 z-[33] border transition-[border-color,box-shadow] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
             props.dragActive ? "duration-100" : "duration-300",
             isFocusedPane
-              ? "border-primary/55 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.08)]"
+              ? "border-primary/36 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.05)]"
               : "border-border/35",
           )}
         />

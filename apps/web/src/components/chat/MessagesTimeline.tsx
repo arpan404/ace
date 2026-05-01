@@ -5,7 +5,6 @@ import {
   Fragment,
   memo,
   startTransition,
-  use,
   useCallback,
   useEffect,
   useMemo,
@@ -84,8 +83,8 @@ import {
 } from "~/lib/chat/timelineRows";
 import {
   buildTimelineRowsCacheKey,
+  prewarmTimelineRows,
   readCachedTimelineRows,
-  requestTimelineRows,
   writeCachedTimelineRows,
 } from "~/lib/chat/timelineRowsClient";
 
@@ -281,37 +280,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineRowsInput],
   );
   const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
-  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow> | null>(() => {
+  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
     if (cachedTimelineRows) {
       return cachedTimelineRows;
     }
-    if (shouldResolveTimelineRowsInWorker) {
-      return null;
-    }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, shouldResolveTimelineRowsInWorker, timelineRowsInput]);
-  const workerTimelineRowsPromise = useMemo(() => {
-    if (!shouldResolveTimelineRowsInWorker || cachedTimelineRows) {
-      return null;
+  }, [cachedTimelineRows, timelineRowsInput]);
+  const rows = useMemo(
+    () => (syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS),
+    [syncTimelineRows],
+  );
+
+  useEffect(() => {
+    if (cachedTimelineRows) {
+      return;
     }
-    return requestTimelineRows(timelineRowsCacheKey, timelineRowsInput);
+    writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
+  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
+
+  useEffect(() => {
+    if (!shouldResolveTimelineRowsInWorker || cachedTimelineRows) {
+      return;
+    }
+    prewarmTimelineRows(timelineRowsCacheKey, timelineRowsInput);
   }, [
     cachedTimelineRows,
     shouldResolveTimelineRowsInWorker,
     timelineRowsCacheKey,
     timelineRowsInput,
   ]);
-  const resolvedTimelineRows = workerTimelineRowsPromise
-    ? use(workerTimelineRowsPromise)
-    : (syncTimelineRows ?? EMPTY_TIMELINE_ROWS);
-  const rows = useMemo(() => resolvedTimelineRows, [resolvedTimelineRows]);
-
-  useEffect(() => {
-    if (cachedTimelineRows || syncTimelineRows === null) {
-      return;
-    }
-    writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
 
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
