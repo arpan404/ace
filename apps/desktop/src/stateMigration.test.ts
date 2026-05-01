@@ -15,15 +15,15 @@ describe("resolveDesktopBaseDir", () => {
     expect(resolved).toBe(path.join(fakeHome, ".ace"));
   });
 
-  it("returns the .ace-dev base dir in development mode", () => {
+  it("returns the .ace/dev base dir in development mode", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "ace-desktop-base-dev-"));
 
     const resolved = resolveDesktopBaseDir({ homeDir: fakeHome, isDevelopment: true });
 
-    expect(resolved).toBe(path.join(fakeHome, ".ace-dev"));
+    expect(resolved).toBe(path.join(fakeHome, ".ace", "dev"));
   });
 
-  it("returns .ace-dev/desktop for development desktop build", () => {
+  it("returns .ace/dev/desktop for development desktop build", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "ace-desktop-base-dev-"));
 
     const resolved = resolveDesktopBaseDir({
@@ -32,10 +32,10 @@ describe("resolveDesktopBaseDir", () => {
       appType: "desktop",
     });
 
-    expect(resolved).toBe(path.join(fakeHome, ".ace-dev", "desktop"));
+    expect(resolved).toBe(path.join(fakeHome, ".ace", "dev", "desktop"));
   });
 
-  it("returns .ace-dev/web for development web build", () => {
+  it("returns .ace/dev/web for development web build", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "ace-desktop-base-dev-"));
 
     const resolved = resolveDesktopBaseDir({
@@ -44,7 +44,7 @@ describe("resolveDesktopBaseDir", () => {
       appType: "web",
     });
 
-    expect(resolved).toBe(path.join(fakeHome, ".ace-dev", "web"));
+    expect(resolved).toBe(path.join(fakeHome, ".ace", "dev", "web"));
   });
 });
 

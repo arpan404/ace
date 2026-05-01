@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { normalizePaneRatios } from "./lib/paneRatios";
-import { resolveStorage } from "./lib/storage";
+import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { normalizeThreadBoardConnectionUrl } from "./lib/threadBoardThreads";
 import { randomUUID } from "./lib/utils";
 
@@ -123,9 +123,23 @@ type BoardStateFields = Pick<
 type InsertDirection = "down" | "left" | "right" | "up";
 
 const STORAGE_KEY = "ace:chat-thread-board:v1";
+const CHAT_THREAD_BOARD_PERSIST_DEBOUNCE_MS = 300;
+
+const chatThreadBoardDebouncedStorage = createDebouncedStorage(
+  typeof window !== "undefined" ? window.localStorage : createMemoryStorage(),
+  CHAT_THREAD_BOARD_PERSIST_DEBOUNCE_MS,
+);
+
+if (typeof window !== "undefined") {
+  const flushChatThreadBoardStorage = () => {
+    chatThreadBoardDebouncedStorage.flush();
+  };
+  window.addEventListener("beforeunload", flushChatThreadBoardStorage);
+  window.addEventListener("pagehide", flushChatThreadBoardStorage);
+}
 
 function createChatThreadBoardStorage() {
-  return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
+  return chatThreadBoardDebouncedStorage;
 }
 
 function createTimestamp(): string {
@@ -381,10 +395,16 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
     if (paneById.has(pane.id)) {
       continue;
     }
-    paneById.set(pane.id, {
-      ...pane,
-      connectionUrl: normalizeThreadBoardConnectionUrl(pane.connectionUrl),
-    });
+    const connectionUrl = normalizeThreadBoardConnectionUrl(pane.connectionUrl);
+    paneById.set(
+      pane.id,
+      pane.connectionUrl === connectionUrl
+        ? pane
+        : {
+            ...pane,
+            connectionUrl,
+          },
+    );
   }
 
   if (paneById.size === 0) {

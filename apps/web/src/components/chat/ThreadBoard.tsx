@@ -1,6 +1,7 @@
 import { type ThreadId } from "@ace/contracts";
 import {
   Fragment,
+  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -25,18 +26,8 @@ import {
 } from "../../chatThreadBoardStore";
 import ChatView from "../ChatView";
 import { normalizePaneRatios, resizePaneRatios } from "../../lib/paneRatios";
-import {
-  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
-  resolveLocalConnectionUrl,
-} from "../../lib/connectionRouting";
-import {
-  THREAD_BOARD_ACTIVE_SEARCH_PARAM,
-  THREAD_BOARD_PANE_SEARCH_PARAM,
-  THREAD_BOARD_SPLIT_SEARCH_PARAM,
-  THREAD_BOARD_THREADS_SEARCH_PARAM,
-  buildThreadBoardRouteSearch,
-  type ChatThreadBoardRoutePane,
-} from "../../lib/chatThreadBoardRouteSearch";
+import { THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME } from "../../lib/desktopChrome";
+import { buildSingleThreadRouteSearch } from "../../lib/chatThreadBoardRouteSearch";
 import {
   createThreadBoardDragThread,
   encodeThreadBoardDragThread,
@@ -57,11 +48,9 @@ import { buildThreadBoardTitle } from "../../lib/threadBoardTitle";
 
 const BOARD_MIN_COLUMN_WIDTH_PX = 360;
 const BOARD_MIN_ROW_HEIGHT_PX = 240;
-const EMPTY_ROUTE_THREADS: readonly ChatThreadBoardRoutePane[] = [];
-const BOARD_PANE_TRANSITION = { duration: 0.24, ease: [0.16, 1, 0.3, 1] } as const;
-const BOARD_DRAG_PANE_TRANSITION = { duration: 0.1, ease: [0.16, 1, 0.3, 1] } as const;
 const BOARD_DROP_TRANSITION = { duration: 0.07, ease: [0.16, 1, 0.3, 1] } as const;
 const BOARD_REDUCED_MOTION_TRANSITION = { duration: 0 } as const;
+const BOARD_DEFER_CONTENT_FRAME_COUNT = 2;
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 type ThreadBoardDropDirection = "down" | "left" | "right" | "up";
 
@@ -72,9 +61,19 @@ interface ThreadBoardDropTargetState {
   threadKey: string;
 }
 
-function isSameRoutePane(left: ChatThreadBoardRoutePane, right: ChatThreadBoardRoutePane): boolean {
-  return left.threadId === right.threadId && left.connectionUrl === right.connectionUrl;
-}
+type ThreadBoardPaneDragHandler = (
+  pane: ChatThreadBoardPaneState,
+  event: ReactDragEvent<HTMLDivElement>,
+) => void;
+type ThreadBoardPaneDragLeaveHandler = (
+  paneId: string,
+  event: ReactDragEvent<HTMLDivElement>,
+) => void;
+type ThreadBoardPaneDragStartHandler = (
+  pane: ChatThreadBoardPaneState,
+  label: string,
+  event: ReactDragEvent<HTMLButtonElement>,
+) => void;
 
 function resolveThreadBoardDropDirection(
   event: Pick<ReactDragEvent<HTMLElement>, "clientX" | "clientY">,
@@ -178,370 +177,377 @@ function isThreadBoardDrag(dataTransfer: DataTransfer | null): boolean {
   return dataTransfer?.types.includes(THREAD_BOARD_DRAG_MIME) ?? false;
 }
 
-function ThreadBoardPane(props: {
-  activePaneId: string | null;
-  animateLayout: boolean;
-  dropPreviewDirection?: ThreadBoardDropDirection | null;
-  dragActive?: boolean;
-  isPrimary: boolean;
+function useThreadBoardDragActive(): boolean {
+  return (
+    useSyncExternalStore(
+      subscribeActiveThreadBoardDrag,
+      getActiveThreadBoardDrag,
+      getActiveThreadBoardDrag,
+    ) !== null
+  );
+}
+
+const ThreadBoardPaneContent = memo(function ThreadBoardPaneContent(props: {
+  deferContent: boolean;
+  isDimmedPane: boolean;
+  isFocusedPane: boolean;
   isSinglePane: boolean;
   pane: ChatThreadBoardPaneState;
   shortcutsEnabled: boolean;
-  showDropHint?: boolean;
-  showDropOverlay?: boolean;
   showSidebarTrigger: boolean;
-  splitPane?: boolean;
-  visibleBoardThreadIds?: ReadonlyArray<ThreadId>;
-  onClose: () => void;
-  onDragEnter?: (event: ReactDragEvent<HTMLDivElement>) => void;
-  onDragLeave?: (event: ReactDragEvent<HTMLDivElement>) => void;
-  onDragOver?: (event: ReactDragEvent<HTMLDivElement>) => void;
-  onDrop?: (event: ReactDragEvent<HTMLDivElement>) => void;
-  onPaneDragEnd?: (event: ReactDragEvent<HTMLButtonElement>) => void;
-  onPaneDragStart?: (
-    pane: ChatThreadBoardPaneState,
-    label: string,
-  ) => (event: ReactDragEvent<HTMLButtonElement>) => void;
-  setActivePane: (paneId: string) => void;
+  splitPane: boolean | undefined;
+  visibleBoardThreadIds: ReadonlyArray<ThreadId>;
+  onClosePane: (pane: ChatThreadBoardPaneState) => void;
+  onPaneDragEnd: ((event: ReactDragEvent<HTMLButtonElement>) => void) | undefined;
+  onPaneDragStart: ThreadBoardPaneDragStartHandler | undefined;
 }) {
   const { pane } = props;
-  const visibleBoardThreadIds = props.visibleBoardThreadIds ?? EMPTY_VISIBLE_BOARD_THREAD_IDS;
   const sidebarThread = useSidebarThreadSummaryById(pane.threadId);
   const paneTitle = sidebarThread?.title ?? "thread";
-  const isFocusedPane = props.isSinglePane || props.activePaneId === pane.id;
-  const isDimmedPane = !props.isSinglePane && !isFocusedPane;
-  const reducedMotion = useReducedMotion();
-  const transition = reducedMotion
-    ? BOARD_REDUCED_MOTION_TRANSITION
-    : props.dragActive
-      ? BOARD_DRAG_PANE_TRANSITION
-      : BOARD_PANE_TRANSITION;
+  const className = cn(
+    "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+    props.isDimmedPane ? "opacity-92 saturate-[0.92] brightness-[1] contrast-[1]" : "opacity-100",
+  );
+
+  if (props.deferContent) {
+    return <div aria-hidden="true" className={className} />;
+  }
 
   return (
-    <motion.div
-      layout={props.animateLayout ? "position" : false}
-      transition={transition}
-      className={cn(
-        "group/thread-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-      )}
-      onDragEnter={props.onDragEnter}
-      onDragLeave={props.onDragLeave}
-      onDragOver={props.onDragOver}
-      onDrop={props.onDrop}
-      onPointerDown={() => {
-        if (props.activePaneId !== pane.id) {
-          props.setActivePane(pane.id);
+    <div className={className}>
+      <ChatView
+        activeInBoard={props.isFocusedPane}
+        connectionUrl={pane.connectionUrl}
+        paneControls={
+          !props.isSinglePane ? (
+            <>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                draggable
+                className="no-drag-region h-7 w-7 cursor-pointer text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onDragStart={(event) => {
+                  props.onPaneDragStart?.(pane, paneTitle, event);
+                }}
+                onDragEnd={props.onPaneDragEnd}
+                aria-label={`Move ${paneTitle}`}
+              >
+                <GripVerticalIcon className="size-3.5" />
+              </Button>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                className="no-drag-region h-7 w-7 text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:translate-y-0"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onClosePane(pane);
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                aria-label={`Close ${paneTitle}`}
+              >
+                <XIcon className="size-3.5" />
+              </Button>
+            </>
+          ) : null
         }
-      }}
-      onFocusCapture={() => {
-        if (props.activePaneId !== pane.id) {
-          props.setActivePane(pane.id);
-        }
-      }}
-    >
-      <div
-        className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[opacity,filter] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
-          props.dragActive ? "duration-150" : "duration-300",
-          isDimmedPane ? "opacity-92 saturate-[0.92] brightness-[1] contrast-[1]" : "opacity-100",
-        )}
-      >
-        <ChatView
-          activeInBoard={isFocusedPane}
-          connectionUrl={pane.connectionUrl}
-          paneControls={
-            !props.isSinglePane ? (
-              <>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  draggable
-                  className="no-drag-region h-7 w-7 cursor-pointer text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onDragStart={props.onPaneDragStart?.(pane, paneTitle)}
-                  onDragEnd={props.onPaneDragEnd}
-                  aria-label={`Move ${paneTitle}`}
-                >
-                  <GripVerticalIcon className="size-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  className="no-drag-region h-7 w-7 text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:translate-y-0"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onClose();
-                  }}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  aria-label={`Close ${paneTitle}`}
-                >
-                  <XIcon className="size-3.5" />
-                </Button>
-              </>
-            ) : null
-          }
-          threadId={pane.threadId}
-          shortcutsEnabled={props.shortcutsEnabled}
-          showSidebarTrigger={props.showSidebarTrigger}
-          splitPane={props.splitPane ?? true}
-          visibleBoardThreadIds={visibleBoardThreadIds}
-        />
-      </div>
+        threadId={pane.threadId}
+        shortcutsEnabled={props.shortcutsEnabled}
+        showSidebarTrigger={props.showSidebarTrigger}
+        splitPane={props.splitPane ?? true}
+        visibleBoardThreadIds={props.visibleBoardThreadIds}
+      />
+    </div>
+  );
+});
 
-      {props.showDropOverlay ? (
+const ThreadBoardPaneDropLayer = memo(function ThreadBoardPaneDropLayer(props: {
+  dropPreviewDirection: ThreadBoardDropDirection | null | undefined;
+  isSinglePane: boolean;
+  pane: ChatThreadBoardPaneState;
+  showDropHint: boolean | undefined;
+  onPaneDragEnter: ThreadBoardPaneDragHandler | undefined;
+  onPaneDragLeave: ThreadBoardPaneDragLeaveHandler | undefined;
+  onPaneDragOver: ThreadBoardPaneDragHandler | undefined;
+  onPaneDrop: ThreadBoardPaneDragHandler | undefined;
+}) {
+  const dragActive = useThreadBoardDragActive();
+  const { pane } = props;
+
+  return (
+    <>
+      {dragActive ? (
         <div
           className="absolute inset-0 z-20"
-          onDragEnter={props.onDragEnter}
-          onDragLeave={props.onDragLeave}
-          onDragOver={props.onDragOver}
-          onDrop={props.onDrop}
+          onDragEnter={
+            props.onPaneDragEnter
+              ? (event) => {
+                  event.stopPropagation();
+                  props.onPaneDragEnter?.(pane, event);
+                }
+              : undefined
+          }
+          onDragLeave={
+            props.onPaneDragLeave
+              ? (event) => {
+                  event.stopPropagation();
+                  props.onPaneDragLeave?.(pane.id, event);
+                }
+              : undefined
+          }
+          onDragOver={
+            props.onPaneDragOver
+              ? (event) => {
+                  event.stopPropagation();
+                  props.onPaneDragOver?.(pane, event);
+                }
+              : undefined
+          }
+          onDrop={
+            props.onPaneDrop
+              ? (event) => {
+                  event.stopPropagation();
+                  props.onPaneDrop?.(pane, event);
+                }
+              : undefined
+          }
         />
       ) : null}
 
       <AnimatePresence initial={false}>
         {props.dropPreviewDirection ? (
           <ThreadBoardDropPreview key="drop-preview" direction={props.dropPreviewDirection} />
-        ) : props.showDropHint ? (
+        ) : dragActive && props.showDropHint ? (
           <ThreadBoardDropHint key="drop-hint" isSinglePane={props.isSinglePane} />
         ) : null}
       </AnimatePresence>
+    </>
+  );
+});
 
-      {props.activePaneId && !props.isSinglePane ? (
+const ThreadBoardPane = memo(function ThreadBoardPane(props: {
+  deferContent: boolean;
+  dropPreviewDirection?: ThreadBoardDropDirection | null;
+  isFocusedPane: boolean;
+  isSinglePane: boolean;
+  pane: ChatThreadBoardPaneState;
+  shortcutsEnabled: boolean;
+  showDropHint?: boolean;
+  showSidebarTrigger: boolean;
+  splitPane?: boolean;
+  visibleBoardThreadIds?: ReadonlyArray<ThreadId>;
+  onClosePane: (pane: ChatThreadBoardPaneState) => void;
+  onPaneDragEnter?: ThreadBoardPaneDragHandler;
+  onPaneDragLeave?: ThreadBoardPaneDragLeaveHandler;
+  onPaneDragOver?: ThreadBoardPaneDragHandler;
+  onPaneDrop?: ThreadBoardPaneDragHandler;
+  onPaneDragEnd?: (event: ReactDragEvent<HTMLButtonElement>) => void;
+  onPaneDragStart?: ThreadBoardPaneDragStartHandler;
+  setActivePane: (paneId: string) => void;
+}) {
+  const { pane } = props;
+  const visibleBoardThreadIds = props.visibleBoardThreadIds ?? EMPTY_VISIBLE_BOARD_THREAD_IDS;
+  const isFocusedPane = props.isSinglePane || props.isFocusedPane;
+  const isDimmedPane = !props.isSinglePane && !isFocusedPane;
+
+  return (
+    <div
+      className={cn(
+        "group/thread-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+      )}
+      onDragEnter={
+        props.onPaneDragEnter
+          ? (event) => {
+              props.onPaneDragEnter?.(pane, event);
+            }
+          : undefined
+      }
+      onDragLeave={
+        props.onPaneDragLeave
+          ? (event) => {
+              props.onPaneDragLeave?.(pane.id, event);
+            }
+          : undefined
+      }
+      onDragOver={
+        props.onPaneDragOver
+          ? (event) => {
+              props.onPaneDragOver?.(pane, event);
+            }
+          : undefined
+      }
+      onDrop={
+        props.onPaneDrop
+          ? (event) => {
+              props.onPaneDrop?.(pane, event);
+            }
+          : undefined
+      }
+      onPointerDown={() => {
+        if (!isFocusedPane) {
+          props.setActivePane(pane.id);
+        }
+      }}
+      onFocusCapture={() => {
+        if (!isFocusedPane) {
+          props.setActivePane(pane.id);
+        }
+      }}
+    >
+      <ThreadBoardPaneContent
+        deferContent={props.deferContent}
+        isDimmedPane={isDimmedPane}
+        isFocusedPane={isFocusedPane}
+        isSinglePane={props.isSinglePane}
+        pane={pane}
+        shortcutsEnabled={props.shortcutsEnabled}
+        showSidebarTrigger={props.showSidebarTrigger}
+        splitPane={props.splitPane}
+        visibleBoardThreadIds={visibleBoardThreadIds}
+        onClosePane={props.onClosePane}
+        onPaneDragEnd={props.onPaneDragEnd}
+        onPaneDragStart={props.onPaneDragStart}
+      />
+
+      <ThreadBoardPaneDropLayer
+        dropPreviewDirection={props.dropPreviewDirection}
+        isSinglePane={props.isSinglePane}
+        pane={pane}
+        showDropHint={props.showDropHint}
+        onPaneDragEnter={props.onPaneDragEnter}
+        onPaneDragLeave={props.onPaneDragLeave}
+        onPaneDragOver={props.onPaneDragOver}
+        onPaneDrop={props.onPaneDrop}
+      />
+
+      {!props.isSinglePane ? (
         <div
           className={cn(
             "pointer-events-none absolute inset-0 z-[33] border transition-[border-color,box-shadow] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
-            props.dragActive ? "duration-100" : "duration-300",
+            "duration-300",
             isFocusedPane
               ? "border-primary/36 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.05)]"
               : "border-border/35",
           )}
         />
       ) : null}
-    </motion.div>
+    </div>
   );
-}
+});
 
-export function ThreadBoard(props: {
-  connectionUrl?: string | null;
-  routeActiveThread?: ChatThreadBoardRoutePane | null;
-  routePaneId?: string | null;
-  routeSplitId?: string | null;
-  routeThreads?: readonly ChatThreadBoardRoutePane[];
-  threadId: ThreadId;
-}) {
+export function ThreadBoard(props: { connectionUrl?: string | null; threadId: ThreadId }) {
   const navigate = useNavigate();
-  const reducedMotion = useReducedMotion();
   const branchRefs = useRef(new Map<string, HTMLDivElement>());
-  const restoredSplitRouteKeyRef = useRef<string | null>(null);
   const activePaneId = useChatThreadBoardStore((state) => state.activePaneId);
   const activeSplitId = useChatThreadBoardStore((state) => state.activeSplitId);
   const layoutRoot = useChatThreadBoardStore((state) => state.layoutRoot);
   const panes = useChatThreadBoardStore((state) => state.panes);
-  const routeSplit = useChatThreadBoardStore((state) =>
-    props.routeSplitId
-      ? (state.splits.find((candidate) => candidate.id === props.routeSplitId) ?? null)
-      : null,
-  );
   const savedSplitCount = useChatThreadBoardStore((state) => state.splits.length);
   const closePane = useChatThreadBoardStore((state) => state.closePane);
   const movePane = useChatThreadBoardStore((state) => state.movePane);
   const openThreadInBoard = useChatThreadBoardStore((state) => state.openThreadInBoard);
-  const restoreSplit = useChatThreadBoardStore((state) => state.restoreSplit);
   const setActivePane = useChatThreadBoardStore((state) => state.setActivePane);
-  const setActiveSplit = useChatThreadBoardStore((state) => state.setActiveSplit);
   const setBranchRatios = useChatThreadBoardStore((state) => state.setBranchRatios);
   const syncRouteThread = useChatThreadBoardStore((state) => state.syncRouteThread);
-  const syncRouteThreads = useChatThreadBoardStore((state) => state.syncRouteThreads);
-  const routeThreads = props.routeThreads ?? EMPTY_ROUTE_THREADS;
-  const activeRouteThread = useMemo<ChatThreadBoardRoutePane>(
-    () =>
-      props.routeActiveThread ?? {
-        connectionUrl: props.connectionUrl ?? null,
-        threadId: props.threadId,
-      },
-    [props.connectionUrl, props.routeActiveThread, props.threadId],
+  const activeRouteThread = useMemo(
+    () => ({
+      connectionUrl: props.connectionUrl ?? null,
+      threadId: props.threadId,
+    }),
+    [props.connectionUrl, props.threadId],
   );
-  const splitRouteThreads = useMemo(
-    () =>
-      routeThreads.length > 1
-        ? routeThreads.some((thread) => isSameRoutePane(thread, activeRouteThread))
-          ? routeThreads
-          : [...routeThreads, activeRouteThread]
-        : EMPTY_ROUTE_THREADS,
-    [activeRouteThread, routeThreads],
-  );
-  const isSavedSplitRoute = Boolean(
-    props.routeSplitId && routeSplit && routeSplit.archivedAt === null,
-  );
-  const routeSplitActivePaneId = routeSplit?.activePaneId ?? null;
-  const routeSplitIsRestorable = Boolean(props.routeSplitId && routeSplit?.archivedAt === null);
-
-  useEffect(() => {
-    if (props.routeSplitId && routeSplitIsRestorable) {
-      const restorePaneId = props.routePaneId ?? routeSplitActivePaneId;
-      const restoreKey = `${props.routeSplitId}:${restorePaneId ?? ""}`;
-      if (
-        activeSplitId === props.routeSplitId &&
-        activePaneId === restorePaneId &&
-        panes.length > 1
-      ) {
-        restoredSplitRouteKeyRef.current = restoreKey;
-        return;
-      }
-      if (restoredSplitRouteKeyRef.current !== restoreKey) {
-        restoredSplitRouteKeyRef.current = restoreKey;
-        restoreSplit(props.routeSplitId, restorePaneId);
-      }
-      return;
-    }
-    restoredSplitRouteKeyRef.current = null;
-    if (splitRouteThreads.length <= 1) {
-      return;
-    }
-    setActiveSplit(props.routeSplitId ?? null);
-    syncRouteThreads({
-      activeThread: activeRouteThread,
-      threads: splitRouteThreads,
-    });
-  }, [
-    activeRouteThread,
-    activePaneId,
-    activeSplitId,
-    panes.length,
-    props.routePaneId,
-    props.routeSplitId,
-    restoreSplit,
-    routeSplitActivePaneId,
-    routeSplitIsRestorable,
-    setActiveSplit,
-    splitRouteThreads,
-    syncRouteThreads,
-  ]);
-
-  useEffect(() => {
-    const activePane = selectBoardPaneById(panes, activePaneId);
-    const isSplitRoute = routeSplitIsRestorable;
-    if (!isSplitRoute && splitRouteThreads.length <= 1) {
-      return;
-    }
-    if (isSplitRoute && activeSplitId !== props.routeSplitId) {
-      return;
-    }
-    const nextSplitId = isSplitRoute ? (props.routeSplitId ?? null) : activeSplitId;
-    const nextActivePane =
-      nextSplitId && activePane
-        ? { connectionUrl: activePane.connectionUrl, threadId: activePane.threadId }
-        : activeRouteThread;
-    const nextSearch = buildThreadBoardRouteSearch(
-      nextSplitId ? [] : splitRouteThreads,
-      nextActivePane,
-      {
-        paneId: nextSplitId ? (activePane?.id ?? null) : null,
-        splitId: nextSplitId,
-      },
-    );
-    startTransition(() => {
-      void navigate({
-        to: "/$threadId",
-        params: {
-          threadId: nextSplitId && activePane ? activePane.threadId : props.threadId,
-        },
-        replace: true,
-        search: (previous) => {
-          if (
-            previous[THREAD_BOARD_ACTIVE_SEARCH_PARAM] ===
-              nextSearch[THREAD_BOARD_ACTIVE_SEARCH_PARAM] &&
-            previous[THREAD_BOARD_PANE_SEARCH_PARAM] ===
-              nextSearch[THREAD_BOARD_PANE_SEARCH_PARAM] &&
-            previous[THREAD_BOARD_THREADS_SEARCH_PARAM] ===
-              nextSearch[THREAD_BOARD_THREADS_SEARCH_PARAM] &&
-            previous[THREAD_BOARD_SPLIT_SEARCH_PARAM] ===
-              nextSearch[THREAD_BOARD_SPLIT_SEARCH_PARAM] &&
-            previous[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] ===
-              nextSearch[THREAD_ROUTE_CONNECTION_SEARCH_PARAM]
-          ) {
-            return previous;
-          }
-          return {
-            ...previous,
-            ...nextSearch,
-          };
-        },
-      });
-    });
-  }, [
-    activePaneId,
-    activeRouteThread,
-    activeSplitId,
-    navigate,
-    panes,
-    props.routeSplitId,
-    props.threadId,
-    routeSplitIsRestorable,
-    splitRouteThreads,
-  ]);
-
   const orderedPanes = useMemo(() => orderBoardPanes(panes, layoutRoot), [layoutRoot, panes]);
   const visibleBoardThreadIds = useMemo<ThreadId[]>(
     () => orderedPanes.map((pane) => pane.threadId),
     [orderedPanes],
   );
   const primaryPane = useMemo(
-    () =>
-      selectBoardPaneById(panes, activePaneId) ??
-      panes.find(
-        (pane) =>
-          pane.threadId === activeRouteThread.threadId &&
-          (pane.connectionUrl ?? resolveLocalConnectionUrl()) ===
-            (activeRouteThread.connectionUrl ?? resolveLocalConnectionUrl()),
-      ),
-    [activePaneId, activeRouteThread.connectionUrl, activeRouteThread.threadId, panes],
+    () => selectBoardPaneById(panes, activePaneId) ?? orderedPanes[0],
+    [activePaneId, orderedPanes, panes],
   );
   const paneById = useMemo(() => new Map(panes.map((pane) => [pane.id, pane])), [panes]);
   const firstPaneId = orderedPanes[0]?.id ?? null;
   const boardVisible =
-    (isSavedSplitRoute || splitRouteThreads.length > 1) &&
-    panes.length > 1 &&
-    Boolean(primaryPane) &&
-    layoutRoot !== null;
-  const [dropTarget, setDropTarget] = useState<ThreadBoardDropTargetState | null>(null);
-  const activeDraggedThread = useSyncExternalStore(
-    subscribeActiveThreadBoardDrag,
-    getActiveThreadBoardDrag,
-    getActiveThreadBoardDrag,
-  );
-  const threadDragActive = activeDraggedThread !== null;
-  const boardPaneTransition = reducedMotion
-    ? BOARD_REDUCED_MOTION_TRANSITION
-    : threadDragActive
-      ? BOARD_DRAG_PANE_TRANSITION
-      : BOARD_PANE_TRANSITION;
-  const boardLayoutAnimationEnabled = threadDragActive || dropTarget !== null;
+    activeSplitId !== null && panes.length > 1 && Boolean(primaryPane) && layoutRoot !== null;
+  const boardRootClassName = "relative flex h-full min-h-0 flex-1 overflow-hidden bg-background";
 
-  const navigateToBoardRoute = useCallback(
-    (activePane: ChatThreadBoardRoutePane) => {
-      const boardState = useChatThreadBoardStore.getState();
-      const routePanes = orderBoardPanes(boardState.panes, boardState.layoutRoot);
-      if (routePanes.length <= 1) {
+  useEffect(() => {
+    document.documentElement.classList.toggle(THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME, boardVisible);
+    return () => {
+      document.documentElement.classList.remove(THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME);
+    };
+  }, [boardVisible]);
+
+  const [dropTarget, setDropTarget] = useState<ThreadBoardDropTargetState | null>(null);
+  const dropTargetRef = useRef<ThreadBoardDropTargetState | null>(null);
+  const paneDropRectCacheRef = useRef(new Map<string, DOMRect>());
+  const [deferredPaneContentIds, setDeferredPaneContentIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const deferredPaneContentFrameIdsRef = useRef<number[]>([]);
+
+  const clearDeferredPaneContentFrames = useCallback(() => {
+    for (const frameId of deferredPaneContentFrameIdsRef.current) {
+      window.cancelAnimationFrame(frameId);
+    }
+    deferredPaneContentFrameIdsRef.current = [];
+  }, []);
+
+  const deferPaneContentMount = useCallback(
+    (paneIds: ReadonlyArray<string | null | undefined>) => {
+      const ids = paneIds.filter((paneId): paneId is string => Boolean(paneId));
+      if (ids.length === 0) {
         return;
       }
+      clearDeferredPaneContentFrames();
+      setDeferredPaneContentIds(new Set(ids));
+
+      let remainingFrames = BOARD_DEFER_CONTENT_FRAME_COUNT;
+      const scheduleNextFrame = () => {
+        const frameId = window.requestAnimationFrame(() => {
+          deferredPaneContentFrameIdsRef.current = deferredPaneContentFrameIdsRef.current.filter(
+            (id) => id !== frameId,
+          );
+          remainingFrames -= 1;
+          if (remainingFrames > 0) {
+            scheduleNextFrame();
+            return;
+          }
+          startTransition(() => {
+            setDeferredPaneContentIds(new Set());
+          });
+        });
+        deferredPaneContentFrameIdsRef.current.push(frameId);
+      };
+      scheduleNextFrame();
+    },
+    [clearDeferredPaneContentFrames],
+  );
+
+  useEffect(
+    () => () => {
+      clearDeferredPaneContentFrames();
+    },
+    [clearDeferredPaneContentFrames],
+  );
+
+  const navigateToSingleThreadRoute = useCallback(
+    (pane: { connectionUrl: string | null; threadId: ThreadId }) => {
       startTransition(() => {
         void navigate({
           to: "/$threadId",
-          params: { threadId: activePane.threadId },
-          search: buildThreadBoardRouteSearch(routePanes, activePane, {
-            paneId: boardState.activePaneId,
-            splitId: boardState.activeSplitId,
-          }),
+          params: { threadId: pane.threadId },
+          replace: true,
+          search: buildSingleThreadRouteSearch({ connectionUrl: pane.connectionUrl }),
         });
       });
     },
@@ -572,25 +578,19 @@ export function ThreadBoard(props: {
       if (!nextActivePane) {
         return;
       }
-      startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: nextActivePane.threadId },
-          replace: true,
-          search: (previous) => ({
-            ...previous,
-            ...buildThreadBoardRouteSearch(nextPanes, nextActivePane, {
-              paneId: nextActivePane.id,
-              splitId: props.routeSplitId ?? null,
-            }),
-          }),
-        });
-      });
+      if (nextPanes.length <= 1) {
+        navigateToSingleThreadRoute(nextActivePane);
+      }
     },
-    [closePane, navigate, panes, primaryPane, props.routeSplitId],
+    [closePane, navigateToSingleThreadRoute, panes, primaryPane],
   );
 
   const clearDropTarget = useCallback(() => {
+    paneDropRectCacheRef.current.clear();
+    if (dropTargetRef.current === null) {
+      return;
+    }
+    dropTargetRef.current = null;
     setDropTarget(null);
   }, []);
 
@@ -606,38 +606,49 @@ export function ThreadBoard(props: {
     }
   }, []);
 
-  const handleBoardDragLeave = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadBoardDrag(event.dataTransfer)) {
-      return;
-    }
-    const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
-    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
-      return;
-    }
-    setDropTarget(null);
-  }, []);
-
-  const handleBoardDropCapture = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadBoardDrag(event.dataTransfer)) {
-      return;
-    }
-    setDropTarget(null);
-  }, []);
-
-  const handlePaneDragLeave = useCallback(
-    (paneId: string) => (event: ReactDragEvent<HTMLDivElement>) => {
+  const handleBoardDragLeave = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      if (!isThreadBoardDrag(event.dataTransfer)) {
+        return;
+      }
       const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
       if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
         return;
       }
-      setDropTarget((current) => (current?.paneId === paneId ? null : current));
+      clearDropTarget();
+    },
+    [clearDropTarget],
+  );
+
+  const handleBoardDropCapture = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      if (!isThreadBoardDrag(event.dataTransfer)) {
+        return;
+      }
+      clearDropTarget();
+    },
+    [clearDropTarget],
+  );
+
+  const handlePaneDragLeave = useCallback(
+    (paneId: string, event: ReactDragEvent<HTMLDivElement>) => {
+      const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+      if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+        return;
+      }
+      if (dropTargetRef.current?.paneId !== paneId) {
+        return;
+      }
+      dropTargetRef.current = null;
+      setDropTarget(null);
     },
     [],
   );
 
   const updatePaneDropTarget = useCallback(
     (pane: ChatThreadBoardPaneState, event: ReactDragEvent<HTMLDivElement>) => {
-      const draggedThread = activeDraggedThread ?? readThreadBoardDragThread(event.dataTransfer);
+      const draggedThread =
+        getActiveThreadBoardDrag() ?? readThreadBoardDragThread(event.dataTransfer);
       if (!draggedThread) {
         return false;
       }
@@ -647,63 +658,74 @@ export function ThreadBoard(props: {
       const isSameSidebarThreadDrop =
         sourcePaneId === null && draggedThreadKey === getThreadBoardDragThreadKey(pane);
       if (isSamePaneDrag || isSameSidebarThreadDrop) {
-        setDropTarget((current) => (current?.paneId === pane.id ? null : current));
+        if (dropTargetRef.current?.paneId === pane.id) {
+          dropTargetRef.current = null;
+          setDropTarget(null);
+        }
         return false;
       }
       event.preventDefault();
       event.dataTransfer.dropEffect = sourcePaneId ? "move" : "copy";
-      const direction = resolveThreadBoardDropDirection(
-        event,
-        event.currentTarget.getBoundingClientRect(),
-      );
-      setDropTarget((current) =>
-        current &&
-        current.paneId === pane.id &&
-        current.direction === direction &&
-        current.threadKey === draggedThreadKey
-          ? current
-          : {
-              direction,
-              paneId: pane.id,
-              thread: draggedThread,
-              threadKey: draggedThreadKey,
-            },
-      );
+      const rect =
+        paneDropRectCacheRef.current.get(pane.id) ?? event.currentTarget.getBoundingClientRect();
+      paneDropRectCacheRef.current.set(pane.id, rect);
+      const direction = resolveThreadBoardDropDirection(event, rect);
+      const currentDropTarget = dropTargetRef.current;
+      if (
+        currentDropTarget &&
+        currentDropTarget.paneId === pane.id &&
+        currentDropTarget.direction === direction &&
+        currentDropTarget.threadKey === draggedThreadKey
+      ) {
+        return true;
+      }
+      const nextDropTarget = {
+        direction,
+        paneId: pane.id,
+        thread: draggedThread,
+        threadKey: draggedThreadKey,
+      };
+      dropTargetRef.current = nextDropTarget;
+      setDropTarget(nextDropTarget);
       return true;
     },
-    [activeDraggedThread],
+    [],
   );
 
   const handlePaneDragEnter = useCallback(
-    (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
+    (pane: ChatThreadBoardPaneState, event: ReactDragEvent<HTMLDivElement>) => {
       updatePaneDropTarget(pane, event);
     },
     [updatePaneDropTarget],
   );
 
   const handlePaneDragOver = useCallback(
-    (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
+    (pane: ChatThreadBoardPaneState, event: ReactDragEvent<HTMLDivElement>) => {
       updatePaneDropTarget(pane, event);
     },
     [updatePaneDropTarget],
   );
 
   const handlePaneDrop = useCallback(
-    (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
+    (pane: ChatThreadBoardPaneState, event: ReactDragEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      const draggedThread = activeDraggedThread ?? readThreadBoardDragThread(event.dataTransfer);
+      const draggedThread =
+        getActiveThreadBoardDrag() ?? readThreadBoardDragThread(event.dataTransfer);
+      const currentDropTarget = dropTargetRef.current;
+      const rect =
+        paneDropRectCacheRef.current.get(pane.id) ?? event.currentTarget.getBoundingClientRect();
       const direction =
-        dropTarget?.paneId === pane.id
-          ? dropTarget.direction
-          : resolveThreadBoardDropDirection(event, event.currentTarget.getBoundingClientRect());
+        currentDropTarget?.paneId === pane.id
+          ? currentDropTarget.direction
+          : resolveThreadBoardDropDirection(event, rect);
       clearDropTarget();
+      setActiveThreadBoardDrag(null);
       if (!draggedThread) {
         return;
       }
       const sourcePaneId = draggedThread.sourcePaneId ?? null;
       if (sourcePaneId === pane.id) {
-        setActiveThreadBoardDrag(null);
         return;
       }
 
@@ -713,18 +735,13 @@ export function ThreadBoard(props: {
           paneId: sourcePaneId,
           targetPaneId: pane.id,
         });
-        setActiveThreadBoardDrag(null);
         if (movedPaneId) {
-          navigateToBoardRoute({
-            connectionUrl: draggedThread.connectionUrl,
-            threadId: draggedThread.threadId,
-          });
+          deferPaneContentMount([movedPaneId]);
         }
         return;
       }
 
       if (getThreadBoardDragThreadKey(draggedThread) === getThreadBoardDragThreadKey(pane)) {
-        setActiveThreadBoardDrag(null);
         return;
       }
 
@@ -738,51 +755,45 @@ export function ThreadBoard(props: {
             },
             draggedThread,
           ]);
-      openThreadInBoard({
+      const openedPaneId = openThreadInBoard({
         connectionUrl: draggedThread.connectionUrl,
         direction,
         sourcePaneId: insertionSourcePaneId,
         threadId: draggedThread.threadId,
         ...(boardTitle ? { title: boardTitle } : {}),
       });
-      setActiveThreadBoardDrag(null);
-      navigateToBoardRoute({
-        connectionUrl: draggedThread.connectionUrl,
-        threadId: draggedThread.threadId,
-      });
+      deferPaneContentMount(boardVisible ? [openedPaneId] : [insertionSourcePaneId, openedPaneId]);
     },
     [
-      activeDraggedThread,
       activeRouteThread,
       boardVisible,
       buildBoardTitle,
       clearDropTarget,
-      dropTarget,
+      deferPaneContentMount,
       movePane,
-      navigateToBoardRoute,
       openThreadInBoard,
       syncRouteThread,
     ],
   );
 
   const handlePaneDragStart = useCallback(
-    (pane: ChatThreadBoardPaneState, label: string) =>
-      (event: ReactDragEvent<HTMLButtonElement>) => {
-        const dragThread = createThreadBoardDragThread({
-          connectionUrl: pane.connectionUrl,
-          sourcePaneId: pane.id,
-          threadId: pane.threadId,
-          title: label,
-        });
-        const payload = encodeThreadBoardDragThread(dragThread);
-        event.stopPropagation();
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
-        event.dataTransfer.setData("text/plain", payload);
-        setThreadBoardDragImage(event.dataTransfer, { label, tone: "move" });
-        setActiveThreadBoardDrag(dragThread);
-        setActivePane(pane.id);
-      },
+    (pane: ChatThreadBoardPaneState, label: string, event: ReactDragEvent<HTMLButtonElement>) => {
+      const dragThread = createThreadBoardDragThread({
+        connectionUrl: pane.connectionUrl,
+        sourcePaneId: pane.id,
+        threadId: pane.threadId,
+        title: label,
+      });
+      const payload = encodeThreadBoardDragThread(dragThread);
+      event.stopPropagation();
+      paneDropRectCacheRef.current.clear();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
+      event.dataTransfer.setData("text/plain", payload);
+      setThreadBoardDragImage(event.dataTransfer, { label, tone: "move" });
+      setActiveThreadBoardDrag(dragThread);
+      setActivePane(pane.id);
+    },
     [setActivePane],
   );
 
@@ -795,10 +806,23 @@ export function ThreadBoard(props: {
     axis: ChatThreadBoardLayoutAxis;
     branchId: string;
     dividerIndex: number;
+    pendingRatios: number[];
     pointerId: number;
+    previewChildren: HTMLElement[];
+    rafId: number | null;
     startPosition: number;
     startRatios: number[];
+    startSize: number;
   } | null>(null);
+
+  const applyBranchResizePreview = useCallback(
+    (children: readonly HTMLElement[], ratios: readonly number[]) => {
+      for (const [index, child] of children.entries()) {
+        child.style.flexGrow = String(ratios[index] ?? 1);
+      }
+    },
+    [],
+  );
 
   const handleBranchResizeStart = useCallback(
     (branchId: string, axis: ChatThreadBoardLayoutAxis, dividerIndex: number) =>
@@ -826,13 +850,26 @@ export function ThreadBoard(props: {
         if (!branchNode || branchNode.kind !== "split") {
           return;
         }
+        const container = branchRefs.current.get(branchId);
+        if (!container) {
+          return;
+        }
+        const previewChildren = Array.from(container.children).filter(
+          (child): child is HTMLElement =>
+            child instanceof HTMLElement && child.dataset.threadBoardBranchChild === "true",
+        );
+        const startSize = axis === "horizontal" ? container.clientWidth : container.clientHeight;
         branchResizeStateRef.current = {
           axis,
           branchId,
           dividerIndex,
+          pendingRatios: normalizePaneRatios(branchNode.ratios, branchNode.children.length),
           pointerId: event.pointerId,
+          previewChildren,
+          rafId: null,
           startPosition: axis === "horizontal" ? event.clientX : event.clientY,
           startRatios: normalizePaneRatios(branchNode.ratios, branchNode.children.length),
+          startSize,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
         document.body.style.cursor = axis === "horizontal" ? "col-resize" : "row-resize";
@@ -844,47 +881,63 @@ export function ThreadBoard(props: {
   const handleBranchResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const resizeState = branchResizeStateRef.current;
-      const container = branchRefs.current.get(resizeState?.branchId ?? "") ?? null;
-      if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
+      if (!resizeState || resizeState.pointerId !== event.pointerId) {
         return;
       }
       event.preventDefault();
-      const containerSize =
-        resizeState.axis === "horizontal" ? container.clientWidth : container.clientHeight;
       const deltaPx =
         (resizeState.axis === "horizontal" ? event.clientX : event.clientY) -
         resizeState.startPosition;
-      setBranchRatios(
-        resizeState.branchId,
-        resizePaneRatios({
-          containerWidthPx: containerSize,
-          deltaPx,
-          dividerIndex: resizeState.dividerIndex,
-          minPaneWidthPx:
-            resizeState.axis === "horizontal" ? BOARD_MIN_COLUMN_WIDTH_PX : BOARD_MIN_ROW_HEIGHT_PX,
-          ratios: resizeState.startRatios,
-        }),
-      );
+      resizeState.pendingRatios = resizePaneRatios({
+        containerWidthPx: resizeState.startSize,
+        deltaPx,
+        dividerIndex: resizeState.dividerIndex,
+        minPaneWidthPx:
+          resizeState.axis === "horizontal" ? BOARD_MIN_COLUMN_WIDTH_PX : BOARD_MIN_ROW_HEIGHT_PX,
+        ratios: resizeState.startRatios,
+      });
+      if (resizeState.rafId !== null) {
+        return;
+      }
+      resizeState.rafId = window.requestAnimationFrame(() => {
+        const currentResizeState = branchResizeStateRef.current;
+        if (!currentResizeState) {
+          return;
+        }
+        currentResizeState.rafId = null;
+        applyBranchResizePreview(
+          currentResizeState.previewChildren,
+          currentResizeState.pendingRatios,
+        );
+      });
     },
-    [setBranchRatios],
+    [applyBranchResizePreview],
   );
 
-  const handleBranchResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = branchResizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) {
-      return;
-    }
-    branchResizeStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    document.body.style.removeProperty("cursor");
-    document.body.style.removeProperty("user-select");
-  }, []);
+  const handleBranchResizeEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const resizeState = branchResizeStateRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId) {
+        return;
+      }
+      if (resizeState.rafId !== null) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
+      setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
+      branchResizeStateRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+    },
+    [applyBranchResizePreview, setBranchRatios],
+  );
 
   useEffect(() => {
     const clear = () => {
-      setDropTarget(null);
+      clearDropTarget();
       setActiveThreadBoardDrag(null);
     };
     window.addEventListener("dragend", clear);
@@ -893,11 +946,19 @@ export function ThreadBoard(props: {
       window.removeEventListener("dragend", clear);
       window.removeEventListener("drop", clear);
     };
-  }, []);
+  }, [clearDropTarget]);
 
   useEffect(() => {
     const resetResizeInteractions = () => {
-      branchResizeStateRef.current = null;
+      const resizeState = branchResizeStateRef.current;
+      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      if (resizeState) {
+        applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
+        setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
+        branchResizeStateRef.current = null;
+      }
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };
@@ -912,7 +973,7 @@ export function ThreadBoard(props: {
       window.removeEventListener("blur", resetResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [applyBranchResizePreview, setBranchRatios]);
 
   const renderLeaf = useCallback(
     (paneId: string) => {
@@ -923,24 +984,19 @@ export function ThreadBoard(props: {
       return (
         <ThreadBoardPane
           key={pane.id}
-          activePaneId={activePaneId}
-          animateLayout={boardLayoutAnimationEnabled}
+          deferContent={deferredPaneContentIds.has(pane.id)}
           dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
-          dragActive={threadDragActive}
-          isPrimary={pane.id === primaryPane.id}
+          isFocusedPane={(activePaneId ?? primaryPane.id) === pane.id}
           isSinglePane={false}
           pane={pane}
           shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
           showSidebarTrigger={pane.id === firstPaneId}
           visibleBoardThreadIds={visibleBoardThreadIds}
-          showDropOverlay={threadDragActive}
-          onClose={() => {
-            handleClosePane(pane);
-          }}
-          onDragEnter={handlePaneDragEnter(pane)}
-          onDragLeave={handlePaneDragLeave(pane.id)}
-          onDragOver={handlePaneDragOver(pane)}
-          onDrop={handlePaneDrop(pane)}
+          onClosePane={handleClosePane}
+          onPaneDragEnter={handlePaneDragEnter}
+          onPaneDragLeave={handlePaneDragLeave}
+          onPaneDragOver={handlePaneDragOver}
+          onPaneDrop={handlePaneDrop}
           onPaneDragEnd={handlePaneDragEnd}
           onPaneDragStart={handlePaneDragStart}
           setActivePane={setActivePane}
@@ -949,7 +1005,7 @@ export function ThreadBoard(props: {
     },
     [
       activePaneId,
-      boardLayoutAnimationEnabled,
+      deferredPaneContentIds,
       dropTarget,
       firstPaneId,
       handleClosePane,
@@ -962,7 +1018,6 @@ export function ThreadBoard(props: {
       paneById,
       primaryPane,
       setActivePane,
-      threadDragActive,
       visibleBoardThreadIds,
     ],
   );
@@ -992,10 +1047,9 @@ export function ThreadBoard(props: {
         >
           {node.children.map((child, index) => (
             <Fragment key={child.id}>
-              <motion.div
-                layout={boardLayoutAnimationEnabled ? "position" : false}
+              <div
                 className="flex min-h-0 min-w-0 overflow-hidden"
-                transition={boardPaneTransition}
+                data-thread-board-branch-child="true"
                 style={{
                   flexBasis: 0,
                   flexGrow: ratios[index] ?? 1,
@@ -1005,7 +1059,7 @@ export function ThreadBoard(props: {
                 }}
               >
                 {renderLayoutNode(child)}
-              </motion.div>
+              </div>
               {index < node.children.length - 1 ? (
                 <div
                   role="separator"
@@ -1047,14 +1101,7 @@ export function ThreadBoard(props: {
         </div>
       );
     },
-    [
-      boardPaneTransition,
-      boardLayoutAnimationEnabled,
-      handleBranchResizeEnd,
-      handleBranchResizeMove,
-      handleBranchResizeStart,
-      renderLeaf,
-    ],
+    [handleBranchResizeEnd, handleBranchResizeMove, handleBranchResizeStart, renderLeaf],
   );
 
   if (!boardVisible || !primaryPane) {
@@ -1065,30 +1112,27 @@ export function ThreadBoard(props: {
     };
     return (
       <div
-        className="relative flex h-full min-h-0 flex-1 overflow-hidden bg-background"
+        className={boardRootClassName}
         onDragEnter={handleBoardDragEnter}
         onDragLeave={handleBoardDragLeave}
         onDragOverCapture={handleBoardDragOverCapture}
         onDropCapture={handleBoardDropCapture}
       >
         <ThreadBoardPane
-          activePaneId={singlePane.id}
-          animateLayout={boardLayoutAnimationEnabled}
+          deferContent={false}
           dropPreviewDirection={dropTarget?.paneId === singlePane.id ? dropTarget.direction : null}
-          dragActive={threadDragActive}
-          isPrimary
+          isFocusedPane
           isSinglePane
           pane={singlePane}
           shortcutsEnabled
           showSidebarTrigger
-          showDropHint={threadDragActive && dropTarget?.paneId !== singlePane.id}
-          showDropOverlay={threadDragActive}
+          showDropHint={dropTarget?.paneId !== singlePane.id}
           splitPane={false}
-          onClose={() => {}}
-          onDragEnter={handlePaneDragEnter(singlePane)}
-          onDragLeave={handlePaneDragLeave(singlePane.id)}
-          onDragOver={handlePaneDragOver(singlePane)}
-          onDrop={handlePaneDrop(singlePane)}
+          onClosePane={() => {}}
+          onPaneDragEnter={handlePaneDragEnter}
+          onPaneDragLeave={handlePaneDragLeave}
+          onPaneDragOver={handlePaneDragOver}
+          onPaneDrop={handlePaneDrop}
           setActivePane={() => {}}
         />
       </div>
@@ -1097,7 +1141,7 @@ export function ThreadBoard(props: {
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 overflow-hidden bg-background"
+      className={boardRootClassName}
       onDragEnter={handleBoardDragEnter}
       onDragLeave={handleBoardDragLeave}
       onDragOverCapture={handleBoardDragOverCapture}
