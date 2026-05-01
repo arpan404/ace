@@ -47,6 +47,7 @@ import {
 } from "../../composer-logic";
 import { createMarkedIssueReferenceToken } from "../../composer-editor-mentions";
 import {
+  deriveEffectiveComposerExecutionModeState,
   type ComposerImageAttachment,
   type PersistedComposerImageAttachment,
   useComposerDraftStore,
@@ -143,8 +144,8 @@ interface ConnectedChatComposerPanelsProps {
   readonly modelSettings: Pick<UnifiedSettings, "providers">;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly isServerThread: boolean;
-  readonly runtimeMode: RuntimeMode;
-  readonly interactionMode: ProviderInteractionMode;
+  readonly threadRuntimeMode: RuntimeMode | null | undefined;
+  readonly threadInteractionMode: ProviderInteractionMode | null | undefined;
   readonly composerModelOptions: ProviderModelOptions | null;
   readonly selectedProvider: ProviderKind;
   readonly selectedModel: string;
@@ -204,7 +205,7 @@ interface ConnectedChatComposerPanelsProps {
     typeof ChatComposerPanel
   >["onAdvancePendingUserInput"];
   readonly onHandoffToProvider: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
-  readonly onToggleInteractionMode: () => void;
+  readonly onInteractionModeChange: (mode: ProviderInteractionMode) => void;
   readonly onRuntimeModeChange: (
     mode: ComponentProps<typeof ChatComposerPanel>["runtimeMode"],
   ) => void;
@@ -238,6 +239,15 @@ export const ConnectedChatComposerPanels = memo(
       const composerImages = composerDraft.images;
       const composerTerminalContexts = composerDraft.terminalContexts;
       const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
+      const { interactionMode, runtimeMode } = useMemo(
+        () =>
+          deriveEffectiveComposerExecutionModeState({
+            draft: composerDraft,
+            threadRuntimeMode: props.threadRuntimeMode,
+            threadInteractionMode: props.threadInteractionMode,
+          }),
+        [composerDraft, props.threadInteractionMode, props.threadRuntimeMode],
+      );
       const composerSendState = useMemo(
         () =>
           deriveComposerSendState({
@@ -332,13 +342,14 @@ export const ConnectedChatComposerPanels = memo(
       );
       const showPlanFollowUpPrompt =
         props.pendingUserInputs.length === 0 &&
-        props.interactionMode === "plan" &&
+        interactionMode === "plan" &&
         props.planFollowUpId !== null;
       const activePendingUserInput = props.pendingUserInputs[0] ?? null;
       const activePendingQuestion =
         activePendingUserInput?.questions[props.activePendingQuestionIndex] ?? null;
       const {
         onComposerHeightChange,
+        onInteractionModeChange,
         onPendingUserInputCustomAnswerChange,
         onPreviewExpandedImage,
       } = props;
@@ -745,6 +756,10 @@ export const ConnectedChatComposerPanels = memo(
         [resetUi, scheduleComposerFocus, setPrompt],
       );
 
+      const toggleInteractionMode = useCallback(() => {
+        onInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
+      }, [interactionMode, onInteractionModeChange]);
+
       const onProviderModelSelect = useEffectEvent((provider: ProviderKind, model: string) => {
         if (props.lockedProvider !== null && provider !== props.lockedProvider) {
           scheduleComposerFocus();
@@ -901,7 +916,7 @@ export const ConnectedChatComposerPanels = memo(
               }
               return;
             }
-            props.onToggleInteractionMode();
+            toggleInteractionMode();
             if (
               applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
                 expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -944,7 +959,7 @@ export const ConnectedChatComposerPanels = memo(
       const onComposerCommandKey = useEffectEvent(
         (key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape", event: KeyboardEvent) => {
           if (key === "Tab" && event.shiftKey) {
-            props.onToggleInteractionMode();
+            toggleInteractionMode();
             return true;
           }
           const { trigger } = resolveActiveComposerTrigger();
@@ -1277,8 +1292,8 @@ export const ConnectedChatComposerPanels = memo(
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}
             handoffDisabled={props.handoffDisabled}
-            interactionMode={props.interactionMode}
-            runtimeMode={props.runtimeMode}
+            interactionMode={interactionMode}
+            runtimeMode={runtimeMode}
             interactionModeShortcutLabel={props.interactionModeShortcutLabel}
             activeContextWindow={props.activeContextWindow}
             promptHasText={prompt.trim().length > 0}
@@ -1328,7 +1343,7 @@ export const ConnectedChatComposerPanels = memo(
             onAdvancePendingUserInput={props.onAdvancePendingUserInput}
             onProviderModelSelect={onProviderModelSelect}
             onHandoffToProvider={props.onHandoffToProvider}
-            onToggleInteractionMode={props.onToggleInteractionMode}
+            onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={props.onRuntimeModeChange}
             onPreviousPendingQuestion={props.onPreviousPendingQuestion}
             onInterrupt={props.onInterrupt}
@@ -1379,8 +1394,8 @@ export const ConnectedChatComposerPanels = memo(
                 isServerThread={props.isServerThread}
                 handoffTargetProviders={props.handoffTargetProviders}
                 handoffDisabled={props.handoffDisabled}
-                interactionMode={props.interactionMode}
-                runtimeMode={props.runtimeMode}
+                interactionMode={interactionMode}
+                runtimeMode={runtimeMode}
                 interactionModeShortcutLabel={props.interactionModeShortcutLabel}
                 activeContextWindow={props.activeContextWindow}
                 promptHasText={prompt.trim().length > 0}
@@ -1432,7 +1447,7 @@ export const ConnectedChatComposerPanels = memo(
                 onAdvancePendingUserInput={props.onAdvancePendingUserInput}
                 onProviderModelSelect={onProviderModelSelect}
                 onHandoffToProvider={props.onHandoffToProvider}
-                onToggleInteractionMode={props.onToggleInteractionMode}
+                onToggleInteractionMode={toggleInteractionMode}
                 onRuntimeModeChange={props.onRuntimeModeChange}
                 onPreviousPendingQuestion={props.onPreviousPendingQuestion}
                 onInterrupt={props.onInterrupt}

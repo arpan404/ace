@@ -276,6 +276,21 @@ export interface EffectiveComposerModelState {
   modelOptions: ProviderModelOptions | null;
 }
 
+export function deriveEffectiveComposerExecutionModeState(input: {
+  draft: Pick<ComposerThreadDraftState, "runtimeMode" | "interactionMode"> | null | undefined;
+  threadRuntimeMode: RuntimeMode | null | undefined;
+  threadInteractionMode: ProviderInteractionMode | null | undefined;
+}): {
+  runtimeMode: RuntimeMode;
+  interactionMode: ProviderInteractionMode;
+} {
+  return {
+    runtimeMode: input.draft?.runtimeMode ?? input.threadRuntimeMode ?? DEFAULT_RUNTIME_MODE,
+    interactionMode:
+      input.draft?.interactionMode ?? input.threadInteractionMode ?? DEFAULT_INTERACTION_MODE,
+  };
+}
+
 function providerModelOptionsFromSelection(
   modelSelection: ModelSelection | null | undefined,
 ): ProviderModelOptions | null {

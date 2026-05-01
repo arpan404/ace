@@ -390,6 +390,7 @@ function TerminalViewport({
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionOpenRef = useRef(false);
   const selectionActionTimerRef = useRef<number | null>(null);
+  const handledFocusRequestIdRef = useRef(0);
 
   useEffect(() => {
     onSessionExitedRef.current = onSessionExited;
@@ -891,6 +892,10 @@ function TerminalViewport({
     if (!autoFocus || !interactive) return;
     const terminal = terminalRef.current;
     if (!terminal) return;
+    if (focusRequestId <= handledFocusRequestIdRef.current) {
+      return;
+    }
+    handledFocusRequestIdRef.current = focusRequestId;
     const frame = window.requestAnimationFrame(() => {
       terminal.focus();
     });
