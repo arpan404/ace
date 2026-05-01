@@ -104,6 +104,7 @@ export class WsTransport {
   >();
   private readonly probeListenerCleanups: Array<() => void> = [];
   private connectionProbeIntervalHandle: ReturnType<typeof setInterval> | null = null;
+  private readonly subscriptionRetryWakeListeners = new Set<() => void>();
   private disposed = false;
   private hasConnected = false;
   private disconnected = false;
@@ -208,6 +209,9 @@ export class WsTransport {
     }
 
     const queueProbe = (reason: string) => {
+      if (reason === "focus" || reason === "online" || reason === "visibilitychange") {
+        this.wakeSubscriptionRetries();
+      }
       this.queueConnectionProbe(reason);
     };
 
@@ -246,12 +250,54 @@ export class WsTransport {
         if (this.disposed) {
           return;
         }
-        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        if (!this.shouldRunBackgroundConnectionProbe()) {
           return;
         }
         queueProbe("interval");
       }, this.connectionProbeIntervalMs);
     }
+  }
+
+  private shouldRunBackgroundConnectionProbe(): boolean {
+    if (typeof document === "undefined") {
+      return true;
+    }
+    if (document.visibilityState === "hidden") {
+      return false;
+    }
+    if (typeof document.hasFocus === "function" && !document.hasFocus()) {
+      return false;
+    }
+    return true;
+  }
+
+  private wakeSubscriptionRetries(): void {
+    for (const listener of this.subscriptionRetryWakeListeners) {
+      listener();
+    }
+  }
+
+  private waitForSubscriptionRetryDelay(delayMs: number): Promise<void> {
+    if (delayMs <= 0 || this.disposed) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      let timeoutHandle: ReturnType<typeof setTimeout>;
+      const settle = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutHandle);
+        this.subscriptionRetryWakeListeners.delete(settle);
+        resolve();
+      };
+
+      timeoutHandle = setTimeout(settle, delayMs);
+      this.subscriptionRetryWakeListeners.add(settle);
+    });
   }
 
   private queueConnectionProbe(reason: string): void {
@@ -441,7 +487,9 @@ export class WsTransport {
               retryCount,
               delayMs,
             });
-          }).pipe(Effect.andThen(Effect.sleep(Duration.millis(delayMs))));
+          }).pipe(
+            Effect.andThen(Effect.promise(() => this.waitForSubscriptionRetryDelay(delayMs))),
+          );
         }),
         Effect.forever,
       ),
@@ -459,6 +507,9 @@ export class WsTransport {
     }
     this.disposed = true;
     this.queuedProbe = false;
+    if (typeof this.wakeSubscriptionRetries === "function") {
+      this.wakeSubscriptionRetries();
+    }
     if (this.connectionProbeIntervalHandle !== null) {
       clearInterval(this.connectionProbeIntervalHandle);
       this.connectionProbeIntervalHandle = null;
