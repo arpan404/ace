@@ -24,15 +24,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
 
   return (
     <>
-      <SidebarContent className="gap-0 overflow-x-hidden" scrollFade={false}>
+      <SidebarContent className="gap-0 overflow-x-hidden pt-1.5" scrollFade={false}>
         {SETTINGS_NAV_GROUPS.map((group) => {
           const items = SETTINGS_NAV_ITEMS.filter((item) => item.group === group.id);
           return (
-            <SidebarGroup key={group.id} className="px-2 py-1">
-              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-medium tracking-[0.14em] text-muted-foreground/50 uppercase">
+            <SidebarGroup key={group.id} className="px-2.5 py-1">
+              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-medium tracking-[0.14em] text-muted-foreground/45 uppercase">
                 {group.label}
               </SidebarGroupLabel>
-              <SidebarMenu>
+              <SidebarMenu className="gap-0.5">
                 {items.map((item) => {
                   const Icon = item.icon;
                   const isActive = pathname === item.to;
@@ -40,26 +40,26 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton
                         size="sm"
+                        title={item.description}
+                        aria-label={`${item.label}: ${item.description}`}
                         isActive={isActive}
                         className={cn(
-                          "h-auto min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors duration-150 ease-out",
+                          "h-8 items-center gap-2 rounded-[var(--control-radius)] px-2.5 text-left text-[13px] transition-colors duration-150 ease-out",
                           isActive
-                            ? "bg-accent/60 text-foreground"
-                            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/72 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground",
                         )}
                         onClick={() => void navigate({ to: item.to, replace: true })}
                       >
                         <Icon
                           className={cn(
                             "size-3.5 shrink-0 transition-colors duration-150",
-                            isActive ? "text-primary" : "text-muted-foreground",
+                            isActive
+                              ? "text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/45",
                           )}
                         />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12px] font-medium">
-                            {item.label}
-                          </span>
-                        </span>
+                        <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
@@ -70,16 +70,16 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         })}
       </SidebarContent>
 
-      <SidebarFooter className="p-2">
+      <SidebarFooter className="border-t border-sidebar-border/60 p-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-foreground"
+              className="h-8 gap-2 rounded-[var(--control-radius)] px-2.5 text-[13px] font-medium text-sidebar-foreground/62 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               onClick={() => window.history.back()}
             >
               <ArrowLeftIcon className="size-3.5" />
-              <span>Back</span>
+              <span>Back to chat</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

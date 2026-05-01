@@ -753,15 +753,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-type SettingsPanelPage =
-  | "general"
-  | "chat"
-  | "editor"
-  | "browser"
-  | "models"
-  | "providers"
-  | "advanced"
-  | "about";
+type SettingsPanelPage = "general" | "chat" | "editor" | "providers" | "advanced" | "about";
 
 function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
@@ -1282,8 +1274,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const isGeneralPage = page === "general";
   const isChatPage = page === "chat";
   const isEditorPage = page === "editor";
-  const isBrowserPage = page === "browser";
-  const isModelsPage = page === "models";
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
@@ -2379,11 +2369,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </div>
               }
             >
-              <div className="mt-4 space-y-4">
-                <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,rgba(59,130,246,0.08),transparent_55%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] p-4">
+              <div className="mt-3 space-y-3">
+                <div className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="space-y-1">
-                      <div className="text-sm font-medium text-foreground">
+                      <div className="text-[13px] font-medium text-foreground/90">
                         Curated marketplace for ace’s editor runtime
                       </div>
                       <div className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
@@ -2392,7 +2382,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       </div>
                     </div>
                     {lspToolsStatus?.installDir ? (
-                      <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
+                      <div className="rounded-[var(--control-radius)] border border-border/50 bg-background/55 px-3 py-2 text-[11px] text-muted-foreground">
                         Install root
                         <div className="mt-1 font-mono text-[10px] text-foreground">
                           {lspToolsStatus.installDir}
@@ -2402,7 +2392,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </div>
                 </div>
 
-                <div className="space-y-3 rounded-2xl border border-border/70 bg-background/40 p-3">
+                <div className="space-y-3 rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
                   <Input
                     value={lspCatalogQuery}
                     onChange={(event) => setLspCatalogQuery(event.target.value)}
@@ -2430,25 +2420,25 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </div>
 
                 {filteredLspCatalogTools.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                  <div className="rounded-[var(--panel-radius)] border border-dashed border-border/60 px-4 py-6 text-center text-[13px] text-muted-foreground">
                     No curated language servers match this filter.
                   </div>
                 ) : (
-                  <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="grid gap-2 lg:grid-cols-2">
                     {filteredLspCatalogTools.map((tool) => (
                       <div
                         key={tool.id}
                         className={cn(
-                          "rounded-2xl border p-4 transition-colors",
+                          "rounded-[var(--panel-radius)] border p-3 transition-colors",
                           tool.installed
                             ? "border-emerald-500/25 bg-emerald-500/[0.05]"
-                            : "border-border/70 bg-background/50",
+                            : "border-border/50 bg-background/35",
                         )}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-medium text-foreground">
+                              <div className="text-[13px] font-medium text-foreground/90">
                                 {tool.label}
                               </div>
                               <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
@@ -2483,7 +2473,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                           </Button>
                         </div>
 
-                        <div className="mt-4 space-y-3 text-[11px] text-muted-foreground">
+                        <div className="mt-3 space-y-2.5 text-[11px] text-muted-foreground">
                           <div className="space-y-1">
                             <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
                               Package
@@ -2527,16 +2517,16 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       Custom servers
                     </div>
-                    <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="grid gap-2 lg:grid-cols-2">
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="rounded-2xl border border-border/70 bg-background/40 p-4"
+                          className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-sm font-medium text-foreground">
+                                <div className="text-[13px] font-medium text-foreground/90">
                                   {tool.label}
                                 </div>
                                 <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
@@ -2564,10 +2554,12 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </div>
                 ) : null}
 
-                <div className="rounded-2xl border border-border/70 bg-background/40 p-3">
+                <div className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <div className="text-sm font-medium text-foreground">Custom package</div>
+                      <div className="text-[13px] font-medium text-foreground/90">
+                        Custom package
+                      </div>
                       <div className="text-[12px] text-muted-foreground">
                         Register npm or uv-backed language servers with explicit file associations.
                       </div>
@@ -2696,16 +2688,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </div>
               </div>
             </SettingsRow>
-
-            <SettingsRow
-              title="Workspace editor shortcuts"
-              description="Editor and workspace commands now share the same in-app keybinding editor below."
-            />
           </SettingsSection>
         </>
       ) : null}
 
-      {isBrowserPage ? (
+      {isGeneralPage ? (
         <SettingsSection title="In-app browser">
           <SettingsRow
             title="Search engine"
@@ -2723,7 +2710,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               ) : null
             }
           >
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
                 <Button
                   key={engine.value}
@@ -2739,7 +2726,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         </SettingsSection>
       ) : null}
 
-      {isModelsPage ? (
+      {isProvidersPage ? (
         <SettingsSection title="Text generation">
           <SettingsRow
             title="Text generation model"
@@ -3003,7 +2990,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               title="Keybindings"
               description="Configure shortcuts directly here. Press keys to record bindings, then save or revert."
             >
-              <div className="mt-4">
+              <div className="mt-3">
                 <KeybindingsSettingsEditor />
               </div>
             </SettingsRow>
@@ -3040,14 +3027,6 @@ export function ChatSettingsPanel() {
 
 export function EditorSettingsPanel() {
   return <SettingsPanel page="editor" />;
-}
-
-export function BrowserSettingsPanel() {
-  return <SettingsPanel page="browser" />;
-}
-
-export function ModelsSettingsPanel() {
-  return <SettingsPanel page="models" />;
 }
 
 export function ProvidersSettingsPanel() {
@@ -3227,10 +3206,10 @@ export function ArchivedThreadsPanel() {
             const archivedItemCount = group.threads.length + (project.archivedAt === null ? 0 : 1);
 
             return (
-              <div key={project.id} className="border-t border-border first:border-t-0">
+              <div key={project.id} className="border-t border-border/45 first:border-t-0">
                 <button
                   type="button"
-                  className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-muted/35 sm:px-5"
+                  className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-150 hover:bg-accent/25 sm:px-4"
                   aria-expanded={isOpen}
                   onClick={() => setGroupOpen(project.id, !isOpen)}
                 >
@@ -3241,14 +3220,17 @@ export function ArchivedThreadsPanel() {
                     )}
                     aria-hidden="true"
                   />
-                  <ProjectAvatar project={project} className="size-8 rounded-lg" />
+                  <ProjectAvatar
+                    project={project}
+                    className="size-8 rounded-[var(--control-radius)]"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                      <h3 className="truncate text-sm font-medium text-foreground">
+                      <h3 className="truncate text-[13px] font-medium text-foreground/90">
                         {project.name}
                       </h3>
                       {project.archivedAt !== null ? (
-                        <span className="shrink-0 rounded-md border border-border bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <span className="shrink-0 rounded-[var(--control-radius)] border border-border/50 bg-background/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                           Project
                         </span>
                       ) : null}
@@ -3262,15 +3244,15 @@ export function ArchivedThreadsPanel() {
 
                 <Collapsible open={isOpen} onOpenChange={(open) => setGroupOpen(project.id, open)}>
                   <CollapsibleContent>
-                    <div className="border-t border-border/70 bg-background/35">
+                    <div className="border-t border-border/45 bg-background/25">
                       {project.archivedAt !== null ? (
-                        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+                        <div className="flex items-center justify-between gap-3 px-3 py-3 sm:px-4">
                           <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/50 bg-card/40 text-muted-foreground">
                               <ArchiveIcon className="size-4" />
                             </span>
                             <div className="min-w-0 flex-1">
-                              <h4 className="truncate text-sm font-medium text-foreground">
+                              <h4 className="truncate text-[13px] font-medium text-foreground/90">
                                 Project archive
                               </h4>
                               <p className="truncate text-xs text-muted-foreground">
@@ -3312,7 +3294,7 @@ export function ArchivedThreadsPanel() {
                         <div
                           key={thread.id}
                           className={cn(
-                            "flex items-center justify-between gap-3 border-t border-border/70 px-4 py-3 sm:px-5",
+                            "flex items-center justify-between gap-3 border-t border-border/45 px-3 py-3 sm:px-4",
                             project.archivedAt === null && "first:border-t-0",
                           )}
                           onContextMenu={(event) => {
@@ -3324,7 +3306,7 @@ export function ArchivedThreadsPanel() {
                           }}
                         >
                           <div className="min-w-0 flex-1">
-                            <h4 className="truncate text-sm font-medium text-foreground">
+                            <h4 className="truncate text-[13px] font-medium text-foreground/90">
                               {thread.title}
                             </h4>
                             <p className="text-xs text-muted-foreground">
