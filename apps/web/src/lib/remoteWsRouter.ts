@@ -6,6 +6,7 @@ import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { reportBackgroundError } from "./async";
 import { createWsRpcClient, getWsRpcClient, type WsRpcClient } from "../wsRpcClient";
 import { loadWebRelayDeviceIdentity } from "./relayDeviceIdentity";
+import { resolveWebSecureRelayConnectionUrl } from "./relaySecureStorage";
 import { WsTransport } from "../wsTransport";
 import { resolveLocalDeviceWsUrl } from "./remoteHosts";
 
@@ -150,6 +151,7 @@ function getOrCreateRouteClient(connectionUrl: string): WsRpcClient {
           connectionId: createRouteConnectionId(),
           deviceName: "ace web",
           loadIdentity: loadWebRelayDeviceIdentity,
+          resolveConnectionUrl: resolveWebSecureRelayConnectionUrl,
         });
         routeClientRelayListenerCleanupByConnectionUrl.set(
           normalizedConnectionUrl,

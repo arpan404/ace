@@ -38,6 +38,7 @@ import {
 import { Duration, Effect, Exit, ManagedRuntime, Scope, Stream } from "effect";
 import { RpcClient } from "effect/unstable/rpc";
 import { loadMobileRelayDeviceIdentity } from "../relayDeviceIdentity";
+import { resolveMobileSecureRelayConnectionUrl } from "../relaySecureStorage";
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY = Duration.millis(300);
 
@@ -321,6 +322,7 @@ function createMobileTransport(options: MobileWsTransportOptions): MobileRpcTran
     connectionId: createRelayConnectionId(),
     deviceName: "ace mobile",
     loadIdentity: loadMobileRelayDeviceIdentity,
+    resolveConnectionUrl: resolveMobileSecureRelayConnectionUrl,
   });
   return {
     dispose: () => transport.dispose(),

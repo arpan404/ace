@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 
 import {
+  buildPublicRelayConnectionUrl,
   buildRelayConnectionUrl,
   createRelayEphemeralKeyPair,
   createRelayHandshakeNonce,
@@ -10,7 +11,9 @@ import {
   deriveRelayRouteKeys,
   deriveRelayPairingAuthKey,
   parseRelayConnectionUrl,
+  mergeRelayConnectionSecrets,
   resolveConfiguredRelayWebSocketUrl,
+  splitRelayConnectionSecrets,
   validateRelayWebSocketUrl,
   verifyRelayRouteAuthProof,
 } from "./relay";
@@ -116,6 +119,55 @@ describe("relay", () => {
       pairingId: "session-1",
       pairingAuthKey: "pairing-auth-key-1",
     });
+  });
+
+  it("supports secretless relay metadata for public persistence", () => {
+    const publicUrl = buildPublicRelayConnectionUrl({
+      version: 1,
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      pairingId: "session-1",
+      hostName: "Primary host",
+    });
+
+    expect(parseRelayConnectionUrl(publicUrl)).toEqual({
+      version: 1,
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      pairingId: "session-1",
+      hostName: "Primary host",
+    });
+  });
+
+  it("splits relay secrets from persisted connection metadata and merges them back", () => {
+    const fullUrl = buildRelayConnectionUrl({
+      version: 1,
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      pairingId: "session-1",
+      pairingAuthKey: "pairing-auth-key-1",
+      hostName: "Primary host",
+    });
+
+    const split = splitRelayConnectionSecrets(fullUrl);
+    expect(split.storageKey).toBe(
+      "wss://relay.example.com/v1/ws\u0000host-device-1\u0000session-1",
+    );
+    expect(split.secrets).toEqual({
+      pairingAuthKey: "pairing-auth-key-1",
+    });
+    expect(parseRelayConnectionUrl(split.connectionUrl)).toEqual({
+      version: 1,
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      pairingId: "session-1",
+      hostName: "Primary host",
+    });
+    expect(mergeRelayConnectionSecrets(split.connectionUrl, split.secrets)).toBe(fullUrl);
   });
 
   it("verifies relay route auth proofs and rejects stale ones", () => {

@@ -153,6 +153,7 @@ export interface RelayRpcTransportOptions {
   readonly connectionId: string;
   readonly deviceName?: string;
   readonly loadIdentity: () => Promise<RelayStoredDeviceIdentity>;
+  readonly resolveConnectionUrl?: (connectionUrl: string) => Promise<string>;
 }
 
 function formatErrorMessage(error: unknown): string {
@@ -241,12 +242,14 @@ function resolveRetryDelayMs(retryDelay: Duration.Input | undefined): number {
 }
 
 export class RelayRpcTransport {
-  private readonly metadata: RelayConnectionMetadata;
+  private metadata: RelayConnectionMetadata;
   private readonly parser = RpcSerialization.json.makeUnsafe();
   private readonly scope = Effect.runSync(Scope.make());
   private readonly identity: WsClientConnectionIdentity;
   private readonly deviceName: string | undefined;
+  private readonly connectionUrl: string;
   private readonly loadIdentity: () => Promise<RelayStoredDeviceIdentity>;
+  private readonly resolveConnectionUrl: ((connectionUrl: string) => Promise<string>) | undefined;
   private readonly clientStatePromise: Promise<{
     readonly client: WsRpcProtocolClient;
     readonly write: (message: unknown) => Promise<void>;
@@ -269,12 +272,14 @@ export class RelayRpcTransport {
       ...metadata,
       relayUrl: normalizeRelayWebSocketUrl(metadata.relayUrl),
     };
+    this.connectionUrl = options.connectionUrl;
     this.identity = {
       clientSessionId: options.clientSessionId,
       connectionId: options.connectionId,
     };
     this.deviceName = options.deviceName?.trim() ? options.deviceName.trim() : undefined;
     this.loadIdentity = options.loadIdentity;
+    this.resolveConnectionUrl = options.resolveConnectionUrl;
     this.clientStatePromise = Effect.runPromise(
       Scope.provide(this.scope)(
         RpcClient.makeNoSerialization(WsRpcGroup, {
@@ -350,18 +355,35 @@ export class RelayRpcTransport {
     }
   }
 
+  private async resolveConnectionMetadata(): Promise<RelayConnectionMetadata> {
+    if (this.metadata.pairingAuthKey || this.metadata.pairingSecret || !this.resolveConnectionUrl) {
+      return this.metadata;
+    }
+    const resolvedConnectionUrl = await this.resolveConnectionUrl(this.connectionUrl);
+    const resolvedMetadata = parseRelayConnectionUrl(resolvedConnectionUrl);
+    if (!resolvedMetadata) {
+      throw new Error("Resolved relay connection URL is invalid or missing relay metadata.");
+    }
+    this.metadata = {
+      ...resolvedMetadata,
+      relayUrl: normalizeRelayWebSocketUrl(resolvedMetadata.relayUrl),
+    };
+    return this.metadata;
+  }
+
   private async connectRoute(): Promise<RelayRouteContext> {
+    const metadata = await this.resolveConnectionMetadata();
     const viewerIdentity = await this.loadIdentity();
-    const socket = await openRelayWebSocket(this.metadata.relayUrl);
+    const socket = await openRelayWebSocket(metadata.relayUrl);
     const routeId = createRandomId();
     const pairingAuthKey =
-      this.metadata.pairingAuthKey ??
-      (this.metadata.pairingSecret
+      metadata.pairingAuthKey ??
+      (metadata.pairingSecret
         ? deriveRelayPairingAuthKey({
-            pairingId: this.metadata.pairingId,
-            pairingSecret: this.metadata.pairingSecret,
-            hostDeviceId: this.metadata.hostDeviceId,
-            hostIdentityPublicKey: this.metadata.hostIdentityPublicKey,
+            pairingId: metadata.pairingId,
+            pairingSecret: metadata.pairingSecret,
+            hostDeviceId: metadata.hostDeviceId,
+            hostIdentityPublicKey: metadata.hostIdentityPublicKey,
             viewerDeviceId: viewerIdentity.deviceId,
             viewerIdentityPublicKey: viewerIdentity.publicKey,
           })
@@ -492,14 +514,14 @@ export class RelayRpcTransport {
             return;
           }
           const routeKeys = deriveRelayRouteKeys({
-            relayUrl: this.metadata.relayUrl,
+            relayUrl: metadata.relayUrl,
             routeId,
-            hostDeviceId: this.metadata.hostDeviceId,
+            hostDeviceId: metadata.hostDeviceId,
             viewerDeviceId: viewerIdentity.deviceId,
             localRole: "viewer",
             localStaticSecretKey: viewerIdentity.secretKey,
             localEphemeralSecretKey: localEphemeral.secretKey,
-            remoteStaticPublicKey: this.metadata.hostIdentityPublicKey,
+            remoteStaticPublicKey: metadata.hostIdentityPublicKey,
             remoteEphemeralPublicKey: message.ephemeralPublicKey,
             localHandshakeNonce: localEphemeral.nonce,
             remoteHandshakeNonce: message.handshakeNonce,
@@ -548,11 +570,11 @@ export class RelayRpcTransport {
           version: 1,
           type: "relay.route.open",
           routeId,
-          hostDeviceId: this.metadata.hostDeviceId,
+          hostDeviceId: metadata.hostDeviceId,
           viewerDeviceId: viewerIdentity.deviceId,
           clientSessionId: this.identity.clientSessionId,
           connectionId: this.identity.connectionId,
-          pairingId: this.metadata.pairingId,
+          pairingId: metadata.pairingId,
           routeAuthIssuedAt,
           routeAuthProof,
         }),

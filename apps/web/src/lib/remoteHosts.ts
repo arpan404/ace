@@ -16,17 +16,24 @@ import {
   type HostPairingPayload,
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
-import { parseRelayConnectionUrl } from "@ace/shared/relay";
+import { parseRelayConnectionUrl, relayConnectionStorageKey } from "@ace/shared/relay";
 import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 
 import { clearActiveWsUrlOverride, resolveServerUrl } from "./utils";
 import { loadWebRelayDeviceIdentity } from "./relayDeviceIdentity";
+import {
+  deleteWebRelayConnectionSecrets,
+  persistWebRelayConnectionSecrets,
+  resolveWebSecureRelayConnectionUrl,
+} from "./relaySecureStorage";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
 const CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.connected-remote-host-ids.v1";
 const LEGACY_PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
 export const REMOTE_HOSTS_CHANGED_EVENT = "ace:remote-hosts-changed";
 export const CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT = "ace:connected-remote-host-ids-changed";
+let remoteHostPersistOperation = 0;
+let remoteHostMigrationInFlight = false;
 
 export interface RemoteHostInstance {
   readonly id: string;
@@ -110,6 +117,14 @@ function resolveWsProtocol(): "ws" | "wss" {
   return window.location.protocol === "https:" ? "wss" : "ws";
 }
 
+function persistedHostIdentity(wsUrl: string): string {
+  const relayMetadata = parseRelayConnectionUrl(wsUrl);
+  if (!relayMetadata) {
+    return `direct:${wsUrl}`;
+  }
+  return `relay:${relayConnectionStorageKey(relayMetadata)}`;
+}
+
 function createRelayProbeId(prefix: string): string {
   const randomSuffix =
     typeof globalThis.crypto?.randomUUID === "function"
@@ -176,7 +191,9 @@ function decodeRemoteHostInstance(value: unknown): RemoteHostInstance | null {
   }
 }
 
-export function loadRemoteHostInstances(): RemoteHostInstance[] {
+function readStoredRemoteHostInstances(options?: {
+  readonly skipMigration?: boolean;
+}): RemoteHostInstance[] {
   if (typeof window === "undefined") {
     return [];
   }
@@ -191,20 +208,78 @@ export function loadRemoteHostInstances(): RemoteHostInstance[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed
+    const hosts = parsed
       .map((candidate) => decodeRemoteHostInstance(candidate))
       .filter((candidate): candidate is RemoteHostInstance => candidate !== null);
+    if (!options?.skipMigration) {
+      void scheduleRelayHostSecretMigration(hosts);
+    }
+    return hosts;
   } catch {
     return [];
   }
 }
 
-export function persistRemoteHostInstances(hosts: ReadonlyArray<RemoteHostInstance>): void {
+export function loadRemoteHostInstances(): RemoteHostInstance[] {
+  return readStoredRemoteHostInstances();
+}
+
+async function writePersistedRemoteHostInstances(
+  hosts: ReadonlyArray<RemoteHostInstance>,
+): Promise<void> {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(hosts));
+  const operationId = ++remoteHostPersistOperation;
+  const previousHosts = readStoredRemoteHostInstances({ skipMigration: true });
+  const persistedHosts = await Promise.all(
+    hosts.map(async (host) => ({
+      ...host,
+      wsUrl: await persistWebRelayConnectionSecrets(host.wsUrl),
+    })),
+  );
+  if (operationId !== remoteHostPersistOperation) {
+    return;
+  }
+  const previousHostIdentities = new Map(
+    previousHosts.map((host) => [persistedHostIdentity(host.wsUrl), host.wsUrl]),
+  );
+  const nextHostIdentities = new Set(
+    persistedHosts.map((host) => persistedHostIdentity(host.wsUrl)),
+  );
+  await Promise.all(
+    [...previousHostIdentities.entries()]
+      .filter(([identity]) => !nextHostIdentities.has(identity))
+      .map(([, wsUrl]) => deleteWebRelayConnectionSecrets(wsUrl)),
+  );
+  window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(persistedHosts));
   emitRemoteHostStorageChange(REMOTE_HOSTS_CHANGED_EVENT);
+}
+
+async function scheduleRelayHostSecretMigration(
+  hosts: ReadonlyArray<RemoteHostInstance>,
+): Promise<void> {
+  if (typeof window === "undefined" || remoteHostMigrationInFlight) {
+    return;
+  }
+  if (
+    hosts.every((host) => {
+      const relayMetadata = parseRelayConnectionUrl(host.wsUrl);
+      return !relayMetadata || (!relayMetadata.pairingAuthKey && !relayMetadata.pairingSecret);
+    })
+  ) {
+    return;
+  }
+  remoteHostMigrationInFlight = true;
+  try {
+    await writePersistedRemoteHostInstances(hosts);
+  } finally {
+    remoteHostMigrationInFlight = false;
+  }
+}
+
+export function persistRemoteHostInstances(hosts: ReadonlyArray<RemoteHostInstance>): void {
+  void writePersistedRemoteHostInstances(hosts);
 }
 
 function decodeStoredHostIds(raw: string | null): string[] {
@@ -325,7 +400,7 @@ export async function verifyWsHostConnection(
   targetWsUrl: string,
   options?: { readonly timeoutMs?: number },
 ): Promise<void> {
-  const normalizedTarget = normalizeWsUrl(targetWsUrl);
+  const normalizedTarget = normalizeWsUrl(await resolveWebSecureRelayConnectionUrl(targetWsUrl));
   if (parseRelayConnectionUrl(normalizedTarget)) {
     const transport = new RelayRpcTransport({
       connectionUrl: normalizedTarget,
