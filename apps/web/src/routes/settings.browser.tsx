@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-
-import { BrowserSettingsPanelRoute } from "../components/settings/LazySettingsPanels";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/settings/browser")({
-  component: BrowserSettingsPanelRoute,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/general", replace: true });
+  },
 });
