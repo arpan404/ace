@@ -215,6 +215,19 @@ describe("chatThreadBoardStore", () => {
     expect(afterRestore).toBe(beforeRestore);
   });
 
+  it("does not rewrite state when focusing the already active pane", () => {
+    const store = useChatThreadBoardStore.getState();
+    const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });
+
+    store.openThreadInBoard({ sourcePaneId, threadId: THREAD_B });
+    const beforeFocus = useChatThreadBoardStore.getState();
+
+    store.setActivePane(beforeFocus.activePaneId);
+    const afterFocus = useChatThreadBoardStore.getState();
+
+    expect(afterFocus).toBe(beforeFocus);
+  });
+
   it("inserts a thread above the source pane when opening upward", () => {
     const store = useChatThreadBoardStore.getState();
     const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });

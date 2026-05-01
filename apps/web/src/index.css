@@ -125,8 +125,15 @@ html.native-window-resizing *::after {
   contain: layout paint;
 }
 
+[data-slot="sidebar-content"] [data-slot="sidebar-group-content"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-sub"] {
+  contain: layout paint style;
+}
+
 [data-slot="sidebar-content"] [data-slot="sidebar-menu-item"],
 [data-slot="sidebar-content"] [data-slot="sidebar-menu-sub-item"] {
+  contain: layout paint style;
   content-visibility: auto;
   contain-intrinsic-size: auto 32px;
 }

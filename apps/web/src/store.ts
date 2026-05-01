@@ -72,6 +72,7 @@ const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+const EMPTY_SIDEBAR_THREAD_SUMMARIES: SidebarThreadSummary[] = [];
 const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
 const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>([
   "approval.requested",
@@ -2051,6 +2052,50 @@ export const selectThreadIdsByProjectId =
   (projectId: ProjectId | null | undefined) =>
   (state: AppState): ThreadId[] =>
     projectId ? (state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS) : EMPTY_THREAD_IDS;
+
+export const selectSidebarThreadSummariesByProjectId = (
+  projectId: ProjectId | null | undefined,
+) => {
+  let previousThreadIds: readonly ThreadId[] = EMPTY_THREAD_IDS;
+  let previousSidebarThreadsById: Readonly<
+    Record<string, SidebarThreadSummary | undefined>
+  > | null = null;
+  let previousResult: readonly SidebarThreadSummary[] = EMPTY_SIDEBAR_THREAD_SUMMARIES;
+
+  return (state: AppState): readonly SidebarThreadSummary[] => {
+    if (!projectId) {
+      return EMPTY_SIDEBAR_THREAD_SUMMARIES;
+    }
+    const threadIds = state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS;
+    const sidebarThreadsById = state.sidebarThreadsById;
+    if (threadIds === previousThreadIds && sidebarThreadsById === previousSidebarThreadsById) {
+      return previousResult;
+    }
+
+    let changed = threadIds.length !== previousResult.length;
+    const nextResult: SidebarThreadSummary[] = [];
+    for (const threadId of threadIds) {
+      const thread = sidebarThreadsById[threadId];
+      if (!thread) {
+        changed = true;
+        continue;
+      }
+      const nextIndex = nextResult.length;
+      nextResult.push(thread);
+      if (!changed && previousResult[nextIndex] !== thread) {
+        changed = true;
+      }
+    }
+
+    previousThreadIds = threadIds;
+    previousSidebarThreadsById = sidebarThreadsById;
+    if (!changed && nextResult.length === previousResult.length) {
+      return previousResult;
+    }
+    previousResult = nextResult.length === 0 ? EMPTY_SIDEBAR_THREAD_SUMMARIES : nextResult;
+    return previousResult;
+  };
+};
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return updateThreadState(state, threadId, (t) => {
