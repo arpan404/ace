@@ -7,8 +7,8 @@ describe("resolveDesktopMenuSettingsRoute", () => {
     expect(resolveDesktopMenuSettingsRoute("open-settings")).toBe("/settings/general");
     expect(resolveDesktopMenuSettingsRoute("open-settings-chat")).toBe("/settings/chat");
     expect(resolveDesktopMenuSettingsRoute("open-settings-editor")).toBe("/settings/editor");
-    expect(resolveDesktopMenuSettingsRoute("open-settings-browser")).toBe("/settings/browser");
-    expect(resolveDesktopMenuSettingsRoute("open-settings-models")).toBe("/settings/models");
+    expect(resolveDesktopMenuSettingsRoute("open-settings-browser")).toBe("/settings/general");
+    expect(resolveDesktopMenuSettingsRoute("open-settings-models")).toBe("/settings/providers");
     expect(resolveDesktopMenuSettingsRoute("open-settings-providers")).toBe("/settings/providers");
     expect(resolveDesktopMenuSettingsRoute("open-settings-advanced")).toBe("/settings/advanced");
     expect(resolveDesktopMenuSettingsRoute("open-settings-about")).toBe("/settings/about");

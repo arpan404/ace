@@ -232,9 +232,9 @@ export function KeybindingsSettingsEditor() {
   }, [canSave, dirtyCommands, draftShortcuts, draftWhenByCommand]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs text-muted-foreground">
+        <div className="text-[12px] text-muted-foreground/70">
           Press keys inside an input to record a shortcut. Use <code>Backspace</code> to clear.
         </div>
         <div className="flex items-center gap-2">
@@ -261,18 +261,18 @@ export function KeybindingsSettingsEditor() {
       {saveError ? <p className="text-xs text-destructive">{saveError}</p> : null}
 
       {categoryGroups.map((group) => (
-        <section key={group.category} className="space-y-2">
-          <div className="space-y-0.5">
-            <h4 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+        <section key={group.category} className="space-y-1.5">
+          <div className="space-y-0.5 px-0.5">
+            <h4 className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/72 uppercase">
               {group.category}
             </h4>
             {CATEGORY_DESCRIPTIONS[group.category] ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground/65">
                 {CATEGORY_DESCRIPTIONS[group.category]}
               </p>
             ) : null}
           </div>
-          <div className="space-y-2 rounded-md border border-border/60 p-2.5">
+          <div className="overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/30">
             {(expandedGroups[group.category]
               ? group.items
               : group.items.slice(0, CATEGORY_PREVIEW_COUNT)
@@ -283,13 +283,13 @@ export function KeybindingsSettingsEditor() {
               return (
                 <div
                   key={definition.command}
-                  className="grid gap-2 rounded-sm p-1.5 md:grid-cols-[minmax(0,1fr)_200px] md:items-center"
+                  className="grid gap-2 border-t border-border/40 px-3 py-2.5 first:border-t-0 md:grid-cols-[minmax(0,1fr)_200px] md:items-center"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">
+                    <p className="truncate text-[13px] font-medium text-foreground/90">
                       {definition.label}
                     </p>
-                    <p className="text-xs text-muted-foreground">{definition.description}</p>
+                    <p className="text-[12px] text-muted-foreground/65">{definition.description}</p>
                     {collision ? (
                       <p className="mt-0.5 text-xs text-destructive">{collision}</p>
                     ) : null}
@@ -306,7 +306,7 @@ export function KeybindingsSettingsEditor() {
               );
             })}
             {group.items.length > CATEGORY_PREVIEW_COUNT ? (
-              <div className="flex justify-end pt-0.5">
+              <div className="flex justify-end border-t border-border/40 px-3 py-2">
                 <Button
                   type="button"
                   size="xs"

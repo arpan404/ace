@@ -38,6 +38,7 @@ function toServerConfigUpdatedPayload(config: ServerConfig): ServerConfigUpdated
   return {
     issues: config.issues,
     providers: config.providers,
+    ...(config.relay ? { relay: config.relay } : {}),
     settings: config.settings,
   };
 }

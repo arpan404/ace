@@ -33,8 +33,8 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     preview: {
       panel: "oklch(0.17 0 0)",
       panelDeep: "oklch(0.13 0 0)",
-      accent: "oklch(0.68 0.18 255)",
-      accentMuted: "oklch(0.5 0.1 255)",
+      accent: "oklch(0.68 0.17 250)",
+      accentMuted: "oklch(0.38 0 0)",
     },
   },
   {
