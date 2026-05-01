@@ -289,6 +289,7 @@ export function deriveHydratedThreadHistoryKeepIds(input: {
   sourceProposedPlanThreadId: ThreadId | null | undefined;
   previousThreadId: ThreadId | null | undefined;
   handoffSourceThreadIds?: ReadonlyArray<ThreadId> | null | undefined;
+  additionalThreadIds?: ReadonlyArray<ThreadId> | null | undefined;
 }): ThreadId[] {
   if (!input.activeThreadId) {
     return [];
@@ -307,6 +308,9 @@ export function deriveHydratedThreadHistoryKeepIds(input: {
   pushThreadId(input.previousThreadId);
   for (const handoffSourceThreadId of input.handoffSourceThreadIds ?? []) {
     pushThreadId(handoffSourceThreadId);
+  }
+  for (const additionalThreadId of input.additionalThreadIds ?? []) {
+    pushThreadId(additionalThreadId);
   }
   return nextThreadIds;
 }

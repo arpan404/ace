@@ -72,7 +72,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "user-markdown",
@@ -129,7 +129,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "reasoning-markdown",
@@ -329,7 +329,7 @@ describe("MessagesTimeline", () => {
         isWorking
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:31.000Z"
-        scrollContainer={{} as unknown as HTMLDivElement}
+        getScrollContainer={() => ({}) as unknown as HTMLDivElement}
         timelineEntries={timelineEntries}
         completionDividerBeforeEntryId={null}
         completionSummary={null}
@@ -354,7 +354,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={{} as unknown as HTMLDivElement}
+        getScrollContainer={() => ({}) as unknown as HTMLDivElement}
         timelineEntries={timelineEntries}
         completionDividerBeforeEntryId={null}
         completionSummary={null}
@@ -385,7 +385,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:31.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "entry-1",
@@ -461,7 +461,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "entry-design-1",
@@ -517,7 +517,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "user-rebuildable-provider",
@@ -561,7 +561,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:31.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "entry-1",
@@ -604,7 +604,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "assistant-1",
@@ -719,7 +719,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "assistant-empty",
@@ -793,7 +793,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:31.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "work-tool-noisy-command",
@@ -864,7 +864,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={timelineEntries}
         completionDividerBeforeEntryId={null}
         completionSummary={null}
@@ -915,7 +915,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:20.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={timelineEntries}
         completionDividerBeforeEntryId={null}
         completionSummary={null}
@@ -950,7 +950,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:35.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "old-tool-before-turn",
@@ -1010,7 +1010,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-accumulated",
@@ -1060,7 +1060,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-collapsed",
@@ -1121,7 +1121,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-next-event-1",
@@ -1189,7 +1189,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:30.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-live-1",
@@ -1256,7 +1256,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:30.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-live",
@@ -1317,7 +1317,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-outline",
@@ -1366,7 +1366,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:31.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "work-tool-followup",
@@ -1431,7 +1431,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "tool-before-diff",
@@ -1531,7 +1531,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "tool-before-diff-latest",
@@ -1624,7 +1624,7 @@ describe("MessagesTimeline", () => {
         isWorking
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:30.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "tool-before-active-diff",
@@ -1701,7 +1701,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-1",
@@ -1757,7 +1757,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-image-view",
@@ -1811,7 +1811,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-counting-files",
@@ -1867,7 +1867,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-refreshing-state",
@@ -1916,7 +1916,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-1",
@@ -2002,7 +2002,7 @@ describe("MessagesTimeline", () => {
         isWorking
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:30.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-live-1",
@@ -2079,7 +2079,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "user-summary-start",
@@ -2139,7 +2139,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "assistant-no-meta-row",
@@ -2199,7 +2199,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "assistant-tail-visible",
@@ -2246,7 +2246,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "user-turn-start",
@@ -2318,7 +2318,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "assistant-no-header-row",
@@ -2364,7 +2364,7 @@ describe("MessagesTimeline", () => {
         isWorking
         activeTurnInProgress
         activeTurnStartedAt="2026-03-17T19:12:30.000Z"
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-only-live",
@@ -2409,7 +2409,7 @@ describe("MessagesTimeline", () => {
           isWorking
           activeTurnInProgress
           activeTurnStartedAt="2026-03-17T19:00:00.000Z"
-          scrollContainer={null}
+          getScrollContainer={() => null}
           timelineEntries={[
             {
               id: "user-current-turn",
@@ -2469,7 +2469,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "intent-primary",
@@ -2541,7 +2541,7 @@ describe("MessagesTimeline", () => {
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
-        scrollContainer={null}
+        getScrollContainer={() => null}
         timelineEntries={[
           {
             id: "thinking-first",

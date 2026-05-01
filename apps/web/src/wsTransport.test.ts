@@ -18,6 +18,7 @@ const sockets: MockWebSocket[] = [];
 const windowListeners = new Map<string, Set<DomListener>>();
 const documentListeners = new Map<string, Set<DomListener>>();
 let visibilityState: DocumentVisibilityState = "visible";
+let documentHasFocus = true;
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -143,6 +144,7 @@ beforeEach(() => {
   windowListeners.clear();
   documentListeners.clear();
   visibilityState = "visible";
+  documentHasFocus = true;
   const sessionStorageState = new Map<string, string>();
 
   Object.defineProperty(globalThis, "window", {
@@ -175,6 +177,7 @@ beforeEach(() => {
       get visibilityState() {
         return visibilityState;
       },
+      hasFocus: () => documentHasFocus,
       addEventListener: (type: string, listener: DomListener) => {
         addDomListener(documentListeners, type, listener);
       },
@@ -600,6 +603,41 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("skips interval probes while the page is visible but unfocused", async () => {
+    documentHasFocus = false;
+    const transport = new WsTransport("ws://localhost:3020", {
+      connectionProbeIntervalMs: 5,
+      connectionProbeTimeoutMs: 500,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const backgroundProbe = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+      .find((message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig);
+    expect(backgroundProbe).toBeUndefined();
+
+    documentHasFocus = true;
+    emitWindowEvent("focus");
+
+    await waitFor(() => {
+      const foregroundProbe = socket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(foregroundProbe).toBeDefined();
+    });
+
+    await transport.dispose();
+  });
+
   it("uses successful probes to restore connection state after disconnection", async () => {
     const transport = new WsTransport("ws://localhost:3020", {
       connectionProbeIntervalMs: 0,
@@ -691,6 +729,71 @@ describe("WsTransport", () => {
     });
 
     unsubscribeConnection();
+    unsubscribe();
+    await transport.dispose();
+  });
+
+  it("wakes sleeping subscription retries when the window regains focus", async () => {
+    const transport = new WsTransport("ws://localhost:3020", {
+      connectionProbeIntervalMs: 0,
+      connectionProbeTimeoutMs: 500,
+    });
+
+    const unsubscribe = transport.subscribe(
+      (client) => client[WS_METHODS.subscribeServerLifecycle]({}),
+      () => undefined,
+      { retryDelay: Duration.seconds(60) },
+    );
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    await waitFor(() => {
+      const subscribeRequest = socket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) =>
+            message._tag === "Request" && message.tag === WS_METHODS.subscribeServerLifecycle,
+        );
+      expect(subscribeRequest).toBeDefined();
+    });
+
+    const firstSubscribeRequest = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.subscribeServerLifecycle,
+      );
+    if (!firstSubscribeRequest) {
+      throw new Error("Expected a server lifecycle subscription request");
+    }
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: firstSubscribeRequest.id,
+        exit: {
+          _tag: "Success",
+          value: null,
+        },
+      }),
+    );
+
+    emitWindowEvent("focus");
+
+    await waitFor(() => {
+      const subscribeRequestCount = socket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .filter(
+          (message) =>
+            message._tag === "Request" && message.tag === WS_METHODS.subscribeServerLifecycle,
+        ).length;
+      expect(subscribeRequestCount).toBeGreaterThan(1);
+    });
+
     unsubscribe();
     await transport.dispose();
   });
