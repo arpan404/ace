@@ -207,6 +207,29 @@ Behavior:
 - changing the relay URL moves future remote traffic to the new relay
 - after changing relay servers, older remote pairs should be re-paired against the new relay
 
+### Host vs viewer relay behavior
+
+The single-relay rule applies to the host runtime, not to the viewer's entire saved-remote list.
+
+That means:
+
+- one host runtime can be registered to only one relay server at a time
+- a pairing record is pinned to the relay URL it was created with
+- a pairing link carries that relay URL, so the viewer does not need to guess it manually
+- a viewer can save multiple remote hosts that use different relay servers
+- when the viewer connects to a saved remote, it uses the relay URL pinned to that remote host record
+
+Example:
+
+- Host A can use `wss://relay-a.example.com/v1/ws`
+- Host B can use `wss://relay-b.example.com/v1/ws`
+- one viewer can connect to both hosts because each saved remote carries its own relay URL
+
+What is not supported:
+
+- one host being reachable through multiple relay servers at the same time
+- moving a host to a new relay without re-pairing older viewer records
+
 ## Configuration
 
 ### Desktop / web app settings
