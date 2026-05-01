@@ -14,7 +14,7 @@ import {
   type GitHubCliShape,
   type GitHubPullRequestSummary,
 } from "../Services/GitHubCli.ts";
-import { parseJsonFromCliOutput } from "../githubCliJson.ts";
+import { parseJsonFromCliOutputCandidates } from "../githubCliJson.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -92,15 +92,6 @@ function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown
     detail: "GitHub CLI command failed.",
     cause: error,
   });
-}
-
-function isGitHubCliError(error: unknown): error is GitHubCliError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "_tag" in error &&
-    (error as { _tag?: unknown })._tag === "GitHubCliError"
-  );
 }
 
 function normalizePullRequestState(input: {
@@ -318,7 +309,23 @@ function decodeGitHubJson<S extends Schema.Top>(
   invalidDetail: string,
 ): Effect.Effect<S["Type"], GitHubCliError, S["DecodingServices"]> {
   return Effect.try({
-    try: () => parseJsonFromCliOutput(raw),
+    try: () => {
+      const parsedCandidates = parseJsonFromCliOutputCandidates(raw);
+      let lastError: unknown = null;
+
+      for (const candidate of parsedCandidates) {
+        try {
+          return Schema.decodeUnknownSync(schema)(candidate);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (lastError instanceof Error) {
+        throw lastError;
+      }
+      throw new Error("No JSON payload matched expected GitHub CLI schema.");
+    },
     catch: (error) =>
       new GitHubCliError({
         operation,
@@ -326,16 +333,7 @@ function decodeGitHubJson<S extends Schema.Top>(
         cause: error,
       }),
   }).pipe(
-    Effect.flatMap((parsed) => Schema.decodeUnknownEffect(schema)(parsed)),
-    Effect.mapError((error) =>
-      isGitHubCliError(error)
-        ? error
-        : new GitHubCliError({
-            operation,
-            detail: error instanceof Error ? `${invalidDetail}: ${error.message}` : invalidDetail,
-            cause: error,
-          }),
-    ),
+    Effect.map((value) => value as S["Type"]),
   );
 }
 

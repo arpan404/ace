@@ -64,8 +64,24 @@ export function parseJsonFromCliOutput(raw: string): unknown {
     throw new Error("CLI output was empty.");
   }
 
+  const candidates = parseJsonFromCliOutputCandidates(raw);
+  if (candidates.length === 0) {
+    throw new Error("Unable to locate a valid JSON payload in CLI output.");
+  }
+
+  return candidates[0];
+}
+
+export function parseJsonFromCliOutputCandidates(raw: string): unknown[] {
+  const normalized = normalizeCliOutput(raw);
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  const parsed: unknown[] = [];
   try {
-    return JSON.parse(normalized) as unknown;
+    parsed.push(JSON.parse(normalized) as unknown);
+    return parsed;
   } catch {
     // Fall through to tolerant extraction for CLIs that emit extra text around JSON.
   }
@@ -83,11 +99,11 @@ export function parseJsonFromCliOutput(raw: string): unknown {
 
     const candidate = normalized.slice(index, endIndex);
     try {
-      return JSON.parse(candidate) as unknown;
+      parsed.push(JSON.parse(candidate) as unknown);
     } catch {
       continue;
     }
   }
 
-  throw new Error("Unable to locate a valid JSON payload in CLI output.");
+  return parsed;
 }
