@@ -13,7 +13,7 @@ import {
   resolveConfiguredRelayWebSocketUrl,
 } from "@ace/shared/relay";
 import { resolveWebSocketAuthConnection } from "@ace/shared/wsAuth";
-import { Effect, Layer, ServiceMap, Stream } from "effect";
+import { Effect, Layer, PubSub, ServiceMap, Stream } from "effect";
 import { approveRelayPairingRequest, persistPairingSessionsToDatabase } from "./pairing";
 import { ServerConfig } from "./config";
 import { PairingSessionRepository } from "./persistence/Services/PairingSessions";
@@ -80,6 +80,7 @@ interface ManagedRelayRegistration {
 export interface RelayHostManagerShape {
   readonly getStatus: Effect.Effect<ServerRelayStatus>;
   readonly refreshRegistrations: Effect.Effect<void>;
+  readonly streamChanges: Stream.Stream<ServerRelayStatus>;
 }
 
 export class RelayHostManagerService extends ServiceMap.Service<
@@ -249,6 +250,7 @@ const makeRelayHostManager = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const relayIdentity = yield* getRelayDeviceIdentity();
   const pairingSessionRepository = yield* PairingSessionRepository;
+  const changesPubSub = yield* PubSub.unbounded<ServerRelayStatus>();
 
   const initialSettings = yield* serverSettings.getSettings.pipe(Effect.orDie);
   const initialDefaultRelayUrl = resolveConfiguredRelayWebSocketUrl({
@@ -282,6 +284,9 @@ const makeRelayHostManager = Effect.gen(function* () {
 
   const publishStatus = () => {
     statusSnapshot = buildStatus();
+    void Effect.runFork(
+      PubSub.publish(changesPubSub, statusSnapshot).pipe(Effect.ignoreCause({ log: true })),
+    );
   };
 
   const closeRoute = (
@@ -807,6 +812,7 @@ const makeRelayHostManager = Effect.gen(function* () {
   return {
     getStatus: Effect.sync(() => statusSnapshot),
     refreshRegistrations,
+    streamChanges: Stream.fromPubSub(changesPubSub),
   } satisfies RelayHostManagerShape;
 });
 

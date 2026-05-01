@@ -834,6 +834,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 payload: { settings },
               })),
             );
+            const relayUpdates = relayHostManager.streamChanges.pipe(
+              Stream.map((relay) => ({
+                version: 1 as const,
+                type: "relayUpdated" as const,
+                payload: { relay },
+              })),
+            );
 
             return filterCurrentClientStream(
               normalizeStreamIdentity(input),
@@ -843,7 +850,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                   type: "snapshot" as const,
                   config: yield* loadServerConfig,
                 }),
-                Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+                Stream.merge(
+                  keybindingsUpdates,
+                  Stream.merge(providerStatuses, Stream.merge(settingsUpdates, relayUpdates)),
+                ),
               ),
             );
           }),

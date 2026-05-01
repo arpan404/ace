@@ -224,6 +224,7 @@ const buildAppUnderTest = (options?: {
             registrations: [],
           }),
           refreshRegistrations: Effect.void,
+          streamChanges: Stream.empty,
         }),
       ),
       Layer.provide(

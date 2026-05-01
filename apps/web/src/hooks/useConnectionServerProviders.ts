@@ -68,6 +68,8 @@ export function applyConnectionServerConfigEvent(
       return current ? { ...current, providers: event.payload.providers } : current;
     case "settingsUpdated":
       return current ? { ...current, settings: event.payload.settings } : current;
+    case "relayUpdated":
+      return current ? { ...current, relay: event.payload.relay } : current;
   }
 }
 
