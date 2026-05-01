@@ -66,6 +66,26 @@ describe("messageText", () => {
     ).toBe("hello world!");
   });
 
+  it("prefers full completion text when streamed markdown was escaped", () => {
+    let state = createChatMessageStreamingTextState("\\*\\*Audit Result\\*\\*");
+    state = appendChatMessageStreamingTextState(
+      state,
+      "\n- \\[ChatView.tsx\\]\\(/repo/apps/web/src/components/ChatView.tsx\\) uses \\`memo\\`.",
+    );
+
+    expect(
+      finalizeChatMessageText(
+        {
+          text: "",
+          streamingTextState: state,
+        },
+        "**Audit Result**\n- [ChatView.tsx](/repo/apps/web/src/components/ChatView.tsx) uses `memo`.",
+      ),
+    ).toBe(
+      "**Audit Result**\n- [ChatView.tsx](/repo/apps/web/src/components/ChatView.tsx) uses `memo`.",
+    );
+  });
+
   it("builds a collapsed preview for very large completed markdown", () => {
     const fullText = Array.from({ length: 400 }, (_, index) => `line ${index + 1}`).join("\n");
     const repeatedText = `${fullText}\n${"x".repeat(240_000)}`;

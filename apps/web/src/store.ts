@@ -651,6 +651,75 @@ function mapProject(project: OrchestrationReadModel["projects"][number]): Projec
   };
 }
 
+function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return left.glyph === right.glyph && left.color === right.color;
+}
+
+function projectScriptsEqual(
+  left: ReadonlyArray<Project["scripts"][number]>,
+  right: ReadonlyArray<Project["scripts"][number]>,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((leftScript, index) => {
+      const rightScript = right[index];
+      return (
+        rightScript !== undefined &&
+        leftScript.id === rightScript.id &&
+        leftScript.name === rightScript.name &&
+        leftScript.command === rightScript.command &&
+        leftScript.icon === rightScript.icon &&
+        leftScript.runOnWorktreeCreate === rightScript.runOnWorktreeCreate
+      );
+    })
+  );
+}
+
+function projectsEqual(left: Project, right: Project): boolean {
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    left.cwd === right.cwd &&
+    ((left.defaultModelSelection === null && right.defaultModelSelection === null) ||
+      (left.defaultModelSelection !== null &&
+        right.defaultModelSelection !== null &&
+        modelSelectionsEqual(left.defaultModelSelection, right.defaultModelSelection))) &&
+    projectIconsEqual(left.icon, right.icon) &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt &&
+    left.archivedAt === right.archivedAt &&
+    projectScriptsEqual(left.scripts, right.scripts)
+  );
+}
+
+function mergeProjectPreservingIdentity(
+  existingProject: Project | undefined,
+  incomingProject: Project,
+): Project {
+  return existingProject && projectsEqual(existingProject, incomingProject)
+    ? existingProject
+    : incomingProject;
+}
+
+function preserveProjectArrayIdentity(
+  previousProjects: ReadonlyArray<Project>,
+  nextProjects: Project[],
+): Project[] {
+  if (
+    previousProjects.length === nextProjects.length &&
+    nextProjects.every((project, index) => project === previousProjects[index])
+  ) {
+    return previousProjects as Project[];
+  }
+  return nextProjects;
+}
+
 function getLatestUserMessageAt(
   messages: ReadonlyArray<Thread["messages"][number]>,
 ): string | null {
@@ -1767,9 +1836,17 @@ export function syncServerReadModel(
   options?: SnapshotSyncOptions,
 ): AppState {
   const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
-  const projects = readModel.projects
-    .filter((project) => project.deletedAt === null)
-    .map(mapProject);
+  const existingProjectsById = new Map(
+    state.projects.map((project) => [project.id, project] as const),
+  );
+  const projects = preserveProjectArrayIdentity(
+    state.projects,
+    readModel.projects
+      .filter((project) => project.deletedAt === null)
+      .map((project) =>
+        mergeProjectPreservingIdentity(existingProjectsById.get(project.id), mapProject(project)),
+      ),
+  );
   const threads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
@@ -1811,7 +1888,7 @@ export function mergeServerReadModel(
 ): AppState {
   const incomingProjects = readModel.projects
     .filter((project) => project.deletedAt === null)
-    .map(mapProject);
+    .map((project) => mapProject(project));
   const incomingThreads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
@@ -1827,7 +1904,10 @@ export function mergeServerReadModel(
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
   for (const project of incomingProjects) {
-    projectsById.set(project.id, project);
+    projectsById.set(
+      project.id,
+      mergeProjectPreservingIdentity(projectsById.get(project.id), project),
+    );
   }
 
   const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
@@ -1838,7 +1918,7 @@ export function mergeServerReadModel(
     );
   }
 
-  const projects = [...projectsById.values()];
+  const projects = preserveProjectArrayIdentity(state.projects, [...projectsById.values()]);
   const threads = [...threadsById.values()];
   return {
     ...state,

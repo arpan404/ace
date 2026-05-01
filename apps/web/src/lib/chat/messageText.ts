@@ -11,6 +11,7 @@ const LARGE_MARKDOWN_PREVIEW_TAIL_MAX_CHARS = 72_000;
 const LARGE_MARKDOWN_PREVIEW_TAIL_MAX_LINES = 180;
 const LARGE_MARKDOWN_PREVIEW_SEPARATOR =
   "\n\n[... large response collapsed for faster rendering ...]\n\n";
+const MARKDOWN_ESCAPE_BACKSLASH_REGEX = /\\([\\`*_[\]{}()#+\-.!>|])/g;
 
 export const COLLAPSED_ASSISTANT_PREVIEW_MAX_HEIGHT_PX = 384;
 
@@ -203,6 +204,15 @@ function mergeCompletionTextWithStreamedText(streamedText: string, completionTex
   }
   if (streamedText.length === 0) {
     return completionText;
+  }
+  const unescapedStreamedText = streamedText.replace(MARKDOWN_ESCAPE_BACKSLASH_REGEX, "$1");
+  if (
+    completionText === unescapedStreamedText ||
+    completionText.startsWith(unescapedStreamedText)
+  ) {
+    return completionText.length >= unescapedStreamedText.length
+      ? completionText
+      : unescapedStreamedText;
   }
   if (
     completionText === streamedText ||

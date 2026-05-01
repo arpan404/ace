@@ -88,6 +88,11 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const INLINE_MARKDOWN_SIGNAL_REGEX =
+  /`|\*\*?|\[[^\]]+\]\(|!\[|https?:\/\/|www\.|<\w[\s\S]*?>|<\/\w+>/i;
+const BLOCK_MARKDOWN_SIGNAL_REGEX =
+  /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s+|\d+[.)]\s+|>\s+|```|~~~|\|.+\|)/;
+const ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX = /```|~~~|!\[|<img|<video|<iframe|<details|<table/i;
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -177,6 +182,25 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     highlighterPromiseCache.set(language, promise);
   }
   return promise;
+}
+
+function shouldUsePlainTextMarkdownFastPath(text: string): boolean {
+  if (text.length === 0) {
+    return true;
+  }
+  return !INLINE_MARKDOWN_SIGNAL_REGEX.test(text) && !BLOCK_MARKDOWN_SIGNAL_REGEX.test(text);
+}
+
+function shouldObserveMarkdownLayout(input: {
+  readonly text: string;
+  readonly isStreaming: boolean;
+  readonly renderPlainText: boolean;
+  readonly useLargePreview: boolean;
+}): boolean {
+  if (input.isStreaming || input.renderPlainText || input.useLargePreview) {
+    return true;
+  }
+  return ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX.test(input.text);
 }
 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
@@ -309,6 +333,14 @@ function StreamingMarkdownText({ text }: { text: string }) {
     </div>
   );
 }
+
+const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
+  return (
+    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+      {text}
+    </div>
+  );
+});
 
 const MarkdownBody = memo(function MarkdownBody({
   children,
@@ -450,6 +482,19 @@ function ChatMarkdown({
     !isStreaming &&
     renderPreference !== "markdown" &&
     shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
+  const shouldFastPathPlainText =
+    !isStreaming &&
+    !renderPlainText &&
+    !useLargePreview &&
+    shouldUsePlainTextMarkdownFastPath(text);
+  const shouldObserveLayout =
+    onLayoutChange !== undefined &&
+    shouldObserveMarkdownLayout({
+      text,
+      isStreaming,
+      renderPlainText,
+      useLargePreview,
+    });
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();
     if (api) {
@@ -600,7 +645,7 @@ function ChatMarkdown({
   }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
 
   useEffect(() => {
-    if (!onLayoutChange || typeof ResizeObserver === "undefined") {
+    if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;
     }
     const rootElement = rootRef.current;
@@ -634,7 +679,7 @@ function ChatMarkdown({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [onLayoutChange]);
+  }, [onLayoutChange, shouldObserveLayout]);
 
   const content = useMemo<ReactNode>(() => {
     if (renderPlainText) {
@@ -660,6 +705,9 @@ function ChatMarkdown({
         />
       );
     }
+    if (shouldFastPathPlainText) {
+      return <PlainMarkdownText text={text} />;
+    }
     return (
       <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
         {text}
@@ -672,6 +720,7 @@ function ChatMarkdown({
     renderPlainText,
     startMarkdownTransition,
     streamingTextState,
+    shouldFastPathPlainText,
     text,
     useLargePreview,
   ]);

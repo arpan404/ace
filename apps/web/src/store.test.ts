@@ -16,6 +16,7 @@ import {
   applyOrchestrationEvents,
   dismissThreadError,
   hydrateThreadFromReadModel,
+  mergeServerReadModel,
   pruneHydratedThreadHistories,
   selectThreadById,
   syncServerReadModel,
@@ -232,6 +233,24 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, makeReadModel(makeReadModelThread({})));
 
     expect(next.bootstrapComplete).toBe(true);
+  });
+
+  it("preserves project identity when snapshot sync has no project changes", () => {
+    const readModel = makeReadModel(makeReadModelThread({}));
+    const synced = syncServerReadModel(makeState(makeThread()), readModel);
+    const next = syncServerReadModel(synced, readModel);
+
+    expect(next.projects).toBe(synced.projects);
+    expect(next.projects[0]).toBe(synced.projects[0]);
+  });
+
+  it("preserves project identity when merging an unchanged project", () => {
+    const readModel = makeReadModel(makeReadModelThread({}));
+    const synced = syncServerReadModel(makeState(makeThread()), readModel);
+    const next = mergeServerReadModel(synced, readModel);
+
+    expect(next.projects).toBe(synced.projects);
+    expect(next.projects[0]).toBe(synced.projects[0]);
   });
 
   it("preserves claude model slugs without an active session", () => {
