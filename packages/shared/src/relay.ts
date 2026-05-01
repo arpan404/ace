@@ -27,6 +27,11 @@ export interface RelayConnectionMetadata {
   readonly expiresAt?: string;
 }
 
+export interface RelayConnectionSecretMaterial {
+  readonly pairingAuthKey?: string;
+  readonly pairingSecret?: string;
+}
+
 export interface RelayStoredKeyPair {
   readonly secretKey: string;
   readonly publicKey: string;
@@ -219,12 +224,13 @@ export function resolveConfiguredRelayWebSocketUrl(input?: {
   });
 }
 
-export function buildRelayConnectionUrl(metadata: RelayConnectionMetadata): string {
-  if (typeof metadata.pairingAuthKey !== "string" && typeof metadata.pairingSecret !== "string") {
-    throw new Error("Relay metadata requires either pairingAuthKey or pairingSecret.");
-  }
+function encodeRelayConnectionMetadata(
+  metadata: Omit<RelayConnectionMetadata, "version"> & {
+    readonly version?: 1;
+  },
+): string {
   const relayUrl = normalizeRelayWebSocketUrl(metadata.relayUrl);
-  const encoded = encodeBase64UrlUtf8(
+  return encodeBase64UrlUtf8(
     JSON.stringify({
       version: 1,
       relayUrl,
@@ -237,12 +243,43 @@ export function buildRelayConnectionUrl(metadata: RelayConnectionMetadata): stri
       ...(metadata.expiresAt ? { expiresAt: metadata.expiresAt } : {}),
     } satisfies RelayConnectionMetadata),
   );
-  const parsed = new URL(relayUrl);
+}
+
+function buildRelayConnectionUrlWithEncodedMetadata(
+  relayUrl: string,
+  encodedMetadata: string,
+): string {
+  const parsed = new URL(normalizeRelayWebSocketUrl(relayUrl));
   parsed.searchParams.delete(RELAY_CONNECTION_QUERY_PARAM);
   const hashParams = new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : "");
-  hashParams.set(RELAY_CONNECTION_QUERY_PARAM, encoded);
+  hashParams.set(RELAY_CONNECTION_QUERY_PARAM, encodedMetadata);
   parsed.hash = hashParams.toString();
   return parsed.toString();
+}
+
+export function buildRelayConnectionUrl(metadata: RelayConnectionMetadata): string {
+  if (typeof metadata.pairingAuthKey !== "string" && typeof metadata.pairingSecret !== "string") {
+    throw new Error("Relay metadata requires either pairingAuthKey or pairingSecret.");
+  }
+  return buildRelayConnectionUrlWithEncodedMetadata(
+    metadata.relayUrl,
+    encodeRelayConnectionMetadata(metadata),
+  );
+}
+
+export function buildPublicRelayConnectionUrl(
+  metadata: Omit<RelayConnectionMetadata, keyof RelayConnectionSecretMaterial> &
+    RelayConnectionSecretMaterial,
+): string {
+  const {
+    pairingAuthKey: _pairingAuthKey,
+    pairingSecret: _pairingSecret,
+    ...publicMetadata
+  } = metadata;
+  return buildRelayConnectionUrlWithEncodedMetadata(
+    metadata.relayUrl,
+    encodeRelayConnectionMetadata(publicMetadata),
+  );
 }
 
 export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata | null {
@@ -271,8 +308,7 @@ export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata 
       typeof decoded.relayUrl !== "string" ||
       typeof decoded.hostDeviceId !== "string" ||
       typeof decoded.hostIdentityPublicKey !== "string" ||
-      typeof decoded.pairingId !== "string" ||
-      (typeof pairingAuthKey !== "string" && typeof pairingSecret !== "string")
+      typeof decoded.pairingId !== "string"
     ) {
       return null;
     }
@@ -290,6 +326,55 @@ export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata 
   } catch {
     return null;
   }
+}
+
+export function relayConnectionStorageKey(
+  metadata: Pick<RelayConnectionMetadata, "relayUrl" | "hostDeviceId" | "pairingId">,
+): string {
+  return [
+    normalizeRelayWebSocketUrl(metadata.relayUrl),
+    metadata.hostDeviceId.trim(),
+    metadata.pairingId.trim(),
+  ].join("\u0000");
+}
+
+export function splitRelayConnectionSecrets(input: string): {
+  readonly connectionUrl: string;
+  readonly storageKey?: string;
+  readonly secrets?: RelayConnectionSecretMaterial;
+} {
+  const metadata = parseRelayConnectionUrl(input);
+  if (!metadata) {
+    return { connectionUrl: input };
+  }
+  const storageKey = relayConnectionStorageKey(metadata);
+  const secrets =
+    metadata.pairingAuthKey || metadata.pairingSecret
+      ? {
+          ...(metadata.pairingAuthKey ? { pairingAuthKey: metadata.pairingAuthKey } : {}),
+          ...(metadata.pairingSecret ? { pairingSecret: metadata.pairingSecret } : {}),
+        }
+      : undefined;
+  return {
+    connectionUrl: buildPublicRelayConnectionUrl(metadata),
+    storageKey,
+    ...(secrets ? { secrets } : {}),
+  };
+}
+
+export function mergeRelayConnectionSecrets(
+  input: string,
+  secrets: RelayConnectionSecretMaterial | null | undefined,
+): string {
+  const metadata = parseRelayConnectionUrl(input);
+  if (!metadata || (!secrets?.pairingAuthKey && !secrets?.pairingSecret)) {
+    return input;
+  }
+  return buildRelayConnectionUrl({
+    ...metadata,
+    ...(secrets.pairingAuthKey ? { pairingAuthKey: secrets.pairingAuthKey } : {}),
+    ...(secrets.pairingSecret ? { pairingSecret: secrets.pairingSecret } : {}),
+  });
 }
 
 export function createRelayDeviceIdentity(
