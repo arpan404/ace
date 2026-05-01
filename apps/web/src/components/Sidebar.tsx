@@ -1,10 +1,4 @@
-import {
-  IconPin,
-  IconPinFilled,
-  IconPinnedOff,
-  IconSearch,
-  IconSettings,
-} from "@tabler/icons-react";
+import { IconSearch, IconSettings } from "@tabler/icons-react";
 import {
   ArrowUpIcon,
   ChevronLeftIcon,
@@ -49,7 +43,7 @@ import {
   ThreadId,
 } from "@ace/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@ace/contracts/settings";
+import { type SidebarProjectSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
@@ -141,26 +135,29 @@ import {
 } from "../lib/projectPaths";
 import {
   buildRenderedSidebarThreadGroups,
-  getVisibleThreadsForProject,
   getProjectSortTimestamp,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
-  resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarNewThreadOptions,
-  resolveThreadStatusPill,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
   sortThreadsForSidebar,
   useThreadJumpHintVisibility,
 } from "../lib/sidebar";
+import {
+  deriveSidebarLocalProjectThreadGroup,
+  EMPTY_SIDEBAR_THREADS,
+  type SidebarLocalProjectThreadGroup,
+} from "./sidebar/localProjectRenderState";
+import { SidebarLocalProjectSection } from "./sidebar/SidebarLocalProjectSection";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { SidebarProjectsSectionHeader } from "./sidebar/SidebarProjectsSectionHeader";
 import {
   SortableProjectItem,
   type SortableProjectHandleProps,
 } from "./sidebar/SortableProjectItem";
-import { SidebarThreadRow, ThreadStatusLabel } from "./sidebar/SidebarThreadRow";
+import { SidebarThreadRow } from "./sidebar/SidebarThreadRow";
 import { useSidebarCommandPalette } from "./sidebar/useSidebarCommandPalette";
 import { useSidebarThreadPrStatus } from "./sidebar/useSidebarThreadPrStatus";
 import type {
@@ -197,12 +194,7 @@ import {
   resolveConnectionForThreadId,
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
-import {
-  buildSingleThreadRouteSearch,
-  buildThreadBoardRouteSearch,
-  THREAD_BOARD_SPLIT_SEARCH_PARAM,
-  THREAD_BOARD_THREADS_SEARCH_PARAM,
-} from "../lib/chatThreadBoardRouteSearch";
+import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { buildThreadBoardTitle } from "../lib/threadBoardTitle";
 import {
   createThreadBoardDragThread,
@@ -238,26 +230,6 @@ type BoardThreadDragState = {
   overTargetKey: string | null;
 };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
-const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
-const sortedSidebarThreadsCache = new WeakMap<
-  ReadonlyArray<SidebarThreadSummary>,
-  Map<SidebarThreadSortOrder, SidebarThreadSummary[]>
->();
-const threadStatusCache = new WeakMap<
-  SidebarThreadSummary,
-  Map<string, ReturnType<typeof resolveThreadStatusPill>>
->();
-const projectStatusCache = new WeakMap<
-  Record<string, string>,
-  WeakMap<ReadonlyArray<SidebarThreadSummary>, ReturnType<typeof resolveProjectStatusIndicator>>
->();
-const hiddenThreadStatusCache = new WeakMap<
-  Record<string, string>,
-  WeakMap<
-    ReadonlyArray<SidebarThreadSummary>,
-    Map<string, ReturnType<typeof resolveProjectStatusIndicator>>
-  >
->();
 let remoteSidebarHostSnapshotCache: ReadonlyArray<RemoteSidebarHostEntry> = [];
 
 function isEditableHotkeyTarget(target: EventTarget | null): boolean {
@@ -616,113 +588,6 @@ function mapRemoteProjectsFromSnapshot(
     .toSorted(sortFn);
 }
 
-function getCachedSortedSidebarThreads(
-  threads: ReadonlyArray<SidebarThreadSummary>,
-  sortOrder: SidebarThreadSortOrder,
-): SidebarThreadSummary[] {
-  let cacheBySortOrder = sortedSidebarThreadsCache.get(threads);
-  if (!cacheBySortOrder) {
-    cacheBySortOrder = new Map();
-    sortedSidebarThreadsCache.set(threads, cacheBySortOrder);
-  }
-
-  const cachedThreads = cacheBySortOrder.get(sortOrder);
-  if (cachedThreads) {
-    return cachedThreads;
-  }
-
-  const sortedThreads = sortThreadsForSidebar(threads, sortOrder);
-  cacheBySortOrder.set(sortOrder, sortedThreads);
-  return sortedThreads;
-}
-
-function getCachedThreadStatus(
-  thread: SidebarThreadSummary,
-  lastVisitedAt: string | undefined,
-): ReturnType<typeof resolveThreadStatusPill> {
-  let cacheByVisitedAt = threadStatusCache.get(thread);
-  if (!cacheByVisitedAt) {
-    cacheByVisitedAt = new Map();
-    threadStatusCache.set(thread, cacheByVisitedAt);
-  }
-
-  const cacheKey = lastVisitedAt ?? "";
-  if (cacheByVisitedAt.has(cacheKey)) {
-    return cacheByVisitedAt.get(cacheKey) ?? null;
-  }
-
-  const status = resolveThreadStatusPill({
-    thread: {
-      ...thread,
-      lastVisitedAt,
-    },
-  });
-  cacheByVisitedAt.set(cacheKey, status);
-  return status;
-}
-
-function getCachedProjectStatus(
-  threads: ReadonlyArray<SidebarThreadSummary>,
-  threadLastVisitedAtById: Record<string, string>,
-): ReturnType<typeof resolveProjectStatusIndicator> {
-  let cacheByThreads = projectStatusCache.get(threadLastVisitedAtById);
-  if (!cacheByThreads) {
-    cacheByThreads = new WeakMap();
-    projectStatusCache.set(threadLastVisitedAtById, cacheByThreads);
-  }
-
-  if (cacheByThreads.has(threads)) {
-    return cacheByThreads.get(threads) ?? null;
-  }
-
-  const status = resolveProjectStatusIndicator(
-    threads.map((thread) => getCachedThreadStatus(thread, threadLastVisitedAtById[thread.id])),
-  );
-  cacheByThreads.set(threads, status);
-  return status;
-}
-
-function getCachedHiddenThreadStatus(input: {
-  activeThreadId: ThreadId | undefined;
-  visibleCount: number;
-  threadLastVisitedAtById: Record<string, string>;
-  threads: ReadonlyArray<SidebarThreadSummary>;
-}): ReturnType<typeof resolveProjectStatusIndicator> {
-  if (input.threads.length <= input.visibleCount) {
-    return null;
-  }
-
-  let cacheByThreads = hiddenThreadStatusCache.get(input.threadLastVisitedAtById);
-  if (!cacheByThreads) {
-    cacheByThreads = new WeakMap();
-    hiddenThreadStatusCache.set(input.threadLastVisitedAtById, cacheByThreads);
-  }
-
-  let cacheByKey = cacheByThreads.get(input.threads);
-  if (!cacheByKey) {
-    cacheByKey = new Map();
-    cacheByThreads.set(input.threads, cacheByKey);
-  }
-
-  const cacheKey = `${input.activeThreadId ?? ""}:${input.visibleCount}`;
-  if (cacheByKey.has(cacheKey)) {
-    return cacheByKey.get(cacheKey) ?? null;
-  }
-
-  const { hiddenThreads } = getVisibleThreadsForProject({
-    threads: input.threads,
-    activeThreadId: input.activeThreadId,
-    visibleCount: input.visibleCount,
-  });
-  const status = resolveProjectStatusIndicator(
-    hiddenThreads.map((thread) =>
-      getCachedThreadStatus(thread, input.threadLastVisitedAtById[thread.id]),
-    ),
-  );
-  cacheByKey.set(cacheKey, status);
-  return status;
-}
-
 function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boolean {
   if (left === right) {
     return true;
@@ -865,7 +730,6 @@ export default function Sidebar() {
     projectExpandedById,
     projectOrder,
     projectsSectionExpanded,
-    threadLastVisitedAtById,
   } = useUiStateStore(
     useShallow((store) => ({
       boardsSectionExpanded: store.boardsSectionExpanded,
@@ -874,7 +738,6 @@ export default function Sidebar() {
       projectExpandedById: store.projectExpandedById,
       projectOrder: store.projectOrder,
       projectsSectionExpanded: store.projectsSectionExpanded,
-      threadLastVisitedAtById: store.threadLastVisitedAtById,
     })),
   );
   const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
@@ -890,6 +753,10 @@ export default function Sidebar() {
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
   );
+  const routeThreadId = useParams({
+    strict: false,
+    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+  });
   const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
@@ -913,14 +780,9 @@ export default function Sidebar() {
     () => pinnedItems.flatMap((item) => (item.kind === "thread" ? [item.id] : [])),
     [pinnedItems],
   );
-  const providerStatuses = useServerProviders();
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread } =
     useHandleNewThread();
   const { archiveThread, deleteThread } = useThreadActions();
-  const routeThreadId = useParams({
-    strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
-  });
   const keybindings = useServerKeybindings();
   const [addingProject, setAddingProject] = useState(false);
   const [projectPickerStep, setProjectPickerStep] = useState<ProjectPickerStep>("environment");
@@ -944,6 +806,9 @@ export default function Sidebar() {
   >(null);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const providerStatuses = useServerProviders({
+    enabled: addingProject || isAddingProject,
+  });
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectPickerListRef = useRef<HTMLDivElement | null>(null);
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
@@ -1021,15 +886,10 @@ export default function Sidebar() {
     }
     return localDeviceConnectionUrl;
   }, [localDeviceConnectionUrl, locationSearch, routeThreadConnectionUrl]);
-  const activeRouteSplitId = useMemo(() => {
-    const params = new URLSearchParams(locationSearch);
-    const splitId = params.get(THREAD_BOARD_SPLIT_SEARCH_PARAM)?.trim();
-    return splitId ? splitId : null;
-  }, [locationSearch]);
-  const routeHasSplitThreads = useMemo(() => {
-    const params = new URLSearchParams(locationSearch);
-    return Boolean(params.get(THREAD_BOARD_THREADS_SEARCH_PARAM)?.trim());
-  }, [locationSearch]);
+  const activeStoreSplitId =
+    savedSplitBoard.activeSplitId && savedSplitBoard.panes.length > 1
+      ? savedSplitBoard.activeSplitId
+      : null;
   const savedBoards = useMemo(() => {
     const activeBoards = savedSplitBoard.splits.filter((split) => split.archivedAt === null);
     return activeBoards.toSorted((left, right) => {
@@ -1124,42 +984,26 @@ export default function Sidebar() {
             .upsertThreadOwnership(pane.connectionUrl, pane.threadId);
         }
       }
-      if (
-        activeRouteSplitId === split.id &&
-        savedSplitBoard.activeSplitId === split.id &&
-        savedSplitBoard.activePaneId === activePane.id
-      ) {
-        return;
+      if (activeStoreSplitId !== split.id || savedSplitBoard.activePaneId !== activePane.id) {
+        useChatThreadBoardStore.getState().restoreSplit(split.id, activePane.id);
       }
       startTransition(() => {
-        useChatThreadBoardStore.getState().restoreSplit(split.id, activePane.id);
         void navigate({
           to: "/$threadId",
           params: { threadId: activePane.threadId },
-          search: buildThreadBoardRouteSearch(orderedPanes, activePane, {
-            paneId: activePane.id,
-            splitId: split.id,
-          }),
+          search: buildSingleThreadRouteSearch({ connectionUrl: activePane.connectionUrl }),
         });
       });
     },
-    [activeRouteSplitId, navigate, savedSplitBoard.activePaneId, savedSplitBoard.activeSplitId],
+    [activeStoreSplitId, navigate, savedSplitBoard.activePaneId],
   );
-  const navigateToCurrentSplit = useCallback(
+  const navigateToBoardThreadRoute = useCallback(
     (activePane: { connectionUrl: string | null; threadId: ThreadId }) => {
-      const boardState = useChatThreadBoardStore.getState();
-      const routePanes = orderBoardPanes(boardState.panes, boardState.layoutRoot);
-      if (routePanes.length <= 1 || !boardState.activeSplitId) {
-        return;
-      }
       startTransition(() => {
         void navigate({
           to: "/$threadId",
           params: { threadId: activePane.threadId },
-          search: buildThreadBoardRouteSearch(routePanes, activePane, {
-            paneId: boardState.activePaneId,
-            splitId: boardState.activeSplitId,
-          }),
+          search: buildSingleThreadRouteSearch({ connectionUrl: activePane.connectionUrl }),
         });
       });
     },
@@ -1194,9 +1038,9 @@ export default function Sidebar() {
       if (!splitId) {
         return;
       }
-      navigateToCurrentSplit(activeThread);
+      navigateToBoardThreadRoute(activeThread);
     },
-    [buildSplitTitle, navigateToCurrentSplit],
+    [buildSplitTitle, navigateToBoardThreadRoute],
   );
   const handleBoardThreadDragStart = useCallback(
     (
@@ -1362,8 +1206,7 @@ export default function Sidebar() {
           .upsertThreadOwnership(target.connectionUrl, target.threadId);
       }
 
-      const shouldUpdateActiveSplit =
-        activeRouteSplitId !== null && savedSplitBoard.activeSplitId === activeRouteSplitId;
+      const shouldUpdateActiveSplit = activeStoreSplitId !== null;
 
       if (shouldUpdateActiveSplit) {
         useChatThreadBoardStore.getState().openThreadInBoard({
@@ -1372,7 +1215,7 @@ export default function Sidebar() {
           sourcePaneId: savedSplitBoard.activePaneId,
           threadId: target.threadId,
         });
-        navigateToCurrentSplit(target);
+        navigateToBoardThreadRoute(target);
         return;
       }
 
@@ -1393,15 +1236,14 @@ export default function Sidebar() {
       if (!splitId) {
         return;
       }
-      navigateToCurrentSplit(target);
+      navigateToBoardThreadRoute(target);
     },
     [
-      activeRouteSplitId,
+      activeStoreSplitId,
       buildSplitTitle,
-      navigateToCurrentSplit,
+      navigateToBoardThreadRoute,
       routeThreadId,
       savedSplitBoard.activePaneId,
-      savedSplitBoard.activeSplitId,
     ],
   );
   const openThreadsInSplit = useCallback(
@@ -1417,14 +1259,13 @@ export default function Sidebar() {
         }
       }
       const activeTarget = targets[targets.length - 1]!;
-      const shouldUpdateActiveSplit =
-        activeRouteSplitId !== null && savedSplitBoard.activeSplitId === activeRouteSplitId;
+      const shouldUpdateActiveSplit = activeStoreSplitId !== null;
 
       if (shouldUpdateActiveSplit) {
         useChatThreadBoardStore
           .getState()
           .openThreadsInBoard(targets, { sourcePaneId: savedSplitBoard.activePaneId });
-        navigateToCurrentSplit(activeTarget);
+        navigateToBoardThreadRoute(activeTarget);
         return;
       }
 
@@ -1446,15 +1287,14 @@ export default function Sidebar() {
       if (!splitId) {
         return;
       }
-      navigateToCurrentSplit(activeTarget);
+      navigateToBoardThreadRoute(activeTarget);
     },
     [
-      activeRouteSplitId,
+      activeStoreSplitId,
       buildSplitTitle,
-      navigateToCurrentSplit,
+      navigateToBoardThreadRoute,
       routeThreadId,
       savedSplitBoard.activePaneId,
-      savedSplitBoard.activeSplitId,
     ],
   );
   const closeActiveSplitRoute = useCallback(() => {
@@ -1514,7 +1354,7 @@ export default function Sidebar() {
       }
       if (action === "archive") {
         useChatThreadBoardStore.getState().archiveSplit(split.id);
-        if (activeRouteSplitId === split.id) {
+        if (activeStoreSplitId === split.id) {
           closeActiveSplitRoute();
         }
         return;
@@ -1528,11 +1368,11 @@ export default function Sidebar() {
         return;
       }
       useChatThreadBoardStore.getState().deleteSplit(split.id);
-      if (activeRouteSplitId === split.id) {
+      if (activeStoreSplitId === split.id) {
         closeActiveSplitRoute();
       }
     },
-    [activeRouteSplitId, closeActiveSplitRoute, closeSplitContextMenu, restoreSavedSplit],
+    [activeStoreSplitId, closeActiveSplitRoute, closeSplitContextMenu, restoreSavedSplit],
   );
   const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
     ReadonlyArray<RemoteSidebarHostEntry>
@@ -2826,6 +2666,10 @@ export default function Sidebar() {
       }
       setSelectionAnchor(threadId);
       useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
+      useChatThreadBoardStore.getState().syncRouteThread({
+        connectionUrl,
+        threadId,
+      });
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
@@ -2897,6 +2741,7 @@ export default function Sidebar() {
         clearSelection();
       }
       setSelectionAnchor(threadId);
+      useChatThreadBoardStore.getState().syncRouteThread({ threadId });
       startTransition(() => {
         void navigate({
           to: "/$threadId",
@@ -2920,6 +2765,10 @@ export default function Sidebar() {
       }
       setSelectionAnchor(threadId);
       useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
+      useChatThreadBoardStore.getState().syncRouteThread({
+        connectionUrl,
+        threadId,
+      });
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
@@ -3423,7 +3272,7 @@ export default function Sidebar() {
     [],
   );
 
-  const routeIsBoard = routeHasSplitThreads || activeRouteSplitId !== null;
+  const routeIsBoard = activeStoreSplitId !== null;
   const activeThreadId = routeIsBoard ? undefined : (routeThreadId ?? undefined);
   const activeSidebarRouteThreadId = activeThreadId ?? null;
   const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
@@ -3478,109 +3327,84 @@ export default function Sidebar() {
     visibleProjectThreadsByProjectId,
   ]);
   const isProjectDraggingEnabled = normalizedProjectSearchQuery.length === 0;
-  const renderedProjects = useMemo(
+  const sortedLocalProjectIds = useMemo(
+    () => sortedProjects.map((project) => project.id),
+    [sortedProjects],
+  );
+  const filteredLocalProjectIds = useMemo(() => {
+    const unpinnedProjectIds = sortedLocalProjectIds.filter(
+      (projectId) => !pinnedProjectIdSet.has(projectId),
+    );
+    if (normalizedProjectSearchQuery.length === 0) {
+      return unpinnedProjectIds;
+    }
+    return unpinnedProjectIds.filter((projectId) => {
+      const project = projectById.get(projectId);
+      if (!project) {
+        return false;
+      }
+      if (
+        project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
+        project.cwd.toLowerCase().includes(normalizedProjectSearchQuery)
+      ) {
+        return true;
+      }
+      const projectThreads =
+        visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS;
+      return projectThreads.some((thread) =>
+        thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
+      );
+    });
+  }, [
+    normalizedProjectSearchQuery,
+    pinnedProjectIdSet,
+    projectById,
+    sortedLocalProjectIds,
+    visibleProjectThreadsByProjectId,
+  ]);
+  const localProjectThreadGroups = useMemo(
     () =>
-      sortedProjects.map((project) => {
-        const unsortedProjectThreads =
-          visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
-        const projectListThreads =
-          projectListThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
-        const projectExpanded = projectExpandedById[project.id] ?? true;
-        const projectStatus = getCachedProjectStatus(
-          unsortedProjectThreads,
-          threadLastVisitedAtById,
-        );
-        const visibleThreadCount = threadRevealCountByProject[project.id] ?? THREAD_REVEAL_STEP;
-        const projectThreads = getCachedSortedSidebarThreads(
-          projectListThreads,
-          sidebarThreadSortOrder,
-        );
-        const collapsedPreviewThread = !projectExpanded
-          ? ((activeThreadId
-              ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
-              : null) ?? null)
-          : null;
-        const shouldShowThreadPanel = projectExpanded || collapsedPreviewThread !== null;
-        const {
-          hasHiddenThreads,
-          hiddenThreads,
-          visibleThreads: visibleProjectThreads,
-        } = shouldShowThreadPanel
-          ? getVisibleThreadsForProject({
-              threads: projectThreads,
-              activeThreadId,
-              visibleCount: visibleThreadCount,
-            })
-          : {
-              hasHiddenThreads: false,
-              hiddenThreads: EMPTY_SIDEBAR_THREADS,
-              visibleThreads: EMPTY_SIDEBAR_THREADS,
-            };
-        const hiddenThreadStatus =
-          projectExpanded && hasHiddenThreads
-            ? getCachedHiddenThreadStatus({
-                activeThreadId,
-                visibleCount: visibleThreadCount,
-                threadLastVisitedAtById,
-                threads: projectThreads,
-              })
-            : null;
-        const orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
-        const renderedThreadIds = collapsedPreviewThread
-          ? [collapsedPreviewThread.id]
-          : visibleProjectThreads.map((thread) => thread.id);
-        const showEmptyThreadState = projectExpanded && unsortedProjectThreads.length === 0;
-
-        return {
-          hasHiddenThreads,
-          hiddenThreadCount: hiddenThreads.length,
-          hiddenThreadStatus,
-          isPinned: pinnedProjectIdSet.has(project.id),
-          projectExpanded,
-          orderedProjectThreadIds,
-          project,
-          projectStatus,
-          renderedThreadIds,
-          showEmptyThreadState,
-          shouldShowThreadPanel,
-          canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
-          connectionUrl: activeWsUrl,
-        };
-      }),
+      filteredLocalProjectIds.map((projectId) =>
+        deriveSidebarLocalProjectThreadGroup({
+          activeThreadId,
+          projectExpanded: projectExpandedById[projectId] ?? true,
+          projectListThreads: projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+          revealStep: THREAD_REVEAL_STEP,
+          unsortedProjectThreads:
+            visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+          visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
+          threadSortOrder: sidebarThreadSortOrder,
+        }),
+      ),
     [
-      activeWsUrl,
+      activeThreadId,
+      filteredLocalProjectIds,
+      projectExpandedById,
+      projectListThreadsByProjectId,
       sidebarThreadSortOrder,
       threadRevealCountByProject,
-      projectExpandedById,
-      sortedProjects,
-      activeThreadId,
-      pinnedProjectIdSet,
-      projectListThreadsByProjectId,
-      threadLastVisitedAtById,
       visibleProjectThreadsByProjectId,
     ],
   );
-  const renderedProjectById = useMemo(
+  const localProjectThreadGroupById = useMemo(
     () =>
       new Map(
-        renderedProjects.map((renderedProject) => [renderedProject.project.id, renderedProject]),
+        filteredLocalProjectIds.map((projectId, index) => [
+          projectId,
+          localProjectThreadGroups[index],
+        ]),
       ),
-    [renderedProjects],
+    [filteredLocalProjectIds, localProjectThreadGroups],
   );
   const renderedPinnedItems = useMemo<
-    Array<
-      | { kind: "project"; renderedProject: (typeof renderedProjects)[number] }
-      | { kind: "thread"; threadId: ThreadId }
-    >
+    Array<{ kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }>
   >(
     () =>
       pinnedItems.flatMap<
-        | { kind: "project"; renderedProject: (typeof renderedProjects)[number] }
-        | { kind: "thread"; threadId: ThreadId }
+        { kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }
       >((item) => {
         if (item.kind === "project") {
-          const renderedProject = renderedProjectById.get(item.id);
-          return renderedProject ? [{ kind: "project" as const, renderedProject }] : [];
+          return projectById.has(item.id) ? [{ kind: "project" as const, projectId: item.id }] : [];
         }
         const thread = sidebarThreadsById[item.id];
         if (!thread || thread.archivedAt !== null || !projectById.has(thread.projectId)) {
@@ -3588,7 +3412,7 @@ export default function Sidebar() {
         }
         return [{ kind: "thread" as const, threadId: item.id }];
       }),
-    [pinnedItems, projectById, renderedProjectById, sidebarThreadsById],
+    [pinnedItems, projectById, sidebarThreadsById],
   );
   const sortedRenderedPinnedItems = useMemo(
     () => [
@@ -3602,33 +3426,6 @@ export default function Sidebar() {
       sortedRenderedPinnedItems.flatMap((item) => (item.kind === "thread" ? [item.threadId] : [])),
     [sortedRenderedPinnedItems],
   );
-  const filteredRenderedProjects = useMemo(() => {
-    const unpinnedRenderedProjects = renderedProjects.filter(
-      (renderedProject) => !pinnedProjectIdSet.has(renderedProject.project.id),
-    );
-    if (normalizedProjectSearchQuery.length === 0) {
-      return unpinnedRenderedProjects;
-    }
-    return unpinnedRenderedProjects.filter((renderedProject) => {
-      const { project } = renderedProject;
-      if (
-        project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
-        project.cwd.toLowerCase().includes(normalizedProjectSearchQuery)
-      ) {
-        return true;
-      }
-      const projectThreads =
-        visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
-      return projectThreads.some((thread) =>
-        thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
-      );
-    });
-  }, [
-    normalizedProjectSearchQuery,
-    pinnedProjectIdSet,
-    renderedProjects,
-    visibleProjectThreadsByProjectId,
-  ]);
   const filteredRemoteSidebarHosts = useMemo(() => {
     const visibleRemoteSidebarHosts = remoteSidebarHosts.filter(
       (entry) => !isHostConnectionActive(entry.host, activeWsUrl),
@@ -3805,18 +3602,26 @@ export default function Sidebar() {
     });
   }, [remoteSidebarHosts]);
   const unifiedRenderedProjects = useMemo(() => {
-    const localProjects = filteredRenderedProjects.map((project) => ({
-      kind: "local" as const,
-      key: `local:${project.project.id}`,
-      timestamp: getProjectSortTimestamp(
-        project.project,
-        visibleProjectThreadsByProjectId.get(project.project.id) ?? EMPTY_SIDEBAR_THREADS,
-        sidebarProjectSortOrder === "created_at" ? "created_at" : "updated_at",
-      ),
-      projectName: project.project.name,
-      projectId: project.project.id,
-      payload: project,
-    }));
+    const localProjects = filteredLocalProjectIds.flatMap((projectId) => {
+      const project = projectById.get(projectId);
+      if (!project) {
+        return [];
+      }
+      return [
+        {
+          kind: "local" as const,
+          key: `local:${project.id}`,
+          timestamp: getProjectSortTimestamp(
+            project,
+            visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS,
+            sidebarProjectSortOrder === "created_at" ? "created_at" : "updated_at",
+          ),
+          projectName: project.name,
+          projectId: project.id,
+          payload: project.id,
+        },
+      ];
+    });
     const remoteProjects = renderedRemoteProjects.map((project) => {
       const timestamp =
         sidebarProjectSortOrder === "created_at"
@@ -3848,28 +3653,30 @@ export default function Sidebar() {
       return left.projectId.localeCompare(right.projectId);
     });
   }, [
+    filteredLocalProjectIds,
+    projectById,
     sidebarProjectSortOrder,
-    filteredRenderedProjects,
     renderedRemoteProjects,
     visibleProjectThreadsByProjectId,
   ]);
   const hasExpandedVisibleProjects = useMemo(
     () =>
-      filteredRenderedProjects.some(
-        (renderedProject) =>
-          renderedProject.projectExpanded && renderedProject.renderedThreadIds.length > 0,
-      ) ||
+      filteredLocalProjectIds.some((projectId) => {
+        const threadGroup = localProjectThreadGroupById.get(projectId);
+        return threadGroup?.projectExpanded && threadGroup.renderedThreadIds.length > 0;
+      }) ||
       renderedRemoteProjects.some(
         (renderedProject) =>
           renderedProject.projectExpanded && renderedProject.visibleThreads.length > 0,
       ),
-    [filteredRenderedProjects, renderedRemoteProjects],
+    [filteredLocalProjectIds, localProjectThreadGroupById, renderedRemoteProjects],
   );
   const canCollapseVisibleProjects = projectsSectionExpanded && hasExpandedVisibleProjects;
   const collapseVisibleProjects = useCallback(() => {
-    for (const renderedProject of filteredRenderedProjects) {
-      if (renderedProject.projectExpanded && renderedProject.renderedThreadIds.length > 0) {
-        setProjectExpanded(renderedProject.project.id, false);
+    for (const projectId of filteredLocalProjectIds) {
+      const threadGroup = localProjectThreadGroupById.get(projectId);
+      if (threadGroup?.projectExpanded && threadGroup.renderedThreadIds.length > 0) {
+        setProjectExpanded(projectId, false);
       }
     }
     setRemoteProjectExpandedById((current) => {
@@ -3886,7 +3693,12 @@ export default function Sidebar() {
       }
       return changed ? next : current;
     });
-  }, [filteredRenderedProjects, renderedRemoteProjects, setProjectExpanded]);
+  }, [
+    filteredLocalProjectIds,
+    localProjectThreadGroupById,
+    renderedRemoteProjects,
+    setProjectExpanded,
+  ]);
   const sortedActiveThreads = useMemo(
     () =>
       Object.values(sidebarThreadsById)
@@ -4019,10 +3831,10 @@ export default function Sidebar() {
     setSplitPickerProjectFilter("all");
     setSplitPickerSortOrder("recent");
     setSplitPickerSelectedThreadIds(new Set());
-    navigateToCurrentSplit(activeTarget);
+    navigateToBoardThreadRoute(activeTarget);
   }, [
     buildSplitTitle,
-    navigateToCurrentSplit,
+    navigateToBoardThreadRoute,
     splitPickerSelectedThreadIds,
     splitPickerThreadOptions,
   ]);
@@ -4140,14 +3952,36 @@ export default function Sidebar() {
     onNavigateToThreadOnConnection: navigateToThreadOnConnection,
   });
 
+  const pinnedRenderedThreadGroups = useMemo<
+    Array<
+      | { kind: "thread"; threadId: ThreadId }
+      | { kind: "project"; renderedProject: SidebarLocalProjectThreadGroup }
+    >
+  >(() => {
+    const next: Array<
+      | { kind: "thread"; threadId: ThreadId }
+      | { kind: "project"; renderedProject: SidebarLocalProjectThreadGroup }
+    > = [];
+    for (const item of sortedRenderedPinnedItems) {
+      if (item.kind === "thread") {
+        next.push(item);
+        continue;
+      }
+      const threadGroup = localProjectThreadGroupById.get(item.projectId);
+      if (threadGroup) {
+        next.push({ kind: "project", renderedProject: threadGroup });
+      }
+    }
+    return next;
+  }, [localProjectThreadGroupById, sortedRenderedPinnedItems]);
   const renderedSidebarThreadGroups = useMemo(
     () =>
-      buildRenderedSidebarThreadGroups({
-        pinnedItems: sortedRenderedPinnedItems,
-        renderedProjects: filteredRenderedProjects,
+      buildRenderedSidebarThreadGroups<ThreadId, SidebarLocalProjectThreadGroup>({
+        pinnedItems: pinnedRenderedThreadGroups,
+        renderedProjects: localProjectThreadGroups,
         pinnedSectionExpanded,
       }),
-    [filteredRenderedProjects, pinnedSectionExpanded, sortedRenderedPinnedItems],
+    [localProjectThreadGroups, pinnedRenderedThreadGroups, pinnedSectionExpanded],
   );
   const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
     renderedProjects: renderedSidebarThreadGroups,
@@ -4366,242 +4200,61 @@ export default function Sidebar() {
     );
   }
 
-  function renderProjectItem(
-    renderedProject: (typeof renderedProjects)[number],
+  function renderLocalProjectItem(
+    projectId: ProjectId,
     dragHandleProps: SortableProjectHandleProps | null,
-    options: { renderThreadPanel?: boolean } = {},
   ) {
-    const {
-      hasHiddenThreads,
-      hiddenThreadCount,
-      hiddenThreadStatus,
-      isPinned,
-      projectExpanded,
-      orderedProjectThreadIds,
-      project,
-      projectStatus,
-      renderedThreadIds,
-      showEmptyThreadState,
-      shouldShowThreadPanel,
-      canCollapseThreadList,
-      connectionUrl,
-    } = renderedProject;
-    const isDraggable = dragHandleProps !== null;
-    const renderThreadPanel = options.renderThreadPanel ?? true;
-    const shouldRenderThreadPanel =
-      renderThreadPanel &&
-      shouldShowThreadPanel &&
-      (showEmptyThreadState ||
-        renderedThreadIds.length > 0 ||
-        hasHiddenThreads ||
-        canCollapseThreadList);
-    const renderThreadRow = (threadId: ThreadId) => {
-      const boardDrag = createBoardThreadRowDragProps({
-        connectionUrl,
-        threadId,
-      });
-      return (
-        <SidebarThreadRow
-          key={threadId}
-          threadId={threadId}
-          orderedProjectThreadIds={orderedProjectThreadIds}
-          routeThreadId={activeSidebarRouteThreadId}
-          activeRouteConnectionUrl={activeRouteConnectionUrl}
-          connectionUrl={connectionUrl}
-          selectedThreadIds={selectedThreadIds}
-          showThreadJumpHints={showThreadJumpHints}
-          jumpLabel={threadJumpLabelById.get(threadId) ?? null}
-          appSettingsConfirmThreadArchive={confirmThreadArchive}
-          isPinned={pinnedThreadIdSet.has(threadId)}
-          boardDrag={boardDrag}
-          renamingThreadId={renamingThreadId}
-          renamingTitle={renamingTitle}
-          setRenamingTitle={setRenamingTitle}
-          renamingInputRef={renamingInputRef}
-          renamingCommittedRef={renamingCommittedRef}
-          confirmingArchiveThreadId={confirmingArchiveThreadId}
-          setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-          confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-          handleThreadClick={handleThreadClick}
-          navigateToThread={navigateToThread}
-          prefetchThreadHistory={prefetchThreadHistory}
-          handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-          handleThreadContextMenu={handleThreadContextMenu}
-          clearSelection={clearSelection}
-          commitRename={commitRename}
-          cancelRename={cancelRename}
-          attemptArchiveThread={attemptArchiveThread}
-          onTogglePinnedThread={togglePinnedThread}
-          openPrLink={openPrLink}
-          pr={prByThreadId.get(threadId) ?? null}
-        />
-      );
-    };
     return (
-      <>
-        <div className="group/project-header relative">
-          <SidebarMenuButton
-            ref={isDraggable ? dragHandleProps?.setActivatorNodeRef : undefined}
-            size="sm"
-            className="cursor-pointer gap-2 px-2 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-pill-foreground group-hover/project-header:bg-foreground/[0.06] group-hover/project-header:text-pill-foreground"
-            {...(isDraggable && dragHandleProps ? dragHandleProps.attributes : {})}
-            {...(isDraggable && dragHandleProps ? dragHandleProps.listeners : {})}
-            onPointerDownCapture={handleProjectTitlePointerDownCapture}
-            onClick={(event) => handleProjectTitleClick(event, project.id)}
-            onKeyDown={(event) => handleProjectTitleKeyDown(event, project.id)}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              suppressProjectClickForContextMenuRef.current = true;
-              void handleProjectContextMenu(project.id, {
-                x: event.clientX,
-                y: event.clientY,
-              });
-            }}
-          >
-            {!projectExpanded && projectStatus ? (
-              <span
-                aria-hidden="true"
-                title={projectStatus.label}
-                className={`-ml-0.5 relative inline-flex size-3.5 shrink-0 items-center justify-center ${projectStatus.colorClass}`}
-              >
-                <span className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/project-header:opacity-0">
-                  <span
-                    className={`size-[9px] rounded-full ${projectStatus.dotClass} ${
-                      projectStatus.pulse ? "animate-pulse" : ""
-                    }`}
-                  />
-                </span>
-                <ChevronRightIcon className="absolute inset-0 m-auto size-3.5 text-muted-foreground/70 opacity-0 transition-opacity duration-150 group-hover/project-header:opacity-100" />
-              </span>
-            ) : (
-              <ChevronRightIcon
-                className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
-                  projectExpanded ? "rotate-90" : ""
-                }`}
-              />
-            )}
-            <ProjectAvatar project={project} />
-            <span className="flex-1 truncate text-xs font-medium">{project.name}</span>
-          </SidebarMenuButton>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <SidebarMenuAction
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`${isPinned ? "Unpin" : "Pin"} project ${project.name}`}
-                    />
-                  }
-                  showOnHover
-                  className={`group/project-pin top-1 right-7 size-5 rounded-md bg-transparent p-0 hover:bg-transparent hover:text-foreground ${
-                    isPinned ? "text-foreground" : "text-muted-foreground/70"
-                  }`}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    togglePinnedProject(project.id);
-                  }}
-                >
-                  {isPinned ? (
-                    <span className="relative inline-flex size-4 items-center justify-center">
-                      <IconPinFilled className="absolute size-4 opacity-100 transition-opacity duration-150 group-hover/project-pin:opacity-0 group-focus-visible/project-pin:opacity-0" />
-                      <IconPinnedOff className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover/project-pin:opacity-100 group-focus-visible/project-pin:opacity-100" />
-                    </span>
-                  ) : (
-                    <IconPin className="size-4" />
-                  )}
-                </SidebarMenuAction>
-              }
-            />
-            <TooltipPopup side="top">{isPinned ? "Unpin project" : "Pin project"}</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <SidebarMenuAction
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`Create new thread in ${project.name}`}
-                      data-testid="new-thread-button"
-                    />
-                  }
-                  showOnHover
-                  className="top-1 right-1.5 size-5 rounded-md bg-transparent p-0 text-muted-foreground/70 hover:bg-transparent hover:text-foreground"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    handleStartNewThreadForProject(project.id);
-                  }}
-                >
-                  <SquarePenIcon className="size-3.5" />
-                </SidebarMenuAction>
-              }
-            />
-            <TooltipPopup side="top">
-              {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
-            </TooltipPopup>
-          </Tooltip>
-        </div>
-
-        {shouldRenderThreadPanel && (
-          <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
-            {shouldShowThreadPanel && showEmptyThreadState ? (
-              <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
-                <div
-                  data-thread-selection-safe
-                  className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60"
-                >
-                  <span>No threads yet</span>
-                </div>
-              </SidebarMenuSubItem>
-            ) : null}
-            {shouldShowThreadPanel &&
-              renderedThreadIds.map((threadId) => renderThreadRow(threadId))}
-
-            {projectExpanded && hasHiddenThreads && (
-              <SidebarMenuSubItem className="w-full">
-                <SidebarMenuSubButton
-                  render={<button type="button" />}
-                  data-thread-selection-safe
-                  size="sm"
-                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
-                  onClick={() => {
-                    expandThreadListForProject(project.id);
-                  }}
-                >
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    {hiddenThreadStatus && (
-                      <ThreadStatusLabel status={hiddenThreadStatus} compact />
-                    )}
-                    <span>Show {Math.min(THREAD_REVEAL_STEP, hiddenThreadCount)} more</span>
-                  </span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            )}
-            {projectExpanded && canCollapseThreadList && (
-              <SidebarMenuSubItem className="w-full">
-                <SidebarMenuSubButton
-                  render={<button type="button" />}
-                  data-thread-selection-safe
-                  size="sm"
-                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
-                  onClick={() => {
-                    collapseThreadListForProject(project.id);
-                  }}
-                >
-                  <span>Show less</span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            )}
-          </SidebarMenuSub>
-        )}
-      </>
+      <SidebarLocalProjectSection
+        key={projectId}
+        projectId={projectId}
+        activeRouteConnectionUrl={activeRouteConnectionUrl}
+        activeSidebarRouteThreadId={activeSidebarRouteThreadId}
+        appSettingsConfirmThreadArchive={confirmThreadArchive}
+        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+        confirmingArchiveThreadId={confirmingArchiveThreadId}
+        connectionUrl={activeWsUrl}
+        createBoardThreadRowDragProps={createBoardThreadRowDragProps}
+        dragHandleProps={dragHandleProps}
+        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+        handleProjectContextMenu={handleProjectContextMenu}
+        handleProjectTitleClick={handleProjectTitleClick}
+        handleProjectTitleKeyDown={handleProjectTitleKeyDown}
+        handleProjectTitlePointerDownCapture={handleProjectTitlePointerDownCapture}
+        handleStartNewThreadForProject={handleStartNewThreadForProject}
+        handleThreadClick={handleThreadClick}
+        handleThreadContextMenu={handleThreadContextMenu}
+        isPinned={pinnedProjectIdSet.has(projectId)}
+        jumpLabelByThreadId={threadJumpLabelById}
+        markProjectContextMenuPending={() => {
+          suppressProjectClickForContextMenuRef.current = true;
+        }}
+        newThreadShortcutLabel={newThreadShortcutLabel}
+        onCollapseThreadList={collapseThreadListForProject}
+        onExpandThreadList={expandThreadListForProject}
+        onTogglePinnedProject={togglePinnedProject}
+        onTogglePinnedThread={togglePinnedThread}
+        openPrLink={openPrLink}
+        pinnedThreadIdSet={pinnedThreadIdSet}
+        prByThreadId={prByThreadId}
+        prefetchThreadHistory={prefetchThreadHistory}
+        renamingCommittedRef={renamingCommittedRef}
+        renamingInputRef={renamingInputRef}
+        renamingThreadId={renamingThreadId}
+        renamingTitle={renamingTitle}
+        routeThreadId={activeSidebarRouteThreadId}
+        selectedThreadIds={selectedThreadIds}
+        setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+        setRenamingTitle={setRenamingTitle}
+        showThreadJumpHints={showThreadJumpHints}
+        threadRevealCount={threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP}
+        threadSortOrder={sidebarThreadSortOrder}
+        clearSelection={clearSelection}
+        commitRename={commitRename}
+        cancelRename={cancelRename}
+        attemptArchiveThread={attemptArchiveThread}
+        navigateToThread={navigateToThread}
+      />
     );
   }
 
@@ -5733,10 +5386,10 @@ export default function Sidebar() {
                           renderPinnedThreadRow(item.threadId)
                         ) : (
                           <SidebarMenuItem
-                            key={`pinned-project:${item.renderedProject.project.id}`}
+                            key={`pinned-project:${item.projectId}`}
                             className="mt-2 rounded-md"
                           >
-                            {renderProjectItem(item.renderedProject, null)}
+                            {renderLocalProjectItem(item.projectId, null)}
                           </SidebarMenuItem>
                         ),
                       )}
@@ -5747,7 +5400,7 @@ export default function Sidebar() {
             ) : null}
             {savedBoards.length > 0 || splitPickerAvailableThreadCount >= 2 ? (
               <SidebarBoardsSection
-                activeRouteSplitId={activeRouteSplitId}
+                activeSplitId={activeStoreSplitId}
                 boardsSectionExpanded={boardsSectionExpanded}
                 canCollapseSplitList={canCollapseSplitList}
                 canCreateBoard={splitPickerAvailableThreadCount >= 2}
@@ -5825,18 +5478,13 @@ export default function Sidebar() {
                     >
                       <SidebarMenu>
                         <SortableContext
-                          items={filteredRenderedProjects.map(
-                            (renderedProject) => renderedProject.project.id,
-                          )}
+                          items={filteredLocalProjectIds}
                           strategy={verticalListSortingStrategy}
                         >
-                          {filteredRenderedProjects.map((renderedProject) => (
-                            <SortableProjectItem
-                              key={renderedProject.project.id}
-                              projectId={renderedProject.project.id}
-                            >
+                          {filteredLocalProjectIds.map((projectId) => (
+                            <SortableProjectItem key={projectId} projectId={projectId}>
                               {(dragHandleProps) =>
-                                renderProjectItem(renderedProject, dragHandleProps)
+                                renderLocalProjectItem(projectId, dragHandleProps)
                               }
                             </SortableProjectItem>
                           ))}
@@ -5853,7 +5501,7 @@ export default function Sidebar() {
                       {unifiedRenderedProjects.map((renderedProject) => (
                         <SidebarMenuItem key={renderedProject.key} className="rounded-md">
                           {renderedProject.kind === "local"
-                            ? renderProjectItem(renderedProject.payload, null)
+                            ? renderLocalProjectItem(renderedProject.payload, null)
                             : renderRemoteProjectItem(renderedProject.payload)}
                         </SidebarMenuItem>
                       ))}

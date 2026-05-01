@@ -228,6 +228,7 @@ describe("deriveHydratedThreadHistoryKeepIds", () => {
     const activeThreadId = ThreadId.makeUnsafe("thread-active");
     const sourceThreadId = ThreadId.makeUnsafe("thread-source");
     const lineageThreadId = ThreadId.makeUnsafe("thread-lineage");
+    const boardThreadId = ThreadId.makeUnsafe("thread-board");
 
     expect(
       deriveHydratedThreadHistoryKeepIds({
@@ -235,14 +236,16 @@ describe("deriveHydratedThreadHistoryKeepIds", () => {
         sourceProposedPlanThreadId: sourceThreadId,
         previousThreadId: sourceThreadId,
         handoffSourceThreadIds: [lineageThreadId, sourceThreadId],
+        additionalThreadIds: [boardThreadId, activeThreadId],
       }),
-    ).toEqual([activeThreadId, sourceThreadId, lineageThreadId]);
+    ).toEqual([activeThreadId, sourceThreadId, lineageThreadId, boardThreadId]);
     expect(
       deriveHydratedThreadHistoryKeepIds({
         activeThreadId: null,
         sourceProposedPlanThreadId: sourceThreadId,
         previousThreadId: activeThreadId,
         handoffSourceThreadIds: [lineageThreadId],
+        additionalThreadIds: [boardThreadId],
       }),
     ).toEqual([]);
   });

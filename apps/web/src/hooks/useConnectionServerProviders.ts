@@ -1,14 +1,24 @@
-import { type ProjectId, type ServerProvider, type ThreadId } from "@ace/contracts";
+import { type ServerProvider } from "@ace/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { reportBackgroundError } from "../lib/async";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
 import { getRouteRpcClient } from "../lib/remoteWsRouter";
 import { normalizeWsUrl } from "../lib/remoteHosts";
-import { useServerProviders } from "../rpc/serverState";
+import { getServerConfig, useServerProviders } from "../rpc/serverState";
 
 const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 const remoteProvidersByConnectionUrl = new Map<string, ReadonlyArray<ServerProvider>>();
+
+function readCachedConnectionProviders(
+  normalizedConnectionUrl: string,
+  localConnectionUrl: string,
+): ReadonlyArray<ServerProvider> {
+  if (normalizedConnectionUrl === localConnectionUrl) {
+    return getServerConfig()?.providers ?? EMPTY_SERVER_PROVIDERS;
+  }
+  return remoteProvidersByConnectionUrl.get(normalizedConnectionUrl) ?? EMPTY_SERVER_PROVIDERS;
+}
 
 function normalizeConnectionUrl(connectionUrl: string | null | undefined): string | null {
   const trimmed = connectionUrl?.trim();
@@ -25,11 +35,9 @@ function normalizeConnectionUrl(connectionUrl: string | null | undefined): strin
 export function resolveThreadOriginConnectionUrl(input: {
   explicitConnectionUrl?: string | null;
   localConnectionUrl?: string;
-  projectConnectionById: Readonly<Record<string, string>>;
-  projectId?: ProjectId | null;
+  projectConnectionUrl?: string | null;
   routeConnectionUrl?: string | null;
-  threadConnectionById: Readonly<Record<string, string>>;
-  threadId: ThreadId;
+  threadConnectionUrl?: string | null;
 }): string {
   const localConnectionUrl =
     normalizeConnectionUrl(input.localConnectionUrl) ?? resolveLocalConnectionUrl();
@@ -38,15 +46,12 @@ export function resolveThreadOriginConnectionUrl(input: {
     return explicitConnectionUrl;
   }
 
-  const threadConnectionUrl = normalizeConnectionUrl(input.threadConnectionById[input.threadId]);
+  const threadConnectionUrl = normalizeConnectionUrl(input.threadConnectionUrl);
   if (threadConnectionUrl) {
     return threadConnectionUrl;
   }
 
-  const projectConnectionUrl =
-    input.projectId === null || input.projectId === undefined
-      ? null
-      : normalizeConnectionUrl(input.projectConnectionById[input.projectId]);
+  const projectConnectionUrl = normalizeConnectionUrl(input.projectConnectionUrl);
   if (projectConnectionUrl) {
     return projectConnectionUrl;
   }
@@ -65,10 +70,13 @@ export function useConnectionServerProviders(
     [connectionUrl, localConnectionUrl],
   );
   const isLocalConnection = normalizedConnectionUrl === localConnectionUrl;
-  const localProviders = useServerProviders({ enabled: enabled && isLocalConnection });
-  const [remoteProviders, setRemoteProviders] = useState<ReadonlyArray<ServerProvider>>(
-    remoteProvidersByConnectionUrl.get(normalizedConnectionUrl) ?? EMPTY_SERVER_PROVIDERS,
+  const cachedProviders = useMemo(
+    () => readCachedConnectionProviders(normalizedConnectionUrl, localConnectionUrl),
+    [localConnectionUrl, normalizedConnectionUrl],
   );
+  const localProviders = useServerProviders({ enabled: enabled && isLocalConnection });
+  const [remoteProviders, setRemoteProviders] =
+    useState<ReadonlyArray<ServerProvider>>(cachedProviders);
 
   useEffect(() => {
     if (!enabled) {
@@ -119,7 +127,7 @@ export function useConnectionServerProviders(
   }, [enabled, isLocalConnection, normalizedConnectionUrl]);
 
   if (!enabled) {
-    return EMPTY_SERVER_PROVIDERS;
+    return cachedProviders;
   }
 
   if (isLocalConnection) {

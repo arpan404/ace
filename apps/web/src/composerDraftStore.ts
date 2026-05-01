@@ -276,6 +276,21 @@ export interface EffectiveComposerModelState {
   modelOptions: ProviderModelOptions | null;
 }
 
+export function deriveEffectiveComposerExecutionModeState(input: {
+  draft: Pick<ComposerThreadDraftState, "runtimeMode" | "interactionMode"> | null | undefined;
+  threadRuntimeMode: RuntimeMode | null | undefined;
+  threadInteractionMode: ProviderInteractionMode | null | undefined;
+}): {
+  runtimeMode: RuntimeMode;
+  interactionMode: ProviderInteractionMode;
+} {
+  return {
+    runtimeMode: input.draft?.runtimeMode ?? input.threadRuntimeMode ?? DEFAULT_RUNTIME_MODE,
+    interactionMode:
+      input.draft?.interactionMode ?? input.threadInteractionMode ?? DEFAULT_INTERACTION_MODE,
+  };
+}
+
 function providerModelOptionsFromSelection(
   modelSelection: ModelSelection | null | undefined,
 ): ProviderModelOptions | null {
@@ -2240,7 +2255,18 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 );
 
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
-  return useComposerDraftStore((state) => state.draftsByThreadId[threadId] ?? EMPTY_THREAD_DRAFT);
+  return useComposerDraftStore((state) => getComposerThreadDraftState(state, threadId));
+}
+
+export function getComposerThreadDraftState(
+  state: Pick<ComposerDraftStoreState, "draftsByThreadId">,
+  threadId: ThreadId,
+): ComposerThreadDraftState {
+  return state.draftsByThreadId[threadId] ?? EMPTY_THREAD_DRAFT;
+}
+
+export function getComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
+  return getComposerThreadDraftState(useComposerDraftStore.getState(), threadId);
 }
 
 export function useEffectiveComposerModelState(input: {
