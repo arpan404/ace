@@ -543,7 +543,10 @@ interface ChatViewProps {
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
   threadId: ThreadId;
+  visibleBoardThreadIds?: ReadonlyArray<ThreadId>;
 }
+
+const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 
 function handoffLineageResultsEqual(
   left: HandoffLineageResult | null,
@@ -654,6 +657,7 @@ export default function ChatView({
   showSidebarTrigger = true,
   splitPane = false,
   threadId,
+  visibleBoardThreadIds = EMPTY_VISIBLE_BOARD_THREAD_IDS,
 }: ChatViewProps) {
   const activeForSideEffects = true;
   const ownsGlobalSideEffects = !splitPane || activeInBoard;
@@ -1108,8 +1112,15 @@ export default function ChatView({
         sourceProposedPlanThreadId,
         previousThreadId: recentThreadHistoryKeepId,
         handoffSourceThreadIds,
+        additionalThreadIds: visibleBoardThreadIds,
       }),
-    [activeThreadId, recentThreadHistoryKeepId, sourceProposedPlanThreadId, handoffSourceThreadIds],
+    [
+      activeThreadId,
+      recentThreadHistoryKeepId,
+      sourceProposedPlanThreadId,
+      handoffSourceThreadIds,
+      visibleBoardThreadIds,
+    ],
   );
   const memoryPressureHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
@@ -1118,12 +1129,20 @@ export default function ChatView({
         sourceProposedPlanThreadId,
         previousThreadId: null,
         handoffSourceThreadIds,
+        additionalThreadIds: visibleBoardThreadIds,
       }),
-    [activeThreadId, sourceProposedPlanThreadId, handoffSourceThreadIds],
+    [activeThreadId, sourceProposedPlanThreadId, handoffSourceThreadIds, visibleBoardThreadIds],
   );
   const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
-    () => (activeThreadId ? [activeThreadId, ...handoffSourceThreadIds] : []),
-    [activeThreadId, handoffSourceThreadIds],
+    () =>
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId,
+        sourceProposedPlanThreadId: null,
+        previousThreadId: null,
+        handoffSourceThreadIds,
+        additionalThreadIds: visibleBoardThreadIds,
+      }),
+    [activeThreadId, handoffSourceThreadIds, visibleBoardThreadIds],
   );
 
   // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.

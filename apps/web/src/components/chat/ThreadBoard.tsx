@@ -62,6 +62,7 @@ const BOARD_PANE_TRANSITION = { duration: 0.24, ease: [0.16, 1, 0.3, 1] } as con
 const BOARD_DRAG_PANE_TRANSITION = { duration: 0.1, ease: [0.16, 1, 0.3, 1] } as const;
 const BOARD_DROP_TRANSITION = { duration: 0.07, ease: [0.16, 1, 0.3, 1] } as const;
 const BOARD_REDUCED_MOTION_TRANSITION = { duration: 0 } as const;
+const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 type ThreadBoardDropDirection = "down" | "left" | "right" | "up";
 
 interface ThreadBoardDropTargetState {
@@ -190,6 +191,7 @@ function ThreadBoardPane(props: {
   showDropOverlay?: boolean;
   showSidebarTrigger: boolean;
   splitPane?: boolean;
+  visibleBoardThreadIds?: ReadonlyArray<ThreadId>;
   onClose: () => void;
   onDragEnter?: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDragLeave?: (event: ReactDragEvent<HTMLDivElement>) => void;
@@ -203,6 +205,7 @@ function ThreadBoardPane(props: {
   setActivePane: (paneId: string) => void;
 }) {
   const { pane } = props;
+  const visibleBoardThreadIds = props.visibleBoardThreadIds ?? EMPTY_VISIBLE_BOARD_THREAD_IDS;
   const sidebarThread = useSidebarThreadSummaryById(pane.threadId);
   const paneTitle = sidebarThread?.title ?? "thread";
   const isFocusedPane = props.isSinglePane || props.activePaneId === pane.id;
@@ -290,6 +293,7 @@ function ThreadBoardPane(props: {
           shortcutsEnabled={props.shortcutsEnabled}
           showSidebarTrigger={props.showSidebarTrigger}
           splitPane={props.splitPane ?? true}
+          visibleBoardThreadIds={visibleBoardThreadIds}
         />
       </div>
 
@@ -487,6 +491,10 @@ export function ThreadBoard(props: {
   ]);
 
   const orderedPanes = useMemo(() => orderBoardPanes(panes, layoutRoot), [layoutRoot, panes]);
+  const visibleBoardThreadIds = useMemo<ThreadId[]>(
+    () => orderedPanes.map((pane) => pane.threadId),
+    [orderedPanes],
+  );
   const primaryPane = useMemo(
     () =>
       selectBoardPaneById(panes, activePaneId) ??
@@ -924,6 +932,7 @@ export function ThreadBoard(props: {
           pane={pane}
           shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
           showSidebarTrigger={pane.id === firstPaneId}
+          visibleBoardThreadIds={visibleBoardThreadIds}
           showDropOverlay={threadDragActive}
           onClose={() => {
             handleClosePane(pane);
@@ -954,6 +963,7 @@ export function ThreadBoard(props: {
       primaryPane,
       setActivePane,
       threadDragActive,
+      visibleBoardThreadIds,
     ],
   );
 
