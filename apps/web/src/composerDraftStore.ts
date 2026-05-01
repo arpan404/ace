@@ -2240,7 +2240,18 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 );
 
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
-  return useComposerDraftStore((state) => state.draftsByThreadId[threadId] ?? EMPTY_THREAD_DRAFT);
+  return useComposerDraftStore((state) => getComposerThreadDraftState(state, threadId));
+}
+
+export function getComposerThreadDraftState(
+  state: Pick<ComposerDraftStoreState, "draftsByThreadId">,
+  threadId: ThreadId,
+): ComposerThreadDraftState {
+  return state.draftsByThreadId[threadId] ?? EMPTY_THREAD_DRAFT;
+}
+
+export function getComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
+  return getComposerThreadDraftState(useComposerDraftStore.getState(), threadId);
 }
 
 export function useEffectiveComposerModelState(input: {

@@ -30,10 +30,16 @@ import {
 } from "../lib/memoryPressure";
 import { clampCacheBudgetBytes, clampCacheEntryCount } from "../lib/resourceProfile";
 import { useTheme } from "../hooks/useTheme";
+import { buildLargeMarkdownPreviewText } from "../lib/chat/messageText";
 import {
-  buildLargeMarkdownPreviewText,
-  shouldUseLargeMarkdownPreview,
-} from "../lib/chat/messageText";
+  analyzeMarkdownRender,
+  buildMarkdownRenderAnalysisCacheKey,
+  shouldWorkerizeMarkdownRenderAnalysis,
+} from "../lib/chat/markdownRenderAnalysis";
+import {
+  prewarmMarkdownRenderAnalysis,
+  readCachedMarkdownRenderAnalysis,
+} from "../lib/chat/markdownRenderAnalysisClient";
 import { normalizeBrowserHttpUrl } from "../lib/browser/url";
 import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/renderProfiling";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
@@ -65,6 +71,7 @@ class CodeHighlightErrorBoundary extends React.Component<
 interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
+  analysisCacheKey?: string;
   isStreaming?: boolean;
   renderPlainText?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
@@ -88,11 +95,6 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
-const INLINE_MARKDOWN_SIGNAL_REGEX =
-  /`|\*\*?|\[[^\]]+\]\(|!\[|https?:\/\/|www\.|<\w[\s\S]*?>|<\/\w+>/i;
-const BLOCK_MARKDOWN_SIGNAL_REGEX =
-  /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s+|\d+[.)]\s+|>\s+|```|~~~|\|.+\|)/;
-const ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX = /```|~~~|!\[|<img|<video|<iframe|<details|<table/i;
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -182,25 +184,6 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     highlighterPromiseCache.set(language, promise);
   }
   return promise;
-}
-
-function shouldUsePlainTextMarkdownFastPath(text: string): boolean {
-  if (text.length === 0) {
-    return true;
-  }
-  return !INLINE_MARKDOWN_SIGNAL_REGEX.test(text) && !BLOCK_MARKDOWN_SIGNAL_REGEX.test(text);
-}
-
-function shouldObserveMarkdownLayout(input: {
-  readonly text: string;
-  readonly isStreaming: boolean;
-  readonly renderPlainText: boolean;
-  readonly useLargePreview: boolean;
-}): boolean {
-  if (input.isStreaming || input.renderPlainText || input.useLargePreview) {
-    return true;
-  }
-  return ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX.test(input.text);
 }
 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
@@ -425,16 +408,16 @@ function StreamingMarkdownPreview({
 }
 
 function LargeMarkdownPreview({
-  text,
+  previewText,
+  totalCharacters,
   isTransitionPending,
   onRenderMarkdown,
 }: {
-  text: string;
+  previewText: string;
+  totalCharacters: number;
   isTransitionPending: boolean;
   onRenderMarkdown: () => void;
 }) {
-  const previewText = useMemo(() => buildLargeMarkdownPreviewText(text), [text]);
-
   return (
     <div className="space-y-3" data-large-markdown-preview="true">
       <div className="space-y-1">
@@ -456,7 +439,7 @@ function LargeMarkdownPreview({
           {isTransitionPending ? "Rendering markdown..." : "Render full markdown"}
         </button>
         <span className="text-[11px] text-muted-foreground/65">
-          {text.length.toLocaleString()} chars
+          {totalCharacters.toLocaleString()} chars
         </span>
       </div>
     </div>
@@ -466,6 +449,7 @@ function LargeMarkdownPreview({
 function ChatMarkdown({
   text,
   cwd,
+  analysisCacheKey,
   isStreaming = false,
   renderPlainText = false,
   streamingTextState,
@@ -478,23 +462,50 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
-  const useLargePreview =
-    !isStreaming &&
-    renderPreference !== "markdown" &&
-    shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
-  const shouldFastPathPlainText =
-    !isStreaming &&
-    !renderPlainText &&
-    !useLargePreview &&
-    shouldUsePlainTextMarkdownFastPath(text);
-  const shouldObserveLayout =
-    onLayoutChange !== undefined &&
-    shouldObserveMarkdownLayout({
+  const markdownRenderAnalysisInput = useMemo(
+    () => ({
       text,
       isStreaming,
       renderPlainText,
-      useLargePreview,
-    });
+      ...(streamingTextState
+        ? {
+            streamingTextState: {
+              totalLineCount: streamingTextState.totalLineCount,
+              truncatedCharCount: streamingTextState.truncatedCharCount,
+              truncatedLineCount: streamingTextState.truncatedLineCount,
+            },
+          }
+        : {}),
+    }),
+    [isStreaming, renderPlainText, streamingTextState, text],
+  );
+  const resolvedAnalysisCacheKey = useMemo(
+    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, analysisCacheKey),
+    [analysisCacheKey, markdownRenderAnalysisInput],
+  );
+  const cachedMarkdownRenderAnalysis = useMemo(
+    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
+    [resolvedAnalysisCacheKey],
+  );
+  const markdownRenderAnalysis = useMemo(
+    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
+    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
+  );
+  const useLargePreview = renderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
+  const shouldObserveLayout =
+    onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
+
+  useEffect(() => {
+    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) {
+      return;
+    }
+    if (cachedMarkdownRenderAnalysis) {
+      return;
+    }
+    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
+  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
+
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();
     if (api) {
@@ -685,17 +696,16 @@ function ChatMarkdown({
     if (renderPlainText) {
       return <PreviewTextPanel text={text} />;
     }
-    if (
-      isStreaming &&
-      streamingTextState &&
-      (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
-    ) {
+    if (markdownRenderAnalysis.usesStreamingPreview && streamingTextState) {
       return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
     }
     if (useLargePreview) {
       return (
         <LargeMarkdownPreview
-          text={text}
+          previewText={
+            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(text)
+          }
+          totalCharacters={text.length}
           isTransitionPending={isMarkdownTransitionPending}
           onRenderMarkdown={() => {
             startMarkdownTransition(() => {
@@ -716,6 +726,7 @@ function ChatMarkdown({
   }, [
     isMarkdownTransitionPending,
     isStreaming,
+    markdownRenderAnalysis,
     markdownComponents,
     renderPlainText,
     startMarkdownTransition,

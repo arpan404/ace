@@ -5,6 +5,7 @@ import {
   Fragment,
   memo,
   startTransition,
+  use,
   useCallback,
   useEffect,
   useMemo,
@@ -18,6 +19,12 @@ import {
   getChatMessageRenderableText,
   resolveAssistantMessageRenderHint,
 } from "../../lib/chat/messageText";
+import {
+  buildMarkdownRenderAnalysisCacheKey,
+  shouldWorkerizeMarkdownRenderAnalysis,
+  type MarkdownRenderAnalysisInput,
+} from "../../lib/chat/markdownRenderAnalysis";
+import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -45,10 +52,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
-import {
-  computeMessageDurationStart,
-  normalizeCompactToolLabel,
-} from "~/lib/chat/messagesTimeline";
+import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
@@ -63,6 +67,27 @@ import {
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
+import {
+  buildTimelineRows,
+  isCompletedAssistantMessageRow,
+  isEventInActiveTurn,
+  shouldWorkerizeTimelineRows,
+  type AssistantTimelineMessage,
+  type BuildTimelineRowsInput,
+  type SystemTimelineMessage,
+  type TimelineMetaGroupEntry,
+  type TimelineMessage,
+  type TimelineProposedPlan,
+  type TimelineRow,
+  type TimelineWorkEntry,
+  type UserTimelineMessage,
+} from "~/lib/chat/timelineRows";
+import {
+  buildTimelineRowsCacheKey,
+  readCachedTimelineRows,
+  requestTimelineRows,
+  writeCachedTimelineRows,
+} from "~/lib/chat/timelineRowsClient";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
@@ -72,9 +97,23 @@ const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
+const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
+
+function canResolveTimelineRowsInWorker(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof document !== "undefined" &&
+    typeof Worker !== "undefined" &&
+    typeof document.createElement === "function"
+  );
+}
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
+interface AssistantMarkdownAnalysisPrewarmJob {
+  readonly cacheKey: string;
+  readonly input: MarkdownRenderAnalysisInput;
+}
 interface AssistantMarkdownIdleDeadline {
   readonly didTimeout: boolean;
   timeRemaining(): number;
@@ -215,18 +254,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
 }: MessagesTimelineProps) {
-  const rows = useMemo<TimelineRow[]>(
-    () =>
-      measureRenderWork("chat.buildTimelineRows", () =>
-        buildTimelineRows({
-          timelineEntries,
-          activeTurnInProgress,
-          activeTurnStartedAt,
-          completionDividerBeforeEntryId,
-          completionSummary,
-          isWorking,
-        }),
-      ),
+  const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
+    () => ({
+      timelineEntries,
+      activeTurnInProgress,
+      activeTurnStartedAt,
+      completionDividerBeforeEntryId,
+      completionSummary,
+      isWorking,
+    }),
     [
       activeTurnInProgress,
       timelineEntries,
@@ -236,6 +272,47 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
     ],
   );
+  const shouldResolveTimelineRowsInWorker = useMemo(
+    () => canResolveTimelineRowsInWorker() && shouldWorkerizeTimelineRows(timelineRowsInput),
+    [timelineRowsInput],
+  );
+  const timelineRowsCacheKey = useMemo(
+    () => buildTimelineRowsCacheKey(timelineRowsInput),
+    [timelineRowsInput],
+  );
+  const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
+  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow> | null>(() => {
+    if (cachedTimelineRows) {
+      return cachedTimelineRows;
+    }
+    if (shouldResolveTimelineRowsInWorker) {
+      return null;
+    }
+    return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
+  }, [cachedTimelineRows, shouldResolveTimelineRowsInWorker, timelineRowsInput]);
+  const workerTimelineRowsPromise = useMemo(() => {
+    if (!shouldResolveTimelineRowsInWorker || cachedTimelineRows) {
+      return null;
+    }
+    return requestTimelineRows(timelineRowsCacheKey, timelineRowsInput);
+  }, [
+    cachedTimelineRows,
+    shouldResolveTimelineRowsInWorker,
+    timelineRowsCacheKey,
+    timelineRowsInput,
+  ]);
+  const resolvedTimelineRows = workerTimelineRowsPromise
+    ? use(workerTimelineRowsPromise)
+    : (syncTimelineRows ?? EMPTY_TIMELINE_ROWS);
+  const rows = useMemo(() => resolvedTimelineRows, [resolvedTimelineRows]);
+
+  useEffect(() => {
+    if (cachedTimelineRows || syncTimelineRows === null) {
+      return;
+    }
+    writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
+  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
+
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
@@ -350,8 +427,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
     ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
     : [];
-  const mountedVirtualizedAssistantMarkdownMessageIdSet = new Set(
-    mountedVirtualizedAssistantMarkdownMessageIds,
+  const mountedVirtualizedAssistantMarkdownMessageIdKey =
+    mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
+  const mountedVirtualizedAssistantMarkdownMessageIdSet = useMemo(
+    () =>
+      new Set(
+        mountedVirtualizedAssistantMarkdownMessageIdKey.length > 0
+          ? mountedVirtualizedAssistantMarkdownMessageIdKey.split("\0")
+          : [],
+      ),
+    [mountedVirtualizedAssistantMarkdownMessageIdKey],
   );
   const immediateAssistantMarkdownMessageIds = useMemo(
     () =>
@@ -368,19 +453,93 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
     [rows],
   );
-  const pendingAssistantMarkdownMessageIds = shouldPrewarmAssistantMarkdown
-    ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
-        firstUnvirtualizedRowIndex,
-        immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
-        mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
-        renderedMessageIds: renderedAssistantMarkdownMessageIds,
-      })
-    : [];
+  const pendingAssistantMarkdownMessageIds = useMemo(
+    () =>
+      shouldPrewarmAssistantMarkdown
+        ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
+            firstUnvirtualizedRowIndex,
+            immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
+            mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
+            renderedMessageIds: renderedAssistantMarkdownMessageIds,
+          })
+        : [],
+    [
+      firstUnvirtualizedRowIndex,
+      immediateAssistantMarkdownMessageIdSet,
+      mountedVirtualizedAssistantMarkdownMessageIdSet,
+      renderedAssistantMarkdownMessageIds,
+      rows,
+      shouldPrewarmAssistantMarkdown,
+    ],
+  );
+  const assistantMarkdownAnalysisPrewarmJobs = useMemo(() => {
+    if (!shouldPrewarmAssistantMarkdown) {
+      return [];
+    }
+
+    const jobsByMessageId = new Map<string, AssistantMarkdownAnalysisPrewarmJob>();
+    for (const row of rows) {
+      if (!isCompletedAssistantMessageRow(row)) {
+        continue;
+      }
+      const messageText = getChatMessageRenderableText(row.message);
+      const input: MarkdownRenderAnalysisInput = {
+        text: messageText,
+        isStreaming: Boolean(row.message.streaming),
+        renderPlainText: false,
+        ...(row.message.streamingTextState
+          ? {
+              streamingTextState: {
+                totalLineCount: row.message.streamingTextState.totalLineCount,
+                truncatedCharCount: row.message.streamingTextState.truncatedCharCount,
+                truncatedLineCount: row.message.streamingTextState.truncatedLineCount,
+              },
+            }
+          : {}),
+      };
+      if (!shouldWorkerizeMarkdownRenderAnalysis(input)) {
+        continue;
+      }
+      jobsByMessageId.set(String(row.message.id), {
+        cacheKey: buildMarkdownRenderAnalysisCacheKey(
+          input,
+          buildAssistantMarkdownAnalysisStableKey(row.message, messageText),
+        ),
+        input,
+      });
+    }
+
+    const jobs: AssistantMarkdownAnalysisPrewarmJob[] = [];
+    const seenCacheKeys = new Set<string>();
+    for (const messageId of immediateAssistantMarkdownMessageIds) {
+      const job = jobsByMessageId.get(messageId);
+      if (!job || seenCacheKeys.has(job.cacheKey)) {
+        continue;
+      }
+      seenCacheKeys.add(job.cacheKey);
+      jobs.push(job);
+    }
+    for (const messageId of pendingAssistantMarkdownMessageIds) {
+      const job = jobsByMessageId.get(messageId);
+      if (!job || seenCacheKeys.has(job.cacheKey)) {
+        continue;
+      }
+      seenCacheKeys.add(job.cacheKey);
+      jobs.push(job);
+    }
+    return jobs;
+  }, [
+    immediateAssistantMarkdownMessageIds,
+    pendingAssistantMarkdownMessageIds,
+    rows,
+    shouldPrewarmAssistantMarkdown,
+  ]);
   const allAssistantMarkdownMessageIdKey = allAssistantMarkdownMessageIds.join("\0");
   const immediateAssistantMarkdownMessageIdKey = immediateAssistantMarkdownMessageIds.join("\0");
-  const mountedVirtualizedAssistantMarkdownMessageIdKey =
-    mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
   const pendingAssistantMarkdownMessageIdKey = pendingAssistantMarkdownMessageIds.join("\0");
+  const assistantMarkdownAnalysisPrewarmJobKey = assistantMarkdownAnalysisPrewarmJobs
+    .map((job) => job.cacheKey)
+    .join("\0");
   const assistantMarkdownPriorityRef = useRef({
     allMessageIds: allAssistantMarkdownMessageIds,
     immediateMessageIds: immediateAssistantMarkdownMessageIds,
@@ -493,6 +652,54 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }
     };
   }, [pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
+  useEffect(() => {
+    if (!shouldPrewarmAssistantMarkdown || assistantMarkdownAnalysisPrewarmJobs.length === 0) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+    let cursor = 0;
+    let idleHandle: AssistantMarkdownIdleHandle | null = null;
+
+    const prewarmNextBatch = (deadline: AssistantMarkdownIdleDeadline) => {
+      if (cancelled) {
+        return;
+      }
+      let processed = 0;
+      while (
+        cursor < assistantMarkdownAnalysisPrewarmJobs.length &&
+        processed < ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE &&
+        (processed === 0 || deadline.didTimeout || deadline.timeRemaining() > 6)
+      ) {
+        const job = assistantMarkdownAnalysisPrewarmJobs[cursor];
+        cursor += 1;
+        if (!job) {
+          continue;
+        }
+        prewarmMarkdownRenderAnalysis(job.cacheKey, job.input);
+        processed += 1;
+      }
+      if (cursor >= assistantMarkdownAnalysisPrewarmJobs.length) {
+        return;
+      }
+      idleHandle = requestAssistantMarkdownIdleCallback(prewarmNextBatch);
+    };
+
+    idleHandle = requestAssistantMarkdownIdleCallback(prewarmNextBatch);
+    return () => {
+      cancelled = true;
+      if (idleHandle !== null) {
+        cancelAssistantMarkdownIdleCallback(idleHandle);
+      }
+    };
+  }, [
+    assistantMarkdownAnalysisPrewarmJobKey,
+    assistantMarkdownAnalysisPrewarmJobs,
+    shouldPrewarmAssistantMarkdown,
+  ]);
   const registerMeasuredRowElement = useCallback(
     (rowId: string, element: HTMLDivElement | null) => {
       if (element) {
@@ -876,77 +1083,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
 });
 
-type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
-type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
-type UserTimelineMessage = TimelineMessage & { role: "user" };
-type AssistantTimelineMessage = TimelineMessage & { role: "assistant" };
-type SystemTimelineMessage = TimelineMessage & { role: "system" };
-type TimelineProposedPlan = Extract<TimelineEntry, { kind: "proposed-plan" }>["proposedPlan"];
-type TimelineWorkEntry = Extract<TimelineEntry, { kind: "work" }>["entry"];
-type TimelineMetaGroupEntry =
-  | {
-      kind: "intent";
-      id: string;
-      createdAt: string;
-      text: string;
-    }
-  | {
-      kind: "work";
-      id: string;
-      createdAt: string;
-      workEntry: TimelineWorkEntry;
-    };
-type TimelineRow =
-  | {
-      kind: "work";
-      id: string;
-      createdAt: string;
-      workEntry: TimelineWorkEntry;
-    }
-  | {
-      kind: "work-group";
-      id: string;
-      createdAt: string;
-      entries: TimelineMetaGroupEntry[];
-      summaryEndAt: string | null;
-    }
-  | {
-      kind: "intent";
-      id: string;
-      createdAt: string;
-      text: string;
-    }
-  | {
-      kind: "message";
-      id: string;
-      createdAt: string;
-      message: TimelineMessage;
-      durationStart: string;
-      completionSummary: string | null;
-      isAssistantTurnTerminal?: boolean;
-      showAssistantTiming?: boolean;
-      showAssistantSummaryByDefault?: boolean;
-    }
-  | {
-      kind: "proposed-plan";
-      id: string;
-      createdAt: string;
-      proposedPlan: TimelineProposedPlan;
-    }
-  | {
-      kind: "working";
-      id: string;
-      createdAt: string | null;
-      mode: "live" | "silent-thinking";
-      intentText: string | null;
-    };
-
-function isCompletedAssistantMessageRow(
-  row: TimelineRow,
-): row is Extract<TimelineRow, { kind: "message" }> {
-  return row.kind === "message" && row.message.role === "assistant" && !row.message.streaming;
-}
-
 function deriveMountedVirtualizedAssistantMarkdownMessageIds(
   virtualItems: ReadonlyArray<VirtualItem>,
   virtualizedRows: ReadonlyArray<TimelineRow>,
@@ -960,6 +1096,13 @@ function deriveMountedVirtualizedAssistantMarkdownMessageIds(
     messageIds.push(String(row.message.id));
   }
   return messageIds;
+}
+
+function buildAssistantMarkdownAnalysisStableKey(
+  message: AssistantTimelineMessage,
+  messageText: string,
+): string {
+  return `${message.id}:${message.streaming ? "streaming" : (message.completedAt ?? "complete")}:${messageText.length}`;
 }
 
 function deriveImmediateAssistantMarkdownMessageIds(
@@ -1107,383 +1250,8 @@ const WorkingTimer = memo(function WorkingTimer({
   );
 });
 
-function buildTimelineRows(input: {
-  timelineEntries: ReadonlyArray<TimelineEntry>;
-  activeTurnInProgress: boolean;
-  activeTurnStartedAt: string | null;
-  completionDividerBeforeEntryId: string | null;
-  completionSummary: string | null;
-  isWorking: boolean;
-}): TimelineRow[] {
-  const nextRows: TimelineRow[] = [];
-  const terminalAssistantMessageIds = new Set<string>();
-  const assistantMessageIdsWithoutLaterUser = new Set<string>();
-  const lastAssistantMessageIdByTurnId = new Map<string, string>();
-  for (const timelineEntry of input.timelineEntries) {
-    if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
-      continue;
-    }
-    const turnId = timelineEntry.message.turnId;
-    if (turnId) {
-      lastAssistantMessageIdByTurnId.set(turnId, timelineEntry.id);
-      continue;
-    }
-    terminalAssistantMessageIds.add(timelineEntry.id);
-  }
-  for (const messageId of lastAssistantMessageIdByTurnId.values()) {
-    terminalAssistantMessageIds.add(messageId);
-  }
-  let seenLaterUserMessage = false;
-  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
-    const timelineEntry = input.timelineEntries[index];
-    if (timelineEntry?.kind !== "message") {
-      continue;
-    }
-    if (timelineEntry.message.role === "user") {
-      seenLaterUserMessage = true;
-      continue;
-    }
-    if (timelineEntry.message.role === "assistant" && !seenLaterUserMessage) {
-      assistantMessageIdsWithoutLaterUser.add(timelineEntry.id);
-    }
-  }
-  const activeTurnStartedAtMs =
-    typeof input.activeTurnStartedAt === "string"
-      ? Date.parse(input.activeTurnStartedAt)
-      : Number.NaN;
-  const liveWorkEntryId = findTrailingLiveWorkEntryId(input.timelineEntries, {
-    activeTurnInProgress: input.activeTurnInProgress,
-    activeTurnStartedAtMs,
-  });
-  const messageDurationStartById = computeMessageDurationStart(
-    input.timelineEntries.flatMap((timelineEntry) => {
-      if (timelineEntry?.kind !== "message") {
-        return [];
-      }
-
-      return [
-        {
-          id: timelineEntry.message.id,
-          role: timelineEntry.message.role,
-          createdAt: timelineEntry.message.createdAt,
-          ...(timelineEntry.message.completedAt
-            ? { completedAt: timelineEntry.message.completedAt }
-            : {}),
-        },
-      ];
-    }),
-  );
-  let hasRenderableCurrentTurnOutput = false;
-  let lastMessageBoundaryAt: string | null = null;
-  let activeTurnUserMessageCreatedAt: string | null = null;
-  let pendingMetaRowId: string | null = null;
-  let pendingMetaCreatedAt: string | null = null;
-  let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
-  let pendingIntentEntries: Array<Extract<TimelineMetaGroupEntry, { kind: "intent" }>> = [];
-  let activeLiveIntentText: string | null = null;
-
-  const resetPendingMetaEntries = () => {
-    pendingMetaEntries = [];
-    pendingMetaRowId = null;
-    pendingMetaCreatedAt = null;
-  };
-
-  const appendPendingIntentEntriesToMeta = (preferredRowId: string | null) => {
-    if (pendingIntentEntries.length === 0) {
-      return;
-    }
-
-    if (!pendingMetaCreatedAt) {
-      pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? null;
-    }
-    if (!pendingMetaRowId) {
-      pendingMetaRowId = preferredRowId ?? pendingIntentEntries[0]?.id ?? null;
-    }
-
-    pendingMetaEntries.push(...pendingIntentEntries);
-    pendingIntentEntries = [];
-  };
-
-  const consumeLatestPendingIntentText = () => {
-    const latestIntentText = pendingIntentEntries.at(-1)?.text ?? null;
-    pendingIntentEntries = [];
-    return latestIntentText;
-  };
-
-  const flushPendingMetaEntries = (
-    nextEventCreatedAt: string | null,
-    options?: { includePendingIntents?: boolean },
-  ) => {
-    if (options?.includePendingIntents !== false) {
-      appendPendingIntentEntriesToMeta(null);
-    }
-
-    if (pendingMetaEntries.length === 0 || !pendingMetaRowId || !pendingMetaCreatedAt) {
-      resetPendingMetaEntries();
-      return;
-    }
-
-    if (shouldCollapseMetaEntries(pendingMetaEntries)) {
-      const shouldHideLiveElapsed =
-        input.activeTurnInProgress &&
-        isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
-      nextRows.push({
-        kind: "work-group",
-        id: pendingMetaRowId,
-        createdAt: pendingMetaCreatedAt,
-        entries: pendingMetaEntries,
-        summaryEndAt: shouldHideLiveElapsed
-          ? null
-          : resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
-      });
-    } else {
-      for (const entry of pendingMetaEntries) {
-        if (entry.kind === "work") {
-          nextRows.push({
-            kind: "work",
-            id: entry.id,
-            createdAt: entry.createdAt,
-            workEntry: entry.workEntry,
-          });
-          continue;
-        }
-
-        nextRows.push({
-          kind: "intent",
-          id: entry.id,
-          createdAt: entry.createdAt,
-          text: entry.text,
-        });
-      }
-    }
-
-    resetPendingMetaEntries();
-  };
-
-  const pushPendingWorkEntry = (timelineEntry: Extract<TimelineEntry, { kind: "work" }>) => {
-    if (timelineEntry.id === liveWorkEntryId) {
-      flushPendingMetaEntries(timelineEntry.createdAt, { includePendingIntents: false });
-      const liveIntentText = consumeLatestPendingIntentText();
-      nextRows.push({
-        kind: "work",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        workEntry: withInlineIntentText(timelineEntry.entry, liveIntentText),
-      });
-      return;
-    }
-
-    if (pendingMetaEntries.length === 0) {
-      if (pendingIntentEntries.length > 0) {
-        pendingMetaEntries = [...pendingIntentEntries];
-        pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? timelineEntry.createdAt;
-        pendingIntentEntries = [];
-      } else {
-        pendingMetaCreatedAt = timelineEntry.createdAt;
-      }
-      pendingMetaRowId = timelineEntry.id;
-    } else {
-      appendPendingIntentEntriesToMeta(pendingMetaRowId);
-    }
-
-    pendingMetaEntries.push({
-      kind: "work",
-      id: timelineEntry.id,
-      createdAt: timelineEntry.createdAt,
-      workEntry: timelineEntry.entry,
-    });
-  };
-
-  for (const timelineEntry of input.timelineEntries) {
-    if (!timelineEntry) {
-      continue;
-    }
-
-    if (timelineEntry.kind === "work") {
-      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
-        hasRenderableCurrentTurnOutput = true;
-      }
-      pushPendingWorkEntry(timelineEntry);
-      continue;
-    }
-
-    if (timelineEntry.kind === "intent") {
-      pendingIntentEntries.push({
-        kind: "intent",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        text: timelineEntry.text,
-      });
-      continue;
-    }
-
-    flushPendingMetaEntries(timelineEntry.createdAt);
-
-    if (timelineEntry.kind === "proposed-plan") {
-      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
-        hasRenderableCurrentTurnOutput = true;
-      }
-      nextRows.push({
-        kind: "proposed-plan",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        proposedPlan: timelineEntry.proposedPlan,
-      });
-      continue;
-    }
-
-    if (
-      timelineEntry.message.role === "assistant" &&
-      shouldSkipAssistantMessageRow(timelineEntry.message)
-    ) {
-      continue;
-    }
-
-    if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
-      hasRenderableCurrentTurnOutput = true;
-    }
-
-    const durationStart =
-      messageDurationStartById.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt;
-    if (timelineEntry.message.role === "user") {
-      lastMessageBoundaryAt = timelineEntry.message.createdAt;
-      if (
-        Number.isNaN(activeTurnStartedAtMs) ||
-        isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
-      ) {
-        activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
-      }
-    }
-
-    nextRows.push({
-      kind: "message",
-      id: timelineEntry.id,
-      createdAt: timelineEntry.createdAt,
-      message: timelineEntry.message,
-      durationStart,
-      completionSummary:
-        timelineEntry.message.role === "assistant" &&
-        input.completionDividerBeforeEntryId === timelineEntry.id
-          ? input.completionSummary
-          : null,
-      isAssistantTurnTerminal:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id),
-      showAssistantTiming:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id) &&
-        !(
-          input.activeTurnInProgress &&
-          isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
-        ),
-      showAssistantSummaryByDefault:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id) &&
-        assistantMessageIdsWithoutLaterUser.has(timelineEntry.id),
-    });
-
-    if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
-      lastMessageBoundaryAt = timelineEntry.message.completedAt;
-    }
-  }
-
-  if (input.isWorking && pendingIntentEntries.length > 0) {
-    flushPendingMetaEntries(null, { includePendingIntents: false });
-    activeLiveIntentText = consumeLatestPendingIntentText();
-  } else {
-    flushPendingMetaEntries(null);
-  }
-
-  const liveDurationStartAt =
-    activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
-
-  if (input.isWorking) {
-    nextRows.push({
-      kind: "working",
-      id: "working-indicator-row",
-      createdAt: liveDurationStartAt,
-      mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
-      intentText: activeLiveIntentText,
-    });
-  }
-
-  return nextRows;
-}
-
 function workGroupId(rowId: string): string {
   return `work-group:${rowId}`;
-}
-
-function shouldCollapseMetaEntries(entries: ReadonlyArray<TimelineMetaGroupEntry>): boolean {
-  if (entries.some((entry) => entry.kind === "intent")) {
-    return true;
-  }
-
-  if (entries.length !== 1) {
-    return entries.length > 0;
-  }
-
-  const [entry] = entries;
-  return (
-    entry?.kind === "work" &&
-    (entry.workEntry.tone === "thinking" || entry.workEntry.tone === "tool")
-  );
-}
-
-function isEventInActiveTurn(createdAt: string, activeTurnStartedAtMs: number): boolean {
-  if (Number.isNaN(activeTurnStartedAtMs)) {
-    return false;
-  }
-  const createdAtMs = Date.parse(createdAt);
-  return !Number.isNaN(createdAtMs) && createdAtMs >= activeTurnStartedAtMs;
-}
-
-function resolveWorkGroupSummaryEndAt(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
-  nextEventCreatedAt: string | null,
-): string | null {
-  if (typeof nextEventCreatedAt === "string") {
-    return nextEventCreatedAt;
-  }
-  return entries.at(-1)?.createdAt ?? null;
-}
-
-function withInlineIntentText(
-  workEntry: TimelineWorkEntry,
-  intentText: string | null,
-): TimelineWorkEntry {
-  if (!intentText || workEntry.intentText === intentText) {
-    return workEntry;
-  }
-  return {
-    ...workEntry,
-    intentText,
-  };
-}
-
-function findTrailingLiveWorkEntryId(
-  timelineEntries: ReadonlyArray<TimelineEntry>,
-  input: {
-    activeTurnInProgress: boolean;
-    activeTurnStartedAtMs: number;
-  },
-): string | null {
-  if (!input.activeTurnInProgress) {
-    return null;
-  }
-
-  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
-    const entry = timelineEntries[index];
-    if (!entry) {
-      continue;
-    }
-    if (entry.kind === "work") {
-      return isEventInActiveTurn(entry.createdAt, input.activeTurnStartedAtMs) ? entry.id : null;
-    }
-    return null;
-  }
-
-  return null;
 }
 
 function getUserMessageTextForHeightEstimate(userPromptText: string): string {
@@ -1749,13 +1517,6 @@ function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGro
   }
 
   return [{ label: entries.length === 1 ? "log entry" : "log entries", count: entries.length }];
-}
-
-function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
-  if (message.role !== "assistant" || message.streaming) {
-    return false;
-  }
-  return message.text.trim().length === 0;
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -2036,6 +1797,23 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       {props.renderMarkdown ? (
         <ChatMarkdown
           key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
+          analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
+            {
+              text: messageText,
+              isStreaming: Boolean(props.message.streaming),
+              renderPlainText: false,
+              ...(props.message.streamingTextState
+                ? {
+                    streamingTextState: {
+                      totalLineCount: props.message.streamingTextState.totalLineCount,
+                      truncatedCharCount: props.message.streamingTextState.truncatedCharCount,
+                      truncatedLineCount: props.message.streamingTextState.truncatedLineCount,
+                    },
+                  }
+                : {}),
+            },
+            buildAssistantMarkdownAnalysisStableKey(props.message, messageText),
+          )}
           text={messageText}
           cwd={props.markdownCwd}
           isStreaming={Boolean(props.message.streaming)}

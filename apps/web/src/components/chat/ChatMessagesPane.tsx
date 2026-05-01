@@ -1,9 +1,27 @@
 import { ChevronDownIcon } from "lucide-react";
-import { memo, type ComponentProps, type ReactNode, type Ref } from "react";
+import { Suspense, memo, type ComponentProps, type ReactNode, type Ref } from "react";
 
 import { MessagesTimeline } from "./MessagesTimeline";
 
 type MessagesContainerProps = ComponentProps<"div">;
+
+function MessagesTimelineLoadingFallback() {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-3 py-1">
+      {Array.from({ length: 5 }, (_, index) => (
+        <div
+          key={`timeline-fallback:${index}`}
+          className="overflow-hidden rounded-2xl border border-border/35 bg-background/35 px-4 py-3"
+        >
+          <div className="h-3.5 w-24 animate-pulse rounded bg-muted/55" />
+          <div className="mt-3 h-4 w-full animate-pulse rounded bg-muted/40" />
+          <div className="mt-2 h-4 w-[88%] animate-pulse rounded bg-muted/35" />
+          <div className="mt-2 h-4 w-[72%] animate-pulse rounded bg-muted/30" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export const ChatMessagesPane = memo(function ChatMessagesPane({
   loadingNotice,
@@ -55,7 +73,9 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
         onTouchCancel={onMessagesTouchEnd}
       >
         {loadingNotice}
-        <MessagesTimeline key={timelineKey} {...messagesTimelineProps} />
+        <Suspense fallback={<MessagesTimelineLoadingFallback />}>
+          <MessagesTimeline key={timelineKey} {...messagesTimelineProps} />
+        </Suspense>
       </div>
 
       {showScrollToBottom && (
