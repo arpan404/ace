@@ -38,7 +38,7 @@ Useful commands:
 - `bun dev:mobile` – mobile app (Expo) + server + contracts
 - `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
 
-Dev runner modes (`bun dev`, `bun dev:web`, `bun dev:server`, `bun dev:mobile`, `bun dev:desktop`) default to `~/.ace-dev` for local development data isolation.
+Dev runner modes default to `~/.ace/dev` for local development data isolation. `bun dev:web` uses `~/.ace/dev/web`, and desktop development uses `~/.ace/dev/desktop`.
 
 Before considering a change complete, run:
 

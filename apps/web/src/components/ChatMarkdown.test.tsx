@@ -35,6 +35,15 @@ describe("ChatMarkdown", () => {
     expect(markup).not.toContain('data-streaming-markdown="true"');
   });
 
+  it("uses the plain text fast path when text has no markdown syntax", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown text="Plain assistant response without markup." cwd={undefined} />,
+    );
+
+    expect(markup).toContain("Plain assistant response without markup.");
+    expect(markup).not.toContain("<p>");
+  });
+
   it("renders streaming code fences as markdown code blocks", () => {
     const markup = renderToStaticMarkup(
       <ChatMarkdown text={"```text\nUse this exact prompt\n```"} cwd={undefined} isStreaming />,

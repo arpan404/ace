@@ -48,7 +48,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults ACE_HOME to ~/.ace-dev when not provided", () =>
+    it.effect("defaults ACE_HOME to ~/.ace/dev when not provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
@@ -65,12 +65,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace-dev"));
+        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace", "dev"));
         assert.equal(env.ACE_DAEMONIZED, "1");
       }),
     );
 
-    it.effect("defaults ACE_HOME to ~/.ace-dev for dev:desktop when not provided", () =>
+    it.effect("defaults ACE_HOME to ~/.ace/dev/desktop for dev:desktop when not provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev:desktop",
@@ -87,8 +87,30 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace-dev"));
+        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace", "dev", "desktop"));
         assert.equal(env.ACE_DAEMONIZED, undefined);
+      }),
+    );
+
+    it.effect("defaults ACE_HOME to ~/.ace/dev/web for dev:web when not provided", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:web",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          aceHome: undefined,
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace", "dev", "web"));
+        assert.equal(env.ACE_DAEMONIZED, "1");
       }),
     );
 

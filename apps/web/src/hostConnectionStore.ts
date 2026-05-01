@@ -1,5 +1,6 @@
 import { type OrchestrationReadModel, type ProjectId, type ThreadId } from "@ace/contracts";
 import { normalizeWsUrl } from "@ace/shared/hostConnections";
+import { useMemo } from "react";
 import { create } from "zustand";
 
 interface ConnectionOwnership {
@@ -175,3 +176,25 @@ export const useHostConnectionStore = create<HostConnectionState>((set, get) => 
     });
   },
 }));
+
+export function useProjectConnectionUrl(projectId: ProjectId | null | undefined): string | null {
+  const selector = useMemo(
+    () =>
+      projectId
+        ? (state: HostConnectionState) => state.projectConnectionById[projectId] ?? null
+        : () => null,
+    [projectId],
+  );
+  return useHostConnectionStore(selector);
+}
+
+export function useThreadConnectionUrl(threadId: ThreadId | null | undefined): string | null {
+  const selector = useMemo(
+    () =>
+      threadId
+        ? (state: HostConnectionState) => state.threadConnectionById[threadId] ?? null
+        : () => null,
+    [threadId],
+  );
+  return useHostConnectionStore(selector);
+}

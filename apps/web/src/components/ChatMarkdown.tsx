@@ -2,6 +2,7 @@ import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pie
 import { CheckIcon, CopyIcon, GlobeIcon } from "lucide-react";
 import React, {
   Children,
+  Profiler,
   Suspense,
   isValidElement,
   use,
@@ -29,11 +30,18 @@ import {
 } from "../lib/memoryPressure";
 import { clampCacheBudgetBytes, clampCacheEntryCount } from "../lib/resourceProfile";
 import { useTheme } from "../hooks/useTheme";
+import { buildLargeMarkdownPreviewText } from "../lib/chat/messageText";
 import {
-  buildLargeMarkdownPreviewText,
-  shouldUseLargeMarkdownPreview,
-} from "../lib/chat/messageText";
+  analyzeMarkdownRender,
+  buildMarkdownRenderAnalysisCacheKey,
+  shouldWorkerizeMarkdownRenderAnalysis,
+} from "../lib/chat/markdownRenderAnalysis";
+import {
+  prewarmMarkdownRenderAnalysis,
+  readCachedMarkdownRenderAnalysis,
+} from "../lib/chat/markdownRenderAnalysisClient";
 import { normalizeBrowserHttpUrl } from "../lib/browser/url";
+import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/renderProfiling";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
@@ -63,6 +71,7 @@ class CodeHighlightErrorBoundary extends React.Component<
 interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
+  analysisCacheKey?: string;
   isStreaming?: boolean;
   renderPlainText?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
@@ -86,6 +95,13 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const onMarkdownProfilerRender = (
+  _id: string,
+  phase: "mount" | "update" | "nested-update",
+  actualDuration: number,
+) => {
+  recordReactRenderProfile("chat.markdown.render", phase, actualDuration);
+};
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
@@ -218,6 +234,22 @@ function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNo
   );
 }
 
+function MermaidDiagramLoading({ className }: { className?: string }) {
+  return (
+    <div
+      className={[
+        "flex min-h-[120px] items-center justify-center rounded-lg border border-border/60 bg-muted/35 px-3 text-xs text-muted-foreground/75",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-mermaid-diagram-state="loading"
+    >
+      Rendering Mermaid diagram...
+    </div>
+  );
+}
+
 interface SuspenseShikiCodeBlockProps {
   className: string | undefined;
   code: string;
@@ -285,7 +317,15 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function MarkdownBody({
+const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
+  return (
+    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+      {text}
+    </div>
+  );
+});
+
+const MarkdownBody = memo(function MarkdownBody({
   children,
   isStreaming,
   markdownComponents,
@@ -294,28 +334,27 @@ function MarkdownBody({
   isStreaming: boolean;
   markdownComponents: Components;
 }) {
+  const markdown = (
+    <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+      {children}
+    </ReactMarkdown>
+  );
+
   return (
     <div
       className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
       data-streaming-markdown={isStreaming ? "true" : undefined}
     >
-      <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
-        {children}
-      </ReactMarkdown>
+      {isRenderProfilingEnabled() ? (
+        <Profiler id="chat-markdown" onRender={onMarkdownProfilerRender}>
+          {markdown}
+        </Profiler>
+      ) : (
+        markdown
+      )}
     </div>
   );
-}
-
-function MermaidDiagramLoadingFallback() {
-  return (
-    <div
-      className="chat-markdown-mermaid flex min-h-[120px] items-center justify-center rounded-lg border border-border/60 bg-muted/35 px-3 text-xs text-muted-foreground/75"
-      data-mermaid-diagram-state="loading"
-    >
-      Rendering Mermaid diagram...
-    </div>
-  );
-}
+});
 
 function PreviewTextPanel({
   text,
@@ -369,16 +408,16 @@ function StreamingMarkdownPreview({
 }
 
 function LargeMarkdownPreview({
-  text,
+  previewText,
+  totalCharacters,
   isTransitionPending,
   onRenderMarkdown,
 }: {
-  text: string;
+  previewText: string;
+  totalCharacters: number;
   isTransitionPending: boolean;
   onRenderMarkdown: () => void;
 }) {
-  const previewText = useMemo(() => buildLargeMarkdownPreviewText(text), [text]);
-
   return (
     <div className="space-y-3" data-large-markdown-preview="true">
       <div className="space-y-1">
@@ -400,7 +439,7 @@ function LargeMarkdownPreview({
           {isTransitionPending ? "Rendering markdown..." : "Render full markdown"}
         </button>
         <span className="text-[11px] text-muted-foreground/65">
-          {text.length.toLocaleString()} chars
+          {totalCharacters.toLocaleString()} chars
         </span>
       </div>
     </div>
@@ -410,6 +449,7 @@ function LargeMarkdownPreview({
 function ChatMarkdown({
   text,
   cwd,
+  analysisCacheKey,
   isStreaming = false,
   renderPlainText = false,
   streamingTextState,
@@ -422,10 +462,50 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
-  const useLargePreview =
-    !isStreaming &&
-    renderPreference !== "markdown" &&
-    shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
+  const markdownRenderAnalysisInput = useMemo(
+    () => ({
+      text,
+      isStreaming,
+      renderPlainText,
+      ...(streamingTextState
+        ? {
+            streamingTextState: {
+              totalLineCount: streamingTextState.totalLineCount,
+              truncatedCharCount: streamingTextState.truncatedCharCount,
+              truncatedLineCount: streamingTextState.truncatedLineCount,
+            },
+          }
+        : {}),
+    }),
+    [isStreaming, renderPlainText, streamingTextState, text],
+  );
+  const resolvedAnalysisCacheKey = useMemo(
+    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, analysisCacheKey),
+    [analysisCacheKey, markdownRenderAnalysisInput],
+  );
+  const cachedMarkdownRenderAnalysis = useMemo(
+    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
+    [resolvedAnalysisCacheKey],
+  );
+  const markdownRenderAnalysis = useMemo(
+    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
+    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
+  );
+  const useLargePreview = renderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
+  const shouldObserveLayout =
+    onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
+
+  useEffect(() => {
+    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) {
+      return;
+    }
+    if (cachedMarkdownRenderAnalysis) {
+      return;
+    }
+    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
+  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
+
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();
     if (api) {
@@ -528,7 +608,7 @@ function ChatMarkdown({
         if (language === "mermaid") {
           return (
             <MarkdownCodeBlock code={codeBlock.code}>
-              <Suspense fallback={<MermaidDiagramLoadingFallback />}>
+              <Suspense fallback={<MermaidDiagramLoading className="chat-markdown-mermaid" />}>
                 <MermaidDiagram
                   source={codeBlock.code}
                   theme={resolvedTheme}
@@ -565,7 +645,6 @@ function ChatMarkdown({
       resolvedTheme,
     ],
   );
-
   useEffect(() => {
     if (isStreaming) {
       setRenderPreference("auto");
@@ -577,7 +656,7 @@ function ChatMarkdown({
   }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
 
   useEffect(() => {
-    if (!onLayoutChange || typeof ResizeObserver === "undefined") {
+    if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;
     }
     const rootElement = rootRef.current;
@@ -611,36 +690,51 @@ function ChatMarkdown({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [onLayoutChange]);
+  }, [onLayoutChange, shouldObserveLayout]);
 
-  let content: ReactNode;
-  if (renderPlainText) {
-    content = <PreviewTextPanel text={text} />;
-  } else if (
-    isStreaming &&
-    streamingTextState &&
-    (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
-  ) {
-    content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
-  } else if (useLargePreview) {
-    content = (
-      <LargeMarkdownPreview
-        text={text}
-        isTransitionPending={isMarkdownTransitionPending}
-        onRenderMarkdown={() => {
-          startMarkdownTransition(() => {
-            setRenderPreference("markdown");
-          });
-        }}
-      />
-    );
-  } else {
-    content = (
+  const content = useMemo<ReactNode>(() => {
+    if (renderPlainText) {
+      return <PreviewTextPanel text={text} />;
+    }
+    if (markdownRenderAnalysis.usesStreamingPreview && streamingTextState) {
+      return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+    }
+    if (useLargePreview) {
+      return (
+        <LargeMarkdownPreview
+          previewText={
+            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(text)
+          }
+          totalCharacters={text.length}
+          isTransitionPending={isMarkdownTransitionPending}
+          onRenderMarkdown={() => {
+            startMarkdownTransition(() => {
+              setRenderPreference("markdown");
+            });
+          }}
+        />
+      );
+    }
+    if (shouldFastPathPlainText) {
+      return <PlainMarkdownText text={text} />;
+    }
+    return (
       <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
         {text}
       </MarkdownBody>
     );
-  }
+  }, [
+    isMarkdownTransitionPending,
+    isStreaming,
+    markdownRenderAnalysis,
+    markdownComponents,
+    renderPlainText,
+    startMarkdownTransition,
+    streamingTextState,
+    shouldFastPathPlainText,
+    text,
+    useLargePreview,
+  ]);
 
   return (
     <div ref={rootRef} className="w-full min-w-0">

@@ -48,11 +48,14 @@ const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 
 const selectAvailableEditors = (config: ServerConfig | null): ReadonlyArray<EditorId> =>
   config?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
+const selectEmptyAvailableEditors = (): ReadonlyArray<EditorId> => EMPTY_AVAILABLE_EDITORS;
 const selectKeybindings = (config: ServerConfig | null) => config?.keybindings ?? EMPTY_KEYBINDINGS;
+const selectEmptyKeybindings = (): ServerConfig["keybindings"] => EMPTY_KEYBINDINGS;
 const selectKeybindingsConfigPath = (config: ServerConfig | null) =>
   config?.keybindingsConfigPath ?? null;
 const selectProviders = (config: ServerConfig | null) =>
   config?.providers ?? EMPTY_SERVER_PROVIDERS;
+const selectEmptyProviders = (): ReadonlyArray<ServerProvider> => EMPTY_SERVER_PROVIDERS;
 const selectSettings = (config: ServerConfig | null): ServerSettings =>
   config?.settings ?? DEFAULT_SERVER_SETTINGS;
 
@@ -311,16 +314,27 @@ export function useServerSettingsValue<T>(selector: (settings: ServerSettings) =
   return useAtomValue(serverConfigAtom, (config) => selector(selectSettings(config)));
 }
 
-export function useServerProviders(): ReadonlyArray<ServerProvider> {
-  return useAtomValue(serverConfigAtom, selectProviders);
+export function useServerProviders(options?: { enabled?: boolean }): ReadonlyArray<ServerProvider> {
+  return useAtomValue(
+    serverConfigAtom,
+    options?.enabled === false ? selectEmptyProviders : selectProviders,
+  );
 }
 
-export function useServerKeybindings(): ServerConfig["keybindings"] {
-  return useAtomValue(serverConfigAtom, selectKeybindings);
+export function useServerKeybindings(options?: { enabled?: boolean }): ServerConfig["keybindings"] {
+  return useAtomValue(
+    serverConfigAtom,
+    options?.enabled === false ? selectEmptyKeybindings : selectKeybindings,
+  );
 }
 
-export function useServerAvailableEditors(): ReadonlyArray<EditorId> {
-  return useAtomValue(serverConfigAtom, selectAvailableEditors);
+export function useServerAvailableEditors(options?: {
+  enabled?: boolean;
+}): ReadonlyArray<EditorId> {
+  return useAtomValue(
+    serverConfigAtom,
+    options?.enabled === false ? selectEmptyAvailableEditors : selectAvailableEditors,
+  );
 }
 
 export function useServerKeybindingsConfigPath(): string | null {

@@ -8,9 +8,9 @@ export function resolveDesktopBaseDir(options?: {
   const homeDir = options?.homeDir ?? OS.homedir();
   const appType = options?.appType;
   if (options?.isDevelopment && appType) {
-    return Path.join(homeDir, ".ace-dev", appType);
+    return Path.join(homeDir, ".ace", "dev", appType);
   }
-  return Path.join(homeDir, options?.isDevelopment === true ? ".ace-dev" : ".ace");
+  return Path.join(homeDir, ".ace", ...(options?.isDevelopment === true ? ["dev"] : []));
 }
 
 export function resolveDesktopUserDataPath(options: {
