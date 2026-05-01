@@ -353,6 +353,7 @@ interface TerminalViewportProps {
   terminalLabel: string;
   cwd: string;
   runtimeEnv?: Record<string, string>;
+  interactive: boolean;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onAutoTerminalTitleChange: (title: string | null) => void;
@@ -367,6 +368,7 @@ function TerminalViewport({
   terminalLabel,
   cwd,
   runtimeEnv,
+  interactive,
   onSessionExited,
   onAddTerminalContext,
   onAutoTerminalTitleChange,
@@ -414,7 +416,7 @@ function TerminalViewport({
     const fitAddon = new FitAddon();
     const fontFamily = readTerminalFontFamily();
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink: interactive,
       lineHeight: 1.16,
       fontSize: 13,
       letterSpacing: 0.2,
@@ -744,7 +746,7 @@ function TerminalViewport({
         if (snapshot.history.length > 0) {
           activeTerminal.write(snapshot.history);
         }
-        if (autoFocus) {
+        if (autoFocus && interactive) {
           window.requestAnimationFrame(() => {
             activeTerminal.focus();
           });
@@ -877,7 +879,16 @@ function TerminalViewport({
   }, [cwd, runtimeEnv, terminalId, threadId]);
 
   useEffect(() => {
-    if (!autoFocus) return;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.cursorBlink = interactive;
+    if (!interactive) {
+      terminal.blur?.();
+    }
+  }, [interactive]);
+
+  useEffect(() => {
+    if (!autoFocus || !interactive) return;
     const terminal = terminalRef.current;
     if (!terminal) return;
     const frame = window.requestAnimationFrame(() => {
@@ -886,7 +897,7 @@ function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [autoFocus, focusRequestId]);
+  }, [autoFocus, focusRequestId, interactive]);
 
   useEffect(() => {
     const api = readNativeApi();
@@ -923,6 +934,7 @@ interface ThreadTerminalDrawerProps {
   cwd: string;
   runtimeEnv?: Record<string, string>;
   height: number;
+  interactive: boolean;
   terminalIds: string[];
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
@@ -1078,6 +1090,7 @@ export default memo(function ThreadTerminalDrawer({
   cwd,
   runtimeEnv,
   height,
+  interactive,
   terminalIds,
   activeTerminalId,
   terminalGroups,
@@ -1332,7 +1345,10 @@ export default memo(function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-terminal"
+      className={cn(
+        "thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-terminal",
+        !interactive && "pointer-events-none select-none",
+      )}
       style={{ height: `${drawerHeight}px` }}
     >
       <div
@@ -1393,13 +1409,14 @@ export default memo(function ThreadTerminalDrawer({
                 terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                 cwd={cwd}
                 {...(runtimeEnv ? { runtimeEnv } : {})}
+                interactive={interactive}
                 onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                 onAddTerminalContext={onAddTerminalContext}
                 onAutoTerminalTitleChange={(title) =>
                   onAutoTerminalTitleChange(resolvedActiveTerminalId, title)
                 }
                 focusRequestId={focusRequestId}
-                autoFocus
+                autoFocus={interactive}
                 drawerHeight={drawerHeight}
               />
             </div>
