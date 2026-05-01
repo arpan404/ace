@@ -153,6 +153,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  deriveEffectiveComposerExecutionModeState,
   deriveEffectiveComposerModelState,
   getComposerThreadDraft,
   getComposerThreadDraftState,
@@ -1028,10 +1029,15 @@ export default function ChatView({
     ],
   );
   const activeThread = serverThread ?? localDraftThread;
-  const runtimeMode =
-    composerShellDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
-  const interactionMode =
-    composerShellDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
+  const { runtimeMode, interactionMode } = useMemo(
+    () =>
+      deriveEffectiveComposerExecutionModeState({
+        draft: composerShellDraft,
+        threadRuntimeMode: activeThread?.runtimeMode ?? null,
+        threadInteractionMode: activeThread?.interactionMode ?? null,
+      }),
+    [activeThread?.interactionMode, activeThread?.runtimeMode, composerShellDraft],
+  );
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const handoffLineageSelector = useMemo(
@@ -4599,9 +4605,20 @@ export default function ChatView({
     [activeProject, persistProjectScripts],
   );
 
+  const readCurrentComposerExecutionModeState = useCallback(
+    () =>
+      deriveEffectiveComposerExecutionModeState({
+        draft: getComposerThreadDraft(threadId),
+        threadRuntimeMode: activeThread?.runtimeMode ?? null,
+        threadInteractionMode: activeThread?.interactionMode ?? null,
+      }),
+    [activeThread?.interactionMode, activeThread?.runtimeMode, threadId],
+  );
+
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
-      if (mode === runtimeMode) return;
+      const currentRuntimeMode = readCurrentComposerExecutionModeState().runtimeMode;
+      if (mode === currentRuntimeMode) return;
       setComposerDraftRuntimeMode(threadId, mode);
       if (isLocalDraftThread) {
         setDraftThreadContext(threadId, { runtimeMode: mode });
@@ -4609,8 +4626,8 @@ export default function ChatView({
       scheduleComposerFocus();
     },
     [
+      readCurrentComposerExecutionModeState,
       isLocalDraftThread,
-      runtimeMode,
       scheduleComposerFocus,
       setComposerDraftRuntimeMode,
       setDraftThreadContext,
@@ -4620,7 +4637,8 @@ export default function ChatView({
 
   const handleInteractionModeChange = useCallback(
     (mode: ProviderInteractionMode) => {
-      if (mode === interactionMode) return;
+      const currentInteractionMode = readCurrentComposerExecutionModeState().interactionMode;
+      if (mode === currentInteractionMode) return;
       setComposerDraftInteractionMode(threadId, mode);
       if (isLocalDraftThread) {
         setDraftThreadContext(threadId, { interactionMode: mode });
@@ -4628,7 +4646,7 @@ export default function ChatView({
       scheduleComposerFocus();
     },
     [
-      interactionMode,
+      readCurrentComposerExecutionModeState,
       isLocalDraftThread,
       scheduleComposerFocus,
       setComposerDraftInteractionMode,
@@ -4637,8 +4655,9 @@ export default function ChatView({
     ],
   );
   const toggleInteractionMode = useCallback(() => {
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
-  }, [handleInteractionModeChange, interactionMode]);
+    const currentInteractionMode = readCurrentComposerExecutionModeState().interactionMode;
+    handleInteractionModeChange(currentInteractionMode === "plan" ? "default" : "plan");
+  }, [handleInteractionModeChange, readCurrentComposerExecutionModeState]);
   useEffect(() => {
     if (!activeForSideEffects) return;
     if (!shortcutsEnabled) return;
@@ -5065,10 +5084,13 @@ export default function ChatView({
       : "local";
 
   useEffect(() => {
-    if (!activeForSideEffects) return;
     if (!activeThreadId) return;
-    const previous = terminalOpenByThreadRef.current[activeThreadId] ?? false;
     const current = Boolean(terminalState.terminalOpen);
+    if (!activeForSideEffects) {
+      terminalOpenByThreadRef.current[activeThreadId] = current;
+      return;
+    }
+    const previous = terminalOpenByThreadRef.current[activeThreadId] ?? false;
 
     if (!previous && current) {
       terminalOpenByThreadRef.current[activeThreadId] = current;
@@ -6914,8 +6936,8 @@ export default function ChatView({
                     modelSettings={modelSettings}
                     providers={providerStatuses}
                     isServerThread={isServerThread}
-                    runtimeMode={runtimeMode}
-                    interactionMode={interactionMode}
+                    threadRuntimeMode={activeThread.runtimeMode}
+                    threadInteractionMode={activeThread.interactionMode}
                     composerModelOptions={composerModelOptions}
                     selectedProvider={selectedProvider}
                     selectedModel={selectedModel}
@@ -6973,7 +6995,7 @@ export default function ChatView({
                     onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
                     onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
                     onHandoffToProvider={onHandoffToProvider}
-                    onToggleInteractionMode={toggleInteractionMode}
+                    onInteractionModeChange={handleInteractionModeChange}
                     onRuntimeModeChange={handleRuntimeModeChange}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={onInterrupt}
