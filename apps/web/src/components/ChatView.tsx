@@ -913,6 +913,7 @@ export default function ChatView({
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
+  const chatShellRef = useRef<HTMLDivElement | null>(null);
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
     messagesScrollRef.current = element;
   }, []);
@@ -6949,7 +6950,10 @@ export default function ChatView({
   );
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+    <div
+      ref={chatShellRef}
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+    >
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <div
         className={cn(
@@ -7125,6 +7129,7 @@ export default function ChatView({
                         </div>
                       ) : null
                     }
+                    floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
                     onComposerHeightChange={scheduleStickToBottom}
                     onPreviewExpandedImage={onExpandTimelineImage}
                     onIssuePreviewOpen={onComposerIssueTokenClick}
