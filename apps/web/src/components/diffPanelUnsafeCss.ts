@@ -6,9 +6,9 @@ const DIFF_PANEL_SHARED_UNSAFE_CSS = `
 [data-file],
 [data-error-wrapper],
 [data-virtualizer-buffer] {
-  --diffs-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-light-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-dark-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
+  --diffs-bg: color-mix(in srgb, var(--background) 98%, var(--foreground)) !important;
+  --diffs-light-bg: color-mix(in srgb, var(--background) 98%, var(--foreground)) !important;
+  --diffs-dark-bg: color-mix(in srgb, var(--background) 98%, var(--foreground)) !important;
   --diffs-token-light-bg: transparent;
   --diffs-token-dark-bg: transparent;
 
@@ -34,8 +34,23 @@ const DIFF_PANEL_SHARED_UNSAFE_CSS = `
   background-color: var(--diffs-bg) !important;
 }
 
+[data-diff],
+[data-file],
+[data-error-wrapper] {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+[data-file] {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, transparent) !important;
+}
+
+[data-file]:last-child {
+  border-bottom: none !important;
+}
+
 [data-file-info] {
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
+  background-color: color-mix(in srgb, var(--background) 95%, var(--foreground)) !important;
   border-block-color: var(--border) !important;
   color: var(--foreground) !important;
 }
@@ -63,7 +78,7 @@ function getDiffHeaderUnsafeCss(mode: DiffPanelMode): string {
   position: relative !important;
   top: auto !important;
   z-index: 1 !important;
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
+  background-color: color-mix(in srgb, var(--background) 95%, var(--foreground)) !important;
   border-bottom: 1px solid var(--border) !important;
 }
 `;
@@ -74,7 +89,7 @@ function getDiffHeaderUnsafeCss(mode: DiffPanelMode): string {
   position: sticky !important;
   top: 0;
   z-index: 4;
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
+  background-color: color-mix(in srgb, var(--background) 95%, var(--foreground)) !important;
   border-bottom: 1px solid var(--border) !important;
 }
 `;

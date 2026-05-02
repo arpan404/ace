@@ -24,11 +24,14 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import ChatMarkdown from "./ChatMarkdown";
+import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
+
+const diffCountFormatter = new Intl.NumberFormat();
 
 function stepStatusIcon(status: string) {
   if (status === "completed") {
@@ -57,9 +60,19 @@ interface PlanSummaryPanelProps {
   activeProposedPlan: LatestProposedPlanState | null;
   activeProvider?: ProviderKind | null;
   markdownCwd: string | undefined;
+  onOpenDiffPanel?: (() => void) | null;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  workspaceDiffSummary: {
+    additions: number;
+    deletions: number;
+    fileCount: number;
+  } | null;
   workspaceRoot: string | undefined;
+}
+
+function formatDiffCount(value: number) {
+  return diffCountFormatter.format(value);
 }
 
 function formatPlanProgressValue(value: number, width: number): string {
@@ -91,8 +104,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   activeProposedPlan,
   activeProvider = null,
   markdownCwd,
+  onOpenDiffPanel = null,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  workspaceDiffSummary,
   workspaceRoot,
 }: PlanSummaryPanelProps) {
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
@@ -213,6 +228,49 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
           data-plan-summary-scroll-container="true"
         >
           <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
+            <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-2">
+                  <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                    Changes
+                  </p>
+                  {workspaceDiffSummary ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="secondary"
+                          className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                        >
+                          {formatDiffCount(workspaceDiffSummary.fileCount)} files
+                        </Badge>
+                        <p className="text-sm font-medium tracking-tight text-foreground">
+                          Workspace diff summary
+                        </p>
+                      </div>
+                      <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                        <span className="mr-2">Current working tree:</span>
+                        <span className="font-medium text-foreground">
+                          <DiffStatLabel
+                            additions={workspaceDiffSummary.additions}
+                            deletions={workspaceDiffSummary.deletions}
+                          />
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                      Working tree is clean.
+                    </p>
+                  )}
+                </div>
+                {workspaceDiffSummary && onOpenDiffPanel ? (
+                  <Button type="button" size="sm" variant="outline" onClick={onOpenDiffPanel}>
+                    Open review
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
             <div>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-2">

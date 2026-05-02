@@ -215,17 +215,68 @@ describe("chatThreadBoardStore", () => {
 
   it("uses the provided title when drag-opening a new board", () => {
     const store = useChatThreadBoardStore.getState();
-    const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });
+    const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A, title: "Thread A" });
 
     store.openThreadInBoard({
+      paneTitle: "Thread B",
       sourcePaneId,
+      splitTitle: "Thread A + 1",
       threadId: THREAD_B,
-      title: "Thread A + 1",
     });
 
     const state = useChatThreadBoardStore.getState();
     const split = state.splits.find((candidate) => candidate.id === state.activeSplitId);
     expect(split?.title).toBe("Thread A + 1");
+  });
+
+  it("keeps auto split titles anchored until the lead pane is removed", () => {
+    const store = useChatThreadBoardStore.getState();
+    const splitId = store.createSplit({
+      activeThread: { threadId: THREAD_B, title: "Beta" },
+      threads: [
+        { threadId: THREAD_A, title: "Alpha" },
+        { threadId: THREAD_B, title: "Beta" },
+      ],
+      title: "Alpha + 1",
+    });
+
+    expect(splitId).toBeTruthy();
+
+    store.openThreadInSplit(splitId!, { threadId: THREAD_C, title: "Gamma" });
+    let split = useChatThreadBoardStore
+      .getState()
+      .splits.find((candidate) => candidate.id === splitId);
+    expect(split?.title).toBe("Alpha + 2");
+
+    const alphaPaneId = split?.panes.find((pane) => pane.threadId === THREAD_A)?.id;
+    expect(alphaPaneId).toBeTruthy();
+
+    useChatThreadBoardStore.getState().restoreSplit(splitId!);
+    store.closePane(alphaPaneId!);
+    split = useChatThreadBoardStore.getState().splits.find((candidate) => candidate.id === splitId);
+    expect(split?.title).toBe("Beta + 1");
+  });
+
+  it("stops auto-updating a split title after a manual rename", () => {
+    const store = useChatThreadBoardStore.getState();
+    const splitId = store.createSplit({
+      activeThread: { threadId: THREAD_B, title: "Beta" },
+      threads: [
+        { threadId: THREAD_A, title: "Alpha" },
+        { threadId: THREAD_B, title: "Beta" },
+      ],
+      title: "Alpha + 1",
+    });
+
+    expect(splitId).toBeTruthy();
+
+    store.renameSplit(splitId!, "Pinned name");
+    store.openThreadInSplit(splitId!, { threadId: THREAD_C, title: "Gamma" });
+    const split = useChatThreadBoardStore
+      .getState()
+      .splits.find((candidate) => candidate.id === splitId);
+
+    expect(split?.title).toBe("Pinned name");
   });
 
   it("does not rewrite state when restoring an already active board pane", () => {

@@ -251,6 +251,8 @@ const makeRelayHostManager = Effect.gen(function* () {
   const relayIdentity = yield* getRelayDeviceIdentity();
   const pairingSessionRepository = yield* PairingSessionRepository;
   const changesPubSub = yield* PubSub.unbounded<ServerRelayStatus>();
+  const services = yield* Effect.services();
+  const runFork = Effect.runForkWith(services);
 
   const initialSettings = yield* serverSettings.getSettings.pipe(Effect.orDie);
   const initialDefaultRelayUrl = resolveConfiguredRelayWebSocketUrl({
@@ -284,9 +286,7 @@ const makeRelayHostManager = Effect.gen(function* () {
 
   const publishStatus = () => {
     statusSnapshot = buildStatus();
-    void Effect.runFork(
-      PubSub.publish(changesPubSub, statusSnapshot).pipe(Effect.ignoreCause({ log: true })),
-    );
+    runFork(PubSub.publish(changesPubSub, statusSnapshot).pipe(Effect.ignoreCause({ log: true })));
   };
 
   const closeRoute = (

@@ -197,6 +197,7 @@ import {
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
+import { buildSidebarBoardListItem } from "../lib/threadBoardList";
 import { buildThreadBoardTitle } from "../lib/threadBoardTitle";
 import {
   createThreadBoardDragThread,
@@ -1052,8 +1053,13 @@ export default function Sidebar() {
       threads: ReadonlyArray<{
         connectionUrl: string | null;
         threadId: ThreadId;
+        title?: string | null | undefined;
       }>,
-      activeThread: { connectionUrl: string | null; threadId: ThreadId },
+      activeThread: {
+        connectionUrl: string | null;
+        threadId: ThreadId;
+        title?: string | null | undefined;
+      },
     ) => {
       const uniqueThreads = [
         ...new Map(threads.map((thread) => [getThreadBoardDragThreadKey(thread), thread])).values(),
@@ -1087,7 +1093,7 @@ export default function Sidebar() {
     ) => {
       const dragThread = createThreadBoardDragThread({
         ...thread,
-        title: sidebarThreadsById[thread.threadId]?.title,
+        title: sidebarThreadsById[thread.threadId]?.title ?? null,
       });
       const payload = encodeThreadBoardDragThread(dragThread);
       event.dataTransfer.effectAllowed = "copyMove";
@@ -1109,7 +1115,11 @@ export default function Sidebar() {
   );
   const handleBoardThreadDropOnThread = useCallback(
     (
-      target: { connectionUrl: string | null; threadId: ThreadId },
+      target: {
+        connectionUrl: string | null;
+        threadId: ThreadId;
+        title?: string | null | undefined;
+      },
       event: DragEvent<HTMLLIElement>,
     ) => {
       event.preventDefault();
@@ -1123,9 +1133,13 @@ export default function Sidebar() {
       if (sourceKey === targetKey) {
         return;
       }
-      buildBoardFromDraggedThreads([source, target], target);
+      const targetWithTitle = {
+        ...target,
+        title: target.title ?? sidebarThreadsById[target.threadId]?.title ?? null,
+      };
+      buildBoardFromDraggedThreads([source, targetWithTitle], targetWithTitle);
     },
-    [buildBoardFromDraggedThreads, clearBoardThreadDrag, readBoardThreadDrag],
+    [buildBoardFromDraggedThreads, clearBoardThreadDrag, readBoardThreadDrag, sidebarThreadsById],
   );
   const handleBoardThreadDropOnSavedBoard = useCallback(
     (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => {
@@ -1237,7 +1251,11 @@ export default function Sidebar() {
     [readBoardThreadDrag, setBoardThreadDragOverTarget],
   );
   const openThreadInSplit = useCallback(
-    (target: { connectionUrl: string | null; threadId: ThreadId }) => {
+    (target: {
+      connectionUrl: string | null;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    }) => {
       if (target.connectionUrl) {
         useHostConnectionStore
           .getState()
@@ -1250,6 +1268,7 @@ export default function Sidebar() {
         useChatThreadBoardStore.getState().openThreadInBoard({
           connectionUrl: target.connectionUrl,
           direction: "right",
+          paneTitle: target.title ?? null,
           sourcePaneId: savedSplitBoard.activePaneId,
           threadId: target.threadId,
         });
@@ -1262,6 +1281,7 @@ export default function Sidebar() {
             {
               connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
               threadId: routeThreadId,
+              title: sidebarThreadsById[routeThreadId]?.title ?? null,
             },
             target,
           ]
@@ -1282,10 +1302,17 @@ export default function Sidebar() {
       navigateToBoardThreadRoute,
       routeThreadId,
       savedSplitBoard.activePaneId,
+      sidebarThreadsById,
     ],
   );
   const openThreadsInSplit = useCallback(
-    (targets: ReadonlyArray<{ connectionUrl: string | null; threadId: ThreadId }>) => {
+    (
+      targets: ReadonlyArray<{
+        connectionUrl: string | null;
+        threadId: ThreadId;
+        title?: string | null | undefined;
+      }>,
+    ) => {
       if (targets.length === 0) {
         return;
       }
@@ -1314,6 +1341,7 @@ export default function Sidebar() {
               {
                 connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
                 threadId: routeThreadId,
+                title: sidebarThreadsById[routeThreadId]?.title ?? null,
               },
               ...targets,
             ];
@@ -1333,6 +1361,7 @@ export default function Sidebar() {
       navigateToBoardThreadRoute,
       routeThreadId,
       savedSplitBoard.activePaneId,
+      sidebarThreadsById,
     ],
   );
   const closeActiveSplitRoute = useCallback(() => {
@@ -1359,7 +1388,7 @@ export default function Sidebar() {
       if (!title) {
         toastManager.add({
           type: "warning",
-          title: "Board name cannot be empty",
+          title: "Split name cannot be empty",
         });
         cancelSplitRename();
         return;
@@ -1400,7 +1429,7 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) return;
       const confirmed = await api.dialogs.confirm(
-        [`Delete board "${split.title}"?`, "The threads are not deleted."].join("\n"),
+        [`Delete split "${split.title}"?`, "The threads are not deleted."].join("\n"),
       );
       if (!confirmed) {
         return;
@@ -1470,6 +1499,21 @@ export default function Sidebar() {
   const projectById = useMemo(
     () => new Map(activeProjects.map((project) => [project.id, project] as const)),
     [activeProjects],
+  );
+  const savedBoardItems = useMemo(
+    () =>
+      savedBoards.map((split) =>
+        buildSidebarBoardListItem({
+          projectById,
+          split,
+          threadById: sidebarThreadsById,
+        }),
+      ),
+    [projectById, savedBoards, sidebarThreadsById],
+  );
+  const visibleSavedBoardItems = useMemo(
+    () => savedBoardItems.slice(0, splitRevealCount),
+    [savedBoardItems, splitRevealCount],
   );
   const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
     const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
@@ -2577,7 +2621,7 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: "Open in board" },
+          { id: "open-in-board", label: "Open in split" },
           { id: "pin", label: pinnedThreadIds.includes(threadId) ? "Unpin thread" : "Pin thread" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
@@ -2592,6 +2636,7 @@ export default function Sidebar() {
         const connectionUrl = resolveConnectionForThreadId(threadId) ?? null;
         openThreadInSplit({
           connectionUrl,
+          title: thread.title ?? null,
           threadId,
         });
         return;
@@ -2667,7 +2712,7 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: `Open in board (${count})` },
+          { id: "open-in-board", label: `Open in split (${count})` },
           { id: "mark-unread", label: `Mark unread (${count})` },
           { id: "delete", label: `Delete (${count})`, destructive: true },
         ],
@@ -2678,6 +2723,7 @@ export default function Sidebar() {
         const boardInputs = ids.map((id) => ({
           connectionUrl: resolveConnectionForThreadId(id) ?? null,
           threadId: id,
+          title: sidebarThreadsById[id]?.title ?? null,
         }));
         openThreadsInSplit(boardInputs);
         clearSelection();
@@ -2719,6 +2765,7 @@ export default function Sidebar() {
       openThreadsInSplit,
       readSidebarThreadSummary,
       removeFromSelection,
+      sidebarThreadsById,
       selectedThreadIds,
     ],
   );
@@ -2754,6 +2801,7 @@ export default function Sidebar() {
       useChatThreadBoardStore.getState().syncRouteThread({
         connectionUrl,
         threadId,
+        title: readSidebarThreadSummary(threadId)?.title ?? null,
       });
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
@@ -2826,7 +2874,10 @@ export default function Sidebar() {
         clearSelection();
       }
       setSelectionAnchor(threadId);
-      useChatThreadBoardStore.getState().syncRouteThread({ threadId });
+      useChatThreadBoardStore.getState().syncRouteThread({
+        threadId,
+        title: thread?.title ?? null,
+      });
       startTransition(() => {
         void navigate({
           to: "/$threadId",
@@ -2853,6 +2904,7 @@ export default function Sidebar() {
       useChatThreadBoardStore.getState().syncRouteThread({
         connectionUrl,
         threadId,
+        title: readSidebarThreadSummary(threadId)?.title ?? null,
       });
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
@@ -3093,7 +3145,7 @@ export default function Sidebar() {
       if (!api) return;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: "Open in board" },
+          { id: "open-in-board", label: "Open in split" },
           { id: "rename", label: "Rename thread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -3107,6 +3159,7 @@ export default function Sidebar() {
         const remoteThreadId = ThreadId.makeUnsafe(input.thread.id);
         openThreadInSplit({
           connectionUrl: input.connectionUrl,
+          title: input.thread.title ?? null,
           threadId: remoteThreadId,
         });
         return;
@@ -3813,6 +3866,7 @@ export default function Sidebar() {
       return [];
     }
     return sortedActiveThreads.map((thread) => ({
+      activityAt: thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
       connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
       id: thread.id,
       projectId: thread.projectId,
@@ -3894,6 +3948,7 @@ export default function Sidebar() {
       .map((thread) => ({
         connectionUrl: thread.connectionUrl,
         threadId: thread.id,
+        title: thread.title ?? null,
       }));
     if (selectedTargets.length < 2) {
       return;
@@ -5086,20 +5141,20 @@ export default function Sidebar() {
           />
           <MenuPopup align="start" side="bottom" sideOffset={6} className="min-w-48">
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "open")}>
-              Open board
+              Open split
             </MenuItem>
             <div className="mx-2 my-1 h-px bg-border" />
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "rename")}>
-              Rename board
+              Rename split
             </MenuItem>
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "archive")}>
-              Archive board
+              Archive split
             </MenuItem>
             <MenuItem
               className="text-destructive focus:text-destructive"
               onClick={() => void handleSplitMenuAction(contextMenuSplit, "delete")}
             >
-              Delete board
+              Delete split
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -5486,9 +5541,10 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            {savedBoards.length > 0 || splitPickerAvailableThreadCount >= 2 ? (
+            {savedBoards.length > 0 ? (
               <SidebarBoardsSection
                 activeSplitId={activeStoreSplitId}
+                boardItems={savedBoardItems}
                 boardsSectionExpanded={boardsSectionExpanded}
                 canCollapseSplitList={canCollapseSplitList}
                 canCreateBoard={splitPickerAvailableThreadCount >= 2}
@@ -5501,11 +5557,10 @@ export default function Sidebar() {
                 hiddenSavedSplitCount={hiddenSavedSplitCount}
                 renamingSplitId={renamingSplitId}
                 renamingSplitTitle={renamingSplitTitle}
-                savedBoards={savedBoards}
                 showMoreCount={Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)}
                 splitSortOrder={splitSortOrder}
                 threadDragActive={boardThreadDragState !== null}
-                visibleSavedBoards={visibleSavedBoards}
+                visibleBoardItems={visibleSavedBoardItems}
                 onBoardsSectionToggle={() => {
                   setBoardsSectionExpanded(!boardsSectionExpanded);
                 }}
@@ -5514,6 +5569,9 @@ export default function Sidebar() {
                 onBoardDrop={handleBoardThreadDropOnSavedBoard}
                 onCancelSplitRename={cancelSplitRename}
                 onCommitSplitRename={commitSplitRename}
+                onArchiveSplit={(split) => {
+                  void handleSplitMenuAction(split, "archive");
+                }}
                 onOpenSplitContextMenu={openSplitContextMenu}
                 onOpenSplitPicker={openSplitPicker}
                 onRestoreSavedSplit={restoreSavedSplit}

@@ -63,7 +63,7 @@ export default function TerminalScreen() {
           threadId: threadId ?? undefined,
         } as never);
         if (mounted) {
-          setSessionId(session.id ?? threadId ?? "default");
+          setSessionId(session.terminalId ?? threadId ?? "default");
           setOutput((prev) => [...prev, "--- Terminal session opened ---"]);
         }
       } catch (err) {
@@ -113,7 +113,6 @@ export default function TerminalScreen() {
         options={{
           headerShown: true,
           title: "Terminal",
-          headerBackTitleVisible: false,
           headerStyle: { backgroundColor: termBg },
           headerTintColor: colors.primary,
           headerTitleStyle: { color: termFg },

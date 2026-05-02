@@ -1,8 +1,9 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { Platform } from "react-native";
-import { Bot, FolderTree, RadioTower, Settings2 } from "lucide-react-native";
+import { Bell, Bot, FolderTree, Settings2 } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
+import { Layout, Radius, withAlpha } from "../../src/design/system";
 
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
@@ -16,34 +17,35 @@ export default function TabsLayout() {
         tabBarShowLabel: true,
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: "600",
-          letterSpacing: 0.2,
-          marginBottom: Platform.select({ ios: -1, default: 1 }),
+          fontWeight: "700",
+          letterSpacing: 0.12,
+          marginBottom: Platform.select({ ios: 0, default: 2 }),
         },
         tabBarStyle: {
-          backgroundColor: isDark ? "#101319" : "#f8f8f8",
-          borderTopColor: colors.separator,
-          borderTopWidth: Platform.select({ ios: 0.5, default: 1 }),
-          height: Platform.select({ ios: 84, default: 72 }),
-          paddingTop: 8,
-          paddingBottom: Platform.select({ ios: 18, default: 10 }),
+          position: "absolute",
+          left: Layout.pagePadding,
+          right: Layout.pagePadding,
+          bottom: Platform.select({ ios: 18, default: 14 }),
+          backgroundColor: isDark ? withAlpha("#0f141d", 0.97) : withAlpha("#ffffff", 0.96),
+          borderTopColor: "transparent",
+          borderTopWidth: 0,
+          borderWidth: 1,
+          borderColor: colors.elevatedBorder,
+          height: Layout.tabBarHeight,
+          paddingTop: 11,
+          paddingBottom: Platform.select({ ios: 16, default: 10 }),
+          paddingHorizontal: 10,
+          borderRadius: Radius.panel,
+          elevation: 0,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 18 },
+          shadowOpacity: 0.16,
+          shadowRadius: 32,
         },
+        tabBarItemStyle: { paddingVertical: 4 },
+        tabBarBackground: () => null,
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Agents",
-          tabBarIcon: ({ color, size }) => <Bot size={size ?? 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="hosts"
-        options={{
-          title: "Hosts",
-          tabBarIcon: ({ color, size }) => <RadioTower size={size ?? 20} color={color} />,
-        }}
-      />
       <Tabs.Screen
         name="projects"
         options={{
@@ -52,10 +54,30 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="index"
+        options={{
+          title: "Threads",
+          tabBarIcon: ({ color, size }) => <Bot size={size ?? 20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Notifications",
+          tabBarIcon: ({ color, size }) => <Bell size={size ?? 20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
           tabBarIcon: ({ color, size }) => <Settings2 size={size ?? 20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="hosts"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

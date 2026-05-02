@@ -1,3 +1,4 @@
+import "react-native-get-random-values";
 import { Stack } from "expo-router";
 import { Platform, StatusBar } from "react-native";
 import { useEffect } from "react";
@@ -27,6 +28,7 @@ function RootNavigator() {
             animation: "slide_from_bottom",
           }}
         />
+        <Stack.Screen name="project/[projectId]" options={{ animation: "default" }} />
         <Stack.Screen name="host/[hostId]" options={{ animation: "default" }} />
         <Stack.Screen name="thread/[threadId]" options={{ animation: "default" }} />
         <Stack.Screen
