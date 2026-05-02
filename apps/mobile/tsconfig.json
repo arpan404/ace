@@ -8,5 +8,5 @@
       "~/*": ["./src/*"]
     }
   },
-  "include": ["App.tsx", "index.ts", "src"]
+  "include": ["App.tsx", "index.ts", "app", "src"]
 }

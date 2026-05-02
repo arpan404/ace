@@ -1,28 +1,39 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  View,
-  FlatList,
-  StyleSheet,
-  Text,
-  Pressable,
-  TextInput,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Terminal, ArrowUp, Square } from "lucide-react-native";
+import { ArrowUp, ChevronLeft, Square, Terminal } from "lucide-react-native";
+import type {
+  OrchestrationCheckpointSummary,
+  OrchestrationMessage,
+  OrchestrationThread,
+  OrchestrationThreadActivity,
+} from "@ace/contracts";
+import { newCommandId, newMessageId } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
-import { useHostStore } from "../../src/store/HostStore";
+import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { Panel, ScreenBackdrop, SectionTitle, StatusBadge } from "../../src/design/primitives";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import { upsertThreadMessage } from "../../src/chat/threadMessages";
-import type { OrchestrationMessage, OrchestrationThread } from "@ace/contracts";
+import { formatTimeAgo, resolveMobileThreadStatus } from "../../src/orchestration/mobileData";
 
-function timeStamp(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+type ThreadPanel = "chat" | "diff" | "todo";
+
+const PANEL_OPTIONS: ReadonlyArray<{ key: ThreadPanel; label: string }> = [
+  { key: "chat", label: "Chat" },
+  { key: "diff", label: "Diff" },
+  { key: "todo", label: "Todo" },
+];
 
 export default function ThreadChatScreen() {
   const { threadId, hostId } = useLocalSearchParams<{
@@ -32,75 +43,81 @@ export default function ThreadChatScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const _hosts = useHostStore((s) => s.hosts);
-
-  const [conn, setConn] = useState<ManagedConnection | null>(null);
+  const [connection, setConnection] = useState<ManagedConnection | null>(null);
   const [thread, setThread] = useState<OrchestrationThread | null>(null);
   const [messages, setMessages] = useState<readonly OrchestrationMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+  const [activePanel, setActivePanel] = useState<ThreadPanel>("chat");
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    const conns = connectionManager.getConnections();
-    const found = conns.find((c) => c.host.id === hostId) ?? null;
-    setConn(found);
-    return connectionManager.onStatusChange((updated) => {
-      setConn(updated.find((c) => c.host.id === hostId) ?? null);
+    const connected = connectionManager
+      .getConnections()
+      .find((candidate) => candidate.host.id === hostId);
+    setConnection(connected ?? null);
+
+    return connectionManager.onStatusChange((connections) => {
+      setConnection(connections.find((candidate) => candidate.host.id === hostId) ?? null);
     });
   }, [hostId]);
 
+  const loadThread = useCallback(async () => {
+    if (!connection || connection.status.kind !== "connected" || !threadId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const nextThread = await connection.client.orchestration.getThread(threadId as never);
+      setThread(nextThread);
+      setMessages(nextThread.messages);
+    } finally {
+      setLoading(false);
+    }
+  }, [connection, threadId]);
+
   useEffect(() => {
-    if (!conn || conn.status.kind !== "connected" || !threadId) return;
-
-    let mounted = true;
-    const loadThread = async () => {
-      try {
-        const t = await conn.client.orchestration.getThread(threadId);
-        if (mounted) {
-          setThread(t);
-          setMessages(t.messages);
-          setLoading(false);
-        }
-      } catch {
-        if (mounted) setLoading(false);
-      }
-    };
-
     void loadThread();
+  }, [loadThread]);
 
-    const unsub = conn.client.orchestration.onDomainEvent((event) => {
-      if (event.aggregateId !== threadId) return;
-      if (event.type === "thread.message.sent" && "message" in event.payload) {
-        const msg = event.payload.message as OrchestrationMessage;
-        setMessages((prev) => upsertThreadMessage(prev, msg));
+  useEffect(() => {
+    if (!connection || connection.status.kind !== "connected" || !threadId) {
+      return;
+    }
+
+    return connection.client.orchestration.onDomainEvent((event) => {
+      if (event.aggregateId !== threadId) {
+        return;
       }
-      if (event.type === "thread.session.set" || event.type === "thread.turn.startRequested") {
-        void loadThread();
+
+      if (event.type === "thread.message-sent" && "message" in event.payload) {
+        const nextMessage = event.payload.message as OrchestrationMessage;
+        setMessages((currentMessages) => upsertThreadMessage(currentMessages, nextMessage));
       }
+
+      void loadThread();
     });
-
-    return () => {
-      mounted = false;
-      unsub();
-    };
-  }, [conn, threadId]);
+  }, [connection, loadThread, threadId]);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || !conn || conn.status.kind !== "connected" || !thread) return;
+    if (!input.trim() || !connection || connection.status.kind !== "connected" || !thread) {
+      return;
+    }
 
     const text = input.trim();
     setInput("");
     setSending(true);
 
     try {
-      await conn.client.orchestration.dispatchCommand({
+      await connection.client.orchestration.dispatchCommand({
         type: "thread.turn.start",
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         threadId: thread.id,
         message: {
-          messageId: crypto.randomUUID(),
+          messageId: newMessageId(),
           role: "user",
           text,
           attachments: [],
@@ -109,98 +126,109 @@ export default function ThreadChatScreen() {
         interactionMode: thread.interactionMode,
         createdAt: new Date().toISOString() as never,
       });
-    } catch (err) {
-      console.error("Failed to send message:", err);
     } finally {
       setSending(false);
     }
-  }, [input, conn, thread]);
+  }, [connection, input, thread]);
 
   const handleInterrupt = useCallback(async () => {
-    if (!conn || conn.status.kind !== "connected" || !thread) return;
-    try {
-      await conn.client.orchestration.dispatchCommand({
-        type: "thread.turn.interrupt",
-        commandId: crypto.randomUUID(),
-        threadId: thread.id,
-      } as never);
-    } catch (err) {
-      console.error("Failed to interrupt:", err);
+    if (!connection || connection.status.kind !== "connected" || !thread) {
+      return;
     }
-  }, [conn, thread]);
 
-  const isRunning = thread?.session?.status === "running" || thread?.session?.status === "starting";
-  const sessionStatus = thread?.session?.status ?? "idle";
+    await connection.client.orchestration.dispatchCommand({
+      type: "thread.turn.interrupt",
+      commandId: newCommandId(),
+      threadId: thread.id,
+    } as never);
+  }, [connection, thread]);
 
-  const renderMessage = useCallback(
-    ({ item }: { item: OrchestrationMessage }) => {
-      const isUser = item.role === "user";
-      const isStreaming = item.streaming;
-      return (
-        <View
-          style={[
-            styles.messageBubble,
-            isUser
-              ? [styles.userBubble, { backgroundColor: colors.primary }]
-              : [styles.assistantBubble, { backgroundColor: `${colors.muted}20` }],
-          ]}
-        >
-          <Text style={[styles.messageText, { color: isUser ? "#fff" : colors.foreground }]}>
-            {item.text}
-            {isStreaming ? " ▍" : ""}
-          </Text>
-          <Text
-            style={[styles.messageTime, { color: isUser ? "rgba(255,255,255,0.6)" : colors.muted }]}
-          >
-            {timeStamp(item.createdAt)}
-          </Text>
-        </View>
-      );
-    },
-    [colors],
+  const status = useMemo(() => (thread ? resolveMobileThreadStatus(thread) : null), [thread]);
+  const diffCheckpoint = thread?.checkpoints.at(-1) ?? null;
+  const todoActivities = useMemo(
+    () => (thread?.activities ?? []).filter((activity) => activity.tone !== "info"),
+    [thread?.activities],
   );
+  const toolActivities = useMemo(
+    () => (thread?.activities ?? []).filter((activity) => activity.tone === "tool").slice(-3),
+    [thread?.activities],
+  );
+  const isRunning = thread?.session?.status === "running" || thread?.session?.status === "starting";
 
-  if (loading) {
+  if (loading && !thread) {
     return (
-      <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <Stack.Screen
-          options={{
-            headerShown: true,
-            title: "Thread",
-            headerBackTitleVisible: false,
-            headerStyle: { backgroundColor: colors.background },
-            headerTintColor: colors.primary,
-            headerTitleStyle: { color: colors.foreground },
-          }}
-        />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
+      <View style={[styles.loadingRoot, { backgroundColor: colors.background }]}>
+        <ScreenBackdrop />
+        <Stack.Screen options={{ headerShown: false }} />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: thread?.title ?? "Thread",
-          headerBackTitleVisible: false,
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.primary,
-          headerTitleStyle: { color: colors.foreground, fontSize: 16 },
-          headerRight: () => (
-            <View style={styles.headerRight}>
-              {isRunning && (
-                <Pressable
-                  onPress={() => void handleInterrupt()}
-                  style={[styles.interruptBtn, { borderColor: colors.red }]}
-                >
-                  <Square size={12} color={colors.red} fill={colors.red} />
-                  <Text style={[styles.interruptText, { color: colors.red }]}>Stop</Text>
-                </Pressable>
-              )}
+      <ScreenBackdrop />
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 18 : 0}
+      >
+        <View
+          style={[
+            styles.header,
+            {
+              paddingTop: insets.top + 10,
+              backgroundColor: colors.background,
+            },
+          ]}
+        >
+          <View style={styles.headerRow}>
+            <Pressable
+              onPress={() => router.back()}
+              style={[
+                styles.headerButton,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.elevatedBorder,
+                  shadowColor: colors.shadow,
+                },
+              ]}
+            >
+              <ChevronLeft size={18} color={colors.foreground} strokeWidth={2.2} />
+            </Pressable>
+
+            <View style={styles.headerCopy}>
+              <Text style={[styles.eyebrow, { color: colors.tertiaryLabel }]}>
+                {thread ? formatTimeAgo(thread.updatedAt) : ""}
+              </Text>
+              <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
+                {thread?.title ?? "Thread"}
+              </Text>
+              <Text
+                style={[styles.headerSubtitle, { color: colors.secondaryLabel }]}
+                numberOfLines={1}
+              >
+                {connection?.host.name ?? "Unknown host"}
+              </Text>
+            </View>
+
+            {isRunning ? (
+              <Pressable
+                onPress={() => void handleInterrupt()}
+                style={[
+                  styles.stopButton,
+                  {
+                    backgroundColor: withAlpha(colors.red, 0.14),
+                    borderColor: withAlpha(colors.red, 0.2),
+                  },
+                ]}
+              >
+                <Square size={12} color={colors.red} fill={colors.red} />
+                <Text style={[styles.stopLabel, { color: colors.red }]}>Stop</Text>
+              </Pressable>
+            ) : (
               <Pressable
                 onPress={() =>
                   router.push({
@@ -208,83 +236,89 @@ export default function ThreadChatScreen() {
                     params: { threadId, hostId },
                   })
                 }
-                hitSlop={8}
+                style={[
+                  styles.headerButton,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.elevatedBorder,
+                    shadowColor: colors.shadow,
+                  },
+                ]}
               >
-                <Terminal size={20} color={colors.primary} strokeWidth={2} />
+                <Terminal size={18} color={colors.foreground} strokeWidth={2.2} />
               </Pressable>
-            </View>
-          ),
-        }}
-      />
+            )}
+          </View>
 
-      {/* Session Status Bar */}
-      {sessionStatus !== "idle" && (
-        <View
-          style={[
-            styles.sessionBar,
-            {
-              backgroundColor:
-                sessionStatus === "running" || sessionStatus === "starting"
-                  ? `${colors.green}14`
-                  : sessionStatus === "error"
-                    ? `${colors.red}14`
-                    : `${colors.orange}14`,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.sessionBarText,
-              {
-                color:
-                  sessionStatus === "running" || sessionStatus === "starting"
-                    ? colors.green
-                    : sessionStatus === "error"
-                      ? colors.red
-                      : colors.orange,
-              },
-            ]}
-          >
-            {sessionStatus === "running"
-              ? "Agent is working…"
-              : sessionStatus === "starting"
-                ? "Starting session…"
-                : sessionStatus === "ready"
-                  ? "Agent is ready"
-                  : sessionStatus === "interrupted"
-                    ? "Agent interrupted"
-                    : sessionStatus === "error"
-                      ? `Error: ${thread?.session?.lastError ?? "Unknown"}`
-                      : sessionStatus}
-          </Text>
-        </View>
-      )}
-
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={100}
-      >
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={[styles.messageList, { paddingBottom: 12 }]}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          ListEmptyComponent={
-            <View style={styles.emptyMessages}>
-              <Text style={[styles.emptyText, { color: colors.muted }]}>
-                No messages yet. Send a message to start a conversation.
+          <Panel style={styles.summaryPanel}>
+            <View style={styles.summaryTop}>
+              {status ? <StatusBadge label={status.label} tone={status.tone} /> : null}
+              <Text style={[styles.summaryMeta, { color: colors.tertiaryLabel }]}>
+                {messages.length} messages
               </Text>
             </View>
-          }
-        />
+            <View style={styles.panelTabs}>
+              {PANEL_OPTIONS.map((panel) => {
+                const active = panel.key === activePanel;
+                return (
+                  <Pressable
+                    key={panel.key}
+                    onPress={() => setActivePanel(panel.key)}
+                    style={[
+                      styles.panelTab,
+                      {
+                        backgroundColor: active ? colors.surfaceSecondary : "transparent",
+                        borderColor: active ? colors.elevatedBorder : "transparent",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.panelTabLabel,
+                        { color: active ? colors.foreground : colors.secondaryLabel },
+                      ]}
+                    >
+                      {panel.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Panel>
+        </View>
 
-        {/* Input Bar */}
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingBottom: insets.bottom + 20,
+            },
+          ]}
+          onContentSizeChange={() => {
+            if (activePanel === "chat") {
+              scrollRef.current?.scrollToEnd({ animated: true });
+            }
+          }}
+        >
+          {activePanel === "chat" ? (
+            <ChatPanel messages={messages} toolActivities={toolActivities} thread={thread} />
+          ) : null}
+
+          {activePanel === "diff" ? <DiffPanel checkpoint={diffCheckpoint} /> : null}
+
+          {activePanel === "todo" ? (
+            <TodoPanel
+              activities={todoActivities}
+              hasProposedPlan={thread?.latestProposedPlanSummary !== null}
+            />
+          ) : null}
+        </ScrollView>
+
         <View
           style={[
-            styles.inputBar,
+            styles.composer,
             {
               backgroundColor: colors.background,
               borderTopColor: colors.separator,
@@ -292,107 +326,446 @@ export default function ThreadChatScreen() {
             },
           ]}
         >
-          <TextInput
+          <View
             style={[
-              styles.textInput,
+              styles.composerField,
               {
-                backgroundColor: `${colors.muted}20`,
-                color: colors.foreground,
-              },
-            ]}
-            placeholder="Send a message…"
-            placeholderTextColor={colors.muted}
-            value={input}
-            onChangeText={setInput}
-            multiline
-            maxLength={10000}
-            editable={!sending}
-          />
-          <Pressable
-            onPress={() => void handleSend()}
-            disabled={!input.trim() || sending}
-            style={[
-              styles.sendButton,
-              {
-                backgroundColor: input.trim() && !sending ? colors.primary : colors.fill,
+                backgroundColor: colors.surface,
+                borderColor: colors.elevatedBorder,
+                shadowColor: colors.shadow,
               },
             ]}
           >
-            <ArrowUp
-              size={18}
-              color={input.trim() && !sending ? "#fff" : colors.muted}
-              strokeWidth={2.5}
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder="Send a follow-up or instruction"
+              placeholderTextColor={colors.muted}
+              style={[styles.textInput, { color: colors.foreground }]}
+              multiline
+              editable={!sending}
             />
-          </Pressable>
+            <Pressable
+              onPress={() => void handleSend()}
+              disabled={!input.trim() || sending}
+              style={[
+                styles.sendButton,
+                {
+                  backgroundColor: input.trim() ? colors.primary : colors.surfaceSecondary,
+                },
+              ]}
+            >
+              <ArrowUp
+                size={16}
+                color={input.trim() ? colors.primaryForeground : colors.muted}
+                strokeWidth={2.5}
+              />
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
+function ChatPanel({
+  messages,
+  toolActivities,
+  thread,
+}: {
+  messages: readonly OrchestrationMessage[];
+  toolActivities: ReadonlyArray<OrchestrationThreadActivity>;
+  thread: OrchestrationThread | null;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <View style={styles.chatPanel}>
+      {messages.map((message) => {
+        const isUser = message.role === "user";
+
+        return (
+          <View
+            key={message.id}
+            style={[
+              styles.messageCard,
+              isUser
+                ? [
+                    styles.userMessage,
+                    {
+                      backgroundColor: colors.surfaceSecondary,
+                      borderColor: colors.elevatedBorder,
+                    },
+                  ]
+                : [
+                    styles.assistantMessage,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.elevatedBorder,
+                    },
+                  ],
+            ]}
+          >
+            <Text style={[styles.messageRole, { color: colors.tertiaryLabel }]}>
+              {isUser ? "You" : "Agent"}
+            </Text>
+            <Text style={[styles.messageText, { color: colors.foreground }]}>
+              {message.text}
+              {message.streaming ? " ▍" : ""}
+            </Text>
+          </View>
+        );
+      })}
+
+      {toolActivities.length > 0 ? (
+        <Panel>
+          <SectionTitle>Recent tool activity</SectionTitle>
+          <View style={styles.toolList}>
+            {toolActivities.map((activity) => (
+              <View
+                key={activity.id}
+                style={[
+                  styles.toolRow,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: colors.elevatedBorder,
+                  },
+                ]}
+              >
+                <Text style={[styles.toolSummary, { color: colors.foreground }]} numberOfLines={2}>
+                  {activity.summary}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </Panel>
+      ) : null}
+
+      {messages.length === 0 && !thread ? (
+        <Text style={[styles.placeholderText, { color: colors.muted }]}>No thread loaded.</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function DiffPanel({ checkpoint }: { checkpoint: OrchestrationCheckpointSummary | null }) {
+  const { colors } = useTheme();
+
+  if (!checkpoint) {
+    return (
+      <Panel>
+        <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>No diff yet</Text>
+        <Text style={[styles.placeholderText, { color: colors.secondaryLabel }]}>
+          Diff-ready turns will show changed files here once a checkpoint is available.
+        </Text>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel>
+      <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>Latest checkpoint</Text>
+      <Text style={[styles.placeholderMeta, { color: colors.secondaryLabel }]}>
+        {checkpoint.files.length} files · {formatTimeAgo(checkpoint.completedAt)}
+      </Text>
+      <View style={styles.fileList}>
+        {checkpoint.files.map((file) => (
+          <View
+            key={`${checkpoint.turnId}-${file.path}`}
+            style={[
+              styles.fileRow,
+              {
+                borderColor: colors.elevatedBorder,
+                backgroundColor: colors.surfaceSecondary,
+              },
+            ]}
+          >
+            <Text style={[styles.filePath, { color: colors.foreground }]} numberOfLines={1}>
+              {file.path}
+            </Text>
+            <Text style={[styles.fileMeta, { color: colors.secondaryLabel }]}>
+              +{file.additions} / -{file.deletions}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </Panel>
+  );
+}
+
+function TodoPanel({
+  activities,
+  hasProposedPlan,
+}: {
+  activities: ReadonlyArray<OrchestrationThreadActivity>;
+  hasProposedPlan: boolean;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <Panel>
+      <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>Thread focus</Text>
+      <Text style={[styles.placeholderText, { color: colors.secondaryLabel }]}>
+        {hasProposedPlan
+          ? "A proposed plan is attached to this thread."
+          : "Approvals, errors, and tool activity appear here as the run evolves."}
+      </Text>
+      <View style={styles.fileList}>
+        {activities.length === 0 ? (
+          <Text style={[styles.placeholderText, { color: colors.muted }]}>No active items.</Text>
+        ) : (
+          activities.map((activity) => (
+            <View
+              key={activity.id}
+              style={[
+                styles.todoRow,
+                {
+                  borderColor: colors.elevatedBorder,
+                  backgroundColor: colors.surfaceSecondary,
+                },
+              ]}
+            >
+              <Text style={[styles.todoKind, { color: colors.tertiaryLabel }]}>
+                {activity.kind.replaceAll(".", " ")}
+              </Text>
+              <Text style={[styles.todoSummary, { color: colors.foreground }]}>
+                {activity.summary}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+    </Panel>
+  );
+}
+
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  flex: { flex: 1 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 14 },
-  interruptBtn: {
+  root: {
+    flex: 1,
+  },
+  flex: {
+    flex: 1,
+  },
+  loadingRoot: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  header: {
+    paddingHorizontal: Layout.pagePadding,
+    paddingBottom: 14,
+  },
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 12,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.pill,
     borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  interruptText: { fontSize: 14, fontWeight: "600" },
-  sessionBar: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
     alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.14,
+    shadowRadius: 28,
+    elevation: 0,
   },
-  sessionBarText: { fontSize: 14, fontWeight: "500" },
-  messageList: { paddingHorizontal: 16, paddingTop: 12 },
-  messageBubble: {
-    maxWidth: "82%",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    marginBottom: 8,
-  },
-  userBubble: { alignSelf: "flex-end", borderBottomRightRadius: 4 },
-  assistantBubble: { alignSelf: "flex-start", borderBottomLeftRadius: 4 },
-  messageText: { fontSize: 16, lineHeight: 22 },
-  messageTime: { fontSize: 11, marginTop: 4, alignSelf: "flex-end" },
-  emptyMessages: {
+  headerCopy: {
     flex: 1,
-    paddingVertical: 60,
-    alignItems: "center",
-    paddingHorizontal: 32,
   },
-  emptyText: { fontSize: 15, textAlign: "center", lineHeight: 22 },
-  inputBar: {
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.24,
+    textTransform: "uppercase",
+  },
+  headerTitle: {
+    marginTop: 6,
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+  },
+  headerSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  stopButton: {
+    minHeight: 42,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  stopLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  summaryPanel: {
+    marginTop: 18,
+  },
+  summaryTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  summaryMeta: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  panelTabs: {
+    marginTop: 16,
+    flexDirection: "row",
+    gap: 10,
+  },
+  panelTab: {
+    flex: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  panelTabLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  content: {
+    paddingHorizontal: Layout.pagePadding,
+    gap: 14,
+  },
+  chatPanel: {
+    gap: 12,
+  },
+  messageCard: {
+    borderWidth: 1,
+    borderRadius: Radius.card,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    maxWidth: "92%",
+  },
+  userMessage: {
+    alignSelf: "flex-end",
+  },
+  assistantMessage: {
+    alignSelf: "flex-start",
+  },
+  messageRole: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+  },
+  messageText: {
+    marginTop: 8,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  toolList: {
+    marginTop: 14,
+    gap: 10,
+  },
+  toolRow: {
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  toolSummary: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  placeholderTitle: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+  placeholderMeta: {
+    marginTop: 8,
+    fontSize: 13,
+  },
+  placeholderText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  fileList: {
+    marginTop: 16,
+    gap: 10,
+  },
+  fileRow: {
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  filePath: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  fileMeta: {
+    marginTop: 5,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  todoRow: {
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  todoKind: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+  },
+  todoSummary: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  composer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: Layout.pagePadding,
+    paddingTop: 12,
+  },
+  composerField: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: Radius.panel,
+    paddingLeft: 16,
+    paddingRight: 10,
+    paddingVertical: 10,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.1,
+    shadowRadius: 28,
+    elevation: 0,
   },
   textInput: {
     flex: 1,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 16,
+    minHeight: 24,
     maxHeight: 120,
-    minHeight: 40,
+    fontSize: 15,
+    lineHeight: 21,
+    paddingTop: 4,
+    paddingBottom: 4,
   },
   sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 2,
   },
 });

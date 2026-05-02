@@ -4,6 +4,12 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { normalizePaneRatios } from "./lib/paneRatios";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
+import {
+  buildAnchoredSplitTitle,
+  buildFallbackSplitTitle,
+  isLikelyAutoSplitTitle,
+  normalizeSplitTitle,
+} from "./lib/threadBoardTitle";
 import { normalizeThreadBoardConnectionUrl } from "./lib/threadBoardThreads";
 import { randomUUID } from "./lib/utils";
 
@@ -11,6 +17,7 @@ export interface ChatThreadBoardPaneState {
   connectionUrl: string | null;
   id: string;
   threadId: ThreadId;
+  title: string;
 }
 
 export type ChatThreadBoardLayoutAxis = "horizontal" | "vertical";
@@ -30,6 +37,7 @@ export interface ChatThreadBoardSplitNode {
 }
 
 export type ChatThreadBoardLayoutNode = ChatThreadBoardLeafNode | ChatThreadBoardSplitNode;
+export type ChatThreadBoardTitleMode = "auto" | "manual";
 
 export interface ChatThreadBoardSplitState {
   activePaneId: string | null;
@@ -39,6 +47,8 @@ export interface ChatThreadBoardSplitState {
   layoutRoot: ChatThreadBoardLayoutNode | null;
   panes: ChatThreadBoardPaneState[];
   title: string;
+  titleMode: ChatThreadBoardTitleMode;
+  titlePaneId: string | null;
   updatedAt: string;
 }
 
@@ -54,8 +64,12 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   archiveSplit: (splitId: string) => void;
   closePane: (paneId: string) => void;
   createSplit: (input: {
-    activeThread: { connectionUrl?: string | null; threadId: ThreadId };
-    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+    activeThread: { connectionUrl?: string | null; threadId: ThreadId; title?: string | null };
+    threads: ReadonlyArray<{
+      connectionUrl?: string | null;
+      threadId: ThreadId;
+      title?: string | null;
+    }>;
     title?: string;
   }) => string | null;
   deleteSplit: (splitId: string) => void;
@@ -63,9 +77,10 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
     allowDuplicate?: boolean;
     connectionUrl?: string | null;
     direction?: "down" | "left" | "right" | "up";
+    paneTitle?: string | null;
+    splitTitle?: string | undefined;
     sourcePaneId?: string | null;
     threadId: ThreadId;
-    title?: string | undefined;
   }) => string | null;
   openThreadInSplit: (
     splitId: string,
@@ -75,12 +90,14 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
       direction?: "down" | "left" | "right" | "up";
       sourcePaneId?: string | null;
       threadId: ThreadId;
+      title?: string | null;
     },
   ) => string | null;
   openThreadsInBoard: (
     inputs: ReadonlyArray<{
       connectionUrl?: string | null;
       threadId: ThreadId;
+      title?: string | null;
     }>,
     options?: { sourcePaneId?: string | null },
   ) => string | null;
@@ -94,10 +111,20 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   setActivePane: (paneId: string | null) => void;
   setActiveSplit: (splitId: string | null) => void;
   setBranchRatios: (branchId: string, ratios: readonly number[]) => void;
-  syncRouteThread: (input: { connectionUrl?: string | null; threadId: ThreadId }) => string;
+  syncRouteThread: (input: {
+    connectionUrl?: string | null;
+    threadId: ThreadId;
+    title?: string | null;
+  }) => string;
   syncRouteThreads: (input: {
-    activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
-    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+    activeThread?:
+      | { connectionUrl?: string | null; threadId: ThreadId; title?: string | null }
+      | null;
+    threads: ReadonlyArray<{
+      connectionUrl?: string | null;
+      threadId: ThreadId;
+      title?: string | null;
+    }>;
   }) => string | null;
 }
 
@@ -147,18 +174,25 @@ function createTimestamp(): string {
 }
 
 function createSplitTitle(index: number): string {
-  return `Board ${index}`;
+  return buildFallbackSplitTitle(index);
+}
+
+function normalizePaneTitle(title: string | null | undefined): string {
+  const normalized = title?.trim().replace(/\s+/g, " ");
+  return normalized && normalized.length > 0 ? normalized : "Untitled thread";
 }
 
 function createPane(input: {
   connectionUrl?: string | null;
   id?: string;
   threadId: ThreadId;
+  title?: string | null;
 }): ChatThreadBoardPaneState {
   return {
     connectionUrl: normalizeThreadBoardConnectionUrl(input.connectionUrl),
     id: input.id ?? `pane-${randomUUID()}`,
     threadId: input.threadId,
+    title: normalizePaneTitle(input.title),
   };
 }
 
@@ -396,13 +430,15 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
       continue;
     }
     const connectionUrl = normalizeThreadBoardConnectionUrl(pane.connectionUrl);
+    const title = normalizePaneTitle(pane.title);
     paneById.set(
       pane.id,
-      pane.connectionUrl === connectionUrl
+      pane.connectionUrl === connectionUrl && pane.title === title
         ? pane
         : {
             ...pane,
             connectionUrl,
+            title,
           },
     );
   }
@@ -483,7 +519,8 @@ function boardPanesEqual(
       rightPane !== undefined &&
       leftPane.id === rightPane.id &&
       leftPane.threadId === rightPane.threadId &&
-      leftPane.connectionUrl === rightPane.connectionUrl
+      leftPane.connectionUrl === rightPane.connectionUrl &&
+      leftPane.title === rightPane.title
     );
   });
 }
@@ -518,7 +555,7 @@ function normalizeSplitState(
     archivedAt: input.archivedAt ?? null,
     createdAt: input.createdAt || now,
     id: input.id || `split-${randomUUID()}`,
-    title: input.title?.trim() || "Untitled board",
+    title: normalizeSplitTitle(input.title),
     updatedAt: input.updatedAt || now,
   };
 }
@@ -553,7 +590,7 @@ function normalizePersistedState(
     const migratedSplit = createSplitFromBoard({
       board,
       splitId: `split-${randomUUID()}`,
-      title: "Previous board",
+      title: "Previous split",
     });
     if (migratedSplit) {
       splits.push(migratedSplit);
@@ -691,7 +728,7 @@ function createSplitFromBoard(input: {
     archivedAt: null,
     createdAt: now,
     id: input.splitId ?? `split-${randomUUID()}`,
-    title: input.title.trim() || "Untitled board",
+    title: normalizeSplitTitle(input.title),
     updatedAt: now,
   };
 }

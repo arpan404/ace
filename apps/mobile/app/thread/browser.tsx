@@ -27,7 +27,6 @@ export default function BrowserScreen() {
         options={{
           headerShown: true,
           title: "Browser",
-          headerBackTitleVisible: false,
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.primary,
           headerTitleStyle: { color: colors.foreground },

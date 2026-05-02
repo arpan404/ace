@@ -2,6 +2,7 @@ import { ThreadId } from "@ace/contracts";
 import { IconArrowsSort, IconFilter2, IconSearch } from "@tabler/icons-react";
 import { memo } from "react";
 
+import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -27,6 +28,7 @@ export const SPLIT_PICKER_SORT_LABELS: Record<SplitPickerSortOrder, string> = {
 };
 
 interface SplitPickerThreadOption {
+  readonly activityAt: string;
   readonly id: ThreadId;
   readonly projectId: string;
   readonly projectName: string;
@@ -55,15 +57,15 @@ export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(p
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>New board</DialogTitle>
+          <DialogTitle>New split</DialogTitle>
           <DialogDescription>
-            Choose two or more threads to open together in a saved board.
+            Pick the threads that belong together. They&apos;ll open as one reusable split.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           {props.availableThreadCount < 2 ? (
             <p className="rounded-md border border-border/50 px-3 py-4 text-center text-sm text-muted-foreground">
-              Add at least two active threads before creating a board.
+              Add at least two active threads before creating a split.
             </p>
           ) : (
             <div className="space-y-2.5">
@@ -154,6 +156,14 @@ export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(p
                   </MenuPopup>
                 </Menu>
               </div>
+              <div className="flex items-center justify-between px-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/65">
+                <span>
+                  {props.selectedThreadCount > 0
+                    ? `${props.selectedThreadCount} selected`
+                    : "Choose at least 2"}
+                </span>
+                <span>{props.visibleThreads.length} shown</span>
+              </div>
               <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
                 {props.visibleThreads.length > 0 ? (
                   props.visibleThreads.map((thread) => {
@@ -177,10 +187,16 @@ export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(p
                           tabIndex={-1}
                           className="pointer-events-none"
                         />
-                        <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                        <span className="max-w-32 shrink-0 truncate text-xs text-muted-foreground/70">
-                          {thread.projectName}
-                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm text-foreground/92">{thread.title}</div>
+                          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground/68">
+                            <span className="truncate">{thread.projectName}</span>
+                            <span className="shrink-0">•</span>
+                            <span className="shrink-0">
+                              Active {formatRelativeTimeLabel(thread.activityAt)}
+                            </span>
+                          </div>
+                        </div>
                       </button>
                     );
                   })
@@ -198,7 +214,9 @@ export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(p
             Cancel
           </Button>
           <Button type="button" disabled={props.selectedThreadCount < 2} onClick={props.onCreate}>
-            Create board
+            {props.selectedThreadCount >= 2
+              ? `Create split (${props.selectedThreadCount})`
+              : "Create split"}
           </Button>
         </DialogFooter>
       </DialogPopup>
