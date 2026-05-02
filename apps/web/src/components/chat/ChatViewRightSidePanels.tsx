@@ -12,6 +12,7 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ThreadId, TurnId } from "@ace/contracts";
+import { IconLayoutSidebarRightFilled } from "@tabler/icons-react";
 import {
   Code2Icon,
   GitCompareIcon,
@@ -209,6 +210,7 @@ export function RightSidePanelTabStrip(props: {
   browserSession: BrowserSessionStorage | null;
   browserAvailable: boolean;
   browserShortcutLabel: string | null;
+  className?: string | undefined;
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
   editorOpen: boolean;
@@ -223,8 +225,10 @@ export function RightSidePanelTabStrip(props: {
   onEditorClose: () => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
+  onTogglePanelVisibility: () => void;
   onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
+  panelToggleShortcutLabel: string | null;
 }) {
   const { onBrowserTabReorder } = props;
   const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
@@ -239,6 +243,9 @@ export function RightSidePanelTabStrip(props: {
   const editorTooltipLabel = props.editorShortcutLabel
     ? `Editor (${props.editorShortcutLabel})`
     : "Editor";
+  const panelToggleTooltipLabel = props.panelToggleShortcutLabel
+    ? `Close panel (${props.panelToggleShortcutLabel})`
+    : "Close panel";
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
@@ -277,7 +284,7 @@ export function RightSidePanelTabStrip(props: {
   }, []);
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3">
+    <div className={cn("flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3", props.className)}>
       <div
         ref={tabStripRef}
         className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -492,6 +499,23 @@ export function RightSidePanelTabStrip(props: {
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
           {props.fullscreen ? "Exit full screen" : "Enter full screen"}
+        </TooltipPopup>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={panelToggleTooltipLabel}
+              onClick={props.onTogglePanelVisibility}
+            />
+          }
+        >
+          <IconLayoutSidebarRightFilled className="size-[18px]" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="end">
+          {panelToggleTooltipLabel}
         </TooltipPopup>
       </Tooltip>
     </div>
