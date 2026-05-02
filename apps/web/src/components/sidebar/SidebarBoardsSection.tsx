@@ -1,6 +1,6 @@
 import { IconFilter2 } from "@tabler/icons-react";
 import { type DragEvent } from "react";
-import { ChevronRightIcon, Columns2Icon, PlusIcon } from "lucide-react";
+import { ArchiveIcon, ChevronRightIcon, Columns2Icon, PlusIcon } from "lucide-react";
 
 import type { ChatThreadBoardSplitState } from "../../chatThreadBoardStore";
 import type { SidebarBoardListItem } from "../../lib/threadBoardList";
@@ -8,7 +8,13 @@ import { cn } from "../../lib/utils";
 import { Input } from "../ui/input";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import {
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "../ui/sidebar";
 
 export type SidebarSplitSortOrder = "updated_at" | "created_at" | "name" | "pane_count";
 
@@ -42,6 +48,7 @@ export function SidebarBoardsSection(props: {
   ) => void;
   onOpenSplitPicker: () => void;
   onRestoreSavedSplit: (split: ChatThreadBoardSplitState) => void;
+  onArchiveSplit: (split: ChatThreadBoardSplitState) => void;
   onShowLess: () => void;
   onShowMore: () => void;
   onBoardDragLeave: (splitId: string, event: DragEvent<HTMLLIElement>) => void;
@@ -196,28 +203,54 @@ export function SidebarBoardsSection(props: {
                       />
                     </form>
                   ) : (
-                    <SidebarMenuButton
-                      render={<button type="button" />}
-                      size="sm"
-                      className={cn(
-                        "h-auto w-full cursor-pointer gap-2 px-2 py-1.5 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
-                        isActiveSplit
-                          ? "!bg-foreground/[0.06] !text-pill-foreground"
-                          : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
-                      )}
-                      title={split.title}
-                      onClick={() => {
-                        props.onRestoreSavedSplit(split);
-                      }}
-                    >
-                      <Columns2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/72" />
-                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/92">
-                        {split.title}
-                      </span>
-                      <span className="shrink-0 rounded-full border border-border/45 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground/68">
+                    <>
+                      <SidebarMenuButton
+                        render={<button type="button" />}
+                        size="sm"
+                        className={cn(
+                          "h-auto w-full cursor-pointer gap-2 px-2 py-1.5 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
+                          isActiveSplit
+                            ? "!bg-foreground/[0.06] !text-pill-foreground"
+                            : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
+                        )}
+                        title={split.title}
+                        onClick={() => {
+                          props.onRestoreSavedSplit(split);
+                        }}
+                      >
+                        <Columns2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/72" />
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/92">
+                          {split.title}
+                        </span>
+                      </SidebarMenuButton>
+                      <SidebarMenuBadge className="rounded-full border border-border/45 px-1.5 py-0.5 text-[9px] text-muted-foreground/68 transition-opacity duration-150 group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0">
                         {split.panes.length}
-                      </span>
-                    </SidebarMenuButton>
+                      </SidebarMenuBadge>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 group-focus-within/menu-item:pointer-events-auto group-focus-within/menu-item:opacity-100">
+                              <button
+                                type="button"
+                                aria-label={`Archive ${split.title}`}
+                                className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                                onPointerDown={(event) => {
+                                  event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  props.onArchiveSplit(split);
+                                }}
+                              >
+                                <ArchiveIcon className="size-3.5" />
+                              </button>
+                            </div>
+                          }
+                        />
+                        <TooltipPopup side="top">Archive</TooltipPopup>
+                      </Tooltip>
+                    </>
                   )}
                 </SidebarMenuItem>
               );

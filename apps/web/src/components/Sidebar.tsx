@@ -1053,8 +1053,13 @@ export default function Sidebar() {
       threads: ReadonlyArray<{
         connectionUrl: string | null;
         threadId: ThreadId;
+        title?: string | null | undefined;
       }>,
-      activeThread: { connectionUrl: string | null; threadId: ThreadId },
+      activeThread: {
+        connectionUrl: string | null;
+        threadId: ThreadId;
+        title?: string | null | undefined;
+      },
     ) => {
       const uniqueThreads = [
         ...new Map(threads.map((thread) => [getThreadBoardDragThreadKey(thread), thread])).values(),
@@ -1088,7 +1093,7 @@ export default function Sidebar() {
     ) => {
       const dragThread = createThreadBoardDragThread({
         ...thread,
-        title: sidebarThreadsById[thread.threadId]?.title,
+        title: sidebarThreadsById[thread.threadId]?.title ?? null,
       });
       const payload = encodeThreadBoardDragThread(dragThread);
       event.dataTransfer.effectAllowed = "copyMove";
@@ -1110,7 +1115,11 @@ export default function Sidebar() {
   );
   const handleBoardThreadDropOnThread = useCallback(
     (
-      target: { connectionUrl: string | null; threadId: ThreadId },
+      target: {
+        connectionUrl: string | null;
+        threadId: ThreadId;
+        title?: string | null | undefined;
+      },
       event: DragEvent<HTMLLIElement>,
     ) => {
       event.preventDefault();
@@ -1124,9 +1133,13 @@ export default function Sidebar() {
       if (sourceKey === targetKey) {
         return;
       }
-      buildBoardFromDraggedThreads([source, target], target);
+      const targetWithTitle = {
+        ...target,
+        title: target.title ?? sidebarThreadsById[target.threadId]?.title ?? null,
+      };
+      buildBoardFromDraggedThreads([source, targetWithTitle], targetWithTitle);
     },
-    [buildBoardFromDraggedThreads, clearBoardThreadDrag, readBoardThreadDrag],
+    [buildBoardFromDraggedThreads, clearBoardThreadDrag, readBoardThreadDrag, sidebarThreadsById],
   );
   const handleBoardThreadDropOnSavedBoard = useCallback(
     (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => {
@@ -1238,7 +1251,11 @@ export default function Sidebar() {
     [readBoardThreadDrag, setBoardThreadDragOverTarget],
   );
   const openThreadInSplit = useCallback(
-    (target: { connectionUrl: string | null; threadId: ThreadId }) => {
+    (target: {
+      connectionUrl: string | null;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    }) => {
       if (target.connectionUrl) {
         useHostConnectionStore
           .getState()
@@ -1251,6 +1268,7 @@ export default function Sidebar() {
         useChatThreadBoardStore.getState().openThreadInBoard({
           connectionUrl: target.connectionUrl,
           direction: "right",
+          paneTitle: target.title ?? null,
           sourcePaneId: savedSplitBoard.activePaneId,
           threadId: target.threadId,
         });
@@ -1263,6 +1281,7 @@ export default function Sidebar() {
             {
               connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
               threadId: routeThreadId,
+              title: sidebarThreadsById[routeThreadId]?.title ?? null,
             },
             target,
           ]
@@ -1283,10 +1302,17 @@ export default function Sidebar() {
       navigateToBoardThreadRoute,
       routeThreadId,
       savedSplitBoard.activePaneId,
+      sidebarThreadsById,
     ],
   );
   const openThreadsInSplit = useCallback(
-    (targets: ReadonlyArray<{ connectionUrl: string | null; threadId: ThreadId }>) => {
+    (
+      targets: ReadonlyArray<{
+        connectionUrl: string | null;
+        threadId: ThreadId;
+        title?: string | null | undefined;
+      }>,
+    ) => {
       if (targets.length === 0) {
         return;
       }
@@ -1315,6 +1341,7 @@ export default function Sidebar() {
               {
                 connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
                 threadId: routeThreadId,
+                title: sidebarThreadsById[routeThreadId]?.title ?? null,
               },
               ...targets,
             ];
@@ -1334,6 +1361,7 @@ export default function Sidebar() {
       navigateToBoardThreadRoute,
       routeThreadId,
       savedSplitBoard.activePaneId,
+      sidebarThreadsById,
     ],
   );
   const closeActiveSplitRoute = useCallback(() => {
@@ -2608,6 +2636,7 @@ export default function Sidebar() {
         const connectionUrl = resolveConnectionForThreadId(threadId) ?? null;
         openThreadInSplit({
           connectionUrl,
+          title: thread.title ?? null,
           threadId,
         });
         return;
@@ -2694,6 +2723,7 @@ export default function Sidebar() {
         const boardInputs = ids.map((id) => ({
           connectionUrl: resolveConnectionForThreadId(id) ?? null,
           threadId: id,
+          title: sidebarThreadsById[id]?.title ?? null,
         }));
         openThreadsInSplit(boardInputs);
         clearSelection();
@@ -2735,6 +2765,7 @@ export default function Sidebar() {
       openThreadsInSplit,
       readSidebarThreadSummary,
       removeFromSelection,
+      sidebarThreadsById,
       selectedThreadIds,
     ],
   );
@@ -2770,6 +2801,7 @@ export default function Sidebar() {
       useChatThreadBoardStore.getState().syncRouteThread({
         connectionUrl,
         threadId,
+        title: readSidebarThreadSummary(threadId)?.title ?? null,
       });
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
@@ -2842,7 +2874,10 @@ export default function Sidebar() {
         clearSelection();
       }
       setSelectionAnchor(threadId);
-      useChatThreadBoardStore.getState().syncRouteThread({ threadId });
+      useChatThreadBoardStore.getState().syncRouteThread({
+        threadId,
+        title: thread?.title ?? null,
+      });
       startTransition(() => {
         void navigate({
           to: "/$threadId",
@@ -2869,6 +2904,7 @@ export default function Sidebar() {
       useChatThreadBoardStore.getState().syncRouteThread({
         connectionUrl,
         threadId,
+        title: readSidebarThreadSummary(threadId)?.title ?? null,
       });
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
@@ -3123,6 +3159,7 @@ export default function Sidebar() {
         const remoteThreadId = ThreadId.makeUnsafe(input.thread.id);
         openThreadInSplit({
           connectionUrl: input.connectionUrl,
+          title: input.thread.title ?? null,
           threadId: remoteThreadId,
         });
         return;
@@ -3911,6 +3948,7 @@ export default function Sidebar() {
       .map((thread) => ({
         connectionUrl: thread.connectionUrl,
         threadId: thread.id,
+        title: thread.title ?? null,
       }));
     if (selectedTargets.length < 2) {
       return;
@@ -5531,6 +5569,9 @@ export default function Sidebar() {
                 onBoardDrop={handleBoardThreadDropOnSavedBoard}
                 onCancelSplitRename={cancelSplitRename}
                 onCommitSplitRename={commitSplitRename}
+                onArchiveSplit={(split) => {
+                  void handleSplitMenuAction(split, "archive");
+                }}
                 onOpenSplitContextMenu={openSplitContextMenu}
                 onOpenSplitPicker={openSplitPicker}
                 onRestoreSavedSplit={restoreSavedSplit}

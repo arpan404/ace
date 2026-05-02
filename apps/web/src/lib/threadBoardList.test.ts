@@ -94,10 +94,22 @@ describe("buildSidebarBoardListItem", () => {
         ratios: [0.5, 0.5],
       },
       panes: [
-        { connectionUrl: null, id: "pane-a", threadId: ThreadId.makeUnsafe("thread-a") },
-        { connectionUrl: null, id: "pane-b", threadId: ThreadId.makeUnsafe("thread-b") },
+        {
+          connectionUrl: null,
+          id: "pane-a",
+          threadId: ThreadId.makeUnsafe("thread-a"),
+          title: "Audit codebase",
+        },
+        {
+          connectionUrl: null,
+          id: "pane-b",
+          threadId: ThreadId.makeUnsafe("thread-b"),
+          title: "Rust port",
+        },
       ],
       title: "Board A",
+      titleMode: "manual",
+      titlePaneId: null,
       updatedAt: "2026-05-01T11:55:00.000Z",
     };
     const threadById: Record<string, SidebarThreadSummary> = {

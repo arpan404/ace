@@ -18,7 +18,10 @@ export function buildFallbackSplitTitle(index: number): string {
   return `Split ${index}`;
 }
 
-export function buildAnchoredSplitTitle(anchorTitle: string | null | undefined, paneCount: number): string {
+export function buildAnchoredSplitTitle(
+  anchorTitle: string | null | undefined,
+  paneCount: number,
+): string {
   const normalizedAnchorTitle = normalizeThreadTitle(anchorTitle);
   if (!normalizedAnchorTitle) {
     return paneCount > 0 ? buildFallbackSplitTitle(paneCount) : "Untitled split";
