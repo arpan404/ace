@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +17,24 @@ export default function DeviceSettingsScreen() {
   const host = hosts.find((h) => h.id === id);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    kind: "connected" | "disconnected";
+    error?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const updateStatus = () => {
+      const connection = connectionManager
+        .getConnections()
+        .find((candidate) => candidate.host.id === id);
+      setConnectionStatus(connection?.status ?? null);
+    };
+
+    updateStatus();
+    return connectionManager.onStatusChange(() => {
+      updateStatus();
+    });
+  }, [id]);
 
   if (!host) {
     return (
@@ -64,7 +82,6 @@ export default function DeviceSettingsScreen() {
         options={{
           headerShown: true,
           title: host.name,
-          headerBackTitleVisible: false,
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.primary,
           headerTitleStyle: { color: colors.foreground },
@@ -75,6 +92,29 @@ export default function DeviceSettingsScreen() {
         {/* Connection Details */}
         <Text style={[styles.sectionLabel, { color: colors.muted }]}>CONNECTION DETAILS</Text>
         <View style={styles.detailGroup}>
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: colors.muted }]}>Status</Text>
+            <Text
+              style={[
+                styles.detailValue,
+                {
+                  color:
+                    connectionStatus?.kind === "connected"
+                      ? colors.green
+                      : connectionStatus?.error
+                        ? colors.red
+                        : colors.foreground,
+                },
+              ]}
+            >
+              {connectionStatus?.kind === "connected"
+                ? "Connected"
+                : connectionStatus?.error
+                  ? `Disconnected: ${connectionStatus.error}`
+                  : "Disconnected"}
+            </Text>
+          </View>
+          <View style={[styles.detailSeparator, { backgroundColor: colors.separator }]} />
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: colors.muted }]}>WebSocket URL</Text>
             <Text style={[styles.detailValue, { color: colors.foreground }]} numberOfLines={2}>

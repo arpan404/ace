@@ -1,12 +1,22 @@
-import React, { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Text } from "react-native";
+import React from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Sun, Moon, Monitor, Plus, ChevronRight, Check, Info } from "lucide-react-native";
-import { useTheme, type ThemeMode } from "../../src/design/ThemeContext";
-import { useHostStore } from "../../src/store/HostStore";
-import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
+import { Check, Moon, Monitor, Plus, SlidersHorizontal, Sun } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
+import { useTheme, type ThemeMode } from "../../src/design/ThemeContext";
+import { Layout, Radius, withAlpha } from "../../src/design/system";
+import {
+  IconButton,
+  Panel,
+  RowLink,
+  ScreenBackdrop,
+  ScreenHeader,
+  SectionTitle,
+  StatusBadge,
+} from "../../src/design/primitives";
+import { useHostStore } from "../../src/store/HostStore";
+import { useAggregatedOrchestration } from "../../src/orchestration/mobileData";
 
 const THEME_OPTIONS: Array<{ label: string; value: ThemeMode; Icon: LucideIcon }> = [
   { label: "Light", value: "light", Icon: Sun },
@@ -16,111 +26,152 @@ const THEME_OPTIONS: Array<{ label: string; value: ThemeMode; Icon: LucideIcon }
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { colors, themeMode, setThemeMode } = useTheme();
   const insets = useSafeAreaInsets();
-  const { hosts } = useHostStore();
-  const [connections, setConnections] = useState<ManagedConnection[]>([]);
-
-  useEffect(() => {
-    setConnections(connectionManager.getConnections());
-    return connectionManager.onStatusChange(setConnections);
-  }, []);
+  const { colors, themeMode, setThemeMode } = useTheme();
+  const hosts = useHostStore((state) => state.hosts);
+  const { connections } = useAggregatedOrchestration();
+  const connectedHostCount = connections.filter(
+    (connection) => connection.status.kind === "connected",
+  ).length;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <ScreenBackdrop />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom + 100,
+          paddingTop: insets.top + 12,
+          paddingHorizontal: Layout.pagePadding,
+          paddingBottom: insets.bottom + 120,
         }}
       >
-        <View style={styles.header}>
-          <Text style={[styles.largeTitle, { color: colors.foreground }]}>Settings</Text>
+        <ScreenHeader
+          eyebrow="ace"
+          title="Settings"
+          subtitle="Control pairing, appearance, and the mobile surface for remote operation."
+          action={<StatusBadge label={`${connectedHostCount} online`} tone="success" />}
+        />
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <SectionTitle>Hosts</SectionTitle>
+            <IconButton icon={Plus} label="Pair" onPress={() => router.push("/pairing")} />
+          </View>
+          <Panel padded={false} style={styles.panelShell}>
+            {hosts.length === 0 ? (
+              <View style={styles.emptyHosts}>
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+                  No hosts paired
+                </Text>
+                <Text style={[styles.emptyBody, { color: colors.secondaryLabel }]}>
+                  Add a desktop target to enable thread browsing and remote control.
+                </Text>
+              </View>
+            ) : (
+              hosts.map((host, index) => {
+                const isConnected = connections.some(
+                  (connection) =>
+                    connection.host.id === host.id && connection.status.kind === "connected",
+                );
+
+                return (
+                  <View key={host.id}>
+                    <RowLink
+                      title={host.name}
+                      meta={isConnected ? "Connected and syncing" : "Offline"}
+                      tone={isConnected ? "success" : "muted"}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/settings/device/[id]",
+                          params: { id: host.id },
+                        })
+                      }
+                    />
+                    {index < hosts.length - 1 ? (
+                      <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                    ) : null}
+                  </View>
+                );
+              })
+            )}
+          </Panel>
         </View>
 
-        {/* Hosts Section */}
-        <Text style={[styles.sectionLabel, { color: colors.muted }]}>HOSTS</Text>
-        {hosts.length === 0 ? (
-          <View style={styles.emptyRow}>
-            <Text style={[styles.emptyRowText, { color: colors.muted }]}>No hosts paired yet</Text>
-          </View>
-        ) : (
-          hosts.map((host, i) => {
-            const conn = connections.find((c) => c.host.id === host.id);
-            const isConnected = conn?.status.kind === "connected";
-            return (
-              <Pressable
-                key={host.id}
-                onPress={() =>
-                  router.push({
-                    pathname: "/settings/device/[id]",
-                    params: { id: host.id },
-                  })
-                }
-                style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-              >
-                <View
-                  style={[
-                    styles.statusDot,
-                    { backgroundColor: isConnected ? colors.green : colors.muted },
+        <View style={styles.section}>
+          <SectionTitle>Appearance</SectionTitle>
+          <Panel padded={false} style={styles.panelShell}>
+            {THEME_OPTIONS.map((option, index) => {
+              const selected = option.value === themeMode;
+              const Icon = option.Icon;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setThemeMode(option.value)}
+                  style={({ pressed }) => [
+                    styles.themeRow,
+                    {
+                      backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+                    },
                   ]}
-                />
-                <View style={styles.rowContent}>
-                  <Text style={[styles.rowTitle, { color: colors.foreground }]}>{host.name}</Text>
-                  <Text style={[styles.rowSubtitle, { color: colors.muted }]}>
-                    {isConnected ? "Connected" : "Disconnected"}
-                  </Text>
-                </View>
-                <ChevronRight size={16} color={colors.muted} strokeWidth={2} />
-                {i < hosts.length - 1 && (
-                  <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-                )}
-              </Pressable>
-            );
-          })
-        )}
+                >
+                  <View
+                    style={[
+                      styles.themeIcon,
+                      {
+                        backgroundColor: withAlpha(colors.primary, 0.12),
+                      },
+                    ]}
+                  >
+                    <Icon size={17} color={colors.primary} strokeWidth={2.2} />
+                  </View>
+                  <View style={styles.themeCopy}>
+                    <Text style={[styles.themeTitle, { color: colors.foreground }]}>
+                      {option.label}
+                    </Text>
+                    <Text style={[styles.themeMeta, { color: colors.secondaryLabel }]}>
+                      {option.value === "system"
+                        ? "Match the device"
+                        : option.value === "dark"
+                          ? "Low-glare workspace"
+                          : "Bright canvas"}
+                    </Text>
+                  </View>
+                  {selected ? <Check size={18} color={colors.primary} strokeWidth={2.8} /> : null}
+                  {index < THEME_OPTIONS.length - 1 ? (
+                    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </Panel>
+        </View>
 
-        <Pressable
-          onPress={() => router.push("/pairing")}
-          style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.6 }]}
-        >
-          <Plus size={18} color={colors.primary} strokeWidth={2} />
-          <Text style={[styles.addRowText, { color: colors.primary }]}>Pair New Host</Text>
-        </Pressable>
-
-        {/* Appearance Section */}
-        <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 32 }]}>
-          APPEARANCE
-        </Text>
-        {THEME_OPTIONS.map((option, i) => {
-          const isActive = themeMode === option.value;
-          const OptionIcon = option.Icon;
-          return (
-            <Pressable
-              key={option.value}
-              onPress={() => setThemeMode(option.value)}
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-            >
-              <OptionIcon size={20} color={colors.foreground} strokeWidth={1.8} />
-              <View style={styles.rowContent}>
-                <Text style={[styles.rowTitle, { color: colors.foreground }]}>{option.label}</Text>
+        <View style={styles.section}>
+          <SectionTitle>System</SectionTitle>
+          <Panel style={styles.aboutPanel}>
+            <View style={styles.aboutRow}>
+              <View>
+                <Text style={[styles.aboutLabel, { color: colors.secondaryLabel }]}>App</Text>
+                <Text style={[styles.aboutValue, { color: colors.foreground }]}>
+                  ace Mobile v0.1.6
+                </Text>
               </View>
-              {isActive && <Check size={18} color={colors.primary} strokeWidth={2.5} />}
-              {i < THEME_OPTIONS.length - 1 && (
-                <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-              )}
-            </Pressable>
-          );
-        })}
-
-        {/* About Section */}
-        <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 32 }]}>ABOUT</Text>
-        <View style={styles.aboutRow}>
-          <Info size={18} color={colors.muted} strokeWidth={1.8} />
-          <View style={styles.rowContent}>
-            <Text style={[styles.aboutLabel, { color: colors.foreground }]}>ace Mobile</Text>
-            <Text style={[styles.aboutValue, { color: colors.muted }]}>v0.1.1</Text>
-          </View>
+              <View
+                style={[
+                  styles.aboutBadge,
+                  {
+                    backgroundColor: withAlpha(colors.primary, 0.14),
+                  },
+                ]}
+              >
+                <SlidersHorizontal size={15} color={colors.primary} strokeWidth={2.2} />
+              </View>
+            </View>
+            <Text style={[styles.aboutBody, { color: colors.secondaryLabel }]}>
+              Pairing, preferences, and host routing are managed locally on this device.
+            </Text>
+          </Panel>
         </View>
       </ScrollView>
     </View>
@@ -128,54 +179,100 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
-  largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-    paddingHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 8,
+  root: {
+    flex: 1,
   },
-  row: {
+  section: {
+    marginTop: 24,
+  },
+  sectionHeader: {
+    marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 20,
+    justifyContent: "space-between",
     gap: 12,
-    minHeight: 44,
   },
-  rowContent: { flex: 1 },
-  rowTitle: { fontSize: 17 },
-  rowSubtitle: { fontSize: 13, marginTop: 1 },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  panelShell: {
+    overflow: "hidden",
+  },
+  emptyHosts: {
+    padding: 20,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  emptyBody: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+  },
   separator: {
-    position: "absolute",
-    bottom: 0,
-    left: 44,
-    right: 0,
+    marginLeft: 18,
+    marginRight: 18,
     height: StyleSheet.hairlineWidth,
   },
-  addRow: {
+  themeRow: {
+    minHeight: 78,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 20,
-    gap: 12,
+    gap: 14,
   },
-  addRowText: { fontSize: 17, fontWeight: "600" },
-  emptyRow: { paddingVertical: 20, paddingHorizontal: 20, alignItems: "center" },
-  emptyRowText: { fontSize: 15 },
+  themeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  themeCopy: {
+    flex: 1,
+  },
+  themeTitle: {
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+  },
+  themeMeta: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  aboutPanel: {
+    gap: 14,
+  },
   aboutRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 20,
-    gap: 12,
-    minHeight: 44,
+    justifyContent: "space-between",
   },
-  aboutLabel: { fontSize: 17 },
-  aboutValue: { fontSize: 13, marginTop: 1 },
+  aboutLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  aboutValue: {
+    marginTop: 8,
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+  },
+  aboutBody: {
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  aboutBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

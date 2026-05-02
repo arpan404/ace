@@ -109,7 +109,6 @@ export default function HostDetailScreen() {
         options={{
           headerShown: true,
           title: host.name,
-          headerBackTitleVisible: false,
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.primary,
           headerTitleStyle: { color: colors.foreground },

@@ -197,6 +197,7 @@ import {
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
+import { buildSidebarBoardListItem } from "../lib/threadBoardList";
 import { buildThreadBoardTitle } from "../lib/threadBoardTitle";
 import {
   createThreadBoardDragThread,
@@ -1359,7 +1360,7 @@ export default function Sidebar() {
       if (!title) {
         toastManager.add({
           type: "warning",
-          title: "Board name cannot be empty",
+          title: "Split name cannot be empty",
         });
         cancelSplitRename();
         return;
@@ -1400,7 +1401,7 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) return;
       const confirmed = await api.dialogs.confirm(
-        [`Delete board "${split.title}"?`, "The threads are not deleted."].join("\n"),
+        [`Delete split "${split.title}"?`, "The threads are not deleted."].join("\n"),
       );
       if (!confirmed) {
         return;
@@ -1470,6 +1471,21 @@ export default function Sidebar() {
   const projectById = useMemo(
     () => new Map(activeProjects.map((project) => [project.id, project] as const)),
     [activeProjects],
+  );
+  const savedBoardItems = useMemo(
+    () =>
+      savedBoards.map((split) =>
+        buildSidebarBoardListItem({
+          projectById,
+          split,
+          threadById: sidebarThreadsById,
+        }),
+      ),
+    [projectById, savedBoards, sidebarThreadsById],
+  );
+  const visibleSavedBoardItems = useMemo(
+    () => savedBoardItems.slice(0, splitRevealCount),
+    [savedBoardItems, splitRevealCount],
   );
   const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
     const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
@@ -2577,7 +2593,7 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: "Open in board" },
+          { id: "open-in-board", label: "Open in split" },
           { id: "pin", label: pinnedThreadIds.includes(threadId) ? "Unpin thread" : "Pin thread" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
@@ -2667,7 +2683,7 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: `Open in board (${count})` },
+          { id: "open-in-board", label: `Open in split (${count})` },
           { id: "mark-unread", label: `Mark unread (${count})` },
           { id: "delete", label: `Delete (${count})`, destructive: true },
         ],
@@ -3093,7 +3109,7 @@ export default function Sidebar() {
       if (!api) return;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: "Open in board" },
+          { id: "open-in-board", label: "Open in split" },
           { id: "rename", label: "Rename thread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -3813,6 +3829,7 @@ export default function Sidebar() {
       return [];
     }
     return sortedActiveThreads.map((thread) => ({
+      activityAt: thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
       connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
       id: thread.id,
       projectId: thread.projectId,
@@ -5086,20 +5103,20 @@ export default function Sidebar() {
           />
           <MenuPopup align="start" side="bottom" sideOffset={6} className="min-w-48">
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "open")}>
-              Open board
+              Open split
             </MenuItem>
             <div className="mx-2 my-1 h-px bg-border" />
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "rename")}>
-              Rename board
+              Rename split
             </MenuItem>
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "archive")}>
-              Archive board
+              Archive split
             </MenuItem>
             <MenuItem
               className="text-destructive focus:text-destructive"
               onClick={() => void handleSplitMenuAction(contextMenuSplit, "delete")}
             >
-              Delete board
+              Delete split
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -5486,9 +5503,10 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            {savedBoards.length > 0 || splitPickerAvailableThreadCount >= 2 ? (
+            {savedBoards.length > 0 ? (
               <SidebarBoardsSection
                 activeSplitId={activeStoreSplitId}
+                boardItems={savedBoardItems}
                 boardsSectionExpanded={boardsSectionExpanded}
                 canCollapseSplitList={canCollapseSplitList}
                 canCreateBoard={splitPickerAvailableThreadCount >= 2}
@@ -5501,11 +5519,10 @@ export default function Sidebar() {
                 hiddenSavedSplitCount={hiddenSavedSplitCount}
                 renamingSplitId={renamingSplitId}
                 renamingSplitTitle={renamingSplitTitle}
-                savedBoards={savedBoards}
                 showMoreCount={Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)}
                 splitSortOrder={splitSortOrder}
                 threadDragActive={boardThreadDragState !== null}
-                visibleSavedBoards={visibleSavedBoards}
+                visibleBoardItems={visibleSavedBoardItems}
                 onBoardsSectionToggle={() => {
                   setBoardsSectionExpanded(!boardsSectionExpanded);
                 }}
