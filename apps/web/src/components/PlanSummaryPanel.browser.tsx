@@ -56,6 +56,7 @@ describe("PlanSummaryPanel", () => {
           }}
           activeProvider="codex"
           markdownCwd={undefined}
+          workspaceDiffSummary={null}
           workspaceRoot={undefined}
         />
       </div>,

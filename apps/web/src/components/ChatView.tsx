@@ -2075,6 +2075,17 @@ export default function ChatView({
       deletions: workingTree.deletions,
     };
   }, [workspaceStatusQuery.data?.workingTree]);
+  const workspaceDiffSummary = useMemo(() => {
+    const workingTree = workspaceStatusQuery.data?.workingTree;
+    if (!workingTree || (workingTree.insertions === 0 && workingTree.deletions === 0)) {
+      return null;
+    }
+    return {
+      additions: workingTree.insertions,
+      deletions: workingTree.deletions,
+      fileCount: workingTree.files.length,
+    };
+  }, [workspaceStatusQuery.data?.workingTree]);
   const branchesQuery = useQuery({
     ...gitBranchesQueryOptions(codingGitCwd),
     enabled: codingGitCwd !== null && activeForSideEffects,
@@ -7285,8 +7296,10 @@ export default function ChatView({
                             activeProposedPlan={sidebarProposedPlan}
                             activeProvider={activeThread?.session?.provider ?? null}
                             markdownCwd={gitCwd ?? undefined}
+                            onOpenDiffPanel={isGitRepo ? () => setRightSidePanelMode("diff") : null}
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
                             onOpenFilePath={openMarkdownFileInAppEditor}
+                            workspaceDiffSummary={workspaceDiffSummary}
                             workspaceRoot={activeProject?.cwd ?? undefined}
                           />
                         ) : activeRightSidePanelMode === "diff" ? (

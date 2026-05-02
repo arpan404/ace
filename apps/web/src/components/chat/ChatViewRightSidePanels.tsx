@@ -15,7 +15,7 @@ import type { ThreadId, TurnId } from "@ace/contracts";
 import { IconLayoutSidebarRightFilled } from "@tabler/icons-react";
 import {
   Code2Icon,
-  GitCompareIcon,
+  DiffIcon,
   GlobeIcon,
   ListTodoIcon,
   Maximize2Icon,
@@ -181,7 +181,7 @@ function RightSidePanelAddTabMenu(props: {
             props.onSelectMode("diff");
           }}
         >
-          <GitCompareIcon className="size-4" />
+          <DiffIcon className="size-4" />
           <span>Review</span>
           {props.reviewShortcutLabel ? (
             <MenuShortcut>{props.reviewShortcutLabel}</MenuShortcut>
@@ -323,7 +323,7 @@ export function RightSidePanelTabStrip(props: {
                 }
               >
                 <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                  <GitCompareIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                  <DiffIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
                   <span
                     role="button"
                     tabIndex={-1}

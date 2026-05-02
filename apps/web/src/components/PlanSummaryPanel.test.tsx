@@ -32,6 +32,7 @@ describe("PlanSummaryPanel", () => {
         activeProposedPlan={null}
         activeProvider="codex"
         markdownCwd={undefined}
+        workspaceDiffSummary={null}
         workspaceRoot={undefined}
       />,
     );
