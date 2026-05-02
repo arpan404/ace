@@ -32,6 +32,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
@@ -65,7 +66,7 @@ import { useEffectEvent } from "../../hooks/useEffectEvent";
 import { gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { basenameOfPath } from "../../vscode-icons";
-import { randomUUID } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
 import { resolveAppModelSelection } from "../../modelSelection";
 import { getComposerProviderState } from "./composerProviderRegistry";
@@ -186,6 +187,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly resolvedTheme: ComponentProps<typeof ChatComposerPanel>["resolvedTheme"];
   readonly showFloatingDock: boolean;
   readonly floatingDockFooter?: ReactNode;
+  readonly floatingDockPortalHost?: HTMLElement | null;
   readonly onComposerHeightChange: () => void;
   readonly onPreviewExpandedImage: (preview: ExpandedImagePreview) => void;
   readonly onIssuePreviewOpen: (issueNumber: number) => void;
@@ -1250,6 +1252,117 @@ export const ConnectedChatComposerPanels = memo(
         onComposerHeightChange,
       ]);
 
+      const floatingDock = props.showFloatingDock ? (
+        <div
+          className={cn(
+            "pointer-events-auto absolute inset-x-0 bottom-0",
+            props.floatingDockPortalHost ? "z-50" : "z-20",
+          )}
+        >
+          <ChatComposerPanel
+            threadId={props.threadId}
+            isGitRepo={props.isGitRepo}
+            isDragOverComposer={isDragOverComposer}
+            hasComposerHeader={hasComposerHeader}
+            isComposerApprovalState={isComposerApprovalState}
+            isComposerFooterCompact={isComposerFooterCompact}
+            isComposerPrimaryActionsCompact={isComposerPrimaryActionsCompact}
+            isComposerMenuLoading={isComposerMenuLoading}
+            composerMenuOpen={composerMenuOpen}
+            showIssuesCommandExamplesPopover={showIssuesCommandExamplesPopover}
+            isConnecting={props.isConnecting}
+            isPreparingWorktree={props.isPreparingWorktree}
+            liveTurnInProgress={props.liveTurnInProgress}
+            isSendBusy={props.isSendBusy}
+            showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+            showQueue={true}
+            prompt={prompt}
+            composerCursor={composerCursor}
+            composerTriggerKind={composerTriggerKind}
+            composerMenuItems={composerMenuItems}
+            activeComposerMenuItemId={activeComposerMenuItem?.id ?? null}
+            composerImages={composerImages}
+            nonPersistedComposerImageIdSet={nonPersistedComposerImageIdSet}
+            composerTerminalContexts={composerTerminalContexts}
+            queuedComposerMessages={props.queuedComposerMessages}
+            queuedSteerMessageId={props.queuedSteerMessageId}
+            composerProviderState={composerProviderState}
+            selectedProvider={props.selectedProvider}
+            selectedModel={props.selectedModel}
+            selectedProviderModels={props.selectedProviderModels}
+            selectedProviderModelOptions={props.selectedProviderModelOptions}
+            selectedModelForPickerWithCustomFallback={
+              props.selectedModelForPickerWithCustomFallback
+            }
+            lockedProvider={props.lockedProvider}
+            providers={props.providers}
+            modelOptionsByProvider={props.modelOptionsByProvider}
+            isServerThread={props.isServerThread}
+            handoffTargetProviders={props.handoffTargetProviders}
+            handoffDisabled={props.handoffDisabled}
+            interactionMode={interactionMode}
+            runtimeMode={runtimeMode}
+            interactionModeShortcutLabel={props.interactionModeShortcutLabel}
+            activeContextWindow={props.activeContextWindow}
+            promptHasText={prompt.trim().length > 0}
+            hasSendableContent={composerSendState.hasSendableContent}
+            canQueueMessage={composerSendState.hasSendableContent && props.allowQueueWhenSendable}
+            activePendingApproval={props.activePendingApproval}
+            pendingApprovalsCount={props.pendingApprovalsCount}
+            pendingUserInputs={props.pendingUserInputs}
+            respondingApprovalRequestIds={props.respondingApprovalRequestIds}
+            respondingUserInputRequestIds={props.respondingUserInputRequestIds}
+            activePendingDraftAnswers={props.activePendingDraftAnswers}
+            activePendingQuestionIndex={props.activePendingQuestionIndex}
+            activePendingProgress={props.activePendingProgress}
+            activePendingIsResponding={props.activePendingIsResponding}
+            activePendingResolvedAnswers={props.activePendingResolvedAnswers}
+            planFollowUpId={props.planFollowUpId}
+            planFollowUpTitle={props.planFollowUpTitle}
+            resolvedTheme={props.resolvedTheme}
+            composerFormRef={floatingComposerFormRef}
+            composerEditorRef={floatingComposerEditorRef}
+            composerFooterRef={floatingComposerFooterRef}
+            composerFooterLeadingRef={floatingComposerFooterLeadingRef}
+            composerFooterActionsRef={floatingComposerFooterActionsRef}
+            onSubmit={props.onSubmit}
+            onComposerDragEnter={onComposerDragEnter}
+            onComposerDragOver={onComposerDragOver}
+            onComposerDragLeave={onComposerDragLeave}
+            onComposerDrop={onComposerDrop}
+            onHighlightedItemChange={setComposerHighlightedItemId}
+            onSelectComposerItem={onSelectComposerItem}
+            onEditQueuedComposerMessage={props.onEditQueuedComposerMessage}
+            onDeleteQueuedComposerMessage={props.onDeleteQueuedComposerMessage}
+            onClearQueuedComposerMessages={props.onClearQueuedComposerMessages}
+            onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
+            onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
+            onPreviewComposerImage={onPreviewComposerImage}
+            onRemoveComposerImage={removeComposerImage}
+            onRemoveTerminalContext={(contextId) =>
+              removeComposerDraftTerminalContext(props.threadId, contextId)
+            }
+            onPromptChange={onPromptChange}
+            onCommandKeyDown={onComposerCommandKey}
+            onIssueTokenClick={props.onIssuePreviewOpen}
+            onPaste={onComposerPaste}
+            onRespondToApproval={props.onRespondToApproval}
+            onSelectPendingUserInputOption={props.onSelectPendingUserInputOption}
+            onAdvancePendingUserInput={props.onAdvancePendingUserInput}
+            onProviderModelSelect={onProviderModelSelect}
+            onHandoffToProvider={props.onHandoffToProvider}
+            onToggleInteractionMode={toggleInteractionMode}
+            onRuntimeModeChange={props.onRuntimeModeChange}
+            onPreviousPendingQuestion={props.onPreviousPendingQuestion}
+            onInterrupt={props.onInterrupt}
+            onImplementPlanInNewThread={props.onImplementPlanInNewThread}
+            onQueueMessage={props.onQueueMessage}
+            onPromptChangeFromTraits={setPromptFromTraits}
+          />
+          {props.floatingDockFooter ?? null}
+        </div>
+      ) : null;
+
       return (
         <>
           <ChatComposerPanel
@@ -1351,113 +1464,11 @@ export const ConnectedChatComposerPanels = memo(
             onQueueMessage={props.onQueueMessage}
             onPromptChangeFromTraits={setPromptFromTraits}
           />
-          {props.showFloatingDock ? (
-            <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20">
-              <ChatComposerPanel
-                threadId={props.threadId}
-                isGitRepo={props.isGitRepo}
-                isDragOverComposer={isDragOverComposer}
-                hasComposerHeader={hasComposerHeader}
-                isComposerApprovalState={isComposerApprovalState}
-                isComposerFooterCompact={isComposerFooterCompact}
-                isComposerPrimaryActionsCompact={isComposerPrimaryActionsCompact}
-                isComposerMenuLoading={isComposerMenuLoading}
-                composerMenuOpen={composerMenuOpen}
-                showIssuesCommandExamplesPopover={showIssuesCommandExamplesPopover}
-                isConnecting={props.isConnecting}
-                isPreparingWorktree={props.isPreparingWorktree}
-                liveTurnInProgress={props.liveTurnInProgress}
-                isSendBusy={props.isSendBusy}
-                showPlanFollowUpPrompt={showPlanFollowUpPrompt}
-                showQueue={true}
-                prompt={prompt}
-                composerCursor={composerCursor}
-                composerTriggerKind={composerTriggerKind}
-                composerMenuItems={composerMenuItems}
-                activeComposerMenuItemId={activeComposerMenuItem?.id ?? null}
-                composerImages={composerImages}
-                nonPersistedComposerImageIdSet={nonPersistedComposerImageIdSet}
-                composerTerminalContexts={composerTerminalContexts}
-                queuedComposerMessages={props.queuedComposerMessages}
-                queuedSteerMessageId={props.queuedSteerMessageId}
-                composerProviderState={composerProviderState}
-                selectedProvider={props.selectedProvider}
-                selectedModel={props.selectedModel}
-                selectedProviderModels={props.selectedProviderModels}
-                selectedProviderModelOptions={props.selectedProviderModelOptions}
-                selectedModelForPickerWithCustomFallback={
-                  props.selectedModelForPickerWithCustomFallback
-                }
-                lockedProvider={props.lockedProvider}
-                providers={props.providers}
-                modelOptionsByProvider={props.modelOptionsByProvider}
-                isServerThread={props.isServerThread}
-                handoffTargetProviders={props.handoffTargetProviders}
-                handoffDisabled={props.handoffDisabled}
-                interactionMode={interactionMode}
-                runtimeMode={runtimeMode}
-                interactionModeShortcutLabel={props.interactionModeShortcutLabel}
-                activeContextWindow={props.activeContextWindow}
-                promptHasText={prompt.trim().length > 0}
-                hasSendableContent={composerSendState.hasSendableContent}
-                canQueueMessage={
-                  composerSendState.hasSendableContent && props.allowQueueWhenSendable
-                }
-                activePendingApproval={props.activePendingApproval}
-                pendingApprovalsCount={props.pendingApprovalsCount}
-                pendingUserInputs={props.pendingUserInputs}
-                respondingApprovalRequestIds={props.respondingApprovalRequestIds}
-                respondingUserInputRequestIds={props.respondingUserInputRequestIds}
-                activePendingDraftAnswers={props.activePendingDraftAnswers}
-                activePendingQuestionIndex={props.activePendingQuestionIndex}
-                activePendingProgress={props.activePendingProgress}
-                activePendingIsResponding={props.activePendingIsResponding}
-                activePendingResolvedAnswers={props.activePendingResolvedAnswers}
-                planFollowUpId={props.planFollowUpId}
-                planFollowUpTitle={props.planFollowUpTitle}
-                resolvedTheme={props.resolvedTheme}
-                composerFormRef={floatingComposerFormRef}
-                composerEditorRef={floatingComposerEditorRef}
-                composerFooterRef={floatingComposerFooterRef}
-                composerFooterLeadingRef={floatingComposerFooterLeadingRef}
-                composerFooterActionsRef={floatingComposerFooterActionsRef}
-                onSubmit={props.onSubmit}
-                onComposerDragEnter={onComposerDragEnter}
-                onComposerDragOver={onComposerDragOver}
-                onComposerDragLeave={onComposerDragLeave}
-                onComposerDrop={onComposerDrop}
-                onHighlightedItemChange={setComposerHighlightedItemId}
-                onSelectComposerItem={onSelectComposerItem}
-                onEditQueuedComposerMessage={props.onEditQueuedComposerMessage}
-                onDeleteQueuedComposerMessage={props.onDeleteQueuedComposerMessage}
-                onClearQueuedComposerMessages={props.onClearQueuedComposerMessages}
-                onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
-                onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
-                onPreviewComposerImage={onPreviewComposerImage}
-                onRemoveComposerImage={removeComposerImage}
-                onRemoveTerminalContext={(contextId) =>
-                  removeComposerDraftTerminalContext(props.threadId, contextId)
-                }
-                onPromptChange={onPromptChange}
-                onCommandKeyDown={onComposerCommandKey}
-                onIssueTokenClick={props.onIssuePreviewOpen}
-                onPaste={onComposerPaste}
-                onRespondToApproval={props.onRespondToApproval}
-                onSelectPendingUserInputOption={props.onSelectPendingUserInputOption}
-                onAdvancePendingUserInput={props.onAdvancePendingUserInput}
-                onProviderModelSelect={onProviderModelSelect}
-                onHandoffToProvider={props.onHandoffToProvider}
-                onToggleInteractionMode={toggleInteractionMode}
-                onRuntimeModeChange={props.onRuntimeModeChange}
-                onPreviousPendingQuestion={props.onPreviousPendingQuestion}
-                onInterrupt={props.onInterrupt}
-                onImplementPlanInNewThread={props.onImplementPlanInNewThread}
-                onQueueMessage={props.onQueueMessage}
-                onPromptChangeFromTraits={setPromptFromTraits}
-              />
-              {props.floatingDockFooter ?? null}
-            </div>
-          ) : null}
+          {floatingDock
+            ? props.floatingDockPortalHost
+              ? createPortal(floatingDock, props.floatingDockPortalHost)
+              : floatingDock
+            : null}
         </>
       );
     },
