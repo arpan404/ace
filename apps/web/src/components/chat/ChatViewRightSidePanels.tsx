@@ -114,8 +114,8 @@ function RightSidePanelBrowserTab(props: {
       }}
       {...listeners}
     >
-      <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-        <GlobeIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+      <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+        <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
         <span
           role="button"
           tabIndex={-1}
@@ -131,7 +131,7 @@ function RightSidePanelBrowserTab(props: {
             props.onClose(props.tab.id);
           }}
         >
-          <XIcon className="size-3" />
+          <XIcon className="size-3.5" />
         </span>
       </span>
       <span className="max-w-48 truncate">{props.tab.title}</span>
@@ -156,12 +156,12 @@ function RightSidePanelAddTabMenu(props: {
         <TooltipTrigger
           render={
             <MenuTrigger
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label="Open side panel tab"
             />
           }
         >
-          <PlusIcon className="size-4" />
+          <PlusIcon className="size-4.5" />
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
           Open side panel tab
@@ -249,7 +249,7 @@ export function RightSidePanelTabStrip(props: {
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
-      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
+      "group/tab inline-flex h-9 min-w-max shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-medium transition-colors",
       active
         ? "bg-accent text-foreground"
         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -284,7 +284,9 @@ export function RightSidePanelTabStrip(props: {
   }, []);
 
   return (
-    <div className={cn("flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3", props.className)}>
+    <div
+      className={cn("flex h-12 shrink-0 items-center gap-2.5 bg-card/80 px-3.5", props.className)}
+    >
       <div
         ref={tabStripRef}
         className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -300,7 +302,7 @@ export function RightSidePanelTabStrip(props: {
               />
             }
           >
-            <ListTodoIcon className="size-4 shrink-0 text-muted-foreground" />
+            <ListTodoIcon className="size-4.5 shrink-0 text-muted-foreground" />
             <span className="truncate">Summary</span>
           </TooltipTrigger>
           <TooltipPopup side="bottom" align="start">
@@ -322,8 +324,8 @@ export function RightSidePanelTabStrip(props: {
                   />
                 }
               >
-                <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                  <DiffIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                  <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
                   <span
                     role="button"
                     tabIndex={-1}
@@ -339,7 +341,7 @@ export function RightSidePanelTabStrip(props: {
                       props.onDiffClose();
                     }}
                   >
-                    <XIcon className="size-3" />
+                    <XIcon className="size-3.5" />
                   </span>
                 </span>
                 <span className="min-w-0 truncate text-left">Review</span>
@@ -364,8 +366,8 @@ export function RightSidePanelTabStrip(props: {
                   />
                 }
               >
-                <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                  <Code2Icon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                  <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
                   <span
                     role="button"
                     tabIndex={-1}
@@ -381,7 +383,7 @@ export function RightSidePanelTabStrip(props: {
                       props.onEditorClose();
                     }}
                   >
-                    <XIcon className="size-3" />
+                    <XIcon className="size-3.5" />
                   </span>
                 </span>
                 <span className="min-w-0 truncate text-left">Editor</span>
@@ -458,7 +460,7 @@ export function RightSidePanelTabStrip(props: {
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  "inline-flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
                   props.floatingChatOpen
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -471,7 +473,7 @@ export function RightSidePanelTabStrip(props: {
               />
             }
           >
-            <MessageSquareIcon className="size-4" />
+            <MessageSquareIcon className="size-4.5" />
           </TooltipTrigger>
           <TooltipPopup side="bottom" align="end">
             {props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"}
@@ -483,7 +485,7 @@ export function RightSidePanelTabStrip(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={
                 props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"
               }
@@ -492,9 +494,9 @@ export function RightSidePanelTabStrip(props: {
           }
         >
           {props.fullscreen ? (
-            <Minimize2Icon className="size-4" />
+            <Minimize2Icon className="size-4.5" />
           ) : (
-            <Maximize2Icon className="size-4" />
+            <Maximize2Icon className="size-4.5" />
           )}
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
@@ -506,13 +508,13 @@ export function RightSidePanelTabStrip(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={panelToggleTooltipLabel}
               onClick={props.onTogglePanelVisibility}
             />
           }
         >
-          <IconLayoutSidebarRightFilled className="size-[18px]" />
+          <IconLayoutSidebarRightFilled className="size-5" />
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
           {panelToggleTooltipLabel}
