@@ -2,23 +2,9 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { ThreadId, type TurnId } from "@ace/contracts";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  Columns2Icon,
-  Rows3Icon,
-  TextWrapIcon,
-} from "lucide-react";
-import {
-  type WheelEvent as ReactWheelEvent,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { ThreadId, TurnId } from "@ace/contracts";
+import { Columns2Icon, Rows3Icon, TextWrapIcon } from "lucide-react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
   gitBranchesQueryOptions,
@@ -42,10 +28,13 @@ import { useSetting } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { buildDiffPanelUnsafeCss } from "./diffPanelUnsafeCss";
+import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
+const ALL_TURNS_SELECT_VALUE = "__all_turns__";
 
 type RenderablePatch =
   | {
@@ -102,6 +91,18 @@ function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
   return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
 }
 
+function resolveTurnCheckpointLabel(
+  summary: {
+    turnId: TurnId;
+    checkpointTurnCount?: number | undefined;
+  },
+  inferredCheckpointTurnCountByTurnId: Partial<Record<TurnId, number>>,
+): string {
+  const checkpointTurnCount =
+    summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+  return typeof checkpointTurnCount === "number" ? `Turn ${checkpointTurnCount}` : "Turn ?";
+}
+
 function isCheckpointSummaryQueryable(
   summary: { status?: string | undefined },
   checkpointTurnCount: number | undefined,
@@ -141,10 +142,7 @@ export default function DiffPanel({
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
   const patchViewportRef = useRef<HTMLDivElement>(null);
-  const turnStripRef = useRef<HTMLDivElement>(null);
   const previousDiffOpenRef = useRef(false);
-  const [canScrollTurnStripLeft, setCanScrollTurnStripLeft] = useState(false);
-  const [canScrollTurnStripRight, setCanScrollTurnStripRight] = useState(false);
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -449,158 +447,63 @@ export default function DiffPanel({
       },
     });
   };
-  const updateTurnStripScrollState = useCallback(() => {
-    const element = turnStripRef.current;
-    if (!element) {
-      setCanScrollTurnStripLeft(false);
-      setCanScrollTurnStripRight(false);
-      return;
-    }
-
-    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
-    setCanScrollTurnStripLeft(element.scrollLeft > 4);
-    setCanScrollTurnStripRight(element.scrollLeft < maxScrollLeft - 4);
-  }, []);
-  const scrollTurnStripBy = useCallback((offset: number) => {
-    const element = turnStripRef.current;
-    if (!element) return;
-    element.scrollBy({ left: offset, behavior: "smooth" });
-  }, []);
-  const onTurnStripWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
-    const element = turnStripRef.current;
-    if (!element) return;
-    if (element.scrollWidth <= element.clientWidth + 1) return;
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-
-    event.preventDefault();
-    element.scrollBy({ left: event.deltaY, behavior: "auto" });
-  }, []);
-
-  useEffect(() => {
-    const element = turnStripRef.current;
-    if (!element) return;
-
-    const frameId = window.requestAnimationFrame(() => updateTurnStripScrollState());
-    const onScroll = () => updateTurnStripScrollState();
-
-    element.addEventListener("scroll", onScroll, { passive: true });
-
-    const resizeObserver = new ResizeObserver(() => updateTurnStripScrollState());
-    resizeObserver.observe(element);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      element.removeEventListener("scroll", onScroll);
-      resizeObserver.disconnect();
-    };
-  }, [updateTurnStripScrollState]);
-
-  useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => updateTurnStripScrollState());
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [orderedTurnDiffSummaries, selectedTurnId, updateTurnStripScrollState]);
-
-  useEffect(() => {
-    const element = turnStripRef.current;
-    if (!element) return;
-
-    const selectedChip = element.querySelector<HTMLElement>("[data-turn-chip-selected='true']");
-    selectedChip?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
-  }, [selectedTurn?.turnId, selectedTurnId]);
+  const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
+  const selectedTurnLabel = selectedTurn
+    ? resolveTurnCheckpointLabel(selectedTurn, inferredCheckpointTurnCountByTurnId)
+    : "All turns";
+  const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
 
   const headerRow = (
     <>
-      <div className="relative min-w-0 flex-1 [-webkit-app-region:no-drag]">
-        <button
-          type="button"
-          className={cn(
-            "absolute left-0 top-1/2 z-20 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md border border-border/40 bg-background text-muted-foreground transition-all duration-150",
-            canScrollTurnStripLeft
-              ? "hover:border-border hover:bg-accent/50 hover:text-foreground"
-              : "cursor-not-allowed border-border text-muted-foreground/30",
-          )}
-          onClick={() => scrollTurnStripBy(-180)}
-          disabled={!canScrollTurnStripLeft}
-          aria-label="Scroll turn list left"
+      <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
+        <Select
+          value={selectedTurnSelectValue}
+          onValueChange={(value) => {
+            if (value === ALL_TURNS_SELECT_VALUE) {
+              selectWholeConversation();
+              return;
+            }
+            if (value === null) {
+              return;
+            }
+            selectTurn(TurnId.makeUnsafe(value));
+          }}
+          disabled={turnSelectorDisabled}
         >
-          <ChevronLeftIcon className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "absolute right-0 top-1/2 z-20 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md border border-border/40 bg-background text-muted-foreground transition-all duration-150",
-            canScrollTurnStripRight
-              ? "hover:border-border hover:bg-accent/50 hover:text-foreground"
-              : "cursor-not-allowed border-border text-muted-foreground/30",
-          )}
-          onClick={() => scrollTurnStripBy(180)}
-          disabled={!canScrollTurnStripRight}
-          aria-label="Scroll turn list right"
-        >
-          <ChevronRightIcon className="size-3.5" />
-        </button>
-        <div
-          ref={turnStripRef}
-          className="turn-chip-strip flex gap-1.5 overflow-x-auto px-8 py-0.5"
-          onWheel={onTurnStripWheel}
-        >
-          <button
-            type="button"
-            className="shrink-0 rounded-lg"
-            onClick={selectWholeConversation}
-            data-turn-chip-selected={selectedTurnId === null}
+          <SelectTrigger
+            variant="ghost"
+            size="lg"
+            className="w-auto min-w-0 max-w-40 flex-none rounded-lg px-2.5 text-sm font-medium text-foreground hover:bg-accent/60 hover:text-foreground"
+            aria-label="Select review scope"
           >
-            <div
-              className={cn(
-                "rounded-lg border px-2.5 py-1 text-left transition-all duration-150",
-                selectedTurnId === null
-                  ? "border-primary/15 bg-primary/[0.06] text-foreground"
-                  : "border-border/50 bg-transparent text-muted-foreground/60 hover:bg-muted/25 hover:text-foreground",
-              )}
-            >
-              <div className="text-[10px] leading-tight font-medium">All turns</div>
-            </div>
-          </button>
-          {orderedTurnDiffSummaries.map((summary) => (
-            <button
-              key={summary.turnId}
-              type="button"
-              className="shrink-0 rounded-lg"
-              onClick={() => selectTurn(summary.turnId)}
-              title={summary.turnId}
-              data-turn-chip-selected={summary.turnId === selectedTurn?.turnId}
-            >
-              <div
-                className={cn(
-                  "rounded-lg border px-2.5 py-1 text-left transition-all duration-150",
-                  summary.turnId === selectedTurn?.turnId
-                    ? "border-primary/15 bg-primary/[0.06] text-foreground"
-                    : "border-border/50 bg-transparent text-muted-foreground/60 hover:bg-muted/25 hover:text-foreground",
-                )}
-              >
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] leading-tight font-medium">
-                    Turn{" "}
-                    {summary.checkpointTurnCount ??
-                      inferredCheckpointTurnCountByTurnId[summary.turnId] ??
-                      "?"}
+            <span className="truncate text-sm font-medium text-foreground">
+              {selectedTurnLabel}
+            </span>
+          </SelectTrigger>
+          <SelectPopup align="start" className="max-h-80">
+            <SelectItem value={ALL_TURNS_SELECT_VALUE}>
+              <span className="truncate font-medium text-foreground">All turns</span>
+            </SelectItem>
+            {orderedTurnDiffSummaries.map((summary) => (
+              <SelectItem key={summary.turnId} value={summary.turnId}>
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <span className="truncate font-medium text-foreground">
+                    {resolveTurnCheckpointLabel(summary, inferredCheckpointTurnCountByTurnId)}
                   </span>
-                  <span className="text-[9px] leading-tight opacity-70">
+                  <span className="shrink-0 text-[11px] text-muted-foreground/65">
                     {formatShortTimestamp(summary.completedAt, timestampFormat)}
                   </span>
                 </div>
-              </div>
-            </button>
-          ))}
-        </div>
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
       </div>
-      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
         <ToggleGroup
-          className="shrink-0"
-          variant="outline"
-          size="xs"
+          className="shrink-0 gap-1"
+          variant="default"
+          size="sm"
           value={[diffRenderMode]}
           onValueChange={(value) => {
             const next = value[0];
@@ -609,25 +512,58 @@ export default function DiffPanel({
             }
           }}
         >
-          <Toggle aria-label="Stacked diff view" value="stacked">
-            <Rows3Icon className="size-3" />
-          </Toggle>
-          <Toggle aria-label="Split diff view" value="split">
-            <Columns2Icon className="size-3" />
-          </Toggle>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  aria-label="Unified diff view"
+                  className="h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                  value="stacked"
+                />
+              }
+            >
+              <Rows3Icon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Unified diff view</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  aria-label="Split diff view"
+                  className="h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                  value="split"
+                />
+              }
+            >
+              <Columns2Icon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Split diff view</TooltipPopup>
+          </Tooltip>
         </ToggleGroup>
-        <Toggle
-          aria-label={diffWordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
-          title={diffWordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-          variant="outline"
-          size="xs"
-          pressed={diffWordWrap}
-          onPressedChange={(pressed) => {
-            setDiffWordWrap(Boolean(pressed));
-          }}
-        >
-          <TextWrapIcon className="size-3" />
-        </Toggle>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                aria-label={
+                  diffWordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"
+                }
+                variant="default"
+                size="sm"
+                className="h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                pressed={diffWordWrap}
+                onPressedChange={(pressed) => {
+                  setDiffWordWrap(Boolean(pressed));
+                }}
+              />
+            }
+          >
+            <TextWrapIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {diffWordWrap ? "Disable line wrapping" : "Enable line wrapping"}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     </>
   );
@@ -679,7 +615,7 @@ export default function DiffPanel({
               )
             ) : renderablePatch.kind === "files" ? (
               <Virtualizer
-                className="diff-render-surface h-full min-h-0 overflow-auto px-2.5 pb-2.5"
+                className="diff-render-surface h-full min-h-0 overflow-auto px-0 pb-0"
                 config={{
                   overscrollSize: 600,
                   intersectionObserverMargin: 1200,
@@ -693,7 +629,7 @@ export default function DiffPanel({
                     <div
                       key={themedFileKey}
                       data-diff-file-path={filePath}
-                      className="diff-render-file mb-2.5 overflow-hidden rounded-xl first:mt-2.5 last:mb-0"
+                      className="diff-render-file overflow-hidden"
                       onClickCapture={(event) => {
                         const nativeEvent = event.nativeEvent as MouseEvent;
                         const composedPath = nativeEvent.composedPath?.() ?? [];
@@ -721,15 +657,13 @@ export default function DiffPanel({
                 })}
               </Virtualizer>
             ) : (
-              <div className="h-full overflow-auto p-2.5">
+              <div className="h-full overflow-auto px-4 py-3">
                 <div className="space-y-2.5">
                   <p className="text-[11px] text-muted-foreground/65">{renderablePatch.reason}</p>
                   <pre
                     className={cn(
-                      "max-h-[72vh] rounded-xl border border-border bg-muted/15 p-3.5 font-mono text-[11px] leading-relaxed text-muted-foreground",
-                      diffWordWrap
-                        ? "overflow-auto whitespace-pre-wrap wrap-break-word"
-                        : "overflow-auto",
+                      "max-h-[72vh] overflow-auto bg-transparent p-0 font-mono text-[11px] leading-relaxed text-muted-foreground",
+                      diffWordWrap ? "whitespace-pre-wrap wrap-break-word" : "",
                     )}
                   >
                     {renderablePatch.text}

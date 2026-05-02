@@ -15,7 +15,6 @@ import {
   ChevronRightIcon,
   FilePlus2Icon,
   FolderPlusIcon,
-  GitBranchIcon,
   GitForkIcon,
   SearchIcon,
 } from "lucide-react";
@@ -1342,7 +1341,6 @@ function ThreadWorkspaceEditor(inputProps: {
     () => treeEntries.filter((entry) => entry.kind === "file").length,
     [treeEntries],
   );
-  const activeBranch = props.branch ?? gitStatusQuery.data?.branch ?? null;
   const activeWorktreePath = props.worktreePath ?? null;
 
   const handleSplitPane = useCallback(
@@ -2144,12 +2142,6 @@ function ThreadWorkspaceEditor(inputProps: {
                     gitCwd={props.gitCwd}
                     keybindings={props.keybindings}
                   />
-                  {activeBranch ? (
-                    <span className="inline-flex min-w-0 max-w-[10rem] items-center gap-1 rounded-[var(--control-radius)] border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76">
-                      <GitBranchIcon className="size-3 shrink-0 text-muted-foreground/80" />
-                      <span className="truncate">{activeBranch}</span>
-                    </span>
-                  ) : null}
                   {activeWorktreePath ? (
                     <span
                       className="inline-flex shrink-0 items-center gap-1 rounded-[var(--control-radius)] border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76"
@@ -2161,15 +2153,6 @@ function ThreadWorkspaceEditor(inputProps: {
                   ) : null}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
-                    onClick={() => setExplorerOpen(props.threadId, false)}
-                    title="Collapse explorer"
-                  >
-                    <IconLayoutSidebarFilled className="size-3.5" />
-                  </Button>
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -2407,7 +2390,7 @@ function ThreadWorkspaceEditor(inputProps: {
                                     type="button"
                                     variant="ghost"
                                     size="icon-xs"
-                                    className="size-5 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
+                                    className="size-6 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
                                     onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
                                     title={
                                       explorerOpen
@@ -2416,9 +2399,9 @@ function ThreadWorkspaceEditor(inputProps: {
                                     }
                                   >
                                     {explorerOpen ? (
-                                      <IconLayoutSidebarFilled className="size-3" />
+                                      <IconLayoutSidebarFilled className="size-3.5" />
                                     ) : (
-                                      <IconLayoutSidebar className="size-3" />
+                                      <IconLayoutSidebar className="size-3.5" />
                                     )}
                                   </Button>
                                 </>

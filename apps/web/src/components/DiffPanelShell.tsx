@@ -60,18 +60,13 @@ export function DiffPanelShell(props: {
 export function DiffPanelHeaderSkeleton() {
   return (
     <>
-      <div className="relative min-w-0 flex-1">
-        <Skeleton className="absolute left-0 top-1/2 size-6 -translate-y-1/2 rounded-lg border border-border" />
-        <Skeleton className="absolute right-0 top-1/2 size-6 -translate-y-1/2 rounded-lg border border-border" />
-        <div className="flex gap-1.5 overflow-hidden px-8 py-0.5">
-          <Skeleton className="h-6 w-16 shrink-0 rounded-lg" />
-          <Skeleton className="h-6 w-24 shrink-0 rounded-lg" />
-          <Skeleton className="h-6 w-24 shrink-0 rounded-lg max-sm:hidden" />
-        </div>
+      <div className="min-w-0 flex-1">
+        <Skeleton className="h-8 w-28 rounded-lg" />
       </div>
-      <div className="flex shrink-0 gap-1">
-        <Skeleton className="size-7 rounded-lg" />
-        <Skeleton className="size-7 rounded-lg" />
+      <div className="flex shrink-0 gap-2">
+        <Skeleton className="size-8 rounded-lg" />
+        <Skeleton className="size-8 rounded-lg" />
+        <Skeleton className="size-8 rounded-lg" />
       </div>
     </>
   );
@@ -79,18 +74,18 @@ export function DiffPanelHeaderSkeleton() {
 
 export function DiffPanelLoadingState(props: { label: string }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-2.5">
+    <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card"
+        className="flex min-h-0 flex-1 flex-col"
         role="status"
         aria-live="polite"
         aria-label={props.label}
       >
-        <div className="flex items-center gap-2.5 border-b border-border px-3.5 py-2.5">
-          <Skeleton className="h-4 w-32 rounded-full" />
-          <Skeleton className="ml-auto h-4 w-20 rounded-full" />
+        <div className="flex items-center gap-2.5 border-b border-border/60 pb-3">
+          <Skeleton className="h-4 w-28 rounded-full" />
+          <Skeleton className="ml-auto h-4 w-16 rounded-full" />
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-4 px-3.5 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 py-4">
           <div className="space-y-2.5">
             <Skeleton className="h-3 w-full rounded-full" />
             <Skeleton className="h-3 w-full rounded-full" />
