@@ -305,12 +305,18 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
 } as const;
 const RIGHT_SIDE_PANEL_TRANSITION = {
   opacity: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
-  width: { duration: 0 },
+  width: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
+  x: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
+} as const;
+const RIGHT_SIDE_PANEL_HEADER_TRANSITION = {
+  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+  width: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
   x: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+  y: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
 const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
-  delay: 0.06,
-  duration: 0.18,
+  delay: 0.04,
+  duration: 0.2,
   ease: [0.16, 1, 0.3, 1],
 } as const;
 const RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY =
@@ -6826,6 +6832,44 @@ export default function ChatView({
   const activeRightPanelBrowserSession =
     browserOpen && activeThreadId ? (browserSessionByThreadId[activeThreadId] ?? null) : null;
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
+  const showDockedRightSidePanelChrome =
+    activeRightSidePanelMode !== null && !rightSidePanelFullscreen;
+  const dockedRightSidePanelWidth = constrainedPanelWidth(
+    rightSidePanelWidth,
+    MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+    MIN_RIGHT_SIDE_PANEL_WIDTH,
+  );
+  const renderRightSidePanelTabStrip = (className?: string) =>
+    activeRightSidePanelMode ? (
+      <RightSidePanelTabStrip
+        activeMode={activeRightSidePanelMode}
+        activeBrowserTabId={activeRightPanelBrowserTabId}
+        browserSession={activeRightPanelBrowserSession}
+        browserAvailable={isElectron}
+        browserShortcutLabel={browserNewTabShortcutLabel}
+        className={className}
+        diffAvailable={isGitRepo}
+        editorShortcutLabel={rightPanelEditorShortcutLabel}
+        editorOpen={rightSidePanelEditorOpen}
+        fullscreen={rightSidePanelFullscreen}
+        reviewShortcutLabel={reviewPanelShortcutLabel}
+        reviewOpen={rightSidePanelReviewOpen}
+        floatingChatOpen={rightSidePanelFloatingChatOpen}
+        onBrowserTabClose={onCloseRightSidePanelBrowserTab}
+        onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
+        onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
+        onDiffClose={onCloseRightSidePanelDiff}
+        onEditorClose={onCloseRightSidePanelEditor}
+        onNewBrowserTab={onOpenRightSidePanelBrowserTab}
+        onSelectMode={onSelectRightSidePanelMode}
+        onTogglePanelVisibility={onToggleRightSidePanel}
+        onToggleFloatingChat={() => {
+          setRightSidePanelFloatingChatOpen((current) => !current);
+        }}
+        onToggleFullscreen={onToggleRightSidePanelFullscreen}
+        panelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
+      />
+    ) : null;
 
   const handleQueueComposerMessage = useCallback(() => {
     queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue");
@@ -6835,61 +6879,116 @@ export default function ChatView({
   }, []);
   const showRightPanelChatDock =
     rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
+  const renderDockedRightSidePanelHeader = () => (
+    <AnimatePresence initial={false} mode="sync">
+      {showDockedRightSidePanelChrome ? (
+        <motion.div
+          key="thread-right-side-panel-top-bar"
+          className={cn(
+            "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar",
+            !rightSidePanelInteractive && "pointer-events-none select-none",
+          )}
+          initial={{ width: 0, opacity: 0, x: 20 }}
+          animate={{ width: dockedRightSidePanelWidth, opacity: 1, x: 0 }}
+          exit={{ width: 0, opacity: 0, x: 20 }}
+          transition={RIGHT_SIDE_PANEL_HEADER_TRANSITION}
+        >
+          <div className="relative h-full w-3 shrink-0" aria-hidden="true">
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
+          </div>
+          <motion.div
+            className="min-w-0 flex-1 overflow-hidden"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 8 }}
+            transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+          >
+            {renderRightSidePanelTabStrip("h-full bg-transparent px-2.5")}
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+  const renderFullscreenRightSidePanelHeader = () => (
+    <AnimatePresence initial={false} mode="sync">
+      {activeRightSidePanelMode && rightSidePanelFullscreen ? (
+        <motion.div
+          key="thread-right-side-panel-fullscreen-top-bar"
+          className={cn(
+            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar",
+            !rightSidePanelInteractive && "pointer-events-none select-none",
+          )}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={RIGHT_SIDE_PANEL_HEADER_TRANSITION}
+        >
+          <motion.div
+            className="min-w-0 flex-1 overflow-hidden"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 8 }}
+            transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+          >
+            {renderRightSidePanelTabStrip("h-full bg-transparent px-2.5")}
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <div
         className={cn(
-          "shrink-0 overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+          "relative flex shrink-0 items-stretch overflow-hidden bg-sidebar transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <AppPageTopBar
-          className={cn(
-            "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:origin-right after:bg-border/70 after:transition-[opacity,transform] after:duration-300 after:ease-[cubic-bezier(0.16,1,0.3,1)]",
-            rightSidePanelOpen
-              ? "after:scale-x-100 after:opacity-100"
-              : "after:scale-x-0 after:opacity-0",
-          )}
-          showSidebarTrigger={showSidebarTrigger}
-        >
-          {paneControls ? (
-            <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
-          ) : null}
-          <ChatHeader
-            activeThreadId={activeThread.id}
-            activeThreadTitle={activeThread.title}
-            activeProjectId={activeProject?.id ?? null}
-            activeProjectName={activeProject?.name}
-            isGitRepo={isGitRepo}
-            activeProjectScripts={activeProject?.scripts}
-            preferredScriptId={
-              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-            }
-            keybindings={keybindings}
-            terminalAvailable={activeProject !== undefined}
-            terminalOpen={terminalState.terminalOpen}
-            terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-            rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
-            gitCwd={gitCwd}
-            activePlanProgress={activePlanProgress}
-            isAgentWorking={isWorking}
-            workspaceChangeStat={workspaceChangeStat}
-            rightSidePanelOpen={rightSidePanelOpen}
-            workspaceMode={headerWorkspaceMode}
-            onRunProjectScript={(script) => {
-              void runProjectScript(script);
-            }}
-            onAddProjectScript={saveProjectScript}
-            onUpdateProjectScript={updateProjectScript}
-            onDeleteProjectScript={deleteProjectScript}
-            onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
-            onToggleTerminal={toggleTerminalVisibility}
-            onToggleRightSidePanel={onToggleRightSidePanel}
-            onWorkspaceModeChange={onWorkspaceModeChange}
-          />
+        <AppPageTopBar className="min-w-0 flex-1" showSidebarTrigger={showSidebarTrigger}>
+          <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+            {paneControls ? (
+              <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
+            ) : null}
+            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+              <ChatHeader
+                activeThreadId={activeThread.id}
+                activeThreadTitle={activeThread.title}
+                activeProjectId={activeProject?.id ?? null}
+                activeProjectName={activeProject?.name}
+                isGitRepo={isGitRepo}
+                activeProjectScripts={activeProject?.scripts}
+                preferredScriptId={
+                  activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+                }
+                keybindings={keybindings}
+                terminalAvailable={activeProject !== undefined}
+                terminalOpen={terminalState.terminalOpen}
+                terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+                rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
+                gitCwd={gitCwd}
+                activePlanProgress={activePlanProgress}
+                isAgentWorking={isWorking}
+                workspaceChangeStat={workspaceChangeStat}
+                rightSidePanelOpen={rightSidePanelOpen}
+                workspaceMode={headerWorkspaceMode}
+                onRunProjectScript={(script) => {
+                  void runProjectScript(script);
+                }}
+                onAddProjectScript={saveProjectScript}
+                onUpdateProjectScript={updateProjectScript}
+                onDeleteProjectScript={deleteProjectScript}
+                onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+                onToggleTerminal={toggleTerminalVisibility}
+                onToggleRightSidePanel={onToggleRightSidePanel}
+                onWorkspaceModeChange={onWorkspaceModeChange}
+              />
+            </div>
+          </div>
         </AppPageTopBar>
+        {renderDockedRightSidePanelHeader()}
+        {renderFullscreenRightSidePanelHeader()}
       </div>
 
       <ConnectedComposerProviderStatusBanner
@@ -7169,31 +7268,6 @@ export default function ChatView({
                 exit={{ opacity: 0, x: 6 }}
                 transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
               >
-                <RightSidePanelTabStrip
-                  activeMode={activeRightSidePanelMode}
-                  activeBrowserTabId={activeRightPanelBrowserTabId}
-                  browserSession={activeRightPanelBrowserSession}
-                  browserAvailable={isElectron}
-                  browserShortcutLabel={browserNewTabShortcutLabel}
-                  diffAvailable={isGitRepo}
-                  editorShortcutLabel={rightPanelEditorShortcutLabel}
-                  editorOpen={rightSidePanelEditorOpen}
-                  fullscreen={rightSidePanelFullscreen}
-                  reviewShortcutLabel={reviewPanelShortcutLabel}
-                  reviewOpen={rightSidePanelReviewOpen}
-                  floatingChatOpen={rightSidePanelFloatingChatOpen}
-                  onBrowserTabClose={onCloseRightSidePanelBrowserTab}
-                  onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
-                  onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
-                  onDiffClose={onCloseRightSidePanelDiff}
-                  onEditorClose={onCloseRightSidePanelEditor}
-                  onNewBrowserTab={onOpenRightSidePanelBrowserTab}
-                  onSelectMode={onSelectRightSidePanelMode}
-                  onToggleFloatingChat={() => {
-                    setRightSidePanelFloatingChatOpen((current) => !current);
-                  }}
-                  onToggleFullscreen={onToggleRightSidePanelFullscreen}
-                />
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                   <AnimatePresence mode="wait" initial={false}>
                     {activeRightSidePanelMode !== "browser" ? (
