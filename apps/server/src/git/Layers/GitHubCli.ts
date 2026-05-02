@@ -315,7 +315,7 @@ function decodeGitHubJson<S extends Schema.Top>(
 
       for (const candidate of parsedCandidates) {
         try {
-          return Schema.decodeUnknownSync(schema)(candidate);
+          return Schema.decodeUnknownSync(schema as never)(candidate) as S["Type"];
         } catch (error) {
           lastError = error;
         }
@@ -332,7 +332,7 @@ function decodeGitHubJson<S extends Schema.Top>(
         detail: error instanceof Error ? `${invalidDetail}: ${error.message}` : invalidDetail,
         cause: error,
       }),
-  }).pipe(Effect.map((value) => value as S["Type"]));
+  });
 }
 
 const makeGitHubCli = Effect.sync(() => {

@@ -4,6 +4,12 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { normalizePaneRatios } from "./lib/paneRatios";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
+import {
+  buildAnchoredSplitTitle,
+  buildFallbackSplitTitle,
+  isLikelyAutoSplitTitle,
+  normalizeSplitTitle,
+} from "./lib/threadBoardTitle";
 import { normalizeThreadBoardConnectionUrl } from "./lib/threadBoardThreads";
 import { randomUUID } from "./lib/utils";
 
@@ -11,6 +17,7 @@ export interface ChatThreadBoardPaneState {
   connectionUrl: string | null;
   id: string;
   threadId: ThreadId;
+  title: string;
 }
 
 export type ChatThreadBoardLayoutAxis = "horizontal" | "vertical";
@@ -30,6 +37,7 @@ export interface ChatThreadBoardSplitNode {
 }
 
 export type ChatThreadBoardLayoutNode = ChatThreadBoardLeafNode | ChatThreadBoardSplitNode;
+export type ChatThreadBoardTitleMode = "auto" | "manual";
 
 export interface ChatThreadBoardSplitState {
   activePaneId: string | null;
@@ -39,6 +47,8 @@ export interface ChatThreadBoardSplitState {
   layoutRoot: ChatThreadBoardLayoutNode | null;
   panes: ChatThreadBoardPaneState[];
   title: string;
+  titleMode: ChatThreadBoardTitleMode;
+  titlePaneId: string | null;
   updatedAt: string;
 }
 
@@ -54,35 +64,46 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   archiveSplit: (splitId: string) => void;
   closePane: (paneId: string) => void;
   createSplit: (input: {
-    activeThread: { connectionUrl?: string | null; threadId: ThreadId };
-    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+    activeThread: {
+      connectionUrl?: string | null | undefined;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    };
+    threads: ReadonlyArray<{
+      connectionUrl?: string | null | undefined;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    }>;
     title?: string;
   }) => string | null;
   deleteSplit: (splitId: string) => void;
   openThreadInBoard: (input: {
     allowDuplicate?: boolean;
-    connectionUrl?: string | null;
+    connectionUrl?: string | null | undefined;
     direction?: "down" | "left" | "right" | "up";
-    sourcePaneId?: string | null;
+    paneTitle?: string | null | undefined;
+    splitTitle?: string | undefined;
+    sourcePaneId?: string | null | undefined;
     threadId: ThreadId;
-    title?: string | undefined;
   }) => string | null;
   openThreadInSplit: (
     splitId: string,
     input: {
       allowDuplicate?: boolean;
-      connectionUrl?: string | null;
+      connectionUrl?: string | null | undefined;
       direction?: "down" | "left" | "right" | "up";
-      sourcePaneId?: string | null;
+      sourcePaneId?: string | null | undefined;
       threadId: ThreadId;
+      title?: string | null | undefined;
     },
   ) => string | null;
   openThreadsInBoard: (
     inputs: ReadonlyArray<{
-      connectionUrl?: string | null;
+      connectionUrl?: string | null | undefined;
       threadId: ThreadId;
+      title?: string | null | undefined;
     }>,
-    options?: { sourcePaneId?: string | null },
+    options?: { sourcePaneId?: string | null | undefined },
   ) => string | null;
   movePane: (input: {
     direction: "down" | "left" | "right" | "up";
@@ -94,10 +115,22 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   setActivePane: (paneId: string | null) => void;
   setActiveSplit: (splitId: string | null) => void;
   setBranchRatios: (branchId: string, ratios: readonly number[]) => void;
-  syncRouteThread: (input: { connectionUrl?: string | null; threadId: ThreadId }) => string;
+  syncRouteThread: (input: {
+    connectionUrl?: string | null | undefined;
+    threadId: ThreadId;
+    title?: string | null | undefined;
+  }) => string;
   syncRouteThreads: (input: {
-    activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
-    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+    activeThread?: {
+      connectionUrl?: string | null | undefined;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    } | null;
+    threads: ReadonlyArray<{
+      connectionUrl?: string | null | undefined;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    }>;
   }) => string | null;
 }
 
@@ -147,22 +180,32 @@ function createTimestamp(): string {
 }
 
 function createSplitTitle(index: number): string {
-  return `Board ${index}`;
+  return buildFallbackSplitTitle(index);
+}
+
+function normalizePaneTitle(title: string | null | undefined): string {
+  const normalized = title?.trim().replace(/\s+/g, " ");
+  return normalized && normalized.length > 0 ? normalized : "Untitled thread";
 }
 
 function createPane(input: {
-  connectionUrl?: string | null;
+  connectionUrl?: string | null | undefined;
   id?: string;
   threadId: ThreadId;
+  title?: string | null | undefined;
 }): ChatThreadBoardPaneState {
   return {
     connectionUrl: normalizeThreadBoardConnectionUrl(input.connectionUrl),
     id: input.id ?? `pane-${randomUUID()}`,
     threadId: input.threadId,
+    title: normalizePaneTitle(input.title),
   };
 }
 
-function getBoardThreadKey(input: { connectionUrl?: string | null; threadId: ThreadId }): string {
+function getBoardThreadKey(input: {
+  connectionUrl?: string | null | undefined;
+  threadId: ThreadId;
+}): string {
   return `${input.threadId}\u0000${normalizeThreadBoardConnectionUrl(input.connectionUrl) ?? ""}`;
 }
 
@@ -396,13 +439,15 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
       continue;
     }
     const connectionUrl = normalizeThreadBoardConnectionUrl(pane.connectionUrl);
+    const title = normalizePaneTitle(pane.title);
     paneById.set(
       pane.id,
-      pane.connectionUrl === connectionUrl
+      pane.connectionUrl === connectionUrl && pane.title === title
         ? pane
         : {
             ...pane,
             connectionUrl,
+            title,
           },
     );
   }
@@ -483,7 +528,8 @@ function boardPanesEqual(
       rightPane !== undefined &&
       leftPane.id === rightPane.id &&
       leftPane.threadId === rightPane.threadId &&
-      leftPane.connectionUrl === rightPane.connectionUrl
+      leftPane.connectionUrl === rightPane.connectionUrl &&
+      leftPane.title === rightPane.title
     );
   });
 }
@@ -494,6 +540,54 @@ function boardStatesEqual(left: BoardStateFields, right: BoardStateFields): bool
     boardPanesEqual(left.panes, right.panes) &&
     boardLayoutNodesEqual(left.layoutRoot, right.layoutRoot)
   );
+}
+
+function buildAutoSplitTitleState(
+  board: BoardStateFields,
+  input?: { fallbackIndex?: number | undefined; preferredPaneId?: string | null | undefined },
+): Pick<ChatThreadBoardSplitState, "title" | "titleMode" | "titlePaneId"> {
+  const orderedPanes = orderBoardPanes(board.panes, board.layoutRoot);
+  const anchorPane =
+    (input?.preferredPaneId
+      ? orderedPanes.find((pane) => pane.id === input.preferredPaneId)
+      : null) ??
+    orderedPanes[0] ??
+    null;
+
+  if (!anchorPane) {
+    return {
+      title: buildFallbackSplitTitle(input?.fallbackIndex ?? 1),
+      titleMode: "auto",
+      titlePaneId: null,
+    };
+  }
+
+  return {
+    title: buildAnchoredSplitTitle(anchorPane.title, orderedPanes.length),
+    titleMode: "auto",
+    titlePaneId: anchorPane.id,
+  };
+}
+
+function normalizeSplitTitleState(input: {
+  board: BoardStateFields;
+  fallbackIndex?: number | undefined;
+  title: string | null | undefined;
+  titleMode?: ChatThreadBoardTitleMode | null | undefined;
+  titlePaneId?: string | null | undefined;
+}): Pick<ChatThreadBoardSplitState, "title" | "titleMode" | "titlePaneId"> {
+  const titleMode = input.titleMode ?? (isLikelyAutoSplitTitle(input.title) ? "auto" : "manual");
+  if (titleMode === "manual") {
+    return {
+      title: normalizeSplitTitle(input.title),
+      titleMode,
+      titlePaneId: null,
+    };
+  }
+  return buildAutoSplitTitleState(input.board, {
+    fallbackIndex: input.fallbackIndex,
+    preferredPaneId: input.titlePaneId ?? null,
+  });
 }
 
 function normalizeSplitState(
@@ -518,7 +612,12 @@ function normalizeSplitState(
     archivedAt: input.archivedAt ?? null,
     createdAt: input.createdAt || now,
     id: input.id || `split-${randomUUID()}`,
-    title: input.title?.trim() || "Untitled board",
+    ...normalizeSplitTitleState({
+      board,
+      title: input.title,
+      titleMode: input.titleMode,
+      titlePaneId: input.titlePaneId,
+    }),
     updatedAt: input.updatedAt || now,
   };
 }
@@ -553,7 +652,7 @@ function normalizePersistedState(
     const migratedSplit = createSplitFromBoard({
       board,
       splitId: `split-${randomUUID()}`,
-      title: "Previous board",
+      title: "Previous split",
     });
     if (migratedSplit) {
       splits.push(migratedSplit);
@@ -572,7 +671,11 @@ function normalizePersistedState(
 function saveBoardToActiveSplit(
   state: PersistedChatThreadBoardState,
   board: LegacyBoardStateFields,
-  input?: { title?: string | null | undefined },
+  input?: {
+    splitTitle?: string | null | undefined;
+    titleMode?: ChatThreadBoardTitleMode | null | undefined;
+    titlePaneId?: string | null | undefined;
+  },
 ): PersistedChatThreadBoardState {
   const normalizedBoard = normalizeBoardState(board);
   if (boardStatesEqual(state, normalizedBoard)) {
@@ -593,7 +696,9 @@ function saveBoardToActiveSplit(
   if (!state.activeSplitId) {
     const split = createSplitFromBoard({
       board: normalizedBoard,
-      title: input?.title ?? createSplitTitle(state.splits.length + 1),
+      title: input?.splitTitle ?? createSplitTitle(state.splits.length + 1),
+      titleMode: input?.titleMode,
+      titlePaneId: input?.titlePaneId,
     });
     if (!split) {
       return {
@@ -617,20 +722,43 @@ function saveBoardToActiveSplit(
       return split;
     }
     found = true;
+    const nextTitleState =
+      split.titleMode === "manual"
+        ? {
+            title: split.title,
+            titleMode: split.titleMode,
+            titlePaneId: split.titlePaneId,
+          }
+        : buildAutoSplitTitleState(normalizedBoard, {
+            fallbackIndex: state.splits.length + 1,
+            preferredPaneId: split.titlePaneId,
+          });
     return {
       ...split,
       ...normalizedBoard,
+      ...nextTitleState,
       updatedAt: now,
     };
   });
 
   if (!found) {
+    const nextTitleState =
+      input?.titleMode === "manual"
+        ? {
+            title: normalizeSplitTitle(input?.splitTitle),
+            titleMode: "manual" as const,
+            titlePaneId: null,
+          }
+        : buildAutoSplitTitleState(normalizedBoard, {
+            fallbackIndex: splits.length + 1,
+            preferredPaneId: input?.titlePaneId ?? null,
+          });
     splits.push({
       ...normalizedBoard,
       archivedAt: null,
       createdAt: now,
       id: state.activeSplitId,
-      title: createSplitTitle(splits.length + 1),
+      ...nextTitleState,
       updatedAt: now,
     });
   }
@@ -659,6 +787,16 @@ function saveBoardToSplit(
       ? {
           ...candidate,
           ...normalizedBoard,
+          ...(candidate.titleMode === "manual"
+            ? {
+                title: candidate.title,
+                titleMode: candidate.titleMode,
+                titlePaneId: candidate.titlePaneId,
+              }
+            : buildAutoSplitTitleState(normalizedBoard, {
+                fallbackIndex: state.splits.findIndex((split) => split.id === splitId) + 1,
+                preferredPaneId: candidate.titlePaneId,
+              })),
           updatedAt: now,
         }
       : candidate,
@@ -680,6 +818,8 @@ function createSplitFromBoard(input: {
   board: LegacyBoardStateFields;
   splitId?: string;
   title: string;
+  titleMode?: ChatThreadBoardTitleMode | null | undefined;
+  titlePaneId?: string | null | undefined;
 }): ChatThreadBoardSplitState | null {
   const board = normalizeBoardState(input.board);
   if (board.panes.length <= 1) {
@@ -691,21 +831,39 @@ function createSplitFromBoard(input: {
     archivedAt: null,
     createdAt: now,
     id: input.splitId ?? `split-${randomUUID()}`,
-    title: input.title.trim() || "Untitled board",
+    ...normalizeSplitTitleState({
+      board,
+      title: input.title,
+      titleMode: input.titleMode,
+      titlePaneId: input.titlePaneId,
+    }),
     updatedAt: now,
   };
 }
 
 function boardStateFromOrderedThreads(input: {
-  activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
-  threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+  activeThread?: {
+    connectionUrl?: string | null | undefined;
+    threadId: ThreadId;
+    title?: string | null | undefined;
+  } | null;
+  threads: ReadonlyArray<{
+    connectionUrl?: string | null | undefined;
+    threadId: ThreadId;
+    title?: string | null | undefined;
+  }>;
 }): BoardStateFields {
   const seenThreadKeys = new Set<string>();
-  const normalizedThreads: Array<{ connectionUrl: string | null; threadId: ThreadId }> = [];
+  const normalizedThreads: Array<{
+    connectionUrl: string | null;
+    threadId: ThreadId;
+    title: string | null;
+  }> = [];
   for (const thread of input.threads) {
     const normalizedThread = {
       connectionUrl: normalizeThreadBoardConnectionUrl(thread.connectionUrl),
       threadId: thread.threadId,
+      title: thread.title ?? null,
     };
     const threadKey = getBoardThreadKey(normalizedThread);
     if (seenThreadKeys.has(threadKey)) {
@@ -740,7 +898,11 @@ function boardStateFromOrderedThreads(input: {
 
 function boardStateFromRouteThread(
   state: BoardStateFields,
-  input: { connectionUrl?: string | null; threadId: ThreadId },
+  input: {
+    connectionUrl?: string | null | undefined;
+    threadId: ThreadId;
+    title?: string | null | undefined;
+  },
 ): BoardStateFields {
   const normalizedConnectionUrl = normalizeThreadBoardConnectionUrl(input.connectionUrl);
   const reusablePane =
@@ -754,6 +916,7 @@ function boardStateFromRouteThread(
     createPane({
       connectionUrl: normalizedConnectionUrl,
       threadId: input.threadId,
+      title: input.title,
     });
 
   return normalizeBoardState({
@@ -765,7 +928,7 @@ function boardStateFromRouteThread(
 
 function findPaneIndex(
   panes: readonly ChatThreadBoardPaneState[],
-  input: { connectionUrl?: string | null; threadId: ThreadId },
+  input: { connectionUrl?: string | null | undefined; threadId: ThreadId },
 ): number {
   const targetKey = getBoardThreadKey(input);
   return panes.findIndex((pane) => getBoardThreadKey(pane) === targetKey);
@@ -963,8 +1126,16 @@ function updateBranchRatiosInLayout(
 function syncBoardThreadsFromRoute(
   state: BoardStateFields,
   input: {
-    activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
-    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+    activeThread?: {
+      connectionUrl?: string | null | undefined;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    } | null;
+    threads: ReadonlyArray<{
+      connectionUrl?: string | null | undefined;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    }>;
   },
 ): BoardStateFields {
   if (input.threads.length === 0) {
@@ -976,10 +1147,11 @@ function syncBoardThreadsFromRoute(
 function openThreadsInBoardState(
   state: BoardStateFields,
   inputs: ReadonlyArray<{
-    connectionUrl?: string | null;
+    connectionUrl?: string | null | undefined;
     threadId: ThreadId;
+    title?: string | null | undefined;
   }>,
-  options?: { sourcePaneId?: string | null },
+  options?: { sourcePaneId?: string | null | undefined },
 ): { board: BoardStateFields; lastOpenedPaneId: string | null } {
   let board = state;
   let lastOpenedPaneId: string | null = null;
@@ -1112,7 +1284,11 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
             });
           }
 
-          const pane = createPane(input);
+          const pane = createPane({
+            connectionUrl: input.connectionUrl,
+            threadId: input.threadId,
+            title: input.paneTitle,
+          });
           openedPaneId = pane.id;
           return saveBoardToActiveSplit(
             state,
@@ -1120,7 +1296,7 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
               ...(input.direction ? { direction: input.direction } : {}),
               ...(input.sourcePaneId ? { sourcePaneId: input.sourcePaneId } : {}),
             }),
-            { title: input.title },
+            { splitTitle: input.splitTitle },
           );
         });
         return openedPaneId;
@@ -1147,7 +1323,11 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
             });
           }
 
-          const pane = createPane(input);
+          const pane = createPane({
+            connectionUrl: input.connectionUrl,
+            threadId: input.threadId,
+            title: input.title,
+          });
           openedPaneId = pane.id;
           return saveBoardToSplit(
             state,
@@ -1192,7 +1372,15 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
           const now = createTimestamp();
           return {
             splits: state.splits.map((split) =>
-              split.id === splitId ? { ...split, title: trimmed, updatedAt: now } : split,
+              split.id === splitId
+                ? {
+                    ...split,
+                    title: trimmed,
+                    titleMode: "manual",
+                    titlePaneId: null,
+                    updatedAt: now,
+                  }
+                : split,
             ),
           };
         });

@@ -1,37 +1,44 @@
 import { IconFilter2 } from "@tabler/icons-react";
 import { type DragEvent } from "react";
-import { ChevronRightIcon, Columns2Icon, PlusIcon } from "lucide-react";
+import { ArchiveIcon, ChevronRightIcon, Columns2Icon, PlusIcon } from "lucide-react";
 
 import type { ChatThreadBoardSplitState } from "../../chatThreadBoardStore";
+import type { SidebarBoardListItem } from "../../lib/threadBoardList";
 import { cn } from "../../lib/utils";
 import { Input } from "../ui/input";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import {
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "../ui/sidebar";
 
 export type SidebarSplitSortOrder = "updated_at" | "created_at" | "name" | "pane_count";
 
 const SIDEBAR_SPLIT_SORT_LABELS: Record<SidebarSplitSortOrder, string> = {
   updated_at: "Recent activity",
-  created_at: "Created at",
-  name: "Name",
-  pane_count: "Thread count",
+  created_at: "Recently created",
+  name: "Title",
+  pane_count: "Split size",
 };
 
 export function SidebarBoardsSection(props: {
   activeSplitId: string | null;
+  boardItems: ReadonlyArray<SidebarBoardListItem>;
   boardsSectionExpanded: boolean;
   canCollapseSplitList: boolean;
   canCreateBoard: boolean;
   hiddenSavedSplitCount: number;
   renamingSplitId: string | null;
   renamingSplitTitle: string;
-  savedBoards: ReadonlyArray<ChatThreadBoardSplitState>;
   showMoreCount: number;
   splitSortOrder: SidebarSplitSortOrder;
   threadDragActive: boolean;
   dragOverBoardId: string | null;
-  visibleSavedBoards: ReadonlyArray<ChatThreadBoardSplitState>;
+  visibleBoardItems: ReadonlyArray<SidebarBoardListItem>;
   onBoardsSectionToggle: () => void;
   onCancelSplitRename: () => void;
   onCommitSplitRename: (split: ChatThreadBoardSplitState) => void;
@@ -41,6 +48,7 @@ export function SidebarBoardsSection(props: {
   ) => void;
   onOpenSplitPicker: () => void;
   onRestoreSavedSplit: (split: ChatThreadBoardSplitState) => void;
+  onArchiveSplit: (split: ChatThreadBoardSplitState) => void;
   onShowLess: () => void;
   onShowMore: () => void;
   onBoardDragLeave: (splitId: string, event: DragEvent<HTMLLIElement>) => void;
@@ -59,7 +67,7 @@ export function SidebarBoardsSection(props: {
           onClick={props.onBoardsSectionToggle}
         >
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
-            Boards
+            Splits
           </span>
           <ChevronRightIcon
             className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
@@ -68,7 +76,7 @@ export function SidebarBoardsSection(props: {
           />
         </button>
         <div className="flex items-center gap-1">
-          {props.savedBoards.length > 0 ? (
+          {props.boardItems.length > 0 ? (
             <Menu>
               <Tooltip>
                 <TooltipTrigger
@@ -78,12 +86,12 @@ export function SidebarBoardsSection(props: {
                 >
                   <IconFilter2 className="size-4" />
                 </TooltipTrigger>
-                <TooltipPopup side="right">Sort boards</TooltipPopup>
+                <TooltipPopup side="right">Sort splits</TooltipPopup>
               </Tooltip>
               <MenuPopup align="end" side="bottom" className="min-w-40">
                 <MenuGroup>
                   <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
-                    Sort boards
+                    Sort splits
                   </div>
                   <MenuRadioGroup
                     value={props.splitSortOrder}
@@ -110,7 +118,7 @@ export function SidebarBoardsSection(props: {
               render={
                 <button
                   type="button"
-                  aria-label="New board"
+                  aria-label="New split"
                   className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
                   disabled={!props.canCreateBoard}
                   onClick={props.onOpenSplitPicker}
@@ -119,7 +127,7 @@ export function SidebarBoardsSection(props: {
             >
               <PlusIcon className="size-4" />
             </TooltipTrigger>
-            <TooltipPopup side="right">New board</TooltipPopup>
+            <TooltipPopup side="right">New split</TooltipPopup>
           </Tooltip>
         </div>
       </div>
@@ -135,12 +143,12 @@ export function SidebarBoardsSection(props: {
         <div className="min-h-0 overflow-hidden">
           {props.threadDragActive ? (
             <div className="mb-1 rounded-md border border-dashed border-primary/35 bg-primary/[0.06] px-2 py-1.5 text-[10px] font-medium text-primary/80">
-              Drop on a thread to create a board, or drop on a saved board to add the thread.
+              Drop on a thread to start a split, or drop on a saved split to add it there.
             </div>
           ) : null}
           <SidebarMenu>
-            {props.visibleSavedBoards.map((split) => {
-              const paneCount = split.panes.length;
+            {props.visibleBoardItems.map((item) => {
+              const { split } = item;
               const isActiveSplit = props.activeSplitId === split.id;
               return (
                 <SidebarMenuItem
@@ -195,33 +203,61 @@ export function SidebarBoardsSection(props: {
                       />
                     </form>
                   ) : (
-                    <SidebarMenuButton
-                      render={<button type="button" />}
-                      size="sm"
-                      className={cn(
-                        "h-7 w-full cursor-pointer gap-2 px-2 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
-                        isActiveSplit
-                          ? "!bg-foreground/[0.06] !text-pill-foreground"
-                          : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
-                      )}
-                      title={split.title}
-                      onClick={() => {
-                        props.onRestoreSavedSplit(split);
-                      }}
-                    >
-                      <Columns2Icon className="size-3.5 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{split.title}</span>
-                      <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60">
-                        {paneCount}
-                      </span>
-                    </SidebarMenuButton>
+                    <>
+                      <SidebarMenuButton
+                        render={<button type="button" />}
+                        size="sm"
+                        className={cn(
+                          "h-auto w-full cursor-pointer gap-2 px-2 py-1.5 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
+                          isActiveSplit
+                            ? "!bg-foreground/[0.06] !text-pill-foreground"
+                            : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
+                        )}
+                        title={split.title}
+                        onClick={() => {
+                          props.onRestoreSavedSplit(split);
+                        }}
+                      >
+                        <Columns2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/72" />
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/92">
+                          {split.title}
+                        </span>
+                      </SidebarMenuButton>
+                      <SidebarMenuBadge className="rounded-full border border-border/45 px-1.5 py-0.5 text-[9px] text-muted-foreground/68 transition-opacity duration-150 group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0">
+                        {split.panes.length}
+                      </SidebarMenuBadge>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 group-focus-within/menu-item:pointer-events-auto group-focus-within/menu-item:opacity-100">
+                              <button
+                                type="button"
+                                aria-label={`Archive ${split.title}`}
+                                className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                                onPointerDown={(event) => {
+                                  event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  props.onArchiveSplit(split);
+                                }}
+                              >
+                                <ArchiveIcon className="size-3.5" />
+                              </button>
+                            </div>
+                          }
+                        />
+                        <TooltipPopup side="top">Archive</TooltipPopup>
+                      </Tooltip>
+                    </>
                   )}
                 </SidebarMenuItem>
               );
             })}
-            {props.savedBoards.length === 0 ? (
+            {props.boardItems.length === 0 ? (
               <SidebarMenuItem>
-                <div className="h-7 px-2 text-xs text-muted-foreground/60">No boards yet</div>
+                <div className="h-7 px-2 text-xs text-muted-foreground/60">No splits yet</div>
               </SidebarMenuItem>
             ) : null}
             {props.hiddenSavedSplitCount > 0 ? (

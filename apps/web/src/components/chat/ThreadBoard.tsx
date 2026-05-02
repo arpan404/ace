@@ -458,12 +458,14 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
   const setActivePane = useChatThreadBoardStore((state) => state.setActivePane);
   const setBranchRatios = useChatThreadBoardStore((state) => state.setBranchRatios);
   const syncRouteThread = useChatThreadBoardStore((state) => state.syncRouteThread);
+  const routeSidebarThread = useSidebarThreadSummaryById(props.threadId);
   const activeRouteThread = useMemo(
     () => ({
       connectionUrl: props.connectionUrl ?? null,
       threadId: props.threadId,
+      title: routeSidebarThread?.title ?? null,
     }),
-    [props.connectionUrl, props.threadId],
+    [props.connectionUrl, props.threadId, routeSidebarThread?.title],
   );
   const orderedPanes = useMemo(() => orderBoardPanes(panes, layoutRoot), [layoutRoot, panes]);
   const visibleBoardThreadIds = useMemo<ThreadId[]>(
@@ -560,7 +562,8 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
         fallbackIndex: savedSplitCount + 1,
         threads: threads.map((thread) => ({
           threadId: thread.threadId,
-          title: thread.title ?? useStore.getState().sidebarThreadsById[thread.threadId]?.title,
+          title:
+            thread.title ?? useStore.getState().sidebarThreadsById[thread.threadId]?.title ?? null,
         })),
       }),
     [savedSplitCount],
@@ -751,16 +754,18 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
         : buildBoardTitle([
             {
               threadId: activeRouteThread.threadId,
-              title: useStore.getState().sidebarThreadsById[activeRouteThread.threadId]?.title,
+              title:
+                useStore.getState().sidebarThreadsById[activeRouteThread.threadId]?.title ?? null,
             },
             draggedThread,
           ]);
       const openedPaneId = openThreadInBoard({
         connectionUrl: draggedThread.connectionUrl,
         direction,
+        paneTitle: draggedThread.title ?? null,
         sourcePaneId: insertionSourcePaneId,
+        splitTitle: boardTitle,
         threadId: draggedThread.threadId,
-        ...(boardTitle ? { title: boardTitle } : {}),
       });
       deferPaneContentMount(boardVisible ? [openedPaneId] : [insertionSourcePaneId, openedPaneId]);
     },
@@ -1109,6 +1114,7 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
       connectionUrl: activeRouteThread.connectionUrl,
       id: "route-primary-pane",
       threadId: activeRouteThread.threadId,
+      title: activeRouteThread.title ?? "Untitled thread",
     };
     return (
       <div

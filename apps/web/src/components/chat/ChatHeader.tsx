@@ -4,11 +4,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@ace/contracts";
-import {
-  IconLayoutSidebarRight,
-  IconLayoutSidebarRightFilled,
-  IconTerminal,
-} from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { Badge } from "../ui/badge";
@@ -156,7 +152,7 @@ export const ChatHeader = memo(function ChatHeader({
     : terminalToggleShortcutLabel
       ? `Toggle terminal (${terminalToggleShortcutLabel})`
       : "Toggle terminal";
-  const rightSidePanelTooltipLabel = `${rightSidePanelOpen ? "Close" : "Open"} right side panel${
+  const rightSidePanelTooltipLabel = `${rightSidePanelOpen ? "Close" : "Open"} panel${
     rightSidePanelToggleShortcutLabel ? ` (${rightSidePanelToggleShortcutLabel})` : ""
   }`;
   const hasWorkspaceChanges = hasWorkspaceChangeStat(workspaceChangeStat);
@@ -165,14 +161,14 @@ export const ChatHeader = memo(function ChatHeader({
       ? { ...activePlanProgress, currentIndex: activePlanProgress.currentIndex }
       : null;
   const rightSidePanelButtonLabel = actionablePlanProgress
-    ? `Toggle right side panel. Active todo ${actionablePlanProgress.currentIndex} of ${actionablePlanProgress.total}${
+    ? `Toggle panel. Active todo ${actionablePlanProgress.currentIndex} of ${actionablePlanProgress.total}${
         actionablePlanProgress.currentStep ? `: ${actionablePlanProgress.currentStep}` : ""
       }`
     : hasWorkspaceChanges
-      ? `Toggle right side panel. Workspace changes: ${workspaceChangeStat.additions} additions, ${workspaceChangeStat.deletions} deletions`
+      ? `Toggle panel. Workspace changes: ${workspaceChangeStat.additions} additions, ${workspaceChangeStat.deletions} deletions`
       : rightSidePanelToggleShortcutLabel
-        ? `Toggle right side panel (${rightSidePanelToggleShortcutLabel})`
-        : "Toggle right side panel";
+        ? `Toggle panel (${rightSidePanelToggleShortcutLabel})`
+        : "Toggle panel";
   const rightSidePanelTooltipCopy = actionablePlanProgress
     ? `${rightSidePanelTooltipLabel} - todo ${actionablePlanProgress.currentIndex}/${actionablePlanProgress.total}`
     : rightSidePanelTooltipLabel;
@@ -252,41 +248,38 @@ export const ChatHeader = memo(function ChatHeader({
               {terminalTooltipLabel}
             </TooltipPopup>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-lg"
-                  className={cn(
-                    DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                    (hasWorkspaceChanges || actionablePlanProgress) &&
-                      "w-auto max-w-40 gap-1.5 px-1.5",
-                    rightSidePanelOpen && "!bg-accent text-foreground hover:text-foreground",
-                  )}
-                  onClick={onToggleRightSidePanel}
-                  aria-pressed={rightSidePanelOpen}
-                  aria-label={rightSidePanelButtonLabel}
-                />
-              }
-            >
-              {actionablePlanProgress ? (
-                <PlanProgressText progress={actionablePlanProgress} />
-              ) : null}
-              {!actionablePlanProgress && hasWorkspaceChanges ? (
-                <WorkspaceChangeStatText stat={workspaceChangeStat} />
-              ) : null}
-              {rightSidePanelOpen ? (
-                <IconLayoutSidebarRightFilled className="size-[18px]" />
-              ) : (
+          {!rightSidePanelOpen ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-lg"
+                    className={cn(
+                      DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                      (hasWorkspaceChanges || actionablePlanProgress) &&
+                        "w-auto max-w-40 gap-1.5 px-1.5",
+                    )}
+                    onClick={onToggleRightSidePanel}
+                    aria-pressed={false}
+                    aria-label={rightSidePanelButtonLabel}
+                  />
+                }
+              >
+                {actionablePlanProgress ? (
+                  <PlanProgressText progress={actionablePlanProgress} />
+                ) : null}
+                {!actionablePlanProgress && hasWorkspaceChanges ? (
+                  <WorkspaceChangeStatText stat={workspaceChangeStat} />
+                ) : null}
                 <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="bottom" align="end">
-              {rightSidePanelTooltipCopy}
-            </TooltipPopup>
-          </Tooltip>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" align="end">
+                {rightSidePanelTooltipCopy}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
     </div>

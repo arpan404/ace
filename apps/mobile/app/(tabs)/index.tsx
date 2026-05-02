@@ -1,356 +1,346 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, ScrollView, RefreshControl, StyleSheet, Text, Pressable } from "react-native";
+import React, { useMemo, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Zap, ChevronRight, Plus, MessageSquare } from "lucide-react-native";
+import { Bot, LoaderCircle } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
-import { useHostStore } from "../../src/store/HostStore";
-import { useUIStateStore } from "../../src/store/UIStateStore";
-import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
-import { useOrchestrationSnapshot } from "../../src/hooks/useOrchestration";
-import type { OrchestrationThread } from "@ace/contracts";
-import { sortedCopy } from "../../src/sortedCopy";
-import { resolveProjectAgentStats } from "../../src/projectAgentStats";
+import { Layout, Radius, withAlpha } from "../../src/design/system";
+import {
+  EmptyState,
+  MetricCard,
+  Panel,
+  ScreenBackdrop,
+  ScreenHeader,
+  SectionTitle,
+  StatusBadge,
+} from "../../src/design/primitives";
+import {
+  formatTimeAgo,
+  type MobileThreadSummary,
+  useAggregatedOrchestration,
+} from "../../src/orchestration/mobileData";
 
-export default function AgentsScreen() {
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "live", label: "Live" },
+  { key: "queued", label: "Queued" },
+  { key: "waiting", label: "Ready" },
+] as const;
+
+type ThreadFilter = (typeof FILTERS)[number]["key"];
+
+export default function ThreadsScreen() {
   const router = useRouter();
-  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const hosts = useHostStore((s) => s.hosts);
-  const activeHostId = useUIStateStore((s) => s.activeHostId);
-  const setActiveHostId = useUIStateStore((s) => s.setActiveHostId);
-  const [connections, setConnections] = useState<ManagedConnection[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+  const { colors } = useTheme();
+  const { activeThreads, refresh, loading, error } = useAggregatedOrchestration();
+  const [activeFilter, setActiveFilter] = useState<ThreadFilter>("all");
 
-  useEffect(() => {
-    const hasActiveHost = activeHostId ? hosts.some((host) => host.id === activeHostId) : false;
-    if (!hasActiveHost && hosts.length > 0 && hosts[0]) {
-      setActiveHostId(hosts[0].id);
+  const filteredThreads = useMemo(() => {
+    if (activeFilter === "all") {
+      return activeThreads;
     }
-  }, [hosts, activeHostId, setActiveHostId]);
+    return activeThreads.filter((entry) => entry.status.bucket === activeFilter);
+  }, [activeFilter, activeThreads]);
 
-  const activeConnection = useMemo(() => {
-    if (activeHostId) {
-      const matching = connections.find((connection) => connection.host.id === activeHostId);
-      if (matching) {
-        return matching;
-      }
-    }
-    return connections[0] ?? null;
-  }, [activeHostId, connections]);
-  const { snapshot } = useOrchestrationSnapshot(activeConnection ?? null);
-
-  useEffect(() => connectionManager.onStatusChange(setConnections), []);
-
-  const connectedCount = connections.filter((c) => c.status.kind === "connected").length;
-  const snapshotThreads = useMemo(() => snapshot?.threads ?? [], [snapshot]);
-  const snapshotProjects = useMemo(() => snapshot?.projects ?? [], [snapshot]);
-
-  const threads = useMemo(() => {
-    return sortedCopy(
-      snapshotThreads.filter((thread) => !thread.deletedAt),
-      (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-    );
-  }, [snapshotThreads]);
-
-  const stats = useMemo(() => {
-    const activeSessions = snapshotThreads.filter((thread) => {
-      const sessionStatus = thread.session?.status;
-      return (
-        sessionStatus === "starting" || sessionStatus === "running" || sessionStatus === "ready"
-      );
-    }).length;
-    return {
-      active: activeSessions,
-      total: snapshotThreads.length,
-      projects: snapshotProjects.filter((project) => !project.deletedAt).length,
-    };
-  }, [snapshotProjects, snapshotThreads]);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      if (activeConnection?.status.kind === "connected") {
-        await activeConnection.client.orchestration.getSnapshot();
-      }
-    } finally {
-      setRefreshing(false);
-    }
-  }, [activeConnection]);
-
-  const threadPreview = useCallback((thread: OrchestrationThread) => {
-    const lastMsg = thread.messages.at(-1);
-    return lastMsg?.text?.substring(0, 80) ?? "New thread";
-  }, []);
-
-  const threadStatus = useCallback(
-    (thread: OrchestrationThread) => {
-      if (!snapshot) return "idle";
-      const session = thread.session;
-      if (!session) return "idle";
-      const agentStats = resolveProjectAgentStats(snapshotThreads, thread.projectId);
-      if (agentStats.working > 0) return "running";
-      return "ready";
-    },
-    [snapshot, snapshotThreads],
-  );
-
-  if (hosts.length === 0) {
-    return (
-      <View style={[styles.emptyRoot, { backgroundColor: colors.background }]}>
-        <View style={styles.emptyContent}>
-          <View style={[styles.emptyIcon, { backgroundColor: `${colors.primary}14` }]}>
-            <Zap size={32} color={colors.primary} />
-          </View>
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Connect a Host</Text>
-          <Text style={[styles.emptySubtitle, { color: colors.muted }]}>
-            Pair with an ace daemon to start controlling your AI agents remotely.
-          </Text>
-          <Pressable
-            onPress={() => router.push("/pairing")}
-            style={[styles.emptyButton, { backgroundColor: colors.secondaryGroupedBackground }]}
-          >
-            <Plus size={18} color={colors.primary} strokeWidth={2.5} />
-            <Text style={[styles.emptyButtonText, { color: colors.foreground }]}>Pair Host</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+  const queueCount = activeThreads.filter((entry) => entry.status.bucket === "queued").length;
+  const readyCount = activeThreads.filter((entry) => entry.status.bucket === "waiting").length;
+  const streamingCount = activeThreads.filter((entry) => entry.status.bucket === "live").length;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <ScreenBackdrop />
       <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom + 100 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: insets.top + 12,
+          paddingHorizontal: Layout.pagePadding,
+          paddingBottom: insets.bottom + 120,
+        }}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.largeTitle, { color: colors.foreground }]}>Agents</Text>
-          <Text style={[styles.subtitle, { color: colors.muted }]}>
-            {connectedCount} host{connectedCount !== 1 ? "s" : ""} connected
+        <ScreenHeader
+          eyebrow="ace"
+          title="Threads"
+          subtitle="Monitor current runs, queued work, and reply-ready threads across connected hosts."
+          action={<StatusBadge label={`${activeThreads.length} active`} tone="success" />}
+        />
+
+        <View style={styles.metricRow}>
+          <MetricCard label="Streaming" value={streamingCount} tone="success" />
+          <MetricCard label="Queued" value={queueCount} tone="warning" />
+          <MetricCard label="Ready" value={readyCount} tone="accent" />
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterStrip}
+        >
+          {FILTERS.map((filter) => {
+            const selected = filter.key === activeFilter;
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => setActiveFilter(filter.key)}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: selected ? colors.surface : colors.surfaceSecondary,
+                    borderColor: selected ? withAlpha(colors.primary, 0.44) : colors.elevatedBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterLabel,
+                    { color: selected ? colors.foreground : colors.secondaryLabel },
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.sectionHeader}>
+          <SectionTitle>Execution Feed</SectionTitle>
+          <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
+            {filteredThreads.length} visible
           </Text>
         </View>
 
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <StatPill label="Active" value={stats.active} color={colors.green} colors={colors} />
-          <StatPill label="Threads" value={stats.total} color={colors.primary} colors={colors} />
-          <StatPill label="Projects" value={stats.projects} color={colors.orange} colors={colors} />
-        </View>
-
-        {/* Host Switcher */}
-        {hosts.length > 1 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.hostChips}
-          >
-            {hosts.map((host) => {
-              const isActive = host.id === activeHostId;
-              const conn = connections.find((c) => c.host.id === host.id);
-              const isConnected = conn?.status.kind === "connected";
-              return (
-                <Pressable
-                  key={host.id}
-                  onPress={() => setActiveHostId(host.id)}
-                  style={[
-                    styles.hostChip,
-                    {
-                      backgroundColor: isActive ? colors.primary : isDark ? "#2c2c2e" : "#e5e5ea",
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.chipDot,
-                      { backgroundColor: isConnected ? colors.green : colors.muted },
-                    ]}
-                  />
-                  <Text
-                    style={[styles.chipLabel, { color: isActive ? "#fff" : colors.foreground }]}
-                    numberOfLines={1}
-                  >
-                    {host.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-
-        {/* Thread List */}
-        {threads.length === 0 ? (
-          <View style={styles.emptyThreads}>
-            <MessageSquare size={28} color={colors.muted} strokeWidth={1.5} />
-            <Text style={[styles.emptyThreadsText, { color: colors.muted }]}>No threads yet</Text>
-          </View>
+        {filteredThreads.length === 0 ? (
+          <EmptyState
+            title="No active threads"
+            body="Running sessions, queued work, and ready threads will appear here when a connected host is executing."
+          />
         ) : (
-          <View style={styles.threadList}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>RECENT THREADS</Text>
-            {threads.map((thread, i) => {
-              const status = threadStatus(thread);
-              return (
-                <Pressable
-                  key={thread.id}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/thread/[threadId]",
-                      params: { threadId: thread.id, hostId: activeHostId },
-                    })
-                  }
-                  style={({ pressed }) => [styles.threadRow, pressed && { opacity: 0.6 }]}
-                >
-                  <View
-                    style={[
-                      styles.statusDot,
-                      {
-                        backgroundColor:
-                          status === "running"
-                            ? colors.green
-                            : status === "ready"
-                              ? colors.orange
-                              : colors.muted,
-                      },
-                    ]}
-                  />
-                  <View style={styles.threadContent}>
-                    <Text
-                      style={[styles.threadTitle, { color: colors.foreground }]}
-                      numberOfLines={1}
-                    >
-                      {threadPreview(thread)}
-                    </Text>
-                    <Text style={[styles.threadMeta, { color: colors.muted }]}>
-                      {thread.messages.length} msg · {formatTimeAgo(thread.updatedAt)}
-                    </Text>
-                  </View>
-                  <ChevronRight size={16} color={colors.muted} strokeWidth={2} />
-                  {i < threads.length - 1 && (
-                    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
+          <Panel padded={false} style={styles.listShell}>
+            {filteredThreads.map((entry, index) => (
+              <ThreadRow
+                key={`${entry.hostId}-${entry.thread.id}`}
+                entry={entry}
+                index={index}
+                total={filteredThreads.length}
+                onPress={() =>
+                  router.push({
+                    pathname: "/thread/[threadId]",
+                    params: { threadId: entry.thread.id, hostId: entry.hostId },
+                  })
+                }
+              />
+            ))}
+          </Panel>
         )}
+
+        {error ? <Text style={[styles.footerError, { color: colors.red }]}>{error}</Text> : null}
       </ScrollView>
     </View>
   );
 }
 
-function StatPill({
-  label,
-  value,
-  color,
-  colors,
+function ThreadRow({
+  entry,
+  index,
+  total,
+  onPress,
 }: {
-  label: string;
-  value: number;
-  color: string;
-  colors: { fill: string; foreground: string; muted: string };
+  entry: MobileThreadSummary;
+  index: number;
+  total: number;
+  onPress: () => void;
 }) {
+  const { colors } = useTheme();
+
   return (
-    <View style={[styles.statPill, { backgroundColor: `${color}14` }]}>
-      <Text style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.muted }]}>{label}</Text>
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.threadRow,
+        {
+          backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.threadLead,
+          {
+            backgroundColor: withAlpha(
+              entry.status.tone === "success"
+                ? colors.green
+                : entry.status.tone === "warning"
+                  ? colors.orange
+                  : entry.status.tone === "danger"
+                    ? colors.red
+                    : entry.status.tone === "accent"
+                      ? colors.primary
+                      : colors.muted,
+              0.15,
+            ),
+          },
+        ]}
+      >
+        <LoaderCircle
+          size={18}
+          color={
+            entry.status.tone === "success"
+              ? colors.green
+              : entry.status.tone === "warning"
+                ? colors.orange
+                : entry.status.tone === "danger"
+                  ? colors.red
+                  : entry.status.tone === "accent"
+                    ? colors.primary
+                    : colors.muted
+          }
+          strokeWidth={2.2}
+        />
+      </View>
+      <View style={styles.threadCopy}>
+        <View style={styles.threadHeader}>
+          <Text style={[styles.threadTitle, { color: colors.foreground }]} numberOfLines={1}>
+            {entry.thread.title}
+          </Text>
+          <StatusBadge label={entry.status.label} tone={entry.status.tone} />
+        </View>
+        <Text style={[styles.threadMeta, { color: colors.secondaryLabel }]} numberOfLines={1}>
+          {entry.projectTitle} · {entry.hostName}
+        </Text>
+        <Text style={[styles.threadPreview, { color: colors.tertiaryLabel }]} numberOfLines={2}>
+          {entry.preview}
+        </Text>
+        <View style={styles.threadFooter}>
+          <Text style={[styles.threadTime, { color: colors.muted }]}>
+            {formatTimeAgo(entry.lastActivityAt)}
+          </Text>
+          {entry.attentionActivity ? (
+            <Text
+              style={[styles.threadFootnote, { color: colors.secondaryLabel }]}
+              numberOfLines={1}
+            >
+              {entry.attentionActivity.summary}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+      {index < total - 1 ? (
+        <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+      ) : null}
+    </Pressable>
   );
 }
 
-function formatTimeAgo(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  emptyRoot: { flex: 1, justifyContent: "center" },
-  emptyContent: { alignItems: "center", paddingHorizontal: 40 },
-  emptyIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
+  root: {
+    flex: 1,
   },
-  emptyTitle: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
-  emptySubtitle: {
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 28,
-  },
-  emptyButton: {
+  metricRow: {
+    marginTop: 22,
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 14,
-  },
-  emptyButtonText: { fontSize: 17, fontWeight: "600" },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
-  largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
-  subtitle: { fontSize: 15, marginTop: 2 },
-  statsRow: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
     gap: 10,
   },
-  statPill: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+  filterStrip: {
+    gap: 10,
+    paddingTop: 18,
   },
-  statValue: { fontSize: 26, fontWeight: "700" },
-  statLabel: { fontSize: 12, fontWeight: "500", marginTop: 2 },
-  hostChips: { paddingHorizontal: 20, paddingVertical: 12, gap: 8 },
-  hostChip: {
+  filterChip: {
+    minHeight: 40,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  sectionHeader: {
+    marginTop: 22,
+    marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 7,
+    justifyContent: "space-between",
   },
-  chipDot: { width: 7, height: 7, borderRadius: 4 },
-  chipLabel: { fontSize: 14, fontWeight: "600" },
-  threadList: { paddingHorizontal: 20, paddingTop: 16 },
-  sectionLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.5, marginBottom: 12 },
+  sectionMeta: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  listShell: {
+    overflow: "hidden",
+  },
   threadRow: {
+    minHeight: 126,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  threadLead: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  threadCopy: {
+    flex: 1,
+  },
+  threadHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
+    justifyContent: "space-between",
     gap: 12,
+  },
+  threadTitle: {
+    flex: 1,
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "800",
+    letterSpacing: -0.55,
+  },
+  threadMeta: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  threadPreview: {
+    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  threadFooter: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  threadTime: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  threadFootnote: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
   },
   separator: {
     position: "absolute",
     bottom: 0,
-    left: 34,
-    right: 0,
+    left: 18,
+    right: 18,
     height: StyleSheet.hairlineWidth,
   },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
-  threadContent: { flex: 1 },
-  threadTitle: { fontSize: 16, fontWeight: "500", lineHeight: 21 },
-  threadMeta: { fontSize: 13, marginTop: 2 },
-  emptyThreads: { alignItems: "center", paddingVertical: 60, gap: 12 },
-  emptyThreadsText: { fontSize: 15, fontWeight: "500" },
+  footerError: {
+    marginTop: 14,
+    fontSize: 12,
+    lineHeight: 18,
+  },
 });

@@ -1425,32 +1425,32 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className="size-5 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+            className="size-6 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
             onClick={() => props.onSplitPane(props.pane.id)}
             disabled={!props.canSplitPane}
             title="Split Editor Right"
           >
-            <Columns2Icon className="size-3" />
+            <Columns2Icon className="size-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon-xs"
-            className="size-5 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+            className="size-6 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
             onClick={() => props.onSplitPaneDown(props.pane.id)}
             disabled={!props.canSplitPane}
             title="Split Editor Down"
           >
-            <Rows2Icon className="size-3" />
+            <Rows2Icon className="size-3.5" />
           </Button>
           {props.canClosePane ? (
             <Button
               variant="ghost"
               size="icon-xs"
-              className="size-5 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+              className="size-6 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
               onClick={() => props.onClosePane(props.pane.id)}
               title="Close Editor Group"
             >
-              <XIcon className="size-3" />
+              <XIcon className="size-3.5" />
             </Button>
           ) : null}
         </div>
