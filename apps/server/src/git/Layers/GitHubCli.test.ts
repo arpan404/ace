@@ -111,6 +111,113 @@ layer("GitHubCliLive", (it) => {
     }),
   );
 
+  it.effect("parses pull request list output when GitHub omits nested repository fields", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: JSON.stringify([
+          {
+            number: 642,
+            title: "fix: use commit as the default git action without origin",
+            url: "https://github.com/pingdotgg/ace/pull/642",
+            baseRefName: "main",
+            headRefName: "fix/git-action-default-without-origin",
+            state: "OPEN",
+            mergedAt: null,
+            isCrossRepository: true,
+            headRepository: {},
+            headRepositoryOwner: {
+              login: "binbandit",
+            },
+          },
+        ]),
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.listOpenPullRequests({
+          cwd: "/repo",
+          headSelector: "binbandit:fix/git-action-default-without-origin",
+        });
+      });
+
+      assert.deepStrictEqual(result, [
+        {
+          number: 642,
+          title: "fix: use commit as the default git action without origin",
+          url: "https://github.com/pingdotgg/ace/pull/642",
+          baseRefName: "main",
+          headRefName: "fix/git-action-default-without-origin",
+          state: "open",
+          isCrossRepository: true,
+          headRepositoryOwnerLogin: "binbandit",
+        },
+      ]);
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "gh",
+        [
+          "pr",
+          "list",
+          "--head",
+          "binbandit:fix/git-action-default-without-origin",
+          "--state",
+          "open",
+          "--limit",
+          "1",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        ],
+        expect.objectContaining({ cwd: "/repo" }),
+      );
+    }),
+  );
+
+  it.effect("parses pull request view output when GitHub returns null nested repository data", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          number: 643,
+          title: "Handle deleted fork",
+          url: "https://github.com/pingdotgg/ace/pull/643",
+          baseRefName: "main",
+          headRefName: "deleted-fork-branch",
+          state: "OPEN",
+          mergedAt: null,
+          isCrossRepository: true,
+          headRepository: {
+            nameWithOwner: null,
+          },
+          headRepositoryOwner: null,
+        }),
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.getPullRequest({
+          cwd: "/repo",
+          reference: "#643",
+        });
+      });
+
+      assert.deepStrictEqual(result, {
+        number: 643,
+        title: "Handle deleted fork",
+        url: "https://github.com/pingdotgg/ace/pull/643",
+        baseRefName: "main",
+        headRefName: "deleted-fork-branch",
+        state: "open",
+        isCrossRepository: true,
+      });
+    }),
+  );
+
   it.effect("reads repository clone URLs", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({
