@@ -37,6 +37,7 @@ import {
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
@@ -190,6 +191,7 @@ describe("ProviderRuntimeIngestion", () => {
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
     const workspaceRoot = makeTempDir("ace-provider-project-");
+    const serverBaseDir = makeTempDir("ace-provider-state-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -205,12 +207,13 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), serverBaseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
+    const serverConfig = await runtime.runPromise(Effect.service(ServerConfig));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(ingestion.drain);
@@ -309,6 +312,7 @@ describe("ProviderRuntimeIngestion", () => {
       engine,
       emit: provider.emit,
       setProviderSession: provider.setSession,
+      serverConfig,
       drain,
       readActivityPersistence,
     };
@@ -1447,6 +1451,64 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("assistant-only final text");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("materializes generated image completions as assistant message attachments", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const imageBytes = Buffer.from("generated image bytes");
+    const imageDataUrl = `data:image/png;base64,${imageBytes.toString("base64")}`;
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-image-generation-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Assistant message",
+        data: {
+          item: {
+            type: "imageGeneration",
+            id: "image-1",
+            result: imageDataUrl,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:image-1" &&
+          !message.streaming &&
+          (message.attachments?.length ?? 0) === 1,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:image-1",
+    );
+    const attachment = message?.attachments?.[0];
+    expect(message?.text).toBe("");
+    expect(attachment).toMatchObject({
+      type: "image",
+      name: "generated-image.png",
+      mimeType: "image/png",
+      sizeBytes: imageBytes.byteLength,
+    });
+    expect(attachment?.id).toMatch(/^thread-1-/);
+    const attachmentPath = attachment
+      ? resolveAttachmentPath({
+          attachmentsDir: harness.serverConfig.attachmentsDir,
+          attachment,
+        })
+      : null;
+    expect(attachmentPath).toBeTruthy();
+    expect(attachmentPath ? fs.readFileSync(attachmentPath).equals(imageBytes) : false).toBe(true);
   });
 
   it("projects reasoning item completions into timeline activities", async () => {

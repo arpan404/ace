@@ -607,6 +607,61 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("<img");
   });
 
+  it("renders assistant image attachments as assistant output", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-image-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-image-1"),
+              role: "assistant",
+              text: "",
+              attachments: [
+                {
+                  type: "image",
+                  id: "attachment-generated-1",
+                  name: "generated-image.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1200,
+                  previewUrl: "https://example.com/generated-image.png",
+                },
+              ],
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("generated-image.png");
+    expect(markup).toContain("<img");
+    expect(markup).not.toContain("(empty response)");
+  });
+
   it("uses custom restore copy for the revert action tooltip", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const messageId = MessageId.makeUnsafe("user-rebuildable-provider");

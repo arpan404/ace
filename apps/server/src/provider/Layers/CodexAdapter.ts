@@ -220,40 +220,21 @@ function isImageGenerationItem(source: Record<string, unknown>): boolean {
   return normalizeItemType(source.type ?? source.kind).includes("image generation");
 }
 
-function imageGenerationDataUrl(source: Record<string, unknown>): string | undefined {
-  const result = asObject(source.result);
-  const candidates = [
-    asString(source.result),
-    asString(result?.data),
-    asString(result?.image),
-    asString(result?.base64),
-    asString(result?.b64_json),
-    asString(result?.base64Json),
-  ];
-
-  for (const candidate of candidates) {
-    const trimmed = candidate?.trim();
-    if (!trimmed) {
-      continue;
-    }
-    if (/^data:image\/[a-z0-9.+-]+;base64,/iu.test(trimmed)) {
-      return trimmed;
-    }
-    const compact = trimmed.replace(/\s+/g, "");
-    if (compact.length >= 64 && /^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) {
-      return `data:image/png;base64,${compact}`;
-    }
-  }
-
-  return undefined;
-}
-
-function imageGenerationAssistantMarkdown(source: Record<string, unknown>): string | undefined {
-  const dataUrl = imageGenerationDataUrl(source);
-  if (!dataUrl) {
-    return undefined;
-  }
-  return `![Generated image](${dataUrl})`;
+function imageGenerationAssistantLifecycleEvent(
+  event: ProviderEvent,
+  canonicalThreadId: ThreadId,
+  lifecycle: "item.started" | "item.completed",
+): ProviderRuntimeEvent {
+  return {
+    ...runtimeEventBase(event, canonicalThreadId),
+    type: lifecycle,
+    payload: {
+      itemType: "assistant_message",
+      status: lifecycle === "item.started" ? "inProgress" : "completed",
+      title: "Assistant message",
+      ...(event.payload !== undefined ? { data: event.payload } : {}),
+    },
+  };
 }
 
 function itemTitle(itemType: CanonicalItemType): string | undefined {
@@ -957,7 +938,7 @@ function mapToRuntimeEvents(
     const item = asObject(payload?.item);
     const source = item ?? payload;
     if (source && isImageGenerationItem(source)) {
-      return [];
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.started")];
     }
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
     return started ? [started] : [];
@@ -971,23 +952,7 @@ function mapToRuntimeEvents(
       return [];
     }
     if (isImageGenerationItem(source)) {
-      const imageMarkdown = imageGenerationAssistantMarkdown(source);
-      if (!imageMarkdown) {
-        return [];
-      }
-      return [
-        {
-          ...runtimeEventBase(event, canonicalThreadId),
-          type: "item.completed",
-          payload: {
-            itemType: "assistant_message",
-            status: "completed",
-            title: "Assistant message",
-            detail: imageMarkdown,
-            ...(event.payload !== undefined ? { data: event.payload } : {}),
-          },
-        },
-      ];
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.completed")];
     }
     const itemType = source ? toCanonicalItemType(source.type ?? source.kind) : "unknown";
     if (itemType === "plan") {

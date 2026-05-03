@@ -60,6 +60,44 @@ describe("timelineRows", () => {
     expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
   });
 
+  it("keeps image-only assistant messages", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "assistant-image-1",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-image-1"),
+            role: "assistant",
+            text: "",
+            attachments: [
+              {
+                type: "image",
+                id: "image-1",
+                name: "generated-image.png",
+                mimeType: "image/png",
+                sizeBytes: 24,
+                previewUrl: "/attachments/image-1",
+              },
+            ],
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("message");
+    expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
+  });
+
   it("workerizes large settled timelines only", () => {
     expect(
       shouldWorkerizeTimelineRows({
