@@ -1,5 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@ace/contracts";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +22,7 @@ import {
   geminiLaunchApprovalModeForSession,
   GeminiAdapterLive,
   GEMINI_ACP_CLIENT_INFO,
+  readLatestGeminiPlanMarkdown,
 } from "./GeminiAdapter.ts";
 import { type ServerConfigShape, ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -181,6 +185,60 @@ describe("Gemini ACP capability guards", () => {
   });
 });
 
+describe("Gemini plan artifacts", () => {
+  it("reads the newest default Gemini session plan markdown", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-plan-"));
+    try {
+      const plansDir = path.join(
+        root,
+        ".gemini",
+        "tmp",
+        "repo-name",
+        "gemini-session-plan-artifact",
+        "plans",
+      );
+      await mkdir(plansDir, { recursive: true });
+      await writeFile(path.join(plansDir, "plan.md"), "# Gemini plan\n\n- Read artifact");
+
+      await expect(
+        readLatestGeminiPlanMarkdown({
+          cwd: path.join(root, "repo"),
+          homeDir: root,
+          sessionId: "gemini-session-plan-artifact",
+        }),
+      ).resolves.toBe("# Gemini plan\n\n- Read artifact");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads custom Gemini plan directories from settings", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-custom-plan-"));
+    try {
+      const cwd = path.join(root, "repo");
+      const settingsDir = path.join(cwd, ".gemini");
+      const plansDir = path.join(cwd, ".gemini", "plans");
+      await mkdir(settingsDir, { recursive: true });
+      await mkdir(plansDir, { recursive: true });
+      await writeFile(
+        path.join(settingsDir, "settings.json"),
+        JSON.stringify({ general: { plan: { directory: ".gemini/plans" } } }),
+      );
+      await writeFile(path.join(plansDir, "custom-plan.md"), "# Custom Gemini plan");
+
+      await expect(
+        readLatestGeminiPlanMarkdown({
+          cwd,
+          homeDir: root,
+          sessionId: "gemini-session-custom-plan",
+        }),
+      ).resolves.toBe("# Custom Gemini plan");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("Gemini ACP launch args", () => {
   it("pins Gemini approval mode from Ace runtime mode at process startup", () => {
     expect(geminiLaunchApprovalModeForSession("full-access")).toBe("yolo");
@@ -194,17 +252,19 @@ describe("Gemini ACP launch args", () => {
       ["--experimental-acp", "--approval-mode=default"],
     ]);
     expect(buildGeminiAcpArgAttempts("yolo")).toEqual([
+      ["--acp", "--skip-trust", "--approval-mode=yolo"],
+      ["--experimental-acp", "--skip-trust", "--approval-mode=yolo"],
       ["--acp", "--approval-mode=yolo"],
       ["--experimental-acp", "--approval-mode=yolo"],
     ]);
   });
 
-  it("falls back to plain ACP startup only for older CLIs without plan launch support", () => {
+  it("does not start plain ACP when Plan Mode launch support is required", () => {
     expect(buildGeminiAcpArgAttempts("plan")).toEqual([
+      ["--acp", "--skip-trust", "--approval-mode=plan"],
+      ["--experimental-acp", "--skip-trust", "--approval-mode=plan"],
       ["--acp", "--approval-mode=plan"],
       ["--experimental-acp", "--approval-mode=plan"],
-      ["--acp"],
-      ["--experimental-acp"],
     ]);
   });
 });
@@ -242,7 +302,7 @@ describe("GeminiAdapterLive startup", () => {
         expect(session.resumeCursor).toEqual({ sessionId: "gemini-session-plan-launch-only" });
         expect(mockedStartAcpClient).toHaveBeenCalledWith(
           expect.objectContaining({
-            args: ["--acp", "--approval-mode=plan"],
+            args: ["--acp", "--skip-trust", "--approval-mode=plan"],
             cwd: "/repo/gemini-plan-launch-only",
           }),
         );
@@ -251,6 +311,161 @@ describe("GeminiAdapterLive startup", () => {
           expect.anything(),
           expect.anything(),
         );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("emits proposed plans from Gemini Plan Mode markdown artifacts", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-adapter-plan-"));
+    const previousHome = process.env.HOME;
+    const cwd = path.join(root, "repo");
+    const plansDir = path.join(root, ".gemini", "tmp", "repo", "gemini-session-plan-file", "plans");
+    await mkdir(plansDir, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    process.env.HOME = root;
+
+    try {
+      const client = makeFakeGeminiClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              return geminiInitializeResult();
+            case "session/new":
+              return geminiSessionResult("gemini-session-plan-file", {
+                currentModeId: "default",
+              });
+            case "session/prompt":
+              await writeFile(
+                path.join(plansDir, "implementation-plan.md"),
+                "# Gemini file plan\n\n- Surface the plan in Ace",
+              );
+              return { stopReason: "end_turn" };
+            default:
+              throw new Error(`Unexpected Gemini ACP request: ${method}`);
+          }
+        },
+      });
+      mockedStartAcpClient.mockReturnValue(client);
+
+      await withAdapter(async (adapter) => {
+        try {
+          await Effect.runPromise(
+            adapter.startSession({
+              provider: "gemini",
+              threadId: asThreadId("thread-gemini-plan-file"),
+              cwd,
+              runtimeMode: "approval-required",
+              interactionMode: "plan",
+            }),
+          );
+
+          const proposedPlanPromise = Effect.runPromise(
+            Stream.runHead(
+              Stream.filter(
+                adapter.streamEvents,
+                (event) => event.type === "turn.proposed.completed",
+              ),
+            ),
+          );
+
+          await Effect.runPromise(
+            adapter.sendTurn({
+              threadId: asThreadId("thread-gemini-plan-file"),
+              interactionMode: "plan",
+              input: "Draft the plan.",
+            }),
+          );
+
+          const proposedPlanEvent = await proposedPlanPromise;
+          expect(proposedPlanEvent._tag).toBe("Some");
+          if (proposedPlanEvent._tag !== "Some") {
+            return;
+          }
+          expect(proposedPlanEvent.value.type).toBe("turn.proposed.completed");
+          if (proposedPlanEvent.value.type !== "turn.proposed.completed") {
+            return;
+          }
+          expect(proposedPlanEvent.value.payload.planMarkdown).toBe(
+            "# Gemini file plan\n\n- Surface the plan in Ace",
+          );
+        } finally {
+          await Effect.runPromise(adapter.stopAll());
+        }
+      });
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails plan startup clearly when the Gemini CLI rejects plan launch mode", async () => {
+    const clients = Array.from({ length: 4 }, () =>
+      makeFakeGeminiClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              throw new Error(
+                "Invalid values: --approval-mode must be default, auto_edit, or yolo",
+              );
+            default:
+              throw new Error(`Unexpected Gemini ACP request: ${method}`);
+          }
+        },
+      }),
+    );
+    for (const client of clients) {
+      mockedStartAcpClient.mockReturnValueOnce(client);
+    }
+
+    await withAdapter(async (adapter) => {
+      try {
+        await expect(
+          Effect.runPromise(
+            adapter.startSession({
+              provider: "gemini",
+              threadId: asThreadId("thread-gemini-plan-unsupported"),
+              cwd: "/repo/gemini-plan-unsupported",
+              runtimeMode: "approval-required",
+              interactionMode: "plan",
+            }),
+          ),
+        ).rejects.toMatchObject({
+          detail: expect.stringContaining("Upgrade Gemini CLI"),
+        });
+
+        expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            args: ["--acp", "--skip-trust", "--approval-mode=plan"],
+          }),
+        );
+        expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            args: ["--experimental-acp", "--skip-trust", "--approval-mode=plan"],
+          }),
+        );
+        expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
+          3,
+          expect.objectContaining({
+            args: ["--acp", "--approval-mode=plan"],
+          }),
+        );
+        expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
+          4,
+          expect.objectContaining({
+            args: ["--experimental-acp", "--approval-mode=plan"],
+          }),
+        );
+        for (const client of clients) {
+          expect(client.close).toHaveBeenCalled();
+        }
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }
@@ -320,7 +535,7 @@ describe("GeminiAdapterLive startup", () => {
         expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
           2,
           expect.objectContaining({
-            args: ["--acp", "--approval-mode=plan"],
+            args: ["--acp", "--skip-trust", "--approval-mode=plan"],
             cwd: "/repo/gemini-start-plan-restart",
           }),
         );
@@ -464,7 +679,7 @@ describe("GeminiAdapterLive approvals", () => {
         expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
           1,
           expect.objectContaining({
-            args: ["--acp", "--approval-mode=plan"],
+            args: ["--acp", "--skip-trust", "--approval-mode=plan"],
             cwd: "/repo/gemini-exit-plan",
           }),
         );
@@ -557,7 +772,7 @@ describe("GeminiAdapterLive approvals", () => {
         expect(mockedStartAcpClient).toHaveBeenNthCalledWith(
           2,
           expect.objectContaining({
-            args: ["--acp", "--approval-mode=plan"],
+            args: ["--acp", "--skip-trust", "--approval-mode=plan"],
             cwd: "/repo/gemini-supervised-plan-turn",
           }),
         );
@@ -618,7 +833,7 @@ describe("GeminiAdapterLive approvals", () => {
 
         expect(mockedStartAcpClient).toHaveBeenCalledWith(
           expect.objectContaining({
-            args: ["--acp", "--approval-mode=yolo"],
+            args: ["--acp", "--skip-trust", "--approval-mode=yolo"],
             cwd: "/repo/gemini-full-access",
           }),
         );

@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -55,6 +58,8 @@ const PROVIDER = "gemini" as const;
 const ACP_CONTROL_TIMEOUT_MS = 20_000;
 const ACP_PROTOCOL_VERSION = 1;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const GEMINI_PLAN_FILE_MAX_BYTES = 1_000_000;
+const GEMINI_PLAN_FILE_MTIME_MARGIN_MS = 5_000;
 export const GEMINI_ACP_CLIENT_INFO = {
   name: "ace",
   version: "1.0.17",
@@ -98,17 +103,27 @@ export function buildGeminiAcpArgAttempts(
   approvalMode: GeminiLaunchApprovalMode,
 ): ReadonlyArray<ReadonlyArray<string>> {
   const modeArg = `--approval-mode=${approvalMode}`;
-  const acpFlagAttempts: ReadonlyArray<ReadonlyArray<string>> = [["--acp"], ["--experimental-acp"]];
-  const withApprovalMode = acpFlagAttempts.map((args) => [...args, modeArg] as const);
+  const trustArg = "--skip-trust";
+  const withApprovalMode: Array<ReadonlyArray<string>> = [
+    ["--acp", modeArg],
+    ["--experimental-acp", modeArg],
+  ];
+
+  if (approvalMode !== "default") {
+    withApprovalMode.unshift(
+      ["--acp", trustArg, modeArg],
+      ["--experimental-acp", trustArg, modeArg],
+    );
+  }
 
   if (approvalMode !== "plan") {
     return withApprovalMode;
   }
 
-  // Older Gemini CLI builds reject `--approval-mode=plan`. Fall back to plain
-  // ACP startup so we can still use `session/set_mode` when the ACP server
-  // advertises Plan Mode after initialization.
-  return [...withApprovalMode, ...acpFlagAttempts];
+  // Plan is a launch-time policy in current Gemini CLI builds. Starting plain
+  // ACP after these attempts fail would create a non-plan session that cannot
+  // enforce Plan Mode safely.
+  return withApprovalMode;
 }
 
 function shouldAutoResolveGeminiPermission(runtimeMode: ProviderSession["runtimeMode"]): boolean {
@@ -227,9 +242,11 @@ type GeminiToolItemState = {
 type GeminiTurnState = {
   readonly id: TurnId;
   started: boolean;
+  readonly startedAtMs: number;
   readonly inputText: string;
   readonly attachmentNames: ReadonlyArray<string>;
   assistantText: string;
+  lastProposedPlanMarkdown?: string;
   readonly items: Array<unknown>;
   readonly assistantItemId: RuntimeItemId;
   assistantStarted: boolean;
@@ -899,6 +916,179 @@ function mapPlanStatus(value: string | undefined): "pending" | "inProgress" | "c
   }
 }
 
+type GeminiPlanFileCandidate = {
+  readonly path: string;
+  readonly mtimeMs: number;
+};
+
+async function readJsonObjectFile(filePath: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(filePath, "utf8"));
+    return asObject(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+function geminiPlanDirectorySetting(
+  settings: Record<string, unknown> | undefined,
+): string | undefined {
+  const general = asObject(settings?.general);
+  const plan = asObject(general?.plan);
+  const directory = asString(plan?.directory);
+  return directory && directory.length > 0 ? directory : undefined;
+}
+
+function resolveGeminiPlanDirectory(cwd: string, directory: string): string {
+  return path.isAbsolute(directory) ? directory : path.resolve(cwd, directory);
+}
+
+async function configuredGeminiPlanDirectories(input: {
+  readonly cwd: string;
+  readonly homeDir: string;
+}): Promise<ReadonlyArray<string>> {
+  const settingsPaths = [
+    path.join(input.homeDir, ".gemini", "settings.json"),
+    path.join(input.cwd, ".gemini", "settings.json"),
+  ];
+  const directories: Array<string> = [];
+  for (const settingsPath of settingsPaths) {
+    const settings = await readJsonObjectFile(settingsPath);
+    const directory = geminiPlanDirectorySetting(settings);
+    if (directory) {
+      directories.push(resolveGeminiPlanDirectory(input.cwd, directory));
+    }
+  }
+  return Array.from(new Set(directories));
+}
+
+async function collectMarkdownPlanFiles(input: {
+  readonly directory: string;
+  readonly changedAfterMs?: number | undefined;
+  readonly maxDepth: number;
+}): Promise<ReadonlyArray<GeminiPlanFileCandidate>> {
+  let entries;
+  try {
+    entries = await readdir(input.directory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const candidates: Array<GeminiPlanFileCandidate> = [];
+  for (const entry of entries) {
+    const entryPath = path.join(input.directory, entry.name);
+    if (entry.isDirectory()) {
+      if (input.maxDepth > 0) {
+        candidates.push(
+          ...(await collectMarkdownPlanFiles({
+            directory: entryPath,
+            changedAfterMs: input.changedAfterMs,
+            maxDepth: input.maxDepth - 1,
+          })),
+        );
+      }
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) {
+      continue;
+    }
+    try {
+      const fileStat = await stat(entryPath);
+      if (fileStat.size <= 0 || fileStat.size > GEMINI_PLAN_FILE_MAX_BYTES) {
+        continue;
+      }
+      if (
+        input.changedAfterMs !== undefined &&
+        fileStat.mtimeMs < input.changedAfterMs - GEMINI_PLAN_FILE_MTIME_MARGIN_MS
+      ) {
+        continue;
+      }
+      candidates.push({ path: entryPath, mtimeMs: fileStat.mtimeMs });
+    } catch {
+      // Ignore files that disappear while Gemini is updating the plan.
+    }
+  }
+  return candidates;
+}
+
+async function findGeminiDefaultSessionPlanDirectories(input: {
+  readonly homeDir: string;
+  readonly sessionId: string;
+}): Promise<ReadonlyArray<string>> {
+  const root = path.join(input.homeDir, ".gemini", "tmp");
+  const directories: Array<string> = [];
+
+  const visit = async (directory: string, remainingDepth: number): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const entryPath = path.join(directory, entry.name);
+      if (entry.name === input.sessionId) {
+        directories.push(path.join(entryPath, "plans"));
+        continue;
+      }
+      if (remainingDepth > 0) {
+        await visit(entryPath, remainingDepth - 1);
+      }
+    }
+  };
+
+  await visit(root, 4);
+  return directories;
+}
+
+export async function readLatestGeminiPlanMarkdown(input: {
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly homeDir?: string;
+  readonly changedAfterMs?: number | undefined;
+}): Promise<string | undefined> {
+  const homeDir = input.homeDir ?? process.env.HOME ?? homedir();
+  const directories = Array.from(
+    new Set([
+      ...(await configuredGeminiPlanDirectories({ cwd: input.cwd, homeDir })),
+      ...(await findGeminiDefaultSessionPlanDirectories({
+        homeDir,
+        sessionId: input.sessionId,
+      })),
+    ]),
+  );
+
+  const candidates = (
+    await Promise.all(
+      directories.map((directory) =>
+        collectMarkdownPlanFiles({
+          directory,
+          changedAfterMs: input.changedAfterMs,
+          maxDepth: 2,
+        }),
+      ),
+    )
+  )
+    .flat()
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+  for (const candidate of candidates) {
+    try {
+      const content = (await readFile(candidate.path, "utf8")).trim();
+      if (content.length > 0) {
+        return content;
+      }
+    } catch {
+      // Keep looking if Gemini rotates the candidate before we read it.
+    }
+  }
+  return undefined;
+}
+
 function extractTextContent(value: unknown): string | undefined {
   const record = asObject(value);
   if (asString(record?.text)) {
@@ -1061,6 +1251,65 @@ const makeGeminiAdapter = Effect.gen(function* () {
       sessionSequence,
       payload: input.payload,
     } as unknown as ProviderRuntimeEventByType<TType>;
+  };
+
+  const emitProposedPlanCompleted = (
+    context: GeminiSessionContext,
+    turn: GeminiTurnState,
+    input: {
+      readonly planMarkdown: string;
+      readonly createdAt?: string;
+    },
+  ): void => {
+    const planMarkdown = input.planMarkdown.trim();
+    if (planMarkdown.length === 0 || turn.lastProposedPlanMarkdown === planMarkdown) {
+      return;
+    }
+
+    turn.lastProposedPlanMarkdown = planMarkdown;
+    emit(
+      baseEvent(context, {
+        type: "turn.proposed.completed",
+        turnId: turn.id,
+        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+        payload: {
+          planMarkdown,
+        },
+      }),
+    );
+  };
+
+  const refreshProposedPlanFromGeminiFiles = async (
+    context: GeminiSessionContext,
+    turn: GeminiTurnState,
+  ): Promise<void> => {
+    if (!context.session.cwd) {
+      return;
+    }
+    try {
+      const planMarkdown = await readLatestGeminiPlanMarkdown({
+        cwd: context.session.cwd,
+        sessionId: context.sessionId,
+        changedAfterMs: turn.startedAtMs,
+      });
+      if (!planMarkdown || context.closed || context.activeTurn?.id !== turn.id) {
+        return;
+      }
+      emitProposedPlanCompleted(context, turn, { planMarkdown });
+    } catch (cause) {
+      if (context.closed || context.activeTurn?.id !== turn.id) {
+        return;
+      }
+      emit(
+        baseEvent(context, {
+          type: "runtime.warning",
+          turnId: turn.id,
+          payload: {
+            message: toMessage(cause, "Failed to read Gemini plan."),
+          },
+        }),
+      );
+    }
   };
 
   const createToolItemState = (
@@ -1888,6 +2137,15 @@ const makeGeminiAdapter = Effect.gen(function* () {
         }
       }
     }
+    if (approvalMode === "plan") {
+      throw new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "initialize",
+        detail:
+          "Gemini CLI could not start ACP with --approval-mode=plan. Upgrade Gemini CLI to a version that supports Plan Mode, then restart Ace.",
+        cause: lastError,
+      });
+    }
     throw lastError;
   };
 
@@ -2380,6 +2638,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         context.activeTurn = {
           id: turnId,
           started: false,
+          startedAtMs: Date.now(),
           inputText: input.input ?? "",
           attachmentNames: (input.attachments ?? []).map((attachment) => attachment.name),
           assistantText: "",
@@ -2449,7 +2708,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
               sessionId: context.sessionId,
               prompt: promptContent,
             })
-            .then((result) => {
+            .then(async (result) => {
               context.pendingBootstrapReset = false;
               if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
                 return;
@@ -2469,6 +2728,12 @@ const makeGeminiAdapter = Effect.gen(function* () {
                       ...resultUsage,
                     }
                   : (resultUsage ?? resultQuota);
+              if (input.interactionMode === "plan") {
+                await refreshProposedPlanFromGeminiFiles(context, context.activeTurn);
+              }
+              if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
+                return;
+              }
               if (stopReason === "cancelled" || context.activeTurn.interruptedRequested) {
                 completeTurn(context, {
                   state: "interrupted",

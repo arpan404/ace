@@ -62,6 +62,7 @@ import type {
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
+  ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingResult,
 } from "./server";
 import type {
@@ -388,6 +389,9 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    upgradeProviderCli: (
+      input: ServerUpgradeProviderCliInput,
+    ) => Promise<ServerProviderUpdatedPayload>;
     getLspToolsStatus: () => Promise<ServerLspToolsStatus>;
     installLspTools: (input?: ServerInstallLspToolsInput) => Promise<ServerLspToolsStatus>;
     searchLspMarketplace: (

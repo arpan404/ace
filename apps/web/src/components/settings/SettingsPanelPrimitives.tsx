@@ -73,6 +73,16 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
       detail: provider.message ?? "CLI not detected on PATH.",
     };
   }
+  if (provider.versionStatus === "upgrade-required") {
+    return {
+      headline: "Upgrade needed",
+      detail:
+        provider.message ??
+        (provider.minimumVersion
+          ? `Installed CLI is below the minimum supported version ${getProviderVersionLabel(provider.minimumVersion)}.`
+          : "Installed CLI is below the minimum supported version."),
+    };
+  }
   if (provider.auth.status === "authenticated") {
     const authLabel = renderAuthLabel(provider);
     return {

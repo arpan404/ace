@@ -147,15 +147,13 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
     () => resolveOpenInEditorOptions(navigator.platform, availableEditors),
     [availableEditors],
   );
-  const preferredEditorOption = useMemo(
-    () =>
-      (preferredEditor
-        ? (editorOptions.find((option) => option.value === preferredEditor) ?? null)
-        : null) ??
-      editorOptions[0] ??
-      null,
-    [editorOptions, preferredEditor],
-  );
+  const preferredEditorOption = useMemo(() => {
+    const fallbackEditorOption = editorOptions[0];
+    if (!preferredEditor) {
+      return fallbackEditorOption;
+    }
+    return editorOptions.find((option) => option.value === preferredEditor) ?? fallbackEditorOption;
+  }, [editorOptions, preferredEditor]);
   const handleOpenPreferredEditor = useCallback(() => {
     if (!api || !gitCwd || !preferredEditorOption) {
       return;

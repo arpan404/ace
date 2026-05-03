@@ -35,6 +35,9 @@ const ServerConfigIssues = Schema.Array(ServerConfigIssue);
 export const ServerProviderState = Schema.Literals(["ready", "warning", "error", "disabled"]);
 export type ServerProviderState = typeof ServerProviderState.Type;
 
+export const ServerProviderVersionStatus = Schema.Literals(["unknown", "ok", "upgrade-required"]);
+export type ServerProviderVersionStatus = typeof ServerProviderVersionStatus.Type;
+
 export const ServerProviderAuthStatus = Schema.Literals([
   "authenticated",
   "unauthenticated",
@@ -63,6 +66,8 @@ export const ServerProvider = Schema.Struct({
   enabled: Schema.Boolean,
   installed: Schema.Boolean,
   version: Schema.NullOr(TrimmedNonEmptyString),
+  minimumVersion: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  versionStatus: Schema.optional(ServerProviderVersionStatus),
   status: ServerProviderState,
   auth: ServerProviderAuth,
   checkedAt: IsoDateTime,
@@ -207,6 +212,19 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerUpgradeProviderCliInput = Schema.Struct({
+  provider: ProviderKind,
+});
+export type ServerUpgradeProviderCliInput = typeof ServerUpgradeProviderCliInput.Type;
+
+export class ServerProviderCliUpgradeError extends Schema.TaggedErrorClass<ServerProviderCliUpgradeError>()(
+  "ServerProviderCliUpgradeError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 export const ServerRuntimeProfileProcess = Schema.Struct({
   pid: NonNegativeInt,

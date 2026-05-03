@@ -24,6 +24,7 @@ import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import {
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
+  MINIMUM_CODEX_CLI_VERSION,
   parseCodexCliVersion,
 } from "../codexCliVersion";
 import { getFallbackCodexModelCapabilities, parseCodexDebugModelsOutput } from "../codexCatalog";
@@ -293,7 +294,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         probe: {
           installed: true,
           version: parsedVersion,
-          status: "error",
+          minimumVersion: MINIMUM_CODEX_CLI_VERSION,
+          versionStatus: "upgrade-required",
+          status: "warning",
           auth: { status: "unknown" },
           message: formatCodexCliUpgradeMessage(parsedVersion),
         },
@@ -359,6 +362,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         probe: {
           installed: true,
           version: parsedVersion,
+          minimumVersion: MINIMUM_CODEX_CLI_VERSION,
+          versionStatus: parsedVersion ? "ok" : "unknown",
           status: modelsIssueMessage ? "warning" : "ready",
           auth: { status: "unknown" },
           message: modelsIssueMessage
@@ -383,6 +388,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         probe: {
           installed: true,
           version: parsedVersion,
+          minimumVersion: MINIMUM_CODEX_CLI_VERSION,
+          versionStatus: parsedVersion ? "ok" : "unknown",
           status: "warning",
           auth: { status: "unknown" },
           message: modelsIssueMessage
@@ -403,6 +410,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         probe: {
           installed: true,
           version: parsedVersion,
+          minimumVersion: MINIMUM_CODEX_CLI_VERSION,
+          versionStatus: parsedVersion ? "ok" : "unknown",
           status: "warning",
           auth: { status: "unknown" },
           message: modelsIssueMessage
@@ -432,6 +441,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       probe: {
         installed: true,
         version: parsedVersion,
+        minimumVersion: MINIMUM_CODEX_CLI_VERSION,
+        versionStatus: parsedVersion ? "ok" : "unknown",
         status: resolvedStatus,
         auth: parsedAuth.auth,
         ...(resolvedMessage ? { message: resolvedMessage } : {}),

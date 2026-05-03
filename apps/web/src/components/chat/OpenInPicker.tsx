@@ -10,6 +10,10 @@ import { readNativeApi } from "~/nativeApi";
 
 export type OpenInEditorOption = { label: string; Icon: Icon; value: EditorId };
 
+const FolderClosedOpenInEditorIcon: Icon = ({ "aria-hidden": ariaHidden, className }) => (
+  <FolderClosedIcon aria-hidden={ariaHidden} className={className} />
+);
+
 export const resolveOpenInEditorOptions = (
   platform: string,
   availableEditors: ReadonlyArray<EditorId>,
@@ -56,7 +60,7 @@ export const resolveOpenInEditorOptions = (
         : isWindowsPlatform(platform)
           ? "Explorer"
           : "Files",
-      Icon: FolderClosedIcon,
+      Icon: FolderClosedOpenInEditorIcon,
       value: "file-manager",
     },
   ];

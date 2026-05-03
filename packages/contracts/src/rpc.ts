@@ -114,7 +114,9 @@ import {
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
+  ServerProviderCliUpgradeError,
   ServerRuntimeProfile,
+  ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -174,6 +176,7 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
+  serverUpgradeProviderCli: "server.upgradeProviderCli",
   serverGetRuntimeProfile: "server.getRuntimeProfile",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
@@ -223,6 +226,12 @@ export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
   payload: Schema.Struct({}),
   success: ServerProviderUpdatedPayload,
+});
+
+export const WsServerUpgradeProviderCliRpc = Rpc.make(WS_METHODS.serverUpgradeProviderCli, {
+  payload: ServerUpgradeProviderCliInput,
+  success: ServerProviderUpdatedPayload,
+  error: ServerProviderCliUpgradeError,
 });
 
 export const WsServerGetRuntimeProfileRpc = Rpc.make(WS_METHODS.serverGetRuntimeProfile, {
@@ -551,6 +560,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
+  WsServerUpgradeProviderCliRpc,
   WsServerGetRuntimeProfileRpc,
   WsServerSearchOpenCodeModelsRpc,
   WsServerGetLspToolsStatusRpc,
