@@ -102,6 +102,13 @@ export type ProviderHistoryAuthority = typeof ProviderHistoryAuthority.Type;
 export const ProviderSessionResumeMode = Schema.Literals(["native", "local-replay"]);
 export type ProviderSessionResumeMode = typeof ProviderSessionResumeMode.Type;
 
+export const ProviderSlashCommand = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+  inputHint: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderSlashCommand = typeof ProviderSlashCommand.Type;
+
 export const ProviderIntegrationCapabilities = Schema.Struct({
   sessionModelSwitch: ProviderSessionModelSwitchMode,
   sessionModelOptionsSwitch: ProviderSessionModelOptionsSwitchMode,

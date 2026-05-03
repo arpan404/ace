@@ -227,10 +227,19 @@ type GeminiToolCallLike = {
 type GeminiSessionMetadata = {
   readonly authMethods: ReadonlyArray<GeminiAuthMethod>;
   readonly loadSession: boolean;
+  availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
   currentModeId?: string;
   availableModels: ReadonlyArray<GeminiModel>;
   currentModelId?: string;
+};
+
+type GeminiAvailableCommand = {
+  readonly name: string;
+  readonly description?: string;
+  readonly input?: {
+    readonly hint?: string;
+  };
 };
 
 type GeminiToolItemState = {
@@ -727,6 +736,31 @@ function normalizeSessionModels(value: unknown): {
   return currentModelId ? { availableModels, currentModelId } : { availableModels };
 }
 
+function normalizeAvailableCommands(value: unknown): ReadonlyArray<GeminiAvailableCommand> {
+  return asArray(value)
+    .map((entry) => {
+      const command = asObject(entry);
+      const name = asString(command?.name);
+      if (!name) {
+        return null;
+      }
+      const description = asString(command?.description);
+      const input = asObject(command?.input);
+      const inputHint = asString(input?.hint);
+      const normalized: { name: string; description?: string; input?: { hint?: string } } = {
+        name,
+      };
+      if (description) {
+        normalized.description = description;
+      }
+      if (inputHint) {
+        normalized.input = { hint: inputHint };
+      }
+      return normalized;
+    })
+    .filter((entry): entry is GeminiAvailableCommand => entry !== null);
+}
+
 function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   const record = asObject(value);
   const authMethods = asArray(record?.authMethods)
@@ -761,6 +795,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   return {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
+    availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
     availableModels: [],
   };
@@ -775,6 +810,9 @@ function updateMetadataFromSessionResult(
   const models = normalizeSessionModels(record?.models);
   return {
     ...metadata,
+    availableCommands: Array.isArray(record?.availableCommands)
+      ? normalizeAvailableCommands(record.availableCommands)
+      : metadata.availableCommands,
     availableModes: modes.availableModes,
     ...(modes.currentModeId ? { currentModeId: modes.currentModeId } : {}),
     availableModels: models.availableModels,
@@ -2011,6 +2049,24 @@ const makeGeminiAdapter = Effect.gen(function* () {
         );
         return;
       }
+      case "available_commands_update": {
+        context.metadata = {
+          ...context.metadata,
+          availableCommands: normalizeAvailableCommands(update.availableCommands),
+        };
+        emit(
+          baseEvent(context, {
+            type: "session.configured",
+            ...(notificationCreatedAt ? { createdAt: notificationCreatedAt } : {}),
+            payload: {
+              config: {
+                availableCommands: context.metadata.availableCommands,
+              },
+            },
+          }),
+        );
+        return;
+      }
       default:
         return;
     }
@@ -2428,6 +2484,16 @@ const makeGeminiAdapter = Effect.gen(function* () {
 
       sessions.set(input.threadId, context);
 
+      emit(
+        baseEvent(context, {
+          type: "session.configured",
+          payload: {
+            config: {
+              availableCommands: context.metadata.availableCommands,
+            },
+          },
+        }),
+      );
       emit(
         baseEvent(context, {
           type: "session.started",

@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   ProviderModelOptions,
+  ProviderSlashCommand,
   RuntimeMode,
   ServerProvider,
   ServerProviderModel,
@@ -86,6 +87,10 @@ const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 const EMPTY_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> = Object.freeze({});
 
+function normalizeSlashCommandName(name: string): string {
+  return name.trim().replace(/^\/+/, "").toLowerCase();
+}
+
 export interface ConnectedChatComposerPanelsHandle {
   focusAt(cursor: number): boolean;
   focusAtEnd(): boolean;
@@ -152,6 +157,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  readonly providerCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
   readonly modelOptionsByProvider: ComponentProps<
@@ -531,11 +537,25 @@ export const ConnectedChatComposerPanels = memo(
           }));
         }
         if (composerTrigger.kind === "slash-command") {
+          const providerCommandItems = props.providerCommands.map((command) => ({
+            id: `provider-slash:${command.name}`,
+            type: "slash-command" as const,
+            command: command.name,
+            commandSource: "provider" as const,
+            label: `/${command.name}`,
+            description: command.inputHint
+              ? `${command.description ?? "Provider command"} - ${command.inputHint}`
+              : (command.description ?? "Provider command"),
+          }));
+          const providerCommandNames = new Set(
+            props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
+          );
           const slashCommandItems = [
             {
               id: "slash:model",
               type: "slash-command" as const,
               command: "model" as const,
+              commandSource: "ace" as const,
               label: "/model",
               description: "Switch response model for this thread",
             },
@@ -543,6 +563,7 @@ export const ConnectedChatComposerPanels = memo(
               id: "slash:plan",
               type: "slash-command" as const,
               command: "plan" as const,
+              commandSource: "ace" as const,
               label: "/plan",
               description: "Switch this thread into plan mode",
             },
@@ -550,6 +571,7 @@ export const ConnectedChatComposerPanels = memo(
               id: "slash:default",
               type: "slash-command" as const,
               command: "default" as const,
+              commandSource: "ace" as const,
               label: "/default",
               description: "Switch this thread back to normal chat mode",
             },
@@ -557,16 +579,20 @@ export const ConnectedChatComposerPanels = memo(
               id: "slash:issues",
               type: "slash-command" as const,
               command: "issues" as const,
+              commandSource: "ace" as const,
               label: "/issues",
               description: "Attach GitHub issue context to this message",
             },
-          ];
+          ].filter((item) => !providerCommandNames.has(normalizeSlashCommandName(item.command)));
+          const allSlashCommandItems = [...providerCommandItems, ...slashCommandItems];
           const query = composerTrigger.query.trim().toLowerCase();
           if (!query) {
-            return [...slashCommandItems];
+            return allSlashCommandItems;
           }
-          return slashCommandItems.filter(
-            (item) => item.command.includes(query) || item.label.slice(1).includes(query),
+          return allSlashCommandItems.filter(
+            (item) =>
+              normalizeSlashCommandName(item.command).includes(query) ||
+              item.label.slice(1).toLowerCase().includes(query),
           );
         }
         return searchableModelOptions
@@ -587,7 +613,13 @@ export const ConnectedChatComposerPanels = memo(
             label: name,
             description: `${providerLabel} · ${slug}`,
           }));
-      }, [composerTrigger, issueTriggerMatches, searchableModelOptions, workspaceEntries]);
+      }, [
+        composerTrigger,
+        issueTriggerMatches,
+        props.providerCommands,
+        searchableModelOptions,
+        workspaceEntries,
+      ]);
       const composerMenuOpen = Boolean(composerTrigger);
       const activeComposerMenuItem = useMemo(
         () =>
@@ -902,6 +934,22 @@ export const ConnectedChatComposerPanels = memo(
             return;
           }
           if (item.type === "slash-command") {
+            if (item.commandSource === "provider") {
+              const replacement = `/${item.command} `;
+              const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+                snapshot.value,
+                trigger.rangeEnd,
+                replacement,
+              );
+              if (
+                applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+                  expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+                })
+              ) {
+                setComposerHighlightedItemId(null);
+              }
+              return;
+            }
             if (item.command === "model" || item.command === "issues") {
               const replacement = item.command === "model" ? "/model " : "/issues ";
               const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
