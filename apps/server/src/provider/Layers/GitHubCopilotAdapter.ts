@@ -10,6 +10,7 @@ import {
   isFullAccessRuntimeMode,
   ProviderItemId,
   type ProviderApprovalDecision,
+  type ProviderInteractionMode,
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ThreadTokenUsageSnapshot,
@@ -60,6 +61,7 @@ const GITHUB_COPILOT_SEND_TIMEOUT_MS = 30_000;
 const GITHUB_COPILOT_TURN_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 const GITHUB_COPILOT_STOP_TIMEOUT_MS = 5_000;
 const GITHUB_COPILOT_ABORT_TIMEOUT_MS = 10_000;
+type GitHubCopilotSessionMode = "interactive" | "plan" | "autopilot";
 
 type UserInputRequest = {
   readonly question: string;
@@ -164,6 +166,23 @@ function toMessage(cause: unknown, fallback: string): string {
 function isMissingResumableGitHubCopilotSession(cause: unknown): boolean {
   const message = meaningfulErrorMessage(cause, "").toLowerCase();
   return message.includes("session not found") || message.includes("request session.resume failed");
+}
+
+function githubCopilotModeForInteractionMode(
+  interactionMode: ProviderInteractionMode | null | undefined,
+): GitHubCopilotSessionMode {
+  return interactionMode === "plan" ? "plan" : "interactive";
+}
+
+async function syncGitHubCopilotSessionMode(
+  sdkSession: GitHubCopilotSessionClient,
+  interactionMode: ProviderInteractionMode | null | undefined,
+): Promise<void> {
+  const setMode = sdkSession.rpc?.mode?.set;
+  if (!setMode) {
+    return;
+  }
+  await setMode({ mode: githubCopilotModeForInteractionMode(interactionMode) });
 }
 
 function makeDeferredDecision<T>() {
@@ -2483,6 +2502,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
                 return sdkClient.createSession(sessionConfig);
               })
           : await sdkClient.createSession(sessionConfig);
+        await syncGitHubCopilotSessionMode(sdkSession, input.interactionMode);
         const replayTurns = cloneReplayTurns(input.replayTurns);
         const resumedExistingSession =
           resumedFromCursor && sdkSession.sessionId === input.resumeCursor;
@@ -2611,6 +2631,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           ).text
         : latestPrompt;
       const attachmentNames = (input.attachments ?? []).map((attachment) => attachment.name);
+      await syncGitHubCopilotSessionMode(context.sdkSession, input.interactionMode);
 
       const turnId = TurnId.makeUnsafe(randomUUID());
       const createdAt = new Date().toISOString();
