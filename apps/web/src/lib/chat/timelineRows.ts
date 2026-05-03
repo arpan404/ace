@@ -165,7 +165,7 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   if (message.role !== "assistant" || message.streaming) {
     return false;
   }
-  return message.text.trim().length === 0;
+  return message.text.trim().length === 0 && (message.attachments?.length ?? 0) === 0;
 }
 
 export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] {

@@ -379,10 +379,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("maps image generation items with a specific title and prompt detail", () =>
+  it.effect("maps image generation completions to assistant image output", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
       const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const imageBase64 = "A".repeat(96);
 
       const event: ProviderEvent = {
         id: asEventId("evt-image-generation-complete"),
@@ -398,7 +399,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
             type: "imageGeneration",
             id: "image_1",
             revisedPrompt: "A polished dashboard mockup",
-            result: "A".repeat(96),
+            result: imageBase64,
           },
         },
       };
@@ -414,9 +415,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       if (firstEvent.value.type !== "item.completed") {
         return;
       }
-      assert.equal(firstEvent.value.payload.itemType, "image_view");
-      assert.equal(firstEvent.value.payload.title, "Image generation");
-      assert.equal(firstEvent.value.payload.detail, "A polished dashboard mockup");
+      assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+      assert.equal(firstEvent.value.payload.title, "Assistant message");
+      assert.equal(firstEvent.value.payload.detail, undefined);
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
     }),
   );
 

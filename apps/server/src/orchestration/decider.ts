@@ -885,6 +885,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.messageId,
           role: "assistant",
           text: "",
+          ...(command.attachments !== undefined ? { attachments: command.attachments } : {}),
           turnId: command.turnId ?? null,
           streaming: false,
           ...(command.sequence !== undefined ? { sequence: command.sequence } : {}),

@@ -1005,6 +1005,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
                   markdownCwd={markdownCwd}
                   message={row.message}
+                  onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   renderMarkdown={shouldRenderAssistantMarkdown}
@@ -1388,7 +1389,8 @@ function estimateTimelineRowHeight(
       const messageText =
         row.message.role === "assistant" &&
         renderedMessageText.trim().length === 0 &&
-        !row.message.streaming
+        !row.message.streaming &&
+        (row.message.attachments?.length ?? 0) === 0
           ? "(empty response)"
           : renderedMessageText;
       const messageHeightInput =
@@ -2040,6 +2042,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
+  onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   renderMarkdown: boolean;
@@ -2047,13 +2050,16 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
+  const assistantImages = props.message.attachments ?? [];
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
       : props.message.streaming
         ? ""
-        : "(empty response)";
+        : assistantImages.length > 0
+          ? ""
+          : "(empty response)";
   const completedAt = props.message.completedAt ?? null;
   const elapsedLabel =
     props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
@@ -2067,7 +2073,40 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
 
   return (
     <div className="min-w-0">
-      {props.renderMarkdown ? (
+      {assistantImages.length > 0 && (
+        <div className={cn("grid max-w-3xl grid-cols-1 gap-2", messageText ? "mb-2.5" : "")}>
+          {assistantImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+            <div
+              key={image.id}
+              className="overflow-hidden rounded-xl border border-border/55 bg-background/70"
+            >
+              {image.previewUrl ? (
+                <button
+                  type="button"
+                  className="block w-full cursor-zoom-in bg-background/55"
+                  aria-label={`Preview ${image.name}`}
+                  onClick={() => {
+                    const preview = buildExpandedImagePreview(assistantImages, image.id);
+                    if (!preview) return;
+                    props.onImageExpand(preview);
+                  }}
+                >
+                  <img
+                    src={image.previewUrl}
+                    alt={image.name}
+                    className="max-h-[70vh] w-full object-contain"
+                  />
+                </button>
+              ) : (
+                <div className="flex min-h-24 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
+                  {image.name}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {messageText.length === 0 ? null : props.renderMarkdown ? (
         <ChatMarkdown
           key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
           analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
