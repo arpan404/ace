@@ -6,7 +6,7 @@ import { appendBrowserDesignContextToPrompt } from "../../lib/terminalContext";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 
 describe("ComposerQueuedMessages", () => {
-  it("renders unified queue rows with steer/edit/delete actions and icon-only attachments", () => {
+  it("renders a queue action for the active steering row with edit/delete actions and icon-only attachments", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages
         messages={[
@@ -27,11 +27,46 @@ describe("ComposerQueuedMessages", () => {
       />,
     );
 
-    expect(markup).toContain("Steer");
+    expect(markup).toContain('aria-label="Move steering message to queue"');
+    expect(markup).toContain(">Queue</button>");
+    expect(markup).not.toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
     expect(markup).toContain('aria-label="Delete queued message"');
     expect(markup).not.toContain("2 images");
     expect(markup).not.toContain("1 terminal");
+  });
+
+  it("hides steer actions from other rows while a steering request is active", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        messages={[
+          {
+            id: MessageId.makeUnsafe("queued-1"),
+            prompt: "Steer this next.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+          {
+            id: MessageId.makeUnsafe("queued-2"),
+            prompt: "Keep this in the normal queue.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+        ]}
+        steerMessageId={MessageId.makeUnsafe("queued-1")}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Move steering message to queue"');
+    expect(markup).not.toContain('aria-label="Steer queued message"');
+    expect(markup).toContain("Keep this in the normal queue.");
   });
 
   it("renders steer and edit controls for designer queue rows", () => {
