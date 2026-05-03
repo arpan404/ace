@@ -760,6 +760,34 @@ describe("sendTurn", () => {
     });
   });
 
+  it("adds the image generation preflight instruction when the session supports it", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    (
+      context as unknown as {
+        imageGenerationPreflightEnabled: boolean;
+      }
+    ).imageGenerationPreflightEnabled = true;
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "create an image",
+      interactionMode: "default",
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(
+      context,
+      "turn/start",
+      expect.objectContaining({
+        collaborationMode: {
+          mode: "default",
+          settings: expect.objectContaining({
+            developer_instructions: expect.stringContaining("Image Generation Preflight"),
+          }),
+        },
+      }),
+    );
+  });
+
   it("keeps the session model when interaction mode is set without an explicit model", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
     context.session.model = "gpt-5.2-codex";
@@ -1065,6 +1093,65 @@ describe("respondToUserInput", () => {
     const request = Array.from(context.pendingApprovals.values())[0];
     expect(request?.requestKind).toBe("file-read");
     expect(request?.method).toBe("item/fileRead/requestApproval");
+  });
+
+  it("responds to the image generation preflight dynamic tool request", () => {
+    const manager = new CodexAppServerManager();
+    const write = vi.fn();
+    const context = {
+      session: {
+        sessionId: "sess_1",
+        provider: "codex",
+        status: "ready",
+        threadId: asThreadId("thread_1"),
+        resumeCursor: { threadId: "thread_1" },
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      child: {
+        stdin: {
+          writable: true,
+          write,
+        },
+      },
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+    };
+
+    (
+      manager as unknown as {
+        handleServerRequest: (context: unknown, request: Record<string, unknown>) => void;
+      }
+    ).handleServerRequest(context, {
+      jsonrpc: "2.0",
+      id: 42,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-1",
+        turnId: "turn-1",
+        callId: "call-image-preflight-1",
+        tool: "image_generation_prehook",
+        arguments: {
+          size: "1536x1024",
+        },
+      },
+    });
+
+    expect(write).toHaveBeenCalledWith(
+      `${JSON.stringify({
+        id: 42,
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text: "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.",
+            },
+          ],
+        },
+      })}\n`,
+    );
   });
 });
 

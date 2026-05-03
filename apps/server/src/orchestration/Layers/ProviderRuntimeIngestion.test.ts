@@ -1712,7 +1712,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.activities.some((activity) => activity.summary === "Tool call")).toBe(false);
   });
 
-  it("starts image placeholders from backend dynamic image tool requests", async () => {
+  it("starts image placeholders from backend dynamic image prehook requests", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     const assistantMessageId = "assistant:image:1536x1024:dyn-image-1";
@@ -1728,7 +1728,7 @@ describe("ProviderRuntimeIngestion", () => {
         requestType: "dynamic_tool_call",
         args: {
           callId: "dyn-image-1",
-          tool: "image_generation",
+          tool: "image_generation_prehook",
           arguments: {
             size: "1536x1024",
           },
