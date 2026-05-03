@@ -422,6 +422,51 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("maps raw response image generation completions to assistant image output", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const imageBase64 = "A".repeat(96);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-raw-image-generation-complete"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "rawResponseItem/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("ig_1"),
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "image_generation_call",
+            id: "ig_1",
+            status: "completed",
+            revised_prompt: "A polished dashboard mockup",
+            result: imageBase64,
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "item.completed");
+      if (firstEvent.value.type !== "item.completed") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+      assert.equal(firstEvent.value.payload.title, "Assistant message");
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
+    }),
+  );
+
   it.effect("maps image generation starts to assistant placeholder output", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
@@ -710,6 +755,47 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         return;
       }
       assert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
+    }),
+  );
+
+  it.effect("maps dynamic tool call requests with original args", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-dynamic-tool-call"),
+        kind: "request",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/tool/call",
+        turnId: asTurnId("turn-1"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          callId: "dyn-image-1",
+          namespace: null,
+          tool: "image_generation",
+          arguments: {
+            size: "1536x1024",
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "request.opened");
+      if (firstEvent.value.type !== "request.opened") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.requestType, "dynamic_tool_call");
+      assert.deepEqual(firstEvent.value.payload.args, event.payload);
     }),
   );
 

@@ -499,56 +499,83 @@ label {
   animation: terminal-pulse 2s ease-in-out infinite;
 }
 
-.image-generation-placeholder-frame {
-  isolation: isolate;
-}
-
-.image-generation-floating-dot-cluster {
-  perspective: 560px;
-  transform-style: preserve-3d;
-}
-
-.image-generation-floating-dot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: var(--dot-size);
-  height: var(--dot-size);
-  border-radius: 9999px;
-  background: radial-gradient(
-    circle at 32% 28%,
-    color-mix(in oklch, white 82%, var(--primary) 18%) 0%,
-    color-mix(in oklch, var(--primary) 78%, white 10%) 44%,
-    color-mix(in oklch, var(--primary) 62%, transparent) 100%
-  );
-  box-shadow:
-    0 0 18px color-mix(in oklch, var(--primary) 42%, transparent),
-    0 10px 22px color-mix(in oklch, black 34%, transparent);
-  opacity: 0.68;
-  animation: image-generation-floating-dot 3s ease-in-out infinite;
-  animation-delay: var(--dot-delay);
-}
-
-@keyframes image-generation-floating-dot {
-  0%,
+@keyframes image-generation-placeholder-sheen {
+  0% {
+    opacity: 0;
+    transform: translateX(-115%) skewX(-10deg);
+  }
+  18%,
+  72% {
+    opacity: 1;
+  }
   100% {
-    transform: translate3d(var(--dot-x), var(--dot-y), -8px) scale(0.92);
-    opacity: 0.42;
+    opacity: 0;
+    transform: translateX(360%) skewX(-10deg);
   }
-  50% {
-    transform: translate3d(
-        calc(var(--dot-x) + var(--dot-float-x)),
-        calc(var(--dot-y) + var(--dot-float-y)),
-        18px
-      )
-      scale(1.12);
-    opacity: 0.9;
-  }
+}
+
+.image-generation-placeholder-frame {
+  border-color: color-mix(in oklch, var(--border) 72%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--background) 94%, var(--muted) 6%),
+    color-mix(in oklch, var(--background) 88%, var(--muted) 12%)
+  );
+  isolation: isolate;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 74%, transparent);
+}
+
+.image-generation-placeholder-surface {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, white 28%, transparent), transparent 34%),
+    linear-gradient(0deg, color-mix(in oklch, var(--foreground) 3%, transparent), transparent 40%);
+  opacity: 0.92;
+}
+
+.image-generation-placeholder-sheen {
+  left: -48%;
+  width: 42%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, white 34%, transparent),
+    transparent
+  );
+  filter: blur(0.5px);
+  animation: image-generation-placeholder-sheen 2.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.dark .image-generation-placeholder-frame {
+  border-color: color-mix(in oklch, var(--border) 58%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--background) 88%, var(--muted) 12%),
+    color-mix(in oklch, var(--background) 82%, var(--muted) 18%)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 5%, transparent);
+}
+
+.dark .image-generation-placeholder-surface {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, white 4%, transparent), transparent 34%),
+    linear-gradient(0deg, color-mix(in oklch, var(--foreground) 3%, transparent), transparent 42%);
+  opacity: 0.9;
+}
+
+.dark .image-generation-placeholder-sheen {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, white 8%, transparent),
+    transparent
+  );
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .image-generation-floating-dot {
+  .image-generation-placeholder-sheen {
     animation: none;
+    opacity: 0.45;
+    transform: translateX(130%) skewX(-10deg);
   }
 }
 

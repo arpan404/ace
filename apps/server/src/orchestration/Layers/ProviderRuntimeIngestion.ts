@@ -320,6 +320,14 @@ function assistantStreamKey(
   return `${threadId}:${turnId ?? "no-turn"}:${itemId ?? "no-item"}`;
 }
 
+function imageGenerationTurnKey(threadId: ThreadId, turnId: TurnId | undefined) {
+  return `${threadId}:${turnId ?? "no-turn"}:image-generation`;
+}
+
+function imageGenerationStreamKey(threadId: ThreadId, turnId: TurnId | undefined) {
+  return `${threadId}:${turnId ?? "no-turn"}:image-generation`;
+}
+
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
@@ -419,6 +427,8 @@ const DEFAULT_IMAGE_GENERATION_DIMENSIONS: ImageGenerationDimensions = {
   height: 1024,
 };
 
+const STRUCTURED_IMAGE_GENERATION_TOOL_NAMES = new Set(["image generation", "image gen"]);
+
 function normalizeImageGenerationDimension(value: unknown): number | undefined {
   const dimension = asFiniteNumber(value);
   if (dimension === undefined || dimension < 32 || dimension > 8192) {
@@ -451,6 +461,115 @@ function imageGenerationLifecycleSource(
   return asRecord(data?.item) ?? data;
 }
 
+function normalizedStructuredToolName(value: unknown): string | undefined {
+  const direct = asString(value);
+  if (direct) {
+    return normalizeProviderItemType(direct);
+  }
+
+  const record = asRecord(value);
+  return normalizeProviderItemType(
+    record?.name ?? record?.tool ?? record?.toolName ?? record?.tool_name,
+  );
+}
+
+function structuredImageGenerationToolName(
+  item: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!item) {
+    return undefined;
+  }
+
+  for (const candidate of [
+    item.tool,
+    item.name,
+    item.toolName,
+    item.tool_name,
+    item.functionName,
+    item.function_name,
+  ]) {
+    const normalized = normalizedStructuredToolName(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const functionRecord = asRecord(item.function);
+  const toolCallRecord = asRecord(item.toolCall) ?? asRecord(item.tool_call);
+  const inputRecord = asRecord(item.input);
+  for (const candidate of [
+    functionRecord?.name,
+    functionRecord?.tool,
+    toolCallRecord?.name,
+    toolCallRecord?.tool,
+    toolCallRecord?.toolName,
+    toolCallRecord?.tool_name,
+    inputRecord?.name,
+    inputRecord?.tool,
+    inputRecord?.toolName,
+    inputRecord?.tool_name,
+  ]) {
+    const normalized = normalizedStructuredToolName(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
+
+function isStructuredToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  if (isToolLifecycleItemType(payload.itemType)) {
+    return true;
+  }
+
+  const item = imageGenerationLifecycleSource(payload);
+  const normalizedType = normalizeProviderItemType(item?.type ?? item?.kind);
+  return (
+    normalizedType === "dynamic tool call" ||
+    normalizedType === "mcp tool call" ||
+    normalizedType === "tool call" ||
+    normalizedType === "function call" ||
+    normalizedType === "custom tool call" ||
+    normalizedType === "collab agent tool call"
+  );
+}
+
+function isStructuredImageGenerationToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  if (!isStructuredToolLifecyclePayload(payload)) {
+    return false;
+  }
+  const toolName = structuredImageGenerationToolName(imageGenerationLifecycleSource(payload));
+  return toolName !== undefined && STRUCTURED_IMAGE_GENERATION_TOOL_NAMES.has(toolName);
+}
+
+function imageGenerationToolRequestSource(
+  payload: Extract<ProviderRuntimeEvent, { type: "request.opened" }>["payload"],
+): Record<string, unknown> | undefined {
+  const args = asRecord(payload.args);
+  return asRecord(args?.item) ?? args;
+}
+
+function isImageGenerationToolRequestPayload(
+  payload: Extract<ProviderRuntimeEvent, { type: "request.opened" }>["payload"],
+): boolean {
+  if (payload.requestType !== "dynamic_tool_call") {
+    return false;
+  }
+  const toolName = structuredImageGenerationToolName(imageGenerationToolRequestSource(payload));
+  return toolName !== undefined && STRUCTURED_IMAGE_GENERATION_TOOL_NAMES.has(toolName);
+}
+
 function isImageGenerationLifecyclePayload(
   payload: Extract<
     ProviderRuntimeEvent,
@@ -459,22 +578,32 @@ function isImageGenerationLifecyclePayload(
 ): boolean {
   const item = imageGenerationLifecycleSource(payload);
   const normalizedType = normalizeProviderItemType(item?.type ?? item?.kind);
-  if (normalizedType?.includes("image generation")) {
-    return true;
-  }
-  return normalizeProviderItemType(payload.title)?.includes("image generation") === true;
+  return normalizedType?.includes("image generation") === true;
+}
+
+function isImageGenerationPlaceholderPayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  return (
+    isImageGenerationLifecyclePayload(payload) ||
+    isStructuredImageGenerationToolLifecyclePayload(payload)
+  );
 }
 
 function extractGeneratedImageDataUrl(
   payload: Extract<ProviderRuntimeEvent, { type: "item.completed" }>["payload"],
 ): string | undefined {
-  if (!isImageGenerationLifecyclePayload(payload)) {
+  if (!isImageGenerationPlaceholderPayload(payload)) {
     return undefined;
   }
 
   const data = asRecord(payload.data);
   const item = imageGenerationLifecycleSource(payload);
   const result = asRecord(item?.result);
+  const output = asRecord(item?.output) ?? asRecord(data?.output);
   return (
     normalizeGeneratedImageDataUrl(item?.result) ??
     normalizeGeneratedImageDataUrl(result?.data) ??
@@ -482,17 +611,18 @@ function extractGeneratedImageDataUrl(
     normalizeGeneratedImageDataUrl(result?.base64) ??
     normalizeGeneratedImageDataUrl(result?.b64_json) ??
     normalizeGeneratedImageDataUrl(result?.base64Json) ??
-    normalizeGeneratedImageDataUrl(data?.result)
+    normalizeGeneratedImageDataUrl(item?.image) ??
+    normalizeGeneratedImageDataUrl(output?.data) ??
+    normalizeGeneratedImageDataUrl(output?.image) ??
+    normalizeGeneratedImageDataUrl(output?.base64) ??
+    normalizeGeneratedImageDataUrl(data?.result) ??
+    normalizeGeneratedImageDataUrl(data?.image)
   );
 }
 
-function extractImageGenerationDimensions(
-  payload: Extract<
-    ProviderRuntimeEvent,
-    { type: "item.started" | "item.updated" | "item.completed" }
-  >["payload"],
+function extractImageGenerationDimensionsFromSource(
+  item: Record<string, unknown> | undefined,
 ): ImageGenerationDimensions {
-  const item = imageGenerationLifecycleSource(payload);
   const result = asRecord(item?.result);
   const input = asRecord(item?.input);
   const argumentsRecord = asRecord(item?.arguments);
@@ -521,7 +651,6 @@ function extractImageGenerationDimensions(
     options?.size,
     options?.dimensions,
     result?.size,
-    payload.detail,
   ]) {
     const dimensions = parseImageGenerationDimensionsText(candidate);
     if (dimensions) {
@@ -532,11 +661,35 @@ function extractImageGenerationDimensions(
   return DEFAULT_IMAGE_GENERATION_DIMENSIONS;
 }
 
+function extractImageGenerationDimensions(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): ImageGenerationDimensions {
+  return extractImageGenerationDimensionsFromSource(imageGenerationLifecycleSource(payload));
+}
+
 function imageGenerationAssistantMessageId(
   event: Extract<ProviderRuntimeEvent, { type: "item.started" | "item.completed" }>,
 ): MessageId {
-  const dimensions = extractImageGenerationDimensions(event.payload);
-  const suffix = event.itemId ?? event.turnId ?? event.eventId;
+  const item = imageGenerationLifecycleSource(event.payload);
+  const dimensions = extractImageGenerationDimensionsFromSource(item);
+  const sourceItemId = asNonEmptyString(item?.id);
+  const suffix = event.itemId ?? sourceItemId ?? event.turnId ?? event.eventId;
+  return MessageId.makeUnsafe(`assistant:image:${dimensions.width}x${dimensions.height}:${suffix}`);
+}
+
+function imageGenerationRequestAssistantMessageId(
+  event: Extract<ProviderRuntimeEvent, { type: "request.opened" }>,
+): MessageId {
+  const source = imageGenerationToolRequestSource(event.payload);
+  const dimensions = extractImageGenerationDimensionsFromSource(source);
+  const sourceItemId =
+    asNonEmptyString(source?.id) ??
+    asNonEmptyString(source?.callId) ??
+    asNonEmptyString(source?.call_id);
+  const suffix = event.itemId ?? sourceItemId ?? event.requestId ?? event.turnId ?? event.eventId;
   return MessageId.makeUnsafe(`assistant:image:${dimensions.width}x${dimensions.height}:${suffix}`);
 }
 
@@ -869,6 +1022,9 @@ function runtimeEventToActivities(
       if (event.payload.requestType === "tool_user_input") {
         return [];
       }
+      if (isImageGenerationToolRequestPayload(event.payload)) {
+        return [];
+      }
       const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
       return [
         {
@@ -1188,7 +1344,7 @@ function runtimeEventToActivities(
       if (!streamingSettings.enableToolStreaming) {
         return [];
       }
-      if (isImageGenerationLifecyclePayload(event.payload)) {
+      if (isImageGenerationPlaceholderPayload(event.payload)) {
         return [];
       }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
@@ -1215,7 +1371,7 @@ function runtimeEventToActivities(
     }
 
     case "item.completed": {
-      if (isImageGenerationLifecyclePayload(event.payload)) {
+      if (isImageGenerationPlaceholderPayload(event.payload)) {
         return [];
       }
       if (event.payload.itemType === "reasoning") {
@@ -1270,7 +1426,7 @@ function runtimeEventToActivities(
       if (!streamingSettings.enableToolStreaming) {
         return [];
       }
-      if (isImageGenerationLifecyclePayload(event.payload)) {
+      if (isImageGenerationPlaceholderPayload(event.payload)) {
         return [];
       }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
@@ -1375,6 +1531,7 @@ const make = Effect.fn("make")(function* () {
   });
   const activeAssistantMessageIdByStreamKey = new Map<string, MessageId>();
   const assistantOutputSeenByStreamKey = new Set<string>();
+  const activeImageGenerationMessageIdByTurnKey = new Map<string, MessageId>();
   const pendingStreamingAssistantDeltasByStreamKey = new Map<
     string,
     {
@@ -1655,10 +1812,12 @@ const make = Effect.fn("make")(function* () {
     const bufferedThinkingActivities = bufferedThinkingActivityByKey.size;
     const assistantStreams = activeAssistantMessageIdByStreamKey.size;
     const assistantOutputSeen = assistantOutputSeenByStreamKey.size;
+    const activeImageGenerationMessages = activeImageGenerationMessageIdByTurnKey.size;
     const activityFingerprints = lastActivityFingerprintByThread.size;
 
     activeAssistantMessageIdByStreamKey.clear();
     assistantOutputSeenByStreamKey.clear();
+    activeImageGenerationMessageIdByTurnKey.clear();
     pendingStreamingAssistantDeltasByStreamKey.clear();
     bufferedThinkingActivityByKey.clear();
     liveTurnDiffByTurnKey.clear();
@@ -1673,6 +1832,7 @@ const make = Effect.fn("make")(function* () {
       bufferedThinkingActivities,
       assistantStreams,
       assistantOutputSeen,
+      activeImageGenerationMessages,
       activityFingerprints,
     };
   });
@@ -1956,6 +2116,11 @@ const make = Effect.fn("make")(function* () {
         assistantOutputSeenByStreamKey.delete(streamKey);
       }
     }
+    for (const turnKey of activeImageGenerationMessageIdByTurnKey.keys()) {
+      if (turnKey.startsWith(prefix)) {
+        activeImageGenerationMessageIdByTurnKey.delete(turnKey);
+      }
+    }
   };
 
   const queueStreamingAssistantDelta = Effect.fn("queueStreamingAssistantDelta")(function* (input: {
@@ -2026,6 +2191,7 @@ const make = Effect.fn("make")(function* () {
         assistantOutputSeenByStreamKey.delete(streamKey);
       }
     }
+    activeImageGenerationMessageIdByTurnKey.delete(imageGenerationTurnKey(threadId, turnId));
   };
 
   const materializeGeneratedImageAttachment = Effect.fn("materializeGeneratedImageAttachment")(
@@ -2615,35 +2781,37 @@ const make = Effect.fn("make")(function* () {
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
       const assistantImageGenerationStart =
-        event.type === "item.started" && isImageGenerationLifecyclePayload(event.payload)
+        event.type === "item.started" && isImageGenerationPlaceholderPayload(event.payload)
           ? {
               messageId: imageGenerationAssistantMessageId(event),
             }
-          : undefined;
+          : event.type === "request.opened" && isImageGenerationToolRequestPayload(event.payload)
+            ? {
+                messageId: imageGenerationRequestAssistantMessageId(event),
+              }
+            : undefined;
 
       if (assistantImageGenerationStart) {
         const turnId = toTurnId(event.turnId);
-        const streamKey = assistantStreamKey(thread.id, turnId, event.itemId);
+        const turnKey = imageGenerationTurnKey(thread.id, turnId);
+        const streamKey = imageGenerationStreamKey(thread.id, turnId);
+        const messageId =
+          activeImageGenerationMessageIdByTurnKey.get(turnKey) ??
+          assistantImageGenerationStart.messageId;
         if (
           !activeAssistantMessageIdByStreamKey.has(streamKey) &&
           !assistantOutputSeenByStreamKey.has(streamKey)
         ) {
-          activeAssistantMessageIdByStreamKey.set(
-            streamKey,
-            assistantImageGenerationStart.messageId,
-          );
+          activeImageGenerationMessageIdByTurnKey.set(turnKey, messageId);
+          activeAssistantMessageIdByStreamKey.set(streamKey, messageId);
           assistantOutputSeenByStreamKey.add(streamKey);
           if (turnId) {
-            yield* rememberAssistantMessageId(
-              thread.id,
-              turnId,
-              assistantImageGenerationStart.messageId,
-            );
+            yield* rememberAssistantMessageId(thread.id, turnId, messageId);
           }
           yield* dispatchAssistantDeltaCommand({
             event,
             threadId: thread.id,
-            messageId: assistantImageGenerationStart.messageId,
+            messageId,
             delta: "",
             ...(turnId ? { turnId } : {}),
             createdAt: now,
@@ -2707,19 +2875,33 @@ const make = Effect.fn("make")(function* () {
       }
 
       const assistantCompletion =
-        event.type === "item.completed" &&
-        (event.payload.itemType === "assistant_message" ||
-          isImageGenerationLifecyclePayload(event.payload))
+        event.type === "item.completed"
           ? (() => {
               const isImageGenerationCompletion = isImageGenerationLifecyclePayload(event.payload);
+              const isStructuredImageGenerationCompletion =
+                isStructuredImageGenerationToolLifecyclePayload(event.payload);
+              const imageDataUrl =
+                isImageGenerationCompletion || isStructuredImageGenerationCompletion
+                  ? extractGeneratedImageDataUrl(event.payload)
+                  : undefined;
+              if (
+                event.payload.itemType !== "assistant_message" &&
+                !isImageGenerationCompletion &&
+                !(isStructuredImageGenerationCompletion && imageDataUrl !== undefined)
+              ) {
+                return undefined;
+              }
+              const isImageOutputCompletion =
+                isImageGenerationCompletion || isStructuredImageGenerationCompletion;
               return {
-                messageId: isImageGenerationCompletion
+                isImageOutputCompletion,
+                messageId: isImageOutputCompletion
                   ? imageGenerationAssistantMessageId(event)
                   : MessageId.makeUnsafe(
                       `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
                     ),
-                fallbackText: isImageGenerationCompletion ? undefined : event.payload.detail,
-                imageDataUrl: extractGeneratedImageDataUrl(event.payload),
+                fallbackText: isImageOutputCompletion ? undefined : event.payload.detail,
+                imageDataUrl,
               };
             })()
           : undefined;
@@ -2734,7 +2916,10 @@ const make = Effect.fn("make")(function* () {
 
       if (assistantCompletion) {
         const turnId = toTurnId(event.turnId);
-        const streamKey = assistantStreamKey(thread.id, turnId, event.itemId);
+        const imageGenerationKey = imageGenerationTurnKey(thread.id, turnId);
+        const streamKey = assistantCompletion.isImageOutputCompletion
+          ? imageGenerationStreamKey(thread.id, turnId)
+          : assistantStreamKey(thread.id, turnId, event.itemId);
         const generatedImageAttachment = assistantCompletion.imageDataUrl
           ? yield* materializeGeneratedImageAttachment({
               threadId: thread.id,
@@ -2743,7 +2928,11 @@ const make = Effect.fn("make")(function* () {
           : undefined;
         const assistantAttachments = generatedImageAttachment ? [generatedImageAttachment] : [];
         yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
-        const activeAssistantMessageId = activeAssistantMessageIdByStreamKey.get(streamKey);
+        const activeAssistantMessageId =
+          activeAssistantMessageIdByStreamKey.get(streamKey) ??
+          (assistantCompletion.isImageOutputCompletion
+            ? activeImageGenerationMessageIdByTurnKey.get(imageGenerationKey)
+            : undefined);
         if (activeAssistantMessageId) {
           yield* finalizeAssistantMessageSegment({
             event,
@@ -2777,6 +2966,9 @@ const make = Effect.fn("make")(function* () {
           });
         }
         assistantOutputSeenByStreamKey.delete(streamKey);
+        if (assistantCompletion.isImageOutputCompletion) {
+          activeImageGenerationMessageIdByTurnKey.delete(imageGenerationKey);
+        }
       }
 
       if (proposedPlanCompletion) {

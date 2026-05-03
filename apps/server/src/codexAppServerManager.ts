@@ -27,7 +27,6 @@ import {
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
 import {
-  CODEX_DEFAULT_MODEL,
   CODEX_SPARK_MODEL,
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
@@ -68,6 +67,13 @@ interface PendingUserInputRequest {
   itemId?: ProviderItemId;
 }
 
+interface CodexDynamicToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly deferLoading?: boolean;
+}
+
 interface CodexRuntimeModelInfo {
   readonly slug: string;
   readonly supportsImageGeneration: boolean;
@@ -90,6 +96,7 @@ interface CodexSessionContext {
   modelsBySlug: Map<string, CodexRuntimeModelInfo>;
   nextRequestId: number;
   stopping: boolean;
+  imageGenerationPreflightEnabled: boolean;
 }
 
 interface JsonRpcError {
@@ -172,15 +179,48 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "missing rollout",
   "rollout not found",
 ];
-const CODEX_IMAGE_GENERATION_MODEL_PREFERENCE = [
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  CODEX_DEFAULT_MODEL,
-  "gpt-5.2",
-] as const;
-const CODEX_IMAGEGEN_SKILL_PROMPT_REGEX = /^\s*(?:\$|\/)imagegen(?:\s|$)/iu;
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME = "image_gen";
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES = new Set([
+  "imagegen",
+  "image gen",
+  "image generation",
+]);
+const CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS = `
+## Image Generation Preflight
 
+When you are about to create or edit a raster image with the native image generation capability, first call the \`${CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME}\` tool exactly once for that image request. This tool only opens Ace's live image placeholder; it does not create the image. After it returns, continue with the native image generation capability and do not treat the preflight tool result as the final answer.
+`.trim();
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL: CodexDynamicToolSpec = {
+  name: CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME,
+  description:
+    "Open Ace's live image-generation placeholder before using the native image generation capability. This tool does not generate an image; call it once immediately before native raster image generation.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      prompt: {
+        type: "string",
+        description: "Brief description of the image that will be generated.",
+      },
+      size: {
+        type: "string",
+        description: "Requested image dimensions, such as 1536x1024 or 1024x1536.",
+      },
+      width: {
+        type: "number",
+        description: "Requested image width in pixels, when known.",
+      },
+      height: {
+        type: "number",
+        description: "Requested image height in pixels, when known.",
+      },
+      aspectRatio: {
+        type: "string",
+        description: "Requested aspect ratio, when known.",
+      },
+    },
+  },
+};
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -339,6 +379,13 @@ The \`request_user_input\` tool is unavailable in Default mode. If you call it w
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 </collaboration_mode>`;
 
+function withCodexImageGenerationPreflightInstructions(instructions: string): string {
+  if (instructions.includes(CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS)) {
+    return instructions;
+  }
+  return `${instructions}\n\n${CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS}`;
+}
+
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: "on-request" | "never";
   readonly sandbox: "workspace-write" | "danger-full-access";
@@ -426,75 +473,11 @@ export function readCodexRuntimeModels(response: unknown): Map<string, CodexRunt
   return models;
 }
 
-function isCodexImageGenerationPrompt(prompt: string | undefined): boolean {
-  return typeof prompt === "string" && CODEX_IMAGEGEN_SKILL_PROMPT_REGEX.test(prompt);
-}
-
-function codexModelSupportsImageGeneration(
-  modelsBySlug: ReadonlyMap<string, CodexRuntimeModelInfo>,
-  model: string | undefined,
-  options: { readonly requireKnownModel?: boolean } = {},
-): boolean {
-  const slug = normalizeCodexModelSlug(model);
-  if (!slug) {
-    return false;
-  }
-
-  const modelInfo = modelsBySlug.get(slug);
-  if (modelInfo) {
-    return modelInfo.supportsImageGeneration;
-  }
-
-  if (options.requireKnownModel) {
-    return false;
-  }
-
-  return slug !== CODEX_SPARK_MODEL;
-}
-
-function resolveCodexImageGenerationModel(input: {
-  readonly requestedModel?: string;
-  readonly account: CodexAccountSnapshot;
-  readonly modelsBySlug: ReadonlyMap<string, CodexRuntimeModelInfo>;
-}): string | undefined {
-  const requestedModel = normalizeCodexModelSlug(input.requestedModel);
-  if (codexModelSupportsImageGeneration(input.modelsBySlug, requestedModel)) {
-    return requestedModel;
-  }
-
-  const preferredCandidates =
-    input.modelsBySlug.size > 0 ? CODEX_IMAGE_GENERATION_MODEL_PREFERENCE : [CODEX_DEFAULT_MODEL];
-  for (const candidate of preferredCandidates) {
-    const model = resolveCodexModelForAccount(candidate, input.account);
-    if (!model) {
-      continue;
-    }
-    if (
-      codexModelSupportsImageGeneration(input.modelsBySlug, model, {
-        requireKnownModel: input.modelsBySlug.size > 0,
-      })
-    ) {
-      return model;
-    }
-  }
-
-  for (const modelInfo of input.modelsBySlug.values()) {
-    const model = resolveCodexModelForAccount(modelInfo.slug, input.account);
-    if (!model) {
-      continue;
-    }
-    if (codexModelSupportsImageGeneration(input.modelsBySlug, model, { requireKnownModel: true })) {
-      return model;
-    }
-  }
-
-  return requestedModel;
-}
-
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly imageGenerationPreflightEnabled?: boolean;
 }):
   | {
       mode: "default" | "plan";
@@ -514,8 +497,13 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
+      developer_instructions: input.imageGenerationPreflightEnabled
+        ? withCodexImageGenerationPreflightInstructions(
+            input.interactionMode === "plan"
+              ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+              : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          )
+        : input.interactionMode === "plan"
           ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
           : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
     },
@@ -652,6 +640,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         modelsBySlug: new Map(),
         nextRequestId: 1,
         stopping: false,
+        imageGenerationPreflightEnabled: false,
       };
 
       this.sessions.set(threadId, context);
@@ -696,6 +685,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const threadStartParams = {
         ...sessionOverrides,
+        developerInstructions: withCodexImageGenerationPreflightInstructions(
+          CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+        ),
+        dynamicTools: [CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL],
         experimentalRawEvents: false,
         persistExtendedHistory: true,
       };
@@ -742,6 +735,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           }
 
           threadOpenMethod = "thread/start";
+          context.imageGenerationPreflightEnabled = true;
           this.emitLifecycleEvent(
             context,
             "session/threadResumeFallback",
@@ -758,6 +752,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
       } else {
         threadOpenMethod = "thread/start";
+        context.imageGenerationPreflightEnabled = true;
         threadOpenResponse = await this.sendRequest(context, "thread/start", threadStartParams);
       }
 
@@ -870,25 +865,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       normalizeCodexModelSlug(input.model ?? context.session.model),
       context.account,
     );
-    let turnModel = requestedModel;
-    if (isCodexImageGenerationPrompt(input.input)) {
-      const imageGenerationModel = resolveCodexImageGenerationModel({
-        account: context.account,
-        modelsBySlug: context.modelsBySlug,
-        ...(requestedModel !== undefined ? { requestedModel } : {}),
-      });
-      if (imageGenerationModel && imageGenerationModel !== requestedModel) {
-        this.emitModelReroutedEvent(
-          context,
-          requestedModel ?? "unknown",
-          imageGenerationModel,
-          "Selected Codex model does not expose image generation.",
-        );
-      }
-      turnModel = imageGenerationModel;
-    }
-    if (turnModel) {
-      turnStartParams.model = turnModel;
+    if (requestedModel) {
+      turnStartParams.model = requestedModel;
     }
     if (input.serviceTier !== undefined) {
       turnStartParams.serviceTier = input.serviceTier;
@@ -898,8 +876,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const collaborationMode = buildCodexCollaborationMode({
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
-      ...(turnModel !== undefined ? { model: turnModel } : {}),
+      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      imageGenerationPreflightEnabled: context.imageGenerationPreflightEnabled,
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
@@ -1442,6 +1421,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
 
+    if (this.isImageGenerationPreflightRequest(request)) {
+      this.writeMessage(context, {
+        id: request.id,
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text:
+                "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.",
+            },
+          ],
+        },
+      });
+      return;
+    }
+
     this.writeMessage(context, {
       id: request.id,
       error: {
@@ -1582,27 +1578,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
   }
 
-  private emitModelReroutedEvent(
-    context: CodexSessionContext,
-    fromModel: string,
-    toModel: string,
-    reason: string,
-  ): void {
-    this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
-      kind: "notification",
-      provider: "codex",
-      threadId: context.session.threadId,
-      createdAt: new Date().toISOString(),
-      method: "model/rerouted",
-      payload: {
-        fromModel,
-        toModel,
-        reason,
-      },
-    });
-  }
-
   private emitEvent(event: ProviderEvent): void {
     this.emit("event", event);
   }
@@ -1637,6 +1612,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     return undefined;
+  }
+
+  private isImageGenerationPreflightRequest(request: JsonRpcRequest): boolean {
+    if (request.method !== "item/tool/call") {
+      return false;
+    }
+
+    const tool = this.readString(request.params, "tool")
+      ?.trim()
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[._/-]/g, " ")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    return tool !== undefined && CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES.has(tool);
   }
 
   private parseThreadSnapshot(method: string, response: unknown): CodexThreadSnapshot {

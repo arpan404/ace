@@ -624,7 +624,7 @@ describe("sendTurn", () => {
     });
   });
 
-  it("reroutes imagegen skill prompts away from Spark to an image-capable Codex model", async () => {
+  it("does not reroute imagegen skill prompts from text heuristics", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
     context.session.model = "gpt-5.3-codex-spark";
     context.modelsBySlug = readCodexRuntimeModels({
@@ -661,18 +661,9 @@ describe("sendTurn", () => {
           text_elements: [],
         },
       ],
-      model: "gpt-5.4",
+      model: "gpt-5.3-codex-spark",
     });
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "model/rerouted",
-        payload: {
-          fromModel: "gpt-5.3-codex-spark",
-          toModel: "gpt-5.4",
-          reason: "Selected Codex model does not expose image generation.",
-        },
-      }),
-    );
+    expect(emitEvent).not.toHaveBeenCalled();
   });
 
   it("keeps Spark for non-imagegen prompts when the account supports it", async () => {
