@@ -4870,14 +4870,12 @@ export default function Sidebar() {
   const sidebarHeaderNavButtonClassName =
     "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-40";
   const sidebarHeaderChrome = (
-    <div ref={sidebarHeaderRowRef} className="flex h-7 min-w-0 items-center gap-2">
-      <div
-        className={cn(
-          "flex min-w-0 flex-1 items-center gap-1.5",
-          isElectron && "pl-[max(0px,calc(var(--desktop-titlebar-left-inset)-0.875rem))]",
-        )}
-      >
-        {sidebarHeaderToggle}
+    <div
+      ref={sidebarHeaderRowRef}
+      className="grid h-7 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"
+    >
+      <div className="flex min-w-0 items-center">{sidebarHeaderToggle}</div>
+      <div className="flex min-w-0 items-center justify-center">
         <div className="min-w-0">{wordmark}</div>
       </div>
       <div className="flex shrink-0 items-center justify-end gap-1.5">
