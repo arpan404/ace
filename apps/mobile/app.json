@@ -20,12 +20,15 @@
       ]
     ],
     "ios": {
+      "bundleIdentifier": "com.ace.mobile",
+      "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow ace Mobile to scan host QR codes and attach photos to agent messages.",
         "NSPhotoLibraryUsageDescription": "Allow ace Mobile to attach saved images to agent messages."
       }
     },
     "android": {
+      "package": "com.ace.mobile",
       "permissions": ["android.permission.CAMERA"]
     }
   }

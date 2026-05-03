@@ -96,13 +96,16 @@ bun --cwd apps/mobile run dev
 
 Mobile app highlights:
 
-- Bottom tabs: **Projects**, **Threads**, **Browser**, **Editor**, **Terminal**
+- Bottom tabs: **Projects**, **Threads**, **Alerts**, **Hosts**, **Settings**
 - Multi-host instances (manual + pairing QR/connection string import) with active-host switching
 - Project dashboard with working/completed/pending agent counts
 
 Default host behavior:
 
-- The app infers your desktop host from Expo runtime and targets `ws://<desktop-host>:3773/ws`
+- `bun dev:mobile` starts the ace server and Expo app together.
+- The dev runner passes the selected server port through `EXPO_PUBLIC_ACE_PORT`.
+- The app infers your desktop host from Expo runtime and targets `ws://<desktop-host>:<port>/ws`.
+- For physical devices, run the host on a reachable interface, for example `bun dev:mobile --host 0.0.0.0`.
 - Override defaults with:
   - `EXPO_PUBLIC_ACE_HOST` (host/IP only)
   - `EXPO_PUBLIC_ACE_PORT` (port)

@@ -1,17 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("react-native", () => ({
-  NativeModules: {},
+const reactNativeMock = vi.hoisted(() => ({
+  NativeModules: {} as { SourceCode?: { scriptURL?: string } },
   Platform: { OS: "ios" },
 }));
+
+vi.mock("react-native", () => reactNativeMock);
 
 vi.mock("./relayDeviceIdentity", () => ({
   loadMobileRelayDeviceIdentity: vi.fn(),
 }));
 
-import { createHostInstance } from "./hostInstances";
+import { createDefaultHostInstance, createHostInstance } from "./hostInstances";
 
 describe("createHostInstance", () => {
+  beforeEach(() => {
+    reactNativeMock.NativeModules.SourceCode = undefined;
+    reactNativeMock.Platform.OS = "ios";
+    delete process.env.EXPO_PUBLIC_ACE_HOST;
+    delete process.env.EXPO_PUBLIC_ACE_PORT;
+    delete process.env.EXPO_PUBLIC_ACE_WS_URL;
+  });
+
   it("normalizes new direct host connection drafts", () => {
     const host = createHostInstance(
       {
@@ -59,5 +69,25 @@ describe("createHostInstance", () => {
       createdAt: "2026-05-01T00:00:00.000Z",
       lastConnectedAt: "2026-05-02T01:00:00.000Z",
     });
+  });
+
+  it("infers the Expo bundle host and dev-runner port for default hosts", () => {
+    reactNativeMock.NativeModules.SourceCode = {
+      scriptURL: "http://192.168.1.24:8081/index.bundle?platform=ios",
+    };
+    process.env.EXPO_PUBLIC_ACE_PORT = "3888";
+
+    const host = createDefaultHostInstance("2026-05-02T00:00:00.000Z");
+
+    expect(host.wsUrl).toBe("ws://192.168.1.24:3888/ws");
+  });
+
+  it("uses platform loopback defaults when Expo host inference is unavailable", () => {
+    const iosHost = createDefaultHostInstance("2026-05-02T00:00:00.000Z");
+    expect(iosHost.wsUrl).toBe("ws://127.0.0.1:3773/ws");
+
+    reactNativeMock.Platform.OS = "android";
+    const androidHost = createDefaultHostInstance("2026-05-02T00:00:00.000Z");
+    expect(androidHost.wsUrl).toBe("ws://10.0.2.2:3773/ws");
   });
 });
