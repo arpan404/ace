@@ -19,11 +19,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "../ui/sidebar";
-import {
-  ThreadStatusLabel,
-  type SidebarThreadRowProps,
-  SidebarThreadRow,
-} from "./SidebarThreadRow";
+import { type SidebarThreadRowProps, SidebarThreadRow } from "./SidebarThreadRow";
 import { type SortableProjectHandleProps } from "./SortableProjectItem";
 import { deriveSidebarLocalProjectRenderState } from "./localProjectRenderState";
 import { useProjectById, useSidebarThreadSummariesByProjectId } from "../../storeSelectors";
@@ -328,9 +324,6 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
                 }}
               >
                 <span className="flex min-w-0 flex-1 items-center gap-2">
-                  {renderState.hiddenThreadStatus ? (
-                    <ThreadStatusLabel status={renderState.hiddenThreadStatus} compact />
-                  ) : null}
                   <span>Show {Math.min(5, renderState.hiddenThreadCount)} more</span>
                 </span>
               </SidebarMenuSubButton>
