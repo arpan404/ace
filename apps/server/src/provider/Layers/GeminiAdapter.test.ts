@@ -12,9 +12,11 @@ vi.mock("../acpClient.ts", async (importOriginal) => {
 });
 
 import {
+  buildGeminiAcpArgAttempts,
   buildGeminiInitializeParams,
   canGeminiSetSessionMode,
   canGeminiSetSessionModel,
+  geminiLaunchApprovalModeForSession,
   GeminiAdapterLive,
   GEMINI_ACP_CLIENT_INFO,
 } from "./GeminiAdapter.ts";
@@ -179,6 +181,34 @@ describe("Gemini ACP capability guards", () => {
   });
 });
 
+describe("Gemini ACP launch args", () => {
+  it("pins Gemini approval mode from Ace runtime mode at process startup", () => {
+    expect(geminiLaunchApprovalModeForSession("full-access")).toBe("yolo");
+    expect(geminiLaunchApprovalModeForSession("approval-required")).toBe("default");
+    expect(geminiLaunchApprovalModeForSession("full-access", "plan")).toBe("plan");
+  });
+
+  it("starts supervised and full-access sessions with explicit Gemini approval modes", () => {
+    expect(buildGeminiAcpArgAttempts("default")).toEqual([
+      ["--acp", "--approval-mode=default"],
+      ["--experimental-acp", "--approval-mode=default"],
+    ]);
+    expect(buildGeminiAcpArgAttempts("yolo")).toEqual([
+      ["--acp", "--approval-mode=yolo"],
+      ["--experimental-acp", "--approval-mode=yolo"],
+    ]);
+  });
+
+  it("falls back to plain ACP startup only for older CLIs without plan launch support", () => {
+    expect(buildGeminiAcpArgAttempts("plan")).toEqual([
+      ["--acp", "--approval-mode=plan"],
+      ["--experimental-acp", "--approval-mode=plan"],
+      ["--acp"],
+      ["--experimental-acp"],
+    ]);
+  });
+});
+
 describe("GeminiAdapterLive startup", () => {
   it("falls back to a fresh Gemini session when the persisted resume cursor no longer exists remotely", async () => {
     const client = makeFakeGeminiClient({
@@ -273,6 +303,13 @@ describe("GeminiAdapterLive approvals", () => {
 
         await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
 
+        expect(mockedStartAcpClient).toHaveBeenCalledWith(
+          expect.objectContaining({
+            args: ["--acp", "--approval-mode=yolo"],
+            cwd: "/repo/gemini-full-access",
+          }),
+        );
+
         const requestHandler = client.getRequestHandler();
         expect(requestHandler).toBeTypeOf("function");
         if (!requestHandler) {
@@ -359,6 +396,13 @@ describe("GeminiAdapterLive approvals", () => {
         );
 
         await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        expect(mockedStartAcpClient).toHaveBeenCalledWith(
+          expect.objectContaining({
+            args: ["--acp", "--approval-mode=default"],
+            cwd: "/repo/gemini-approval-required",
+          }),
+        );
 
         const requestHandler = client.getRequestHandler();
         expect(requestHandler).toBeTypeOf("function");

@@ -972,6 +972,7 @@ const make = Effect.gen(function* () {
     }
 
     const desiredRuntimeMode = thread.runtimeMode;
+    const desiredInteractionMode = thread.interactionMode;
     const currentProvider: ProviderKind | undefined = Schema.is(ProviderKind)(
       thread.session?.providerName,
     )
@@ -1016,6 +1017,7 @@ const make = Effect.gen(function* () {
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
         runtimeMode: desiredRuntimeMode,
+        interactionMode: desiredInteractionMode,
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
