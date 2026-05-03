@@ -17,14 +17,23 @@ export type ComposerPromptSegment =
       issueNumber: number;
     }
   | {
+      type: "provider-command";
+      name: string;
+    }
+  | {
       type: "terminal-context";
       context: TerminalContextDraft | null;
     };
 
 const MENTION_TOKEN_REGEX = /(^|\s)@([^\s@]+)(?=\s)/g;
 export const COMPOSER_ISSUE_REFERENCE_MARKER = "\u2063";
+export const COMPOSER_PROVIDER_COMMAND_MARKER = "\u2064";
 const ISSUE_REFERENCE_TOKEN_REGEX = new RegExp(
   `(^|(?:\\s|,|\\(|\\[|\\{))#(\\d+)${COMPOSER_ISSUE_REFERENCE_MARKER}(?=$|(?:\\s|,|\\.|;|:|!|\\?|\\)|\\]|\\}))`,
+  "g",
+);
+const PROVIDER_COMMAND_TOKEN_REGEX = new RegExp(
+  `(^|\\s)/([^\\s${COMPOSER_PROVIDER_COMMAND_MARKER}]+)${COMPOSER_PROVIDER_COMMAND_MARKER}(?=$|\\s)`,
   "g",
 );
 
@@ -32,8 +41,21 @@ export function createMarkedIssueReferenceToken(issueNumber: number): string {
   return `#${issueNumber}${COMPOSER_ISSUE_REFERENCE_MARKER}`;
 }
 
+export function createMarkedProviderCommandToken(name: string): string {
+  const normalizedName = name.trim().replace(/^[/@$]+/, "");
+  return `/${normalizedName}${COMPOSER_PROVIDER_COMMAND_MARKER}`;
+}
+
 export function stripIssueReferenceMarkers(text: string): string {
   return text.replaceAll(COMPOSER_ISSUE_REFERENCE_MARKER, "");
+}
+
+export function stripProviderCommandMarkers(text: string): string {
+  return text.replaceAll(COMPOSER_PROVIDER_COMMAND_MARKER, "");
+}
+
+export function stripComposerInlineMarkers(text: string): string {
+  return stripProviderCommandMarkers(stripIssueReferenceMarkers(text));
 }
 
 function pushTextSegment(segments: ComposerPromptSegment[], text: string): void {
@@ -78,6 +100,41 @@ function appendMentionSegments(segments: ComposerPromptSegment[], text: string):
   }
 }
 
+function appendProviderCommandSegments(segments: ComposerPromptSegment[], text: string): void {
+  if (!text) {
+    return;
+  }
+  let cursor = 0;
+  PROVIDER_COMMAND_TOKEN_REGEX.lastIndex = 0;
+  for (const match of text.matchAll(PROVIDER_COMMAND_TOKEN_REGEX)) {
+    const fullMatch = match[0];
+    const prefixText = match[1] ?? "";
+    const commandName = match[2] ?? "";
+    const matchIndex = match.index ?? 0;
+    const commandStart = matchIndex + prefixText.length;
+    const commandEnd = commandStart + fullMatch.length - prefixText.length;
+
+    if (commandStart > cursor) {
+      appendMentionSegments(segments, text.slice(cursor, commandStart));
+    }
+
+    if (commandName.length > 0) {
+      segments.push({
+        type: "provider-command",
+        name: commandName,
+      });
+    } else {
+      appendMentionSegments(segments, text.slice(commandStart, commandEnd));
+    }
+
+    cursor = commandEnd;
+  }
+
+  if (cursor < text.length) {
+    appendMentionSegments(segments, text.slice(cursor));
+  }
+}
+
 function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegment[] {
   const segments: ComposerPromptSegment[] = [];
   if (!text) {
@@ -95,21 +152,21 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
     const issueEnd = issueStart + fullMatch.length - prefix.length;
 
     if (issueStart > cursor) {
-      appendMentionSegments(segments, text.slice(cursor, issueStart));
+      appendProviderCommandSegments(segments, text.slice(cursor, issueStart));
     }
 
     const issueNumber = Number.parseInt(issueNumberText, 10);
     if (Number.isInteger(issueNumber) && issueNumber > 0) {
       segments.push({ type: "issue-reference", issueNumber });
     } else {
-      appendMentionSegments(segments, text.slice(issueStart, issueEnd));
+      appendProviderCommandSegments(segments, text.slice(issueStart, issueEnd));
     }
 
     cursor = issueEnd;
   }
 
   if (cursor < text.length) {
-    appendMentionSegments(segments, text.slice(cursor));
+    appendProviderCommandSegments(segments, text.slice(cursor));
   }
 
   return segments;

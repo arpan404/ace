@@ -1,4 +1,5 @@
 import {
+  COMPOSER_PROVIDER_COMMAND_MARKER,
   splitPromptIntoComposerSegments,
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
@@ -48,6 +49,9 @@ function expandedSegmentLength(segment: ComposerPromptSegment): number {
   }
   if (segment.type === "issue-reference") {
     return String(segment.issueNumber).length + 1;
+  }
+  if (segment.type === "provider-command") {
+    return segment.name.length + 1;
   }
   return 1;
 }
@@ -189,9 +193,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     const characterBeforeSlash = commandStart > 0 ? text[commandStart - 1] : "";
     const slashStartsToken = commandStart === 0 || isWhitespace(characterBeforeSlash ?? "");
     const commandText = linePrefix.slice(slashIndex);
-    if (!slashStartsToken) {
-      // Ignore slashes embedded in existing tokens (e.g. urls/paths).
-    } else {
+    if (slashStartsToken && !commandText.includes(COMPOSER_PROVIDER_COMMAND_MARKER)) {
       const commandMatch = /^\/(\S*)$/.exec(commandText);
       if (commandMatch) {
         const commandQuery = commandMatch[1] ?? "";
@@ -250,13 +252,20 @@ export function parseStandaloneComposerSlashCommand(
 }
 
 function normalizeSlashCommandName(value: string): string {
-  return value.trim().replace(/^\/+/, "").toLowerCase();
+  return value
+    .trim()
+    .replace(/^[/@$]+/, "")
+    .toLowerCase();
 }
 
 export function parseProviderComposerSlashCommand(
   text: string,
-  providerCommands: ReadonlyArray<{ readonly name: string }>,
-): { commandName: string; args: string } | null {
+  providerCommands: ReadonlyArray<{
+    readonly name: string;
+    readonly promptPrefix?: string | undefined;
+    readonly kind?: "provider" | "skill" | "plugin" | undefined;
+  }>,
+): { commandName: string; args: string; promptText: string } | null {
   const match = /^\/(\S+)(?:\s+([\s\S]*))?$/i.exec(text.trim());
   if (!match) {
     return null;
@@ -271,9 +280,12 @@ export function parseProviderComposerSlashCommand(
   if (!command) {
     return null;
   }
+  const args = (match[2] ?? "").trim();
+  const promptPrefix = command.promptPrefix?.trim() || `/${command.name}`;
   return {
     commandName: command.name,
-    args: (match[2] ?? "").trim(),
+    args,
+    promptText: args ? `${promptPrefix} ${args}` : promptPrefix,
   };
 }
 

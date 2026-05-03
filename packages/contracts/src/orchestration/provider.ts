@@ -106,6 +106,8 @@ export const ProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   inputHint: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(Schema.Literals(["provider", "skill", "plugin"])),
+  promptPrefix: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProviderSlashCommand = typeof ProviderSlashCommand.Type;
 

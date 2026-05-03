@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMarkedIssueReferenceToken,
+  createMarkedProviderCommandToken,
   extractIssueReferenceNumbers,
   splitPromptIntoComposerSegments,
+  stripComposerInlineMarkers,
   stripIssueReferenceMarkers,
+  stripProviderCommandMarkers,
 } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
@@ -90,6 +93,29 @@ describe("splitPromptIntoComposerSegments", () => {
       { type: "text", text: " please" },
     ]);
   });
+
+  it("splits selected provider command tokens", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        `${createMarkedProviderCommandToken("frontend-design")} make the UI better`,
+      ),
+    ).toEqual([
+      { type: "provider-command", name: "frontend-design" },
+      { type: "text", text: " make the UI better" },
+    ]);
+  });
+
+  it("splits selected plugin tokens invoked with slash", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        `Use ${createMarkedProviderCommandToken("browser-use")} for this`,
+      ),
+    ).toEqual([
+      { type: "text", text: "Use " },
+      { type: "provider-command", name: "browser-use" },
+      { type: "text", text: " for this" },
+    ]);
+  });
 });
 
 describe("extractIssueReferenceNumbers", () => {
@@ -111,5 +137,13 @@ describe("extractIssueReferenceNumbers", () => {
         `Fix ${createMarkedIssueReferenceToken(351)} and ${createMarkedIssueReferenceToken(42)}`,
       ),
     ).toBe("Fix #351 and #42");
+  });
+
+  it("strips provider command markers from prompt text", () => {
+    const prompt = `${createMarkedProviderCommandToken("frontend-design")} and ${createMarkedProviderCommandToken("browser-use")}`;
+    expect(stripProviderCommandMarkers(prompt)).toBe("/frontend-design and /browser-use");
+    expect(stripComposerInlineMarkers(`${prompt} ${createMarkedIssueReferenceToken(351)}`)).toBe(
+      "/frontend-design and /browser-use #351",
+    );
   });
 });

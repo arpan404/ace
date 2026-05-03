@@ -37,6 +37,7 @@ import {
   asArrayOrEmpty as asArray,
   asNonEmptyString as asString,
   asObject,
+  asReadonlyArray,
   asRoundedNonNegativeInt,
 } from "../unknown.ts";
 import {
@@ -736,8 +737,20 @@ function normalizeSessionModels(value: unknown): {
   return currentModelId ? { availableModels, currentModelId } : { availableModels };
 }
 
+function readAvailableCommandEntries(value: unknown): ReadonlyArray<unknown> | null {
+  const valueRecord = asObject(value);
+  return (
+    asReadonlyArray(value) ??
+    asReadonlyArray(valueRecord?.commands) ??
+    asReadonlyArray(valueRecord?.availableCommands) ??
+    asReadonlyArray(valueRecord?.available_commands) ??
+    null
+  );
+}
+
 function normalizeAvailableCommands(value: unknown): ReadonlyArray<GeminiAvailableCommand> {
-  return asArray(value)
+  const commands = readAvailableCommandEntries(value) ?? [];
+  return commands
     .map((entry) => {
       const command = asObject(entry);
       const name = asString(command?.name);
@@ -808,11 +821,13 @@ function updateMetadataFromSessionResult(
   const record = asObject(result);
   const modes = normalizeSessionModes(record?.modes);
   const models = normalizeSessionModels(record?.models);
+  const availableCommandEntries = readAvailableCommandEntries(record?.availableCommands);
   return {
     ...metadata,
-    availableCommands: Array.isArray(record?.availableCommands)
-      ? normalizeAvailableCommands(record.availableCommands)
-      : metadata.availableCommands,
+    availableCommands:
+      availableCommandEntries !== null
+        ? normalizeAvailableCommands(availableCommandEntries)
+        : metadata.availableCommands,
     availableModes: modes.availableModes,
     ...(modes.currentModeId ? { currentModeId: modes.currentModeId } : {}),
     availableModels: models.availableModels,

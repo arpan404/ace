@@ -17,6 +17,11 @@ import {
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
+import {
+  mergeProviderSlashCommands,
+  normalizeProviderSlashCommandName,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -42,24 +47,23 @@ function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function normalizeSlashCommandName(value: string): string | null {
-  const trimmed = value.trim().replace(/^\/+/, "");
-  if (!trimmed || /\s/.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-}
-
 function normalizeProviderSlashCommands(
   value: unknown,
 ): ReadonlyArray<ProviderSlashCommand> | null {
-  if (!Array.isArray(value)) {
+  const commandEntries = Array.isArray(value)
+    ? value
+    : (asRecord(value)?.commands ??
+      asRecord(value)?.availableCommands ??
+      asRecord(value)?.available_commands ??
+      asRecord(value)?.slash_commands ??
+      asRecord(value)?.slashCommands);
+  if (!Array.isArray(commandEntries)) {
     return null;
   }
 
   const seenNames = new Set<string>();
   const commands: ProviderSlashCommand[] = [];
-  for (const entry of value) {
+  for (const entry of commandEntries) {
     const record = asRecord(entry);
     const rawName =
       typeof entry === "string"
@@ -70,7 +74,7 @@ function normalizeProviderSlashCommands(
     if (!rawName) {
       continue;
     }
-    const name = normalizeSlashCommandName(rawName);
+    const name = normalizeProviderSlashCommandName(rawName);
     if (!name) {
       continue;
     }
@@ -86,10 +90,22 @@ function normalizeProviderSlashCommands(
       asNonEmptyString(input?.hint) ??
       asNonEmptyString(record?.inputHint) ??
       asNonEmptyString(record?.argumentHint);
+    const rawKind =
+      asNonEmptyString(record?.kind) ??
+      asNonEmptyString(record?.source) ??
+      asNonEmptyString(record?.type);
+    const kind =
+      rawKind === "skill" || rawKind === "plugin" || rawKind === "provider" ? rawKind : undefined;
+    const promptPrefix =
+      asNonEmptyString(record?.promptPrefix) ??
+      asNonEmptyString(record?.prompt_prefix) ??
+      asNonEmptyString(record?.replacementPrefix);
     commands.push({
       name,
       ...(description ? { description } : {}),
       ...(inputHint ? { inputHint } : {}),
+      ...(kind ? { kind } : {}),
+      ...(promptPrefix ? { promptPrefix } : {}),
     });
   }
 
@@ -107,11 +123,20 @@ function providerSlashCommandsFromSessionConfigured(
     return null;
   }
 
-  return (
+  const providerCommands =
     normalizeProviderSlashCommands(config.availableCommands) ??
     normalizeProviderSlashCommands(config.available_commands) ??
     normalizeProviderSlashCommands(config.slash_commands) ??
-    normalizeProviderSlashCommands(config.slashCommands)
+    normalizeProviderSlashCommands(config.slashCommands) ??
+    normalizeProviderSlashCommands(config.commands);
+
+  if (providerCommands === null) {
+    return null;
+  }
+
+  return mergeProviderSlashCommands(
+    providerCommands,
+    providerFallbackSlashCommands(event.provider),
   );
 }
 
