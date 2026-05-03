@@ -121,14 +121,14 @@ const RawGitHubPullRequestSchema = Schema.Struct({
   headRepository: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
-        nameWithOwner: Schema.String,
+        nameWithOwner: Schema.optional(Schema.NullOr(Schema.String)),
       }),
     ),
   ),
   headRepositoryOwner: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
-        login: Schema.String,
+        login: Schema.optional(Schema.NullOr(Schema.String)),
       }),
     ),
   ),
@@ -220,9 +220,9 @@ const RawGitHubIssueThreadSchema = Schema.Struct({
 function normalizePullRequestSummary(
   raw: Schema.Schema.Type<typeof RawGitHubPullRequestSchema>,
 ): GitHubPullRequestSummary {
-  const headRepositoryNameWithOwner = raw.headRepository?.nameWithOwner ?? null;
+  const headRepositoryNameWithOwner = raw.headRepository?.nameWithOwner?.trim() || null;
   const headRepositoryOwnerLogin =
-    raw.headRepositoryOwner?.login ??
+    raw.headRepositoryOwner?.login?.trim() ||
     (typeof headRepositoryNameWithOwner === "string" && headRepositoryNameWithOwner.includes("/")
       ? (headRepositoryNameWithOwner.split("/")[0] ?? null)
       : null);
