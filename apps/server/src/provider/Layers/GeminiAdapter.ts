@@ -82,6 +82,35 @@ export function canGeminiSetSessionModel(metadata: Pick<GeminiSessionMetadata, "
   return metadata.availableModels.length > 0;
 }
 
+type GeminiLaunchApprovalMode = "default" | "yolo" | "plan";
+
+export function geminiLaunchApprovalModeForSession(
+  runtimeMode: ProviderSession["runtimeMode"],
+  interactionMode?: ProviderSendTurnInput["interactionMode"],
+): GeminiLaunchApprovalMode {
+  if (interactionMode === "plan") {
+    return "plan";
+  }
+  return isFullAccessRuntimeMode(runtimeMode) ? "yolo" : "default";
+}
+
+export function buildGeminiAcpArgAttempts(
+  approvalMode: GeminiLaunchApprovalMode,
+): ReadonlyArray<ReadonlyArray<string>> {
+  const modeArg = `--approval-mode=${approvalMode}`;
+  const acpFlagAttempts: ReadonlyArray<ReadonlyArray<string>> = [["--acp"], ["--experimental-acp"]];
+  const withApprovalMode = acpFlagAttempts.map((args) => [...args, modeArg] as const);
+
+  if (approvalMode !== "plan") {
+    return withApprovalMode;
+  }
+
+  // Older Gemini CLI builds reject `--approval-mode=plan`. Fall back to plain
+  // ACP startup so we can still use `session/set_mode` when the ACP server
+  // advertises Plan Mode after initialization.
+  return [...withApprovalMode, ...acpFlagAttempts];
+}
+
 function shouldAutoResolveGeminiPermission(runtimeMode: ProviderSession["runtimeMode"]): boolean {
   return isFullAccessRuntimeMode(runtimeMode);
 }
@@ -1807,10 +1836,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
   const startInitializedGeminiClient = async (
     binaryPath: string,
     cwd: string,
+    approvalMode: GeminiLaunchApprovalMode,
   ): Promise<{ readonly client: AcpClient; readonly metadata: GeminiSessionMetadata }> => {
     const initializeParams = buildGeminiInitializeParams();
 
-    const attempts: ReadonlyArray<ReadonlyArray<string>> = [["--acp"], ["--experimental-acp"]];
+    const attempts = buildGeminiAcpArgAttempts(approvalMode);
     let lastError: unknown = undefined;
     for (const args of attempts) {
       const client = startAcpClient({
@@ -2017,6 +2047,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         const { client, metadata: initializedMetadata } = await startInitializedGeminiClient(
           settings.providers.gemini.binaryPath,
           cwd,
+          geminiLaunchApprovalModeForSession(input.runtimeMode, input.interactionMode),
         );
 
         let contextRef: GeminiSessionContext | null = null;
@@ -2127,7 +2158,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
 
           await syncGeminiSessionState(context, {
             runtimeMode: input.runtimeMode,
-            interactionMode: undefined,
+            interactionMode: input.interactionMode,
             modelSelection: input.modelSelection,
           });
 
