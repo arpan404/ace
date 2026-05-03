@@ -95,7 +95,7 @@ import {
   getProviderSummary,
   getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
-import { useServerProviders } from "../../rpc/serverState";
+import { applyProvidersUpdated, useServerProviders } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
   {
@@ -303,6 +303,8 @@ const PROVIDER_STATUS_STYLES = {
     dot: "bg-warning",
   },
 } as const;
+
+const ONE_CLICK_UPGRADE_PROVIDERS = new Set<ProviderKind>(["codex", "gemini"]);
 
 function AboutVersionTitle() {
   return (
@@ -811,6 +813,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [upgradingProvider, setUpgradingProvider] = useState<ProviderKind | null>(null);
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
@@ -856,6 +859,40 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         setIsRefreshingProviders(false);
       });
   }, []);
+  const upgradeProviderCli = useCallback(
+    (provider: ProviderKind) => {
+      if (upgradingProvider !== null) return;
+      setUpgradingProvider(provider);
+      const providerLabel =
+        PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
+      const toastId = toastManager.add({
+        type: "loading",
+        title: `Upgrading ${providerLabel}`,
+        description: "Installing the latest CLI version.",
+      });
+      void ensureNativeApi()
+        .server.upgradeProviderCli({ provider })
+        .then((payload) => {
+          applyProvidersUpdated(payload);
+          toastManager.update(toastId, {
+            type: "success",
+            title: `${providerLabel} upgraded`,
+            description: "Provider status was refreshed.",
+          });
+        })
+        .catch((error: unknown) => {
+          toastManager.update(toastId, {
+            type: "error",
+            title: `Unable to upgrade ${providerLabel}`,
+            description: getErrorMessage(error, "CLI upgrade failed."),
+          });
+        })
+        .finally(() => {
+          setUpgradingProvider(null);
+        });
+    },
+    [upgradingProvider],
+  );
   const canOpenNotificationSystemSettings = useMemo(
     () => isElectron && resolveNotificationSettingsUrl() !== null,
     [],
@@ -1244,6 +1281,9 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       title: providerSettings.title,
       binaryPlaceholder: providerSettings.binaryPlaceholder,
       binaryDescription: providerSettings.binaryDescription,
+      canUpgradeCli:
+        liveProvider?.versionStatus === "upgrade-required" &&
+        ONE_CLICK_UPGRADE_PROVIDERS.has(providerSettings.provider),
       homePathKey: providerSettings.homePathKey,
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,
@@ -2891,6 +2931,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             customModelErrorByProvider={customModelErrorByProvider}
             customModelInputByProvider={customModelInputByProvider}
             isRefreshingProviders={isRefreshingProviders}
+            isUpgradingProvider={(provider) => upgradingProvider === provider}
             lastCheckedAt={lastCheckedAt}
             modelListRefs={modelListRefs}
             openProviderDetails={openProviderDetails}
@@ -2902,6 +2943,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             setOpenProviderDetails={setOpenProviderDetails}
             settings={settings}
             textGenProvider={textGenProvider}
+            upgradeProviderCli={upgradeProviderCli}
             updateSettings={updateSettings}
           />
         </>

@@ -40,6 +40,7 @@ export interface ProviderCard {
   title: string;
   binaryPlaceholder: string;
   binaryDescription: ReactNode;
+  canUpgradeCli: boolean;
   cliUrlPlaceholder?: string | undefined;
   cliUrlDescription?: ReactNode | undefined;
   homePathKey?: "codexHomePath" | undefined;
@@ -76,6 +77,7 @@ export function ProviderSettingsSection({
   customModelErrorByProvider,
   customModelInputByProvider,
   isRefreshingProviders,
+  isUpgradingProvider,
   lastCheckedAt,
   modelListRefs,
   openProviderDetails,
@@ -87,6 +89,7 @@ export function ProviderSettingsSection({
   setOpenProviderDetails,
   settings,
   textGenProvider,
+  upgradeProviderCli,
   updateSettings,
 }: {
   addCustomModel: (provider: ProviderKind) => void;
@@ -94,6 +97,7 @@ export function ProviderSettingsSection({
   customModelErrorByProvider: Partial<Record<ProviderKind, string | null>>;
   customModelInputByProvider: Record<ProviderKind, string>;
   isRefreshingProviders: boolean;
+  isUpgradingProvider: (provider: ProviderKind) => boolean;
   lastCheckedAt: string | null;
   modelListRefs: MutableRefObject<Partial<Record<ProviderKind, HTMLDivElement | null>>>;
   openProviderDetails: Record<ProviderKind, boolean>;
@@ -107,6 +111,7 @@ export function ProviderSettingsSection({
   setOpenProviderDetails: Dispatch<SetStateAction<Record<ProviderKind, boolean>>>;
   settings: UnifiedSettings;
   textGenProvider: ProviderKind;
+  upgradeProviderCli: (provider: ProviderKind) => void;
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
   return (
@@ -145,6 +150,7 @@ export function ProviderSettingsSection({
         const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
         const providerDisplayName =
           PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
+        const isUpgrading = isUpgradingProvider(providerCard.provider);
 
         return (
           <div key={providerCard.provider} className="border-t border-border/45 first:border-t-0">
@@ -190,6 +196,30 @@ export function ProviderSettingsSection({
                   </p>
                 </div>
                 <div className="flex w-full shrink-0 items-center gap-2 md:w-auto md:justify-end">
+                  {providerCard.canUpgradeCli ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
+                            disabled={isUpgrading}
+                            onClick={() => upgradeProviderCli(providerCard.provider)}
+                            aria-label={`Upgrade ${providerDisplayName} CLI`}
+                          >
+                            {isUpgrading ? (
+                              <LoaderIcon className="size-3 animate-spin" />
+                            ) : (
+                              <RefreshCwIcon className="size-3" />
+                            )}
+                            {isUpgrading ? "Upgrading" : "Upgrade"}
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup side="top">Upgrade {providerDisplayName} CLI</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <Button
                     size="sm"
                     variant="ghost"

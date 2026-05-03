@@ -1069,8 +1069,7 @@ const make = Effect.gen(function* () {
         options?.preferFreshSession === true &&
         sessionModelSwitch === "restart-session" &&
         thread.session?.activeTurnId === null;
-      const shouldRestartMissingLiveSession =
-        options?.preferFreshSession === true && activeSession === undefined;
+      const shouldRestartMissingLiveSession = activeSession === undefined;
 
       if (
         !runtimeModeChanged &&

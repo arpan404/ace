@@ -462,6 +462,41 @@ describe("ProviderModelPicker", () => {
     }
   });
 
+  it("keeps upgrade-needed providers selectable", async () => {
+    const outdatedProviders: ReadonlyArray<ServerProvider> = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex"
+        ? {
+            ...provider,
+            version: "0.12.0",
+            minimumVersion: "0.37.0",
+            versionStatus: "upgrade-required",
+            status: "warning",
+            message:
+              "Upgrade needed: Codex CLI v0.12.0 is below ace's minimum supported version v0.37.0. Upgrade Codex CLI and restart ace.",
+          }
+        : provider,
+    );
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+      providers: outdatedProviders,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("menuitem", { name: "Codex" }).hover();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("GPT-5 Codex");
+        expect(text).not.toContain("Unavailable");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("groups OpenCode models by provider and filters via the top search field", async () => {
     const mounted = await mountPicker({
       provider: "opencode",
