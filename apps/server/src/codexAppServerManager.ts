@@ -27,6 +27,8 @@ import {
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
 import {
+  CODEX_DEFAULT_MODEL,
+  CODEX_SPARK_MODEL,
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
   type CodexAccountSnapshot,
@@ -66,6 +68,12 @@ interface PendingUserInputRequest {
   itemId?: ProviderItemId;
 }
 
+interface CodexRuntimeModelInfo {
+  readonly slug: string;
+  readonly supportsImageGeneration: boolean;
+  readonly isDefault: boolean;
+}
+
 interface CodexUserInputAnswer {
   answers: string[];
 }
@@ -79,6 +87,7 @@ interface CodexSessionContext {
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
+  modelsBySlug: Map<string, CodexRuntimeModelInfo>;
   nextRequestId: number;
   stopping: boolean;
 }
@@ -163,6 +172,33 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "missing rollout",
   "rollout not found",
 ];
+const CODEX_IMAGE_GENERATION_MODEL_PREFERENCE = [
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  CODEX_DEFAULT_MODEL,
+  "gpt-5.2",
+] as const;
+const CODEX_IMAGEGEN_SKILL_PROMPT_REGEX = /^\s*(?:\$|\/)imagegen(?:\s|$)/iu;
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asStringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asBooleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asUnknownArray(value: unknown): ReadonlyArray<unknown> | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
 
 function messageFromUnknownError(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -345,6 +381,116 @@ export function normalizeCodexModelSlug(
   return normalized;
 }
 
+export function readCodexRuntimeModels(response: unknown): Map<string, CodexRuntimeModelInfo> {
+  const record = asRecord(response);
+  const entries =
+    asUnknownArray(response) ??
+    asUnknownArray(record?.data) ??
+    asUnknownArray(record?.models) ??
+    asUnknownArray(record?.items) ??
+    [];
+  const models = new Map<string, CodexRuntimeModelInfo>();
+
+  for (const entry of entries) {
+    const model = asRecord(entry);
+    if (!model) {
+      continue;
+    }
+
+    const id = asStringValue(model.id);
+    const modelName = asStringValue(model.model);
+    const slug = normalizeCodexModelSlug(id ?? modelName, id);
+    if (!slug) {
+      continue;
+    }
+
+    const inputModalities =
+      asUnknownArray(model.inputModalities) ?? asUnknownArray(model.input_modalities) ?? [];
+    const imageGenerationCapability =
+      asBooleanValue(model.imageGeneration) ??
+      asBooleanValue(model.supportsImageGeneration) ??
+      asBooleanValue(asRecord(model.capabilities)?.imageGeneration);
+    const supportsImageGeneration =
+      inputModalities.length > 0 || imageGenerationCapability !== undefined
+        ? inputModalities.some((modality) => asStringValue(modality)?.toLowerCase() === "image") ||
+          imageGenerationCapability === true
+        : slug !== CODEX_SPARK_MODEL;
+
+    models.set(slug, {
+      slug,
+      supportsImageGeneration,
+      isDefault: asBooleanValue(model.isDefault) === true,
+    });
+  }
+
+  return models;
+}
+
+function isCodexImageGenerationPrompt(prompt: string | undefined): boolean {
+  return typeof prompt === "string" && CODEX_IMAGEGEN_SKILL_PROMPT_REGEX.test(prompt);
+}
+
+function codexModelSupportsImageGeneration(
+  modelsBySlug: ReadonlyMap<string, CodexRuntimeModelInfo>,
+  model: string | undefined,
+  options: { readonly requireKnownModel?: boolean } = {},
+): boolean {
+  const slug = normalizeCodexModelSlug(model);
+  if (!slug) {
+    return false;
+  }
+
+  const modelInfo = modelsBySlug.get(slug);
+  if (modelInfo) {
+    return modelInfo.supportsImageGeneration;
+  }
+
+  if (options.requireKnownModel) {
+    return false;
+  }
+
+  return slug !== CODEX_SPARK_MODEL;
+}
+
+function resolveCodexImageGenerationModel(input: {
+  readonly requestedModel?: string;
+  readonly account: CodexAccountSnapshot;
+  readonly modelsBySlug: ReadonlyMap<string, CodexRuntimeModelInfo>;
+}): string | undefined {
+  const requestedModel = normalizeCodexModelSlug(input.requestedModel);
+  if (codexModelSupportsImageGeneration(input.modelsBySlug, requestedModel)) {
+    return requestedModel;
+  }
+
+  const preferredCandidates =
+    input.modelsBySlug.size > 0 ? CODEX_IMAGE_GENERATION_MODEL_PREFERENCE : [CODEX_DEFAULT_MODEL];
+  for (const candidate of preferredCandidates) {
+    const model = resolveCodexModelForAccount(candidate, input.account);
+    if (!model) {
+      continue;
+    }
+    if (
+      codexModelSupportsImageGeneration(input.modelsBySlug, model, {
+        requireKnownModel: input.modelsBySlug.size > 0,
+      })
+    ) {
+      return model;
+    }
+  }
+
+  for (const modelInfo of input.modelsBySlug.values()) {
+    const model = resolveCodexModelForAccount(modelInfo.slug, input.account);
+    if (!model) {
+      continue;
+    }
+    if (codexModelSupportsImageGeneration(input.modelsBySlug, model, { requireKnownModel: true })) {
+      return model;
+    }
+  }
+
+  return requestedModel;
+}
+
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
@@ -503,6 +649,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
+        modelsBySlug: new Map(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -516,7 +663,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       this.writeMessage(context, { method: "initialized" });
       try {
-        await this.sendRequest(context, "model/list", {});
+        const modelListResponse = await this.sendRequest(context, "model/list", {});
+        context.modelsBySlug = readCodexRuntimeModels(modelListResponse);
       } catch (error) {
         this.emitLifecycleEvent(
           context,
@@ -549,6 +697,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const threadStartParams = {
         ...sessionOverrides,
         experimentalRawEvents: false,
+        persistExtendedHistory: true,
       };
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
@@ -717,12 +866,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: providerThreadId,
       input: turnInput,
     };
-    const normalizedModel = resolveCodexModelForAccount(
+    const requestedModel = resolveCodexModelForAccount(
       normalizeCodexModelSlug(input.model ?? context.session.model),
       context.account,
     );
-    if (normalizedModel) {
-      turnStartParams.model = normalizedModel;
+    let turnModel = requestedModel;
+    if (isCodexImageGenerationPrompt(input.input)) {
+      const imageGenerationModel = resolveCodexImageGenerationModel({
+        account: context.account,
+        modelsBySlug: context.modelsBySlug,
+        ...(requestedModel !== undefined ? { requestedModel } : {}),
+      });
+      if (imageGenerationModel && imageGenerationModel !== requestedModel) {
+        this.emitModelReroutedEvent(
+          context,
+          requestedModel ?? "unknown",
+          imageGenerationModel,
+          "Selected Codex model does not expose image generation.",
+        );
+      }
+      turnModel = imageGenerationModel;
+    }
+    if (turnModel) {
+      turnStartParams.model = turnModel;
     }
     if (input.serviceTier !== undefined) {
       turnStartParams.serviceTier = input.serviceTier;
@@ -732,7 +898,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const collaborationMode = buildCodexCollaborationMode({
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
-      ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
+      ...(turnModel !== undefined ? { model: turnModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
     });
     if (collaborationMode) {
@@ -1413,6 +1579,27 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       createdAt: new Date().toISOString(),
       method,
       message,
+    });
+  }
+
+  private emitModelReroutedEvent(
+    context: CodexSessionContext,
+    fromModel: string,
+    toModel: string,
+    reason: string,
+  ): void {
+    this.emitEvent({
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: "codex",
+      threadId: context.session.threadId,
+      createdAt: new Date().toISOString(),
+      method: "model/rerouted",
+      payload: {
+        fromModel,
+        toModel,
+        reason,
+      },
     });
   }
 

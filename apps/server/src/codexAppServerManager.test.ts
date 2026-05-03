@@ -14,6 +14,7 @@ import {
   isRecoverableThreadResumeError,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
+  readCodexRuntimeModels,
   resolveCodexModelForAccount,
 } from "./codexAppServerManager";
 
@@ -40,6 +41,7 @@ function createSendTurnHarness() {
       sparkEnabled: true,
     },
     collabReceiverTurns: new Map(),
+    modelsBySlug: new Map(),
   };
 
   const requireSession = vi
@@ -260,6 +262,38 @@ describe("normalizeCodexModelSlug", () => {
   it("keeps non-aliased models as-is", () => {
     expect(normalizeCodexModelSlug("gpt-5.2-codex")).toBe("gpt-5.2-codex");
     expect(normalizeCodexModelSlug("gpt-5.2")).toBe("gpt-5.2");
+  });
+});
+
+describe("readCodexRuntimeModels", () => {
+  it("reads image generation support from model/list responses", () => {
+    const models = readCodexRuntimeModels({
+      data: [
+        {
+          id: "gpt-5.3-codex-spark",
+          model: "gpt-5.3-codex-spark",
+          inputModalities: ["text"],
+          isDefault: false,
+        },
+        {
+          id: "gpt-5.4",
+          model: "gpt-5.4",
+          inputModalities: ["text", "image"],
+          isDefault: true,
+        },
+      ],
+    });
+
+    expect(models.get("gpt-5.3-codex-spark")).toEqual({
+      slug: "gpt-5.3-codex-spark",
+      supportsImageGeneration: false,
+      isDefault: false,
+    });
+    expect(models.get("gpt-5.4")).toEqual({
+      slug: "gpt-5.4",
+      supportsImageGeneration: true,
+      isDefault: true,
+    });
   });
 });
 
@@ -587,6 +621,91 @@ describe("sendTurn", () => {
         },
       ],
       model: "gpt-5.3-codex",
+    });
+  });
+
+  it("reroutes imagegen skill prompts away from Spark to an image-capable Codex model", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.session.model = "gpt-5.3-codex-spark";
+    context.modelsBySlug = readCodexRuntimeModels({
+      data: [
+        {
+          id: "gpt-5.3-codex-spark",
+          inputModalities: ["text"],
+        },
+        {
+          id: "gpt-5.4",
+          inputModalities: ["text", "image"],
+        },
+        {
+          id: "gpt-5.3-codex",
+          inputModalities: ["text", "image"],
+        },
+      ],
+    });
+    const emitEvent = vi
+      .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+      .mockImplementation(() => {});
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "$imagegen generate a UI mockup",
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
+      threadId: "thread_1",
+      input: [
+        {
+          type: "text",
+          text: "$imagegen generate a UI mockup",
+          text_elements: [],
+        },
+      ],
+      model: "gpt-5.4",
+    });
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "model/rerouted",
+        payload: {
+          fromModel: "gpt-5.3-codex-spark",
+          toModel: "gpt-5.4",
+          reason: "Selected Codex model does not expose image generation.",
+        },
+      }),
+    );
+  });
+
+  it("keeps Spark for non-imagegen prompts when the account supports it", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.modelsBySlug = readCodexRuntimeModels({
+      data: [
+        {
+          id: "gpt-5.3-codex-spark",
+          inputModalities: ["text"],
+        },
+        {
+          id: "gpt-5.3-codex",
+          inputModalities: ["text", "image"],
+        },
+      ],
+    });
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Inspect the repository",
+      model: "gpt-5.3-codex-spark",
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
+      threadId: "thread_1",
+      input: [
+        {
+          type: "text",
+          text: "Inspect the repository",
+          text_elements: [],
+        },
+      ],
+      model: "gpt-5.3-codex-spark",
     });
   });
 
