@@ -76,7 +76,7 @@ function inferDesktopHost(): string {
   if (Platform.OS === "android") {
     return "10.0.2.2";
   }
-  return "10.0.2.2";
+  return "127.0.0.1";
 }
 
 function inferDefaultWsUrl(): string {

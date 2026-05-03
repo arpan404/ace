@@ -29,7 +29,7 @@ export const DEFAULT_ACE_DEV_DESKTOP_HOME = Effect.map(Effect.service(Path.Path)
   path.join(homedir(), ".ace", "dev", "desktop"),
 );
 
-const MODE_ARGS = {
+export const MODE_ARGS = {
   dev: [
     "run",
     "dev",
@@ -56,6 +56,7 @@ const MODE_ARGS = {
     "--ui=tui",
     "--filter=@ace/contracts",
     "--filter=@ace/mobile",
+    "--filter=ace",
     "--parallel",
   ],
   "dev:desktop": ["run", "dev", "--filter=@ace/desktop", "--filter=@ace/web", "--parallel"],
@@ -154,6 +155,14 @@ function resolveBaseDir({
   });
 }
 
+function mobileExpoHostEnv(host: string | undefined): string | undefined {
+  const trimmed = host?.trim();
+  if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::") {
+    return undefined;
+  }
+  return trimmed;
+}
+
 interface CreateDevRunnerEnvInput {
   readonly mode: DevMode;
   readonly baseEnv: NodeJS.ProcessEnv;
@@ -242,6 +251,16 @@ export function createDevRunnerEnv({
     if (mode === "dev" || mode === "dev:server" || mode === "dev:web" || mode === "dev:mobile") {
       output.ACE_MODE = "web";
       delete output.ACE_DESKTOP_WS_URL;
+    }
+
+    if (mode === "dev:mobile") {
+      output.EXPO_PUBLIC_ACE_PORT = String(serverPort);
+      const expoHost = mobileExpoHostEnv(host);
+      if (expoHost) {
+        output.EXPO_PUBLIC_ACE_HOST = expoHost;
+      } else {
+        delete output.EXPO_PUBLIC_ACE_HOST;
+      }
     }
 
     if (isDesktopMode) {

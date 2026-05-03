@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import {
   BASE_SERVER_PORT,
   BASE_WEB_PORT,
+  MODE_ARGS,
   createDevRunnerEnv,
   findFirstAvailableOffset,
   resolveModePortOffsets,
@@ -186,6 +187,52 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(env.ACE_MODE, "web");
         assert.equal(env.ACE_DAEMONIZED, "1");
+        assert.equal(env.EXPO_PUBLIC_ACE_PORT, String(BASE_SERVER_PORT));
+      }),
+    );
+
+    it.effect("forwards explicit mobile host metadata to Expo", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:mobile",
+          baseEnv: {},
+          serverOffset: 4,
+          webOffset: 4,
+          aceHome: undefined,
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: "192.168.1.24",
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.EXPO_PUBLIC_ACE_HOST, "192.168.1.24");
+        assert.equal(env.EXPO_PUBLIC_ACE_PORT, String(BASE_SERVER_PORT + 4));
+      }),
+    );
+
+    it.effect("does not publish wildcard bind addresses as mobile connect hosts", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:mobile",
+          baseEnv: {
+            EXPO_PUBLIC_ACE_HOST: "stale-host",
+          },
+          serverOffset: 0,
+          webOffset: 0,
+          aceHome: undefined,
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: "0.0.0.0",
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.EXPO_PUBLIC_ACE_HOST, undefined);
       }),
     );
 
@@ -318,6 +365,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("resolveModePortOffsets", () => {
+    it.effect("starts the backend in dev:mobile", () =>
+      Effect.sync(() => {
+        assert.ok(MODE_ARGS["dev:mobile"].includes("--filter=ace"));
+      }),
+    );
+
     it.effect("uses a shared fallback offset for dev mode", () =>
       Effect.gen(function* () {
         const taken = new Set([BASE_SERVER_PORT, BASE_WEB_PORT]);
