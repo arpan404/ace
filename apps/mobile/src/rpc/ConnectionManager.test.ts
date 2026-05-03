@@ -97,4 +97,26 @@ describe("ConnectionManager", () => {
     expect(connection?.client).toBe(secondClient.client);
     expect(connection?.host.wsUrl).toBe("ws://localhost:3774/ws");
   });
+
+  it("forces a reconnect even when host transport settings are unchanged", async () => {
+    const manager = new ConnectionManager();
+    const firstClient = makeClientMock();
+    const secondClient = makeClientMock();
+
+    createClientMock
+      .mockReturnValueOnce(firstClient.client)
+      .mockReturnValueOnce(secondClient.client);
+
+    const host = makeHost();
+    await manager.connect(host);
+    await manager.connect(host, { forceReconnect: true });
+
+    expect(createClientMock).toHaveBeenCalledTimes(2);
+    expect(firstClient.cleanupStatus).toHaveBeenCalledTimes(1);
+    expect(firstClient.dispose).toHaveBeenCalledTimes(1);
+
+    const [connection] = manager.getConnections();
+    expect(connection?.client).toBe(secondClient.client);
+    expect(connection?.host).toBe(host);
+  });
 });

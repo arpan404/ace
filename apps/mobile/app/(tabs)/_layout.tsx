@@ -1,7 +1,7 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { Platform } from "react-native";
-import { Bell, Bot, FolderTree, Settings2 } from "lucide-react-native";
+import { Bell, Bot, FolderTree, Server, Settings2 } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 
@@ -63,8 +63,15 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="notifications"
         options={{
-          title: "Notifications",
+          title: "Alerts",
           tabBarIcon: ({ color, size }) => <Bell size={size ?? 20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="hosts"
+        options={{
+          title: "Hosts",
+          tabBarIcon: ({ color, size }) => <Server size={size ?? 20} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -72,12 +79,6 @@ export default function TabsLayout() {
         options={{
           title: "Settings",
           tabBarIcon: ({ color, size }) => <Settings2 size={size ?? 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="hosts"
-        options={{
-          href: null,
         }}
       />
     </Tabs>

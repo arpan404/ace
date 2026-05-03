@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ManagedConnection } from "../rpc/ConnectionManager";
 import type { OrchestrationReadModel } from "@ace/contracts";
 
@@ -12,7 +12,7 @@ export function useOrchestrationSnapshot(connection: ManagedConnection | null) {
   const connectionId = connection?.host.id ?? null;
   const connectionStatus = connection?.status.kind ?? "disconnected";
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!connection) {
       setSnapshot(undefined);
       setError(null);
@@ -23,17 +23,21 @@ export function useOrchestrationSnapshot(connection: ManagedConnection | null) {
     setLoading(true);
     setError(null);
 
-    connection.client.orchestration
-      .getSnapshot()
-      .then((snap) => {
-        setSnapshot(snap);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    try {
+      const snap = await connection.client.orchestration.getSnapshot();
+      setSnapshot(snap);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [connection]);
+
+  useEffect(() => {
+    void refresh();
+    if (!connection) {
+      return;
+    }
 
     // Subscribe to updates
     const unsubscribe = connection.client.orchestration.onDomainEvent(() => {
@@ -51,9 +55,9 @@ export function useOrchestrationSnapshot(connection: ManagedConnection | null) {
     return () => {
       unsubscribe?.();
     };
-  }, [connection, connectionId, connectionStatus]);
+  }, [connection, connectionId, connectionStatus, refresh]);
 
-  return { snapshot, loading, error };
+  return { snapshot, loading, error, refresh };
 }
 
 /**

@@ -88,6 +88,26 @@
       "types": "./src/hostConnections.ts",
       "import": "./src/hostConnections.ts"
     },
+    "./browserUrl": {
+      "types": "./src/browserUrl.ts",
+      "import": "./src/browserUrl.ts"
+    },
+    "./browserHistory": {
+      "types": "./src/browserHistory.ts",
+      "import": "./src/browserHistory.ts"
+    },
+    "./workspaceFilePreview": {
+      "types": "./src/workspaceFilePreview.ts",
+      "import": "./src/workspaceFilePreview.ts"
+    },
+    "./checkpointRestore": {
+      "types": "./src/checkpointRestore.ts",
+      "import": "./src/checkpointRestore.ts"
+    },
+    "./timeFormat": {
+      "types": "./src/timeFormat.ts",
+      "import": "./src/timeFormat.ts"
+    },
     "./relay": {
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"

@@ -9,7 +9,7 @@ import {
   MessageSquareMore,
   ShieldAlert,
 } from "lucide-react-native";
-import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { Layout, withAlpha } from "../../src/design/system";
 import { useTheme } from "../../src/design/ThemeContext";
 import {
   EmptyState,

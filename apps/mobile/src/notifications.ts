@@ -6,6 +6,11 @@ export interface MobileNotification {
   readonly body: string;
 }
 
+export interface MobileNotificationThreadRoute {
+  readonly hostId: string;
+  readonly threadId: string;
+}
+
 const MAX_NOTIFICATION_BODY_CHARS = 120;
 
 function truncate(text: string, maxChars = MAX_NOTIFICATION_BODY_CHARS): string {
@@ -56,4 +61,23 @@ export function notificationFromDomainEvent(event: OrchestrationEvent): MobileNo
     default:
       return null;
   }
+}
+
+export function notificationThreadRouteFromData(
+  data: Readonly<Record<string, unknown>> | null | undefined,
+): MobileNotificationThreadRoute | null {
+  const threadId = data?.threadId;
+  const hostId = data?.hostId;
+  const normalizedThreadId = typeof threadId === "string" ? threadId.trim() : "";
+  const normalizedHostId = typeof hostId === "string" ? hostId.trim() : "";
+  if (normalizedThreadId.length === 0) {
+    return null;
+  }
+  if (normalizedHostId.length === 0) {
+    return null;
+  }
+  return {
+    threadId: normalizedThreadId,
+    hostId: normalizedHostId,
+  };
 }

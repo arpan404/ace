@@ -2,14 +2,27 @@
   "expo": {
     "name": "ace Mobile",
     "slug": "ace-mobile",
-    "version": "0.1.1",
+    "version": "0.1.7",
     "scheme": "ace-mobile",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "plugins": ["expo-router", "expo-notifications", "expo-camera"],
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      "expo-camera",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ace Mobile to attach saved images to agent messages.",
+          "cameraPermission": "Allow ace Mobile to scan host QR codes and attach photos to agent messages.",
+          "microphonePermission": false
+        }
+      ]
+    ],
     "ios": {
       "infoPlist": {
-        "NSCameraUsageDescription": "Scan QR codes to add ace host instances."
+        "NSCameraUsageDescription": "Allow ace Mobile to scan host QR codes and attach photos to agent messages.",
+        "NSPhotoLibraryUsageDescription": "Allow ace Mobile to attach saved images to agent messages."
       }
     },
     "android": {

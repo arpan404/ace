@@ -1,10 +1,167 @@
 import "react-native-get-random-values";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { Platform, StatusBar } from "react-native";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as Notifications from "expo-notifications";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import type { OrchestrationEvent } from "@ace/contracts";
 import { ThemeProvider, useTheme } from "../src/design/ThemeContext";
 import { initializeConnections } from "../src/store/HostStore";
+import { connectionManager, type ManagedConnection } from "../src/rpc/ConnectionManager";
+import { notificationFromDomainEvent, notificationThreadRouteFromData } from "../src/notifications";
+
+const MAX_NOTIFICATION_EVENT_CACHE = 300;
+
+Notifications.setNotificationHandler({
+  handleNotification: () =>
+    Promise.resolve({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+});
+
+function trimEventCache(cache: Set<string>) {
+  while (cache.size > MAX_NOTIFICATION_EVENT_CACHE) {
+    const oldest = cache.values().next().value;
+    if (!oldest) {
+      return;
+    }
+    cache.delete(oldest);
+  }
+}
+
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("agent-attention", {
+      name: "Agent attention",
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  }
+
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.granted) {
+    return true;
+  }
+  const requested = await Notifications.requestPermissionsAsync();
+  return requested.granted;
+}
+
+function MobileNotificationBridge() {
+  const router = useRouter();
+  const [connections, setConnections] = useState<ReadonlyArray<ManagedConnection>>(() =>
+    connectionManager.getConnections(),
+  );
+  const notificationsEnabledRef = useRef(false);
+  const notifiedEventIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    let mounted = true;
+    void ensureNotificationPermission()
+      .then((enabled) => {
+        if (mounted) {
+          notificationsEnabledRef.current = enabled;
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          notificationsEnabledRef.current = false;
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return connectionManager.onStatusChange((nextConnections) => {
+      setConnections(nextConnections);
+    });
+  }, []);
+
+  useEffect(() => {
+    const notifyFromEvent = async (event: OrchestrationEvent, hostId: string) => {
+      if (!notificationsEnabledRef.current) {
+        return;
+      }
+
+      const notifiedEventIds = notifiedEventIdsRef.current;
+      if (notifiedEventIds.has(event.eventId)) {
+        return;
+      }
+      notifiedEventIds.add(event.eventId);
+      trimEventCache(notifiedEventIds);
+
+      const notification = notificationFromDomainEvent(event);
+      if (!notification) {
+        return;
+      }
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: notification.title,
+          body: notification.body,
+          data: {
+            hostId,
+            threadId: String(event.aggregateId),
+            eventType: event.type,
+          },
+        },
+        trigger: null,
+      });
+    };
+
+    const unsubscribeFns = connections
+      .filter((connection) => connection.status.kind === "connected")
+      .map((connection) =>
+        connection.client.orchestration.onDomainEvent((event) => {
+          void notifyFromEvent(event, connection.host.id).catch(() => {
+            notificationsEnabledRef.current = false;
+          });
+        }),
+      );
+
+    return () => {
+      unsubscribeFns.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [connections]);
+
+  useEffect(() => {
+    const openThreadFromNotification = (response: Notifications.NotificationResponse) => {
+      const route = notificationThreadRouteFromData(
+        response.notification.request.content.data as Readonly<Record<string, unknown>>,
+      );
+      if (!route) {
+        return;
+      }
+      router.push({
+        pathname: "/thread/[threadId]",
+        params: {
+          threadId: route.threadId,
+          hostId: route.hostId,
+        },
+      });
+    };
+
+    const lastResponse = Notifications.getLastNotificationResponse();
+    if (lastResponse) {
+      openThreadFromNotification(lastResponse);
+      Notifications.clearLastNotificationResponse();
+    }
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      openThreadFromNotification(response);
+      Notifications.clearLastNotificationResponse();
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [router]);
+
+  return null;
+}
 
 function RootNavigator() {
   const { isDark, colors } = useTheme();
@@ -12,6 +169,7 @@ function RootNavigator() {
   return (
     <>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+      <MobileNotificationBridge />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -23,6 +181,13 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="pairing"
+          options={{
+            presentation: "modal",
+            animation: "slide_from_bottom",
+          }}
+        />
+        <Stack.Screen
+          name="search"
           options={{
             presentation: "modal",
             animation: "slide_from_bottom",
