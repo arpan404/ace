@@ -499,6 +499,59 @@ label {
   animation: terminal-pulse 2s ease-in-out infinite;
 }
 
+.image-generation-placeholder-frame {
+  isolation: isolate;
+}
+
+.image-generation-floating-dot-cluster {
+  perspective: 560px;
+  transform-style: preserve-3d;
+}
+
+.image-generation-floating-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 32% 28%,
+    color-mix(in oklch, white 82%, var(--primary) 18%) 0%,
+    color-mix(in oklch, var(--primary) 78%, white 10%) 44%,
+    color-mix(in oklch, var(--primary) 62%, transparent) 100%
+  );
+  box-shadow:
+    0 0 18px color-mix(in oklch, var(--primary) 42%, transparent),
+    0 10px 22px color-mix(in oklch, black 34%, transparent);
+  opacity: 0.68;
+  animation: image-generation-floating-dot 3s ease-in-out infinite;
+  animation-delay: var(--dot-delay);
+}
+
+@keyframes image-generation-floating-dot {
+  0%,
+  100% {
+    transform: translate3d(var(--dot-x), var(--dot-y), -8px) scale(0.92);
+    opacity: 0.42;
+  }
+  50% {
+    transform: translate3d(
+        calc(var(--dot-x) + var(--dot-float-x)),
+        calc(var(--dot-y) + var(--dot-float-y)),
+        18px
+      )
+      scale(1.12);
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-generation-floating-dot {
+    animation: none;
+  }
+}
+
 .thread-terminal-drawer .terminal-sidebar-header {
   background: linear-gradient(
     180deg,
@@ -778,6 +831,25 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown a:hover {
   opacity: 0.8;
+}
+
+.chat-markdown .chat-markdown-local-file-link {
+  display: inline;
+  text-decoration: none;
+}
+
+.chat-markdown .chat-markdown-local-file-link code {
+  border-color: color-mix(in srgb, var(--info-foreground) 52%, var(--border));
+  color: var(--info-foreground);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--info-foreground) 42%, transparent);
+  text-underline-offset: 2px;
+}
+
+.chat-markdown .chat-markdown-local-file-link:hover code {
+  border-color: color-mix(in srgb, var(--info-foreground) 70%, var(--border));
+  background: color-mix(in srgb, var(--info-foreground) 12%, var(--muted));
 }
 
 .chat-markdown .chat-markdown-link-open-browser {

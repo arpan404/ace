@@ -92,6 +92,9 @@ export interface WsRpcClient {
     readonly revealInFileManager: (input: {
       readonly path: Parameters<NativeApi["shell"]["revealInFileManager"]>[0];
     }) => ReturnType<NativeApi["shell"]["revealInFileManager"]>;
+    readonly pathExists: (input: {
+      readonly path: Parameters<NativeApi["shell"]["pathExists"]>[0];
+    }) => ReturnType<NativeApi["shell"]["pathExists"]>;
   };
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
@@ -219,6 +222,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.shellOpenInEditor](input)),
       revealInFileManager: (input) =>
         transport.request((client) => client[WS_METHODS.shellRevealInFileManager](input)),
+      pathExists: (input) =>
+        transport.request((client) => client[WS_METHODS.shellPathExists](input)),
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),

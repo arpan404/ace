@@ -118,6 +118,7 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(options).shell.openInEditor({ cwd, editor }),
       revealInFileManager: (path, options) =>
         resolveRpcClientForInput(options).shell.revealInFileManager({ path }),
+      pathExists: (path, options) => resolveRpcClientForInput(options).shell.pathExists({ path }),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);

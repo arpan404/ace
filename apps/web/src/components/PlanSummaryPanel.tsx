@@ -63,6 +63,7 @@ interface PlanSummaryPanelProps {
   onOpenDiffPanel?: (() => void) | null;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   workspaceDiffSummary: {
     additions: number;
     deletions: number;
@@ -107,6 +108,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   onOpenDiffPanel = null,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  enableLocalFileLinks = true,
   workspaceDiffSummary,
   workspaceRoot,
 }: PlanSummaryPanelProps) {
@@ -360,6 +362,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         isStreaming={false}
                         onOpenBrowserUrl={onOpenBrowserUrl}
                         onOpenFilePath={onOpenFilePath}
+                        enableLocalFileLinks={enableLocalFileLinks}
                       />
                     </div>
                   ) : (

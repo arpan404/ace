@@ -2,7 +2,12 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-import { OpenError, OpenInEditorInput, OpenRevealInFileManagerInput } from "./editor";
+import {
+  OpenError,
+  OpenInEditorInput,
+  OpenPathExistsInput,
+  OpenRevealInFileManagerInput,
+} from "./editor";
 import { FilesystemBrowseError, FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import {
   GitActionProgressEvent,
@@ -144,6 +149,7 @@ export const WS_METHODS = {
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
   shellRevealInFileManager: "shell.revealInFileManager",
+  shellPathExists: "shell.pathExists",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -367,6 +373,11 @@ export const WsShellRevealInFileManagerRpc = Rpc.make(WS_METHODS.shellRevealInFi
   error: OpenError,
 });
 
+export const WsShellPathExistsRpc = Rpc.make(WS_METHODS.shellPathExists, {
+  payload: OpenPathExistsInput,
+  success: Schema.Boolean,
+});
+
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
   success: FilesystemBrowseResult,
@@ -585,6 +596,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorReferencesRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
+  WsShellPathExistsRpc,
   WsFilesystemBrowseRpc,
   WsGitStatusRpc,
   WsGitReadWorkingTreeDiffRpc,

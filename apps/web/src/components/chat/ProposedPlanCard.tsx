@@ -31,6 +31,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   onLayoutChange,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  enableLocalFileLinks = true,
   workspaceRoot,
 }: {
   planMarkdown: string;
@@ -38,6 +39,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   workspaceRoot: string | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -162,6 +164,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               isStreaming={false}
               onOpenBrowserUrl={onOpenBrowserUrl}
               onOpenFilePath={onOpenFilePath}
+              enableLocalFileLinks={enableLocalFileLinks}
               {...(onLayoutChange ? { onLayoutChange } : {})}
             />
           ) : (
@@ -171,6 +174,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               isStreaming={false}
               onOpenBrowserUrl={onOpenBrowserUrl}
               onOpenFilePath={onOpenFilePath}
+              enableLocalFileLinks={enableLocalFileLinks}
               {...(onLayoutChange ? { onLayoutChange } : {})}
             />
           )}
