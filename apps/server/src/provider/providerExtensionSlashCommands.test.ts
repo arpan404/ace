@@ -62,6 +62,7 @@ describe("providerExtensionSlashCommands", () => {
         }),
       );
       await writeSkill(path.join(pluginRoot, "skills"), "browser", "Use browser automation");
+      await writeSkill(path.join(pluginRoot, "skills"), "inspect-page", "Inspect a page");
 
       const commands = discoverCodexExtensionSlashCommands({ cwd, codexHome, agentsHome });
       expect(commands).toEqual(
@@ -97,12 +98,13 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "@browser-use",
           }),
           expect.objectContaining({
-            name: "browser-use:browser",
+            name: "browser-use:inspect-page",
             kind: "skill",
-            promptPrefix: "$browser-use:browser",
+            promptPrefix: "$browser-use:inspect-page",
           }),
         ]),
       );
+      expect(findCommand(commands, "browser-use:browser")).toBeUndefined();
       expect(findCommand(commands, "design-audit")?.description).toBe("Local audit UI");
       const providerCommands = withProviderExtensionSlashCommands({
         providers: [

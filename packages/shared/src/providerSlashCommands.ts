@@ -81,11 +81,64 @@ export function providerSlashCommandExtensionKind(
   return null;
 }
 
+function comparableExtensionName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function collectPluginCommandKeys(
+  sources: ReadonlyArray<ReadonlyArray<ProviderSlashCommand> | null | undefined>,
+): Set<string> {
+  const pluginKeys = new Set<string>();
+  for (const source of sources) {
+    for (const candidate of source ?? []) {
+      const name = normalizeProviderSlashCommandName(candidate.name);
+      if (!name) {
+        continue;
+      }
+      const normalizedKind = normalizeProviderSlashCommandKind(candidate.kind);
+      const inferredExtensionKind = providerSlashCommandExtensionKind(candidate, name);
+      const kind = normalizedKind ?? inferredExtensionKind;
+      if (kind === "plugin") {
+        const pluginKey = comparableExtensionName(name);
+        if (pluginKey) {
+          pluginKeys.add(pluginKey);
+        }
+      }
+    }
+  }
+  return pluginKeys;
+}
+
+function isRedundantPluginPrimarySkillCommand(
+  commandName: string,
+  pluginCommandKeys: ReadonlySet<string>,
+): boolean {
+  const [scope, skillName] = commandName.split(":", 2);
+  if (!scope || !skillName) {
+    return false;
+  }
+  const pluginKey = comparableExtensionName(scope);
+  const skillKey = comparableExtensionName(skillName);
+  if (!pluginKey || !skillKey || !pluginCommandKeys.has(pluginKey)) {
+    return false;
+  }
+  return (
+    skillKey === pluginKey ||
+    pluginKey.startsWith(`${skillKey}-`) ||
+    skillKey.startsWith(`${pluginKey}-`)
+  );
+}
+
 export function mergeProviderSlashCommands(
   ...sources: ReadonlyArray<ReadonlyArray<ProviderSlashCommand> | null | undefined>
 ): ReadonlyArray<ProviderSlashCommand> {
   const merged: ProviderSlashCommand[] = [];
   const seen = new Set<string>();
+  const pluginCommandKeys = collectPluginCommandKeys(sources);
 
   for (const source of sources) {
     for (const candidate of source ?? []) {
@@ -99,6 +152,10 @@ export function mergeProviderSlashCommands(
       const promptPrefix =
         candidate.promptPrefix?.trim() ||
         (kind === "skill" ? `$${name}` : kind === "plugin" ? `@${name}` : undefined);
+
+      if (kind === "skill" && isRedundantPluginPrimarySkillCommand(name, pluginCommandKeys)) {
+        continue;
+      }
 
       const key = name.toLowerCase();
       if (seen.has(key)) {

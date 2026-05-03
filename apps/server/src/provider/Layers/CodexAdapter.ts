@@ -216,6 +216,27 @@ function toCanonicalItemType(raw: unknown): CanonicalItemType {
   return "unknown";
 }
 
+function isImageGenerationItem(source: Record<string, unknown>): boolean {
+  return normalizeItemType(source.type ?? source.kind).includes("image generation");
+}
+
+function imageGenerationAssistantLifecycleEvent(
+  event: ProviderEvent,
+  canonicalThreadId: ThreadId,
+  lifecycle: "item.started" | "item.completed",
+): ProviderRuntimeEvent {
+  return {
+    ...runtimeEventBase(event, canonicalThreadId),
+    type: lifecycle,
+    payload: {
+      itemType: "assistant_message",
+      status: lifecycle === "item.started" ? "inProgress" : "completed",
+      title: "Assistant message",
+      ...(event.payload !== undefined ? { data: event.payload } : {}),
+    },
+  };
+}
+
 function itemTitle(itemType: CanonicalItemType): string | undefined {
   switch (itemType) {
     case "assistant_message":
@@ -245,6 +266,17 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
   }
 }
 
+function itemTitleForSource(
+  itemType: CanonicalItemType,
+  source: Record<string, unknown>,
+): string | undefined {
+  const normalizedType = normalizeItemType(source.type ?? source.kind);
+  if (normalizedType.includes("image generation")) {
+    return "Image generation";
+  }
+  return itemTitle(itemType);
+}
+
 function itemDetail(
   item: Record<string, unknown>,
   payload: Record<string, unknown>,
@@ -257,6 +289,7 @@ function itemDetail(
     asString(item.text),
     asString(item.path),
     asString(item.prompt),
+    asString(item.revisedPrompt),
     asString(nestedResult?.command),
     asString(payload.command),
     asString(payload.message),
@@ -570,6 +603,7 @@ function mapItemLifecycle(
   }
 
   const detail = itemDetail(source, payload ?? {});
+  const title = itemTitleForSource(itemType, source);
   const status =
     lifecycle === "item.started"
       ? "inProgress"
@@ -583,11 +617,37 @@ function mapItemLifecycle(
     payload: {
       itemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
+      ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };
+}
+
+function hookOutputText(run: Record<string, unknown> | undefined): string | undefined {
+  const entries = asArray(run?.entries);
+  if (!entries) {
+    return undefined;
+  }
+
+  const text = entries
+    .map((entry) => asString(asObject(entry)?.text)?.trim())
+    .filter((entry): entry is string => entry !== undefined && entry.length > 0)
+    .join("\n");
+  return text.length > 0 ? text : undefined;
+}
+
+function hookOutcome(value: unknown): "success" | "error" | "cancelled" {
+  switch (asString(value)) {
+    case "completed":
+      return "success";
+    case "stopped":
+      return "cancelled";
+    case "failed":
+    case "blocked":
+    default:
+      return "error";
+  }
 }
 
 function mapToRuntimeEvents(
@@ -883,6 +943,39 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "hook/started") {
+    const run = asObject(payload?.run);
+    const hookId = asString(run?.id) ?? String(event.id);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "hook.started",
+        payload: {
+          hookId,
+          hookName: asString(run?.handlerType) ?? "hook",
+          hookEvent: asString(run?.eventName) ?? "hook",
+        },
+      },
+    ];
+  }
+
+  if (event.method === "hook/completed") {
+    const run = asObject(payload?.run);
+    const hookId = asString(run?.id) ?? String(event.id);
+    const output = hookOutputText(run);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "hook.completed",
+        payload: {
+          hookId,
+          outcome: hookOutcome(run?.status),
+          ...(output ? { output } : {}),
+        },
+      },
+    ];
+  }
+
   if (event.method === "turn/diff/updated") {
     return [
       {
@@ -899,7 +992,23 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "rawResponseItem/completed") {
+    const payload = asObject(event.payload);
+    const item = asObject(payload?.item);
+    const source = item ?? payload;
+    if (source && isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.completed")];
+    }
+    return [];
+  }
+
   if (event.method === "item/started") {
+    const payload = asObject(event.payload);
+    const item = asObject(payload?.item);
+    const source = item ?? payload;
+    if (source && isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.started")];
+    }
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
     return started ? [started] : [];
   }
@@ -910,6 +1019,9 @@ function mapToRuntimeEvents(
     const source = item ?? payload;
     if (!source) {
       return [];
+    }
+    if (isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.completed")];
     }
     const itemType = source ? toCanonicalItemType(source.type ?? source.kind) : "unknown";
     if (itemType === "plan") {

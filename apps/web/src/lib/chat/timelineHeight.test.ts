@@ -23,6 +23,16 @@ describe("estimateTimelineMessageHeight", () => {
     ).toBe(122);
   });
 
+  it("adds assistant attachment height without inventing empty-response text height", () => {
+    expect(
+      estimateTimelineMessageHeight({
+        role: "assistant",
+        text: "",
+        attachments: [{ id: "1" }],
+      }),
+    ).toBe(438);
+  });
+
   it("adds one attachment row for one or two user attachments", () => {
     expect(
       estimateTimelineMessageHeight({

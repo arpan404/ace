@@ -499,6 +499,86 @@ label {
   animation: terminal-pulse 2s ease-in-out infinite;
 }
 
+@keyframes image-generation-placeholder-sheen {
+  0% {
+    opacity: 0;
+    transform: translateX(-115%) skewX(-10deg);
+  }
+  18%,
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(360%) skewX(-10deg);
+  }
+}
+
+.image-generation-placeholder-frame {
+  border-color: color-mix(in oklch, var(--border) 72%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--background) 94%, var(--muted) 6%),
+    color-mix(in oklch, var(--background) 88%, var(--muted) 12%)
+  );
+  isolation: isolate;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 74%, transparent);
+}
+
+.image-generation-placeholder-surface {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, white 28%, transparent), transparent 34%),
+    linear-gradient(0deg, color-mix(in oklch, var(--foreground) 3%, transparent), transparent 40%);
+  opacity: 0.92;
+}
+
+.image-generation-placeholder-sheen {
+  left: -48%;
+  width: 42%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, white 34%, transparent),
+    transparent
+  );
+  filter: blur(0.5px);
+  animation: image-generation-placeholder-sheen 2.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.dark .image-generation-placeholder-frame {
+  border-color: color-mix(in oklch, var(--border) 58%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--background) 88%, var(--muted) 12%),
+    color-mix(in oklch, var(--background) 82%, var(--muted) 18%)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 5%, transparent);
+}
+
+.dark .image-generation-placeholder-surface {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, white 4%, transparent), transparent 34%),
+    linear-gradient(0deg, color-mix(in oklch, var(--foreground) 3%, transparent), transparent 42%);
+  opacity: 0.9;
+}
+
+.dark .image-generation-placeholder-sheen {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, white 8%, transparent),
+    transparent
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-generation-placeholder-sheen {
+    animation: none;
+    opacity: 0.45;
+    transform: translateX(130%) skewX(-10deg);
+  }
+}
+
 .thread-terminal-drawer .terminal-sidebar-header {
   background: linear-gradient(
     180deg,
@@ -778,6 +858,25 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown a:hover {
   opacity: 0.8;
+}
+
+.chat-markdown .chat-markdown-local-file-link {
+  display: inline;
+  text-decoration: none;
+}
+
+.chat-markdown .chat-markdown-local-file-link code {
+  border-color: color-mix(in srgb, var(--info-foreground) 52%, var(--border));
+  color: var(--info-foreground);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--info-foreground) 42%, transparent);
+  text-underline-offset: 2px;
+}
+
+.chat-markdown .chat-markdown-local-file-link:hover code {
+  border-color: color-mix(in srgb, var(--info-foreground) 70%, var(--border));
+  background: color-mix(in srgb, var(--info-foreground) 12%, var(--muted));
 }
 
 .chat-markdown .chat-markdown-link-open-browser {

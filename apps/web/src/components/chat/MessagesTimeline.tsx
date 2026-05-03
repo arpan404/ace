@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -112,6 +113,17 @@ const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
+const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
+  /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
+const IMAGE_GENERATION_FRAME_MAX_WIDTH_REM = 42;
+const IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH = 54;
+const IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH = 46;
+const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
+
+interface AssistantImageGenerationPlaceholder {
+  readonly width: number;
+  readonly height: number;
+}
 
 function canResolveTimelineRowsInWorker(): boolean {
   return (
@@ -120,6 +132,43 @@ function canResolveTimelineRowsInWorker(): boolean {
     typeof Worker !== "undefined" &&
     typeof document.createElement === "function"
   );
+}
+
+function assistantImageGenerationDimensionsFromMessageId(
+  message: AssistantTimelineMessage,
+): AssistantImageGenerationPlaceholder | null {
+  const match = ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX.exec(String(message.id));
+  const width = match?.groups?.width ? Number(match.groups.width) : Number.NaN;
+  const height = match?.groups?.height ? Number(match.groups.height) : Number.NaN;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function assistantImageGenerationPlaceholder(
+  message: AssistantTimelineMessage,
+): AssistantImageGenerationPlaceholder | null {
+  if (!message.streaming || (message.attachments?.length ?? 0) > 0) {
+    return null;
+  }
+  return assistantImageGenerationDimensionsFromMessageId(message);
+}
+
+function imageGenerationFrameStyle(dimensions: AssistantImageGenerationPlaceholder): CSSProperties {
+  const aspectRatio = dimensions.width / dimensions.height;
+  const maxHeightVh =
+    aspectRatio < 0.9
+      ? IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH
+      : aspectRatio <= 1.15
+        ? IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH
+        : IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH;
+  const widthVh = maxHeightVh * aspectRatio;
+  return {
+    aspectRatio: `${dimensions.width} / ${dimensions.height}`,
+    maxWidth: `min(100%, ${IMAGE_GENERATION_FRAME_MAX_WIDTH_REM}rem)`,
+    width: `${Number(widthVh.toFixed(4))}vh`,
+  };
 }
 
 const timelineRowHeightCache = new Map<string, number>();
@@ -232,6 +281,7 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -265,6 +315,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   markdownCwd,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  enableLocalFileLinks = true,
   providerCommands = [],
   resolvedTheme,
   timestampFormat,
@@ -1001,12 +1052,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   completionSummary={row.completionSummary}
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
+                  liveTimers={liveTimers}
                   showCompletedTiming={row.showAssistantTiming ?? false}
                   showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
                   markdownCwd={markdownCwd}
                   message={row.message}
+                  onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
+                  enableLocalFileLinks={enableLocalFileLinks}
                   renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
                 />
@@ -1032,6 +1086,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             cwd={markdownCwd}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onOpenFilePath={onOpenFilePath}
+            enableLocalFileLinks={enableLocalFileLinks}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
           />
@@ -1342,6 +1397,22 @@ const WorkingTimer = memo(function WorkingTimer({
   );
 });
 
+const ImageGenerationPlaceholderFrame = memo(function ImageGenerationPlaceholderFrame(props: {
+  readonly dimensions: AssistantImageGenerationPlaceholder;
+}) {
+  return (
+    <div
+      className="image-generation-placeholder-frame relative mb-2.5 max-w-3xl overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      aria-label="Image generation in progress"
+      data-image-generation-placeholder="true"
+      style={imageGenerationFrameStyle(props.dimensions)}
+    >
+      <div className="image-generation-placeholder-surface absolute inset-0" aria-hidden="true" />
+      <div className="image-generation-placeholder-sheen absolute inset-y-0" aria-hidden="true" />
+    </div>
+  );
+});
+
 function workGroupId(rowId: string): string {
   return `work-group:${rowId}`;
 }
@@ -1377,40 +1448,49 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "message": {
-      const assistantRenderHint =
-        row.message.role === "assistant"
-          ? resolveAssistantMessageRenderHint(row.message)
-          : "full-text";
+      const message = row.message;
       const renderedMessageText =
-        row.message.role === "assistant"
-          ? getChatMessageRenderableText(row.message)
-          : getUserMessageTextForHeightEstimate(row.message.text);
+        message.role === "assistant"
+          ? getChatMessageRenderableText(message)
+          : getUserMessageTextForHeightEstimate(message.text);
       const messageText =
-        row.message.role === "assistant" &&
+        message.role === "assistant" &&
         renderedMessageText.trim().length === 0 &&
-        !row.message.streaming
+        !message.streaming &&
+        (message.attachments?.length ?? 0) === 0
           ? "(empty response)"
           : renderedMessageText;
-      const messageHeightInput =
-        row.message.attachments === undefined
-          ? {
-              role: row.message.role,
-              text: messageText,
-              ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
-            }
-          : {
-              role: row.message.role,
-              text: messageText,
-              attachments: row.message.attachments,
-              ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
-            };
-      const messageHeight = estimateTimelineMessageHeight(messageHeightInput, {
-        timelineWidthPx: input.timelineWidthPx,
-      });
-      if (row.message.role !== "assistant") {
+      if (!isAssistantTimelineMessage(message)) {
+        const messageHeight = estimateTimelineMessageHeight(
+          {
+            role: message.role,
+            text: messageText,
+            ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+          },
+          {
+            timelineWidthPx: input.timelineWidthPx,
+          },
+        );
         height = messageHeight + 18;
         break;
       }
+
+      const pendingImageGeneration = assistantImageGenerationPlaceholder(message);
+      const messageHeight = estimateTimelineMessageHeight(
+        {
+          role: "assistant",
+          text: messageText,
+          ...(pendingImageGeneration !== null
+            ? { attachments: [{ id: "pending-image-generation" }] }
+            : message.attachments !== undefined
+              ? { attachments: message.attachments }
+              : {}),
+          assistantRenderHint: resolveAssistantMessageRenderHint(message),
+        },
+        {
+          timelineWidthPx: input.timelineWidthPx,
+        },
+      );
       const completionSummaryExtra =
         row.isAssistantTurnTerminal && row.message.completedAt ? 24 : 0;
       height = messageHeight + completionSummaryExtra + 16;
@@ -2032,28 +2112,96 @@ const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendi
   );
 });
 
+const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFrame(props: {
+  readonly generationDimensions: AssistantImageGenerationPlaceholder | null;
+  readonly image: NonNullable<TimelineMessage["attachments"]>[number];
+  readonly images: ReadonlyArray<NonNullable<TimelineMessage["attachments"]>[number]>;
+  readonly onImageExpand: (preview: ExpandedImagePreview) => void;
+}) {
+  const [naturalDimensions, setNaturalDimensions] =
+    useState<AssistantImageGenerationPlaceholder | null>(null);
+  const frameDimensions = naturalDimensions ?? props.generationDimensions;
+
+  return (
+    <div
+      className="inline-flex max-w-full justify-self-start overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      style={frameDimensions ? imageGenerationFrameStyle(frameDimensions) : undefined}
+    >
+      {props.image.previewUrl ? (
+        <button
+          type="button"
+          className={cn(
+            "inline-flex max-w-full cursor-zoom-in items-start justify-start bg-background/55",
+            frameDimensions ? "h-full" : "",
+          )}
+          aria-label={`Preview ${props.image.name}`}
+          onClick={() => {
+            const preview = buildExpandedImagePreview(props.images, props.image.id);
+            if (!preview) return;
+            props.onImageExpand(preview);
+          }}
+        >
+          <img
+            src={props.image.previewUrl}
+            alt={props.image.name}
+            className={cn(
+              "block object-contain",
+              frameDimensions ? "h-full w-full" : "max-h-[52vh] max-w-full",
+            )}
+            onLoad={(event) => {
+              const { naturalHeight, naturalWidth } = event.currentTarget;
+              if (naturalWidth <= 0 || naturalHeight <= 0) {
+                return;
+              }
+              setNaturalDimensions((current) =>
+                current?.width === naturalWidth && current.height === naturalHeight
+                  ? current
+                  : { width: naturalWidth, height: naturalHeight },
+              );
+            }}
+          />
+        </button>
+      ) : (
+        <div className="flex min-h-24 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
+          {props.image.name}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
   completionSummary: string | null;
   durationStart: string;
   isAssistantTurnTerminal?: boolean;
+  liveTimers: boolean;
   showCompletedTiming?: boolean;
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
+  onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   renderMarkdown: boolean;
   timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
+  const assistantImages = props.message.attachments ?? [];
+  const imageGenerationPlaceholder = assistantImageGenerationPlaceholder(props.message);
+  const imageGenerationAttachmentDimensions = assistantImageGenerationDimensionsFromMessageId(
+    props.message,
+  );
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
       : props.message.streaming
         ? ""
-        : "(empty response)";
+        : assistantImages.length > 0
+          ? ""
+          : "(empty response)";
   const completedAt = props.message.completedAt ?? null;
   const elapsedLabel =
     props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
@@ -2067,7 +2215,28 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
 
   return (
     <div className="min-w-0">
-      {props.renderMarkdown ? (
+      {imageGenerationPlaceholder && (
+        <ImageGenerationPlaceholderFrame dimensions={imageGenerationPlaceholder} />
+      )}
+      {assistantImages.length > 0 && (
+        <div
+          className={cn(
+            "grid w-fit max-w-full grid-cols-1 justify-items-start gap-2",
+            messageText ? "mb-2.5" : "",
+          )}
+        >
+          {assistantImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+            <AssistantImageAttachmentFrame
+              key={image.id}
+              generationDimensions={imageGenerationAttachmentDimensions}
+              image={image}
+              images={assistantImages}
+              onImageExpand={props.onImageExpand}
+            />
+          ))}
+        </div>
+      )}
+      {messageText.length === 0 ? null : props.renderMarkdown ? (
         <ChatMarkdown
           key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
           analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
@@ -2092,6 +2261,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           isStreaming={Boolean(props.message.streaming)}
           onOpenBrowserUrl={onOpenBrowserUrl}
           onOpenFilePath={onOpenFilePath}
+          enableLocalFileLinks={props.enableLocalFileLinks ?? true}
           {...(props.message.streamingTextState
             ? { streamingTextState: props.message.streamingTextState }
             : {})}
@@ -2182,6 +2352,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   proposedPlan: TimelineProposedPlan;
   workspaceRoot: string | undefined;
 }) {
@@ -2194,6 +2365,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
         cwd={props.cwd}
         onOpenBrowserUrl={onOpenBrowserUrl}
         onOpenFilePath={onOpenFilePath}
+        enableLocalFileLinks={props.enableLocalFileLinks ?? true}
         workspaceRoot={props.workspaceRoot}
       />
     </div>

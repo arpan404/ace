@@ -31,6 +31,10 @@ export interface RevealInFileManagerInput {
   readonly path: string;
 }
 
+export interface PathExistsInput {
+  readonly path: string;
+}
+
 interface EditorLaunch {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
@@ -382,6 +386,11 @@ export interface OpenShape {
    * Reveal a file or directory in the operating system file manager.
    */
   readonly revealInFileManager: (input: RevealInFileManagerInput) => Effect.Effect<void, OpenError>;
+
+  /**
+   * Check whether a local filesystem path exists.
+   */
+  readonly pathExists: (input: PathExistsInput) => Effect.Effect<boolean>;
 }
 
 /**
@@ -490,6 +499,19 @@ const make = Effect.gen(function* () {
     openInEditor: (input) => Effect.flatMap(resolveEditorLaunch(input), launchDetached),
     revealInFileManager: (input) =>
       Effect.flatMap(resolveRevealInFileManagerLaunch(input), launchDetached),
+    pathExists: (input) =>
+      Effect.sync(() => {
+        const targetPath = input.path.trim().replace(LINE_COLUMN_SUFFIX_PATTERN, "");
+        if (targetPath.length === 0) {
+          return false;
+        }
+        try {
+          statSync(targetPath);
+          return true;
+        } catch {
+          return false;
+        }
+      }),
   } satisfies OpenShape;
 });
 

@@ -347,6 +347,7 @@ export const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.optional(TurnId),
   sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,

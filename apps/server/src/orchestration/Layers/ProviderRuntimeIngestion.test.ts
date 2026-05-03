@@ -37,6 +37,7 @@ import {
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
@@ -190,6 +191,7 @@ describe("ProviderRuntimeIngestion", () => {
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
     const workspaceRoot = makeTempDir("ace-provider-project-");
+    const serverBaseDir = makeTempDir("ace-provider-state-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -205,12 +207,13 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), serverBaseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
+    const serverConfig = await runtime.runPromise(Effect.service(ServerConfig));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(ingestion.drain);
@@ -309,6 +312,7 @@ describe("ProviderRuntimeIngestion", () => {
       engine,
       emit: provider.emit,
       setProviderSession: provider.setSession,
+      serverConfig,
       drain,
       readActivityPersistence,
     };
@@ -1447,6 +1451,367 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("assistant-only final text");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("shows generated image starts as assistant placeholders and completes with attachments", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const imageBytes = Buffer.from("generated image bytes");
+    const imageDataUrl = `data:image/png;base64,${imageBytes.toString("base64")}`;
+    const assistantMessageId = "assistant:image:1536x1024:image-1";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-image-generation-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "inProgress",
+        title: "Assistant message",
+        data: {
+          item: {
+            type: "imageGeneration",
+            id: "image-1",
+            size: "1536x1024",
+          },
+        },
+      },
+    });
+
+    const placeholderThread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId && message.streaming,
+      ),
+    );
+    const placeholderMessage = placeholderThread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === assistantMessageId,
+    );
+    expect(placeholderMessage?.text).toBe("");
+    expect(placeholderMessage?.attachments).toBeUndefined();
+    expect(placeholderThread.activities).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Image generation",
+        }),
+      ]),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-image-generation-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Assistant message",
+        data: {
+          item: {
+            type: "imageGeneration",
+            id: "image-1",
+            size: "1536x1024",
+            result: imageDataUrl,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId &&
+          !message.streaming &&
+          (message.attachments?.length ?? 0) === 1,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === assistantMessageId,
+    );
+    const attachment = message?.attachments?.[0];
+    expect(message?.text).toBe("");
+    expect(attachment).toMatchObject({
+      type: "image",
+      name: "generated-image.png",
+      mimeType: "image/png",
+      sizeBytes: imageBytes.byteLength,
+    });
+    expect(attachment?.id).toMatch(/^thread-1-/);
+    const attachmentPath = attachment
+      ? resolveAttachmentPath({
+          attachmentsDir: harness.serverConfig.attachmentsDir,
+          attachment,
+        })
+      : null;
+    expect(attachmentPath).toBeTruthy();
+    expect(attachmentPath ? fs.readFileSync(attachmentPath).equals(imageBytes) : false).toBe(true);
+  });
+
+  it("starts image placeholders from structured backend tool calls and resolves native completions into them", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const imageBytes = Buffer.from("structured image tool bytes");
+    const imageDataUrl = `data:image/png;base64,${imageBytes.toString("base64")}`;
+    const assistantMessageId = "assistant:image:1024x1536:tool-image-1";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-structured-image-tool-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-structured-image"),
+      itemId: asItemId("tool-image-1"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "inProgress",
+        title: "Tool call",
+        data: {
+          item: {
+            type: "dynamicToolCall",
+            id: "tool-image-1",
+            tool: "image_generation",
+            arguments: {
+              size: "1024x1536",
+            },
+            status: "inProgress",
+          },
+        },
+      },
+    });
+
+    const placeholderThread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId && message.streaming,
+      ),
+    );
+    expect(placeholderThread.activities.some((activity) => activity.summary === "Tool call")).toBe(
+      false,
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-structured-image-tool-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-structured-image"),
+      itemId: asItemId("tool-image-1"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "completed",
+        title: "Tool call",
+        data: {
+          item: {
+            type: "dynamicToolCall",
+            id: "tool-image-1",
+            tool: "image_generation",
+            arguments: {
+              size: "1024x1536",
+            },
+            status: "completed",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-structured-image-native-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-structured-image"),
+      itemId: asItemId("ig-native-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Assistant message",
+        data: {
+          item: {
+            type: "imageGeneration",
+            id: "ig-native-1",
+            size: "1024x1536",
+            result: imageDataUrl,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId &&
+          !message.streaming &&
+          (message.attachments?.length ?? 0) === 1,
+      ),
+    );
+    expect(
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:image:1024x1536:ig-native-1",
+      ),
+    ).toBe(false);
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === assistantMessageId,
+    );
+    expect(message?.text).toBe("");
+    expect(message?.attachments?.[0]).toMatchObject({
+      type: "image",
+      name: "generated-image.png",
+      mimeType: "image/png",
+      sizeBytes: imageBytes.byteLength,
+    });
+  });
+
+  it("starts image placeholders from the built-in image_gen backend tool id", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const assistantMessageId = "assistant:image:1536x1024:tool-image-gen-1";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-image-gen-tool-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image-gen-tool"),
+      itemId: asItemId("tool-image-gen-1"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "inProgress",
+        title: "Tool call",
+        data: {
+          item: {
+            type: "dynamicToolCall",
+            id: "tool-image-gen-1",
+            tool: "image_gen",
+            input: {
+              size: "1536x1024",
+            },
+            status: "inProgress",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId && message.streaming,
+      ),
+    );
+    expect(thread.activities.some((activity) => activity.summary === "Tool call")).toBe(false);
+  });
+
+  it("starts image placeholders from backend dynamic image prehook requests", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const assistantMessageId = "assistant:image:1536x1024:dyn-image-1";
+
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-dynamic-image-request-opened"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-dynamic-image-request"),
+      payload: {
+        requestType: "dynamic_tool_call",
+        args: {
+          callId: "dyn-image-1",
+          tool: "image_generation_prehook",
+          arguments: {
+            size: "1536x1024",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId && message.streaming,
+      ),
+    );
+    expect(thread.activities.some((activity) => activity.summary === "Approval requested")).toBe(
+      false,
+    );
+  });
+
+  it("shows raw generated image completions as assistant attachments without tool activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const imageBytes = Buffer.from("raw generated image bytes ".repeat(4));
+    const imageBase64 = imageBytes.toString("base64");
+    const assistantMessageId = "assistant:image:1024x1024:ig-raw-1";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-raw-image-generation-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Assistant message",
+        data: {
+          threadId: "thread-1",
+          turnId: "turn-image",
+          item: {
+            type: "image_generation_call",
+            id: "ig-raw-1",
+            status: "completed",
+            result: imageBase64,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId &&
+          !message.streaming &&
+          (message.attachments?.length ?? 0) === 1,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === assistantMessageId,
+    );
+    const attachment = message?.attachments?.[0];
+    expect(message?.text).toBe("");
+    expect(attachment).toMatchObject({
+      type: "image",
+      name: "generated-image.png",
+      mimeType: "image/png",
+      sizeBytes: imageBytes.byteLength,
+    });
+    expect(thread.activities).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Image generation",
+        }),
+      ]),
+    );
+    const attachmentPath = attachment
+      ? resolveAttachmentPath({
+          attachmentsDir: harness.serverConfig.attachmentsDir,
+          attachment,
+        })
+      : null;
+    expect(attachmentPath).toBeTruthy();
+    expect(attachmentPath ? fs.readFileSync(attachmentPath).equals(imageBytes) : false).toBe(true);
   });
 
   it("projects reasoning item completions into timeline activities", async () => {
