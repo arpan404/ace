@@ -121,6 +121,7 @@ export interface WsRpcClient {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly pickFolder: RpcUnaryMethod<typeof WS_METHODS.serverPickFolder>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly upgradeProviderCli: RpcUnaryMethod<typeof WS_METHODS.serverUpgradeProviderCli>;
     readonly getLspToolsStatus: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetLspToolsStatus>;
     readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
     readonly searchLspMarketplace: RpcUnaryMethod<typeof WS_METHODS.serverSearchLspMarketplace>;
@@ -271,6 +272,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.serverPickFolder](input)),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      upgradeProviderCli: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUpgradeProviderCli](input)),
       getLspToolsStatus: () =>
         transport.request((client) => client[WS_METHODS.serverGetLspToolsStatus]({})),
       installLspTools: (input) =>

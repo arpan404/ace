@@ -76,6 +76,116 @@ export function sanitizeWorkLogText(value: string): string {
   return trimmed;
 }
 
+function isGenericToolLabel(value: string | null): boolean {
+  if (!value) {
+    return true;
+  }
+  const normalized = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return (
+    normalized === "tool" ||
+    normalized === "tool call" ||
+    normalized === "dynamic tool call" ||
+    normalized === "mcp tool call" ||
+    normalized === "file change" ||
+    normalized === "command run" ||
+    normalized === "command execution"
+  );
+}
+
+function looksLikePath(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+  if (/^(?:[a-z]+:\/\/|[A-Za-z]:[\\/]|[./~]?[A-Za-z0-9_.-]+[\\/])/u.test(value)) {
+    return true;
+  }
+  return /^[A-Za-z0-9_.@-]+\.[A-Za-z0-9]{1,12}(?:[:#]\d+)?$/u.test(value);
+}
+
+function normalizeToolNameLabel(value: string): string {
+  const normalized = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_/-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const lower = normalized.toLowerCase();
+
+  if (lower === "read" || lower === "read file" || lower === "readfile" || lower === "open file") {
+    return "Read file";
+  }
+  if (
+    lower === "write" ||
+    lower === "write file" ||
+    lower === "writefile" ||
+    lower === "create file"
+  ) {
+    return "Write file";
+  }
+  if (
+    lower === "edit" ||
+    lower === "replace" ||
+    lower === "patch" ||
+    lower === "apply patch" ||
+    lower === "str replace editor"
+  ) {
+    return "Edit file";
+  }
+  if (lower === "delete" || lower === "delete file" || lower === "remove file") {
+    return "Delete file";
+  }
+  if (lower === "move" || lower === "rename" || lower === "move file") {
+    return "Move file";
+  }
+  if (
+    lower === "search" ||
+    lower === "grep" ||
+    lower === "grep search" ||
+    lower === "glob" ||
+    lower === "find"
+  ) {
+    return "Search";
+  }
+  if (
+    lower === "execute" ||
+    lower === "exec" ||
+    lower === "bash" ||
+    lower === "shell" ||
+    lower === "run shell command" ||
+    lower === "run command"
+  ) {
+    return "Run command";
+  }
+  if (lower === "fetch" || lower === "web fetch" || lower === "open url") {
+    return "Fetch URL";
+  }
+  if (lower === "think" || lower === "reasoning") {
+    return "Reasoning";
+  }
+  if (lower === "switch mode") {
+    return "Switch mode";
+  }
+
+  return normalized.length > 0 ? normalized : value;
+}
+
+function extractToolNameFromData(data: Record<string, unknown> | null): string | null {
+  const item = asRecord(data?.item);
+  const input = asRecord(data?.input);
+  const rawInput = asRecord(data?.rawInput);
+  const candidates = [
+    asTrimmedString(data?.toolName),
+    asTrimmedString(data?.name),
+    asTrimmedString(data?.kind),
+    asTrimmedString(item?.toolName),
+    asTrimmedString(item?.name),
+    asTrimmedString(input?.toolName),
+    asTrimmedString(input?.name),
+    asTrimmedString(rawInput?.toolName),
+    asTrimmedString(rawInput?.name),
+  ];
+  return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
 function normalizeCommandValue(value: unknown): string | null {
   const direct = asTrimmedString(value);
   if (direct) {
@@ -95,17 +205,146 @@ export function extractToolCommand(payload: Record<string, unknown> | null): str
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
+  const input = asRecord(data?.input);
+  const args = asRecord(data?.arguments);
+  const rawInput = asRecord(data?.rawInput);
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
+    normalizeCommandValue(data?.cmd),
+    normalizeCommandValue(data?.fullCommandText),
+    normalizeCommandValue(input?.command),
+    normalizeCommandValue(input?.cmd),
+    normalizeCommandValue(args?.command),
+    normalizeCommandValue(args?.cmd),
+    normalizeCommandValue(rawInput?.command),
+    normalizeCommandValue(rawInput?.cmd),
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
 }
 
 export function extractToolTitle(payload: Record<string, unknown> | null): string | null {
-  return typeof payload?.title === "string" ? sanitizeWorkLogText(payload.title) : null;
+  const data = asRecord(payload?.data);
+  const rawTitle = typeof payload?.title === "string" ? sanitizeWorkLogText(payload.title) : null;
+  const dataToolName = extractToolNameFromData(data);
+  if ((isGenericToolLabel(rawTitle) || looksLikePath(rawTitle)) && dataToolName) {
+    return normalizeToolNameLabel(dataToolName);
+  }
+  if (rawTitle) {
+    return rawTitle;
+  }
+  return dataToolName ? normalizeToolNameLabel(dataToolName) : null;
+}
+
+function pushToolSubject(target: string[], seen: Set<string>, value: unknown) {
+  const normalized = asTrimmedString(value);
+  if (!normalized || seen.has(normalized)) {
+    return;
+  }
+  seen.add(normalized);
+  target.push(normalized);
+}
+
+function collectToolSubjects(value: unknown, target: string[], seen: Set<string>, depth: number) {
+  if (depth > 4 || target.length >= 6) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectToolSubjects(entry, target, seen, depth + 1);
+      if (target.length >= 6) return;
+    }
+    return;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return;
+  }
+
+  for (const key of [
+    "query",
+    "pattern",
+    "glob",
+    "path",
+    "filePath",
+    "file_path",
+    "filename",
+    "relativePath",
+    "absolutePath",
+    "url",
+    "uri",
+    "target",
+  ] as const) {
+    pushToolSubject(target, seen, record[key]);
+  }
+
+  for (const nestedKey of [
+    "item",
+    "result",
+    "input",
+    "arguments",
+    "args",
+    "data",
+    "rawInput",
+    "rawOutput",
+    "content",
+    "locations",
+    "files",
+    "paths",
+  ] as const) {
+    if (!(nestedKey in record)) {
+      continue;
+    }
+    collectToolSubjects(record[nestedKey], target, seen, depth + 1);
+    if (target.length >= 6) return;
+  }
+}
+
+function parsePrefixedJsonToolDetail(value: string): string | null {
+  const match = /^(?<prefix>[A-Za-z][A-Za-z0-9 _.-]{0,80}):\s*(?<json>[\[{][\s\S]*[\]}])$/u.exec(
+    value.trim(),
+  );
+  if (!match?.groups) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(match.groups.json ?? "");
+    const subjects: string[] = [];
+    collectToolSubjects(parsed, subjects, new Set(), 0);
+    if (subjects.length > 0) {
+      return subjects.join(", ");
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function extractToolDetail(payload: Record<string, unknown> | null): string | null {
+  const rawDetail = typeof payload?.detail === "string" ? payload.detail : null;
+  if (rawDetail) {
+    const sanitized = sanitizeWorkLogText(rawDetail);
+    const parsedDetail = parsePrefixedJsonToolDetail(sanitized);
+    return parsedDetail ?? sanitized;
+  }
+
+  const subjects: string[] = [];
+  const seen = new Set<string>();
+  const data = asRecord(payload?.data);
+  collectToolSubjects(data, subjects, seen, 0);
+
+  const title = typeof payload?.title === "string" ? sanitizeWorkLogText(payload.title) : null;
+  if (looksLikePath(title)) {
+    pushToolSubject(subjects, seen, title);
+  }
+
+  if (subjects.length === 0) {
+    return null;
+  }
+  return subjects.length === 1 ? subjects[0]! : `${subjects[0]} +${subjects.length - 1} more`;
 }
 
 function extractIntentRecordText(record: Record<string, unknown> | null): string | null {
@@ -231,7 +470,9 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
 
   pushChangedFile(target, seen, record.path);
   pushChangedFile(target, seen, record.filePath);
+  pushChangedFile(target, seen, record.file_path);
   pushChangedFile(target, seen, record.relativePath);
+  pushChangedFile(target, seen, record.absolutePath);
   pushChangedFile(target, seen, record.filename);
   pushChangedFile(target, seen, record.newPath);
   pushChangedFile(target, seen, record.oldPath);
@@ -240,9 +481,15 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
     "item",
     "result",
     "input",
+    "arguments",
+    "args",
     "data",
+    "rawInput",
+    "rawOutput",
     "changes",
     "files",
+    "paths",
+    "locations",
     "edits",
     "patch",
     "patches",

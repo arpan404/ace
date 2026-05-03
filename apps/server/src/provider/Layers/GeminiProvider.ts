@@ -13,11 +13,13 @@ import {
   spawnAndCollect,
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
+import { formatCliUpgradeMessage, getCliVersionStatus } from "../cliVersionRequirement";
 import { GeminiProvider } from "../Services/GeminiProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "gemini" as const;
+export const MINIMUM_GEMINI_CLI_VERSION = "0.40.0";
 
 const FALLBACK_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
@@ -166,6 +168,9 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
       });
     }
 
+    const parsedVersion = parseGeminiVersion(versionResult.success.value);
+    const versionStatus = getCliVersionStatus(parsedVersion, MINIMUM_GEMINI_CLI_VERSION);
+
     return buildServerProvider({
       provider: PROVIDER,
       enabled: true,
@@ -173,10 +178,19 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
       models: fallbackModels,
       probe: {
         installed: true,
-        version: parseGeminiVersion(versionResult.success.value),
-        status: "ready",
+        version: parsedVersion,
+        minimumVersion: MINIMUM_GEMINI_CLI_VERSION,
+        versionStatus,
+        status: versionStatus === "upgrade-required" ? "warning" : "ready",
         auth: { status: "unknown" },
-        message: "Gemini CLI detected. Authentication is verified when a session starts.",
+        message:
+          versionStatus === "upgrade-required"
+            ? formatCliUpgradeMessage({
+                providerLabel: "Gemini",
+                version: parsedVersion,
+                minimumVersion: MINIMUM_GEMINI_CLI_VERSION,
+              })
+            : "Gemini CLI detected. Authentication is verified when a session starts.",
       },
     });
   },

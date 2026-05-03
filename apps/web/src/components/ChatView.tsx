@@ -2902,6 +2902,15 @@ export default function ChatView({
       })),
     [dispatchQueuedComposerCommand],
   );
+  const clearQueuedSteerRequest = useCallback(
+    async (targetThreadId: ThreadId) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.steer.clear",
+        commandId,
+        threadId,
+      })),
+    [dispatchQueuedComposerCommand],
+  );
   const ensureQueuedComposerThread = useCallback(
     async (options: {
       titleSeed: string;
@@ -3331,6 +3340,16 @@ export default function ChatView({
   );
   const onSteerQueuedComposerMessage = useCallback(
     async (messageId: MessageId) => {
+      const activeSteerRequest = queuedSteerRequestRef.current;
+      if (activeSteerRequest?.messageId === messageId) {
+        if (serverThread) {
+          await clearQueuedSteerRequest(serverThread.id);
+        }
+        return;
+      }
+      if (activeSteerRequest) {
+        return;
+      }
       const nextMessage = queuedComposerMessagesRef.current.find(
         (message) => message.id === messageId,
       );
@@ -3351,7 +3370,7 @@ export default function ChatView({
         interruptRequested: false,
       });
     },
-    [serverThread, steerQueuedComposerMessage, workLogEntries.length],
+    [clearQueuedSteerRequest, serverThread, steerQueuedComposerMessage, workLogEntries.length],
   );
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
@@ -7057,6 +7076,7 @@ export default function ChatView({
                     terminalOpen={terminalState.terminalOpen}
                     threadId={activeThread.id}
                     worktreePath={activeThread.worktreePath ?? null}
+                    onDetached={() => onWorkspaceModeChange("chat")}
                   />
                 </Suspense>
               </div>
@@ -7228,6 +7248,7 @@ export default function ChatView({
                           terminalOpen={terminalState.terminalOpen}
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}
+                          onDetached={() => onWorkspaceModeChange("chat")}
                         />
                       </Suspense>
                     </div>
@@ -7339,6 +7360,7 @@ export default function ChatView({
                               terminalOpen={terminalState.terminalOpen}
                               threadId={activeThread.id}
                               worktreePath={activeThread.worktreePath ?? null}
+                              onDetached={onCloseRightSidePanelEditor}
                             />
                           </Suspense>
                         ) : null}

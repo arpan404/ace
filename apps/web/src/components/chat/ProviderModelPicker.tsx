@@ -430,7 +430,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               const liveProvider = props.providers
                 ? getProviderSnapshot(props.providers, option.value)
                 : undefined;
-              if (liveProvider && liveProvider.status !== "ready") {
+              const isUpgradeNeeded = liveProvider?.versionStatus === "upgrade-required";
+              if (liveProvider && liveProvider.status !== "ready" && !isUpgradeNeeded) {
                 const messageLower = liveProvider.message?.toLowerCase() ?? "";
                 const unavailableLabel = !liveProvider.enabled
                   ? "Disabled"

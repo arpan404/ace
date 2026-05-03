@@ -11,6 +11,24 @@ import {
 } from "lucide-react";
 
 export type SettingsNavGroup = "workspace" | "ai" | "system" | "data";
+export type SettingsSectionPath =
+  | "/settings/general"
+  | "/settings/chat"
+  | "/settings/editor"
+  | "/settings/providers"
+  | "/settings/devices"
+  | "/settings/advanced"
+  | "/settings/about"
+  | "/settings/archived";
+
+type SettingsNavIcon = ComponentType<{ className?: string }>;
+type SettingsNavItem = {
+  readonly group: SettingsNavGroup;
+  readonly label: string;
+  readonly description: string;
+  readonly to: SettingsSectionPath;
+  readonly icon: SettingsNavIcon;
+};
 
 export const SETTINGS_NAV_GROUPS = [
   { id: "workspace", label: "Workspace" },
@@ -22,7 +40,7 @@ export const SETTINGS_NAV_GROUPS = [
   label: string;
 }>;
 
-export const SETTINGS_NAV_ITEMS = [
+export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     group: "workspace",
     label: "General",
@@ -79,16 +97,10 @@ export const SETTINGS_NAV_ITEMS = [
     to: "/settings/archived",
     icon: ArchiveIcon,
   },
-] as const satisfies ReadonlyArray<{
-  group: SettingsNavGroup;
-  label: string;
-  description: string;
-  to: string;
-  icon: ComponentType<{ className?: string }>;
-}>;
+];
 
-export type SettingsSectionPath = (typeof SETTINGS_NAV_ITEMS)[number]["to"];
+const DEFAULT_SETTINGS_NAV_ITEM = SETTINGS_NAV_ITEMS[0] as SettingsNavItem;
 
 export function getSettingsNavItem(pathname: string) {
-  return SETTINGS_NAV_ITEMS.find((item) => item.to === pathname) ?? SETTINGS_NAV_ITEMS[0];
+  return SETTINGS_NAV_ITEMS.find((item) => item.to === pathname) ?? DEFAULT_SETTINGS_NAV_ITEM;
 }

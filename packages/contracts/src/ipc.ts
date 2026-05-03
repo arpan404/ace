@@ -62,6 +62,7 @@ import type {
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
+  ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingResult,
 } from "./server";
 import type {
@@ -256,6 +257,16 @@ export type DesktopNotificationPermission = "granted" | "denied" | "default" | "
 export type DesktopZoomAction = "zoom-in" | "zoom-out" | "zoom-reset";
 export type DesktopWindowResumeReason = "focus" | "resume" | "unlock-screen";
 
+export interface DesktopDetachedBrowserOpenInput {
+  scopeId?: string;
+  initialUrl?: string;
+}
+
+export interface DesktopDetachedEditorOpenInput {
+  threadId: string;
+  connectionUrl?: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
@@ -277,6 +288,8 @@ export interface DesktopBridge {
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
+  openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
+  openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
@@ -376,6 +389,9 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    upgradeProviderCli: (
+      input: ServerUpgradeProviderCliInput,
+    ) => Promise<ServerProviderUpdatedPayload>;
     getLspToolsStatus: () => Promise<ServerLspToolsStatus>;
     installLspTools: (input?: ServerInstallLspToolsInput) => Promise<ServerLspToolsStatus>;
     searchLspMarketplace: (
