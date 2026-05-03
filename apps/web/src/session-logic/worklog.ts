@@ -8,6 +8,7 @@ import {
   extractChangedFiles,
   extractEmbeddedIntentText,
   extractToolCommand,
+  extractToolDetail,
   extractToolTitle,
   extractWorkLogItemType,
   extractWorkLogRequestKind,
@@ -193,9 +194,20 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.detail = combined;
     }
   } else if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
-    const detail = stripTrailingExitCode(sanitizeWorkLogText(payload.detail)).output;
+    const extractedDetail = extractToolDetail(payload);
+    const detail = extractedDetail
+      ? stripTrailingExitCode(sanitizeWorkLogText(extractedDetail)).output
+      : null;
     if (detail) {
       entry.detail = detail;
+    }
+  } else if (payload) {
+    const detail = extractToolDetail(payload);
+    if (detail) {
+      const normalizedDetail = stripTrailingExitCode(sanitizeWorkLogText(detail)).output;
+      if (normalizedDetail) {
+        entry.detail = normalizedDetail;
+      }
     }
   }
   if (command) {

@@ -1352,6 +1352,100 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("derives readable Gemini tool labels from kind, locations, and path-like titles", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "gemini-read",
+        kind: "tool.completed",
+        summary: "README.md",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "README.md",
+          data: {
+            toolCallId: "tool-read",
+            kind: "read",
+            locations: [{ path: "README.md" }],
+          },
+        },
+      }),
+      makeActivity({
+        id: "gemini-search",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          data: {
+            toolCallId: "tool-search",
+            kind: "search",
+            rawInput: { pattern: "class Agent", path: "src" },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      toolTitle: "Read file",
+      detail: "README.md",
+    });
+    expect(entries[1]).toMatchObject({
+      toolTitle: "Search",
+      detail: "class Agent +1 more",
+    });
+  });
+
+  it("normalizes provider JSON tool details into readable subjects", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "json-detail",
+        kind: "tool.completed",
+        summary: "Tool call completed",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          detail: 'Read: {"file_path":"/tmp/app.ts"}',
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+
+    expect(entry).toMatchObject({
+      detail: "/tmp/app.ts",
+    });
+  });
+
+  it("uses provider tool names and input data for generic Claude-style tool calls", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-tool",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          data: {
+            toolName: "grep_search",
+            input: {
+              query: "ProviderRuntimeEvent",
+              path: "apps/server/src",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+
+    expect(entry).toMatchObject({
+      toolTitle: "Search",
+      detail: "ProviderRuntimeEvent +1 more",
+    });
+  });
+
   it("collapses repeated lifecycle updates for the same tool call into one entry", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1401,7 +1495,7 @@ describe("deriveWorkLogEntries", () => {
       id: "tool-complete",
       createdAt: "2026-02-23T00:00:01.000Z",
       label: "Tool call completed",
-      detail: 'Read: {"file_path":"/tmp/app.ts"}',
+      detail: "/tmp/app.ts",
       command: "sed -n 1,40p /tmp/app.ts",
       itemType: "dynamic_tool_call",
       toolTitle: "Tool call",
