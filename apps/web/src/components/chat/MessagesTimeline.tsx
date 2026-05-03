@@ -112,6 +112,13 @@ const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
+const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
+  /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
+
+interface AssistantImageGenerationPlaceholder {
+  readonly width: number;
+  readonly height: number;
+}
 
 function canResolveTimelineRowsInWorker(): boolean {
   return (
@@ -120,6 +127,21 @@ function canResolveTimelineRowsInWorker(): boolean {
     typeof Worker !== "undefined" &&
     typeof document.createElement === "function"
   );
+}
+
+function assistantImageGenerationPlaceholder(
+  message: AssistantTimelineMessage,
+): AssistantImageGenerationPlaceholder | null {
+  if (!message.streaming || (message.attachments?.length ?? 0) > 0) {
+    return null;
+  }
+  const match = ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX.exec(String(message.id));
+  const width = match?.groups?.width ? Number(match.groups.width) : Number.NaN;
+  const height = match?.groups?.height ? Number(match.groups.height) : Number.NaN;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
 }
 
 const timelineRowHeightCache = new Map<string, number>();
@@ -1378,41 +1400,49 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "message": {
-      const assistantRenderHint =
-        row.message.role === "assistant"
-          ? resolveAssistantMessageRenderHint(row.message)
-          : "full-text";
+      const message = row.message;
       const renderedMessageText =
-        row.message.role === "assistant"
-          ? getChatMessageRenderableText(row.message)
-          : getUserMessageTextForHeightEstimate(row.message.text);
+        message.role === "assistant"
+          ? getChatMessageRenderableText(message)
+          : getUserMessageTextForHeightEstimate(message.text);
       const messageText =
-        row.message.role === "assistant" &&
+        message.role === "assistant" &&
         renderedMessageText.trim().length === 0 &&
-        !row.message.streaming &&
-        (row.message.attachments?.length ?? 0) === 0
+        !message.streaming &&
+        (message.attachments?.length ?? 0) === 0
           ? "(empty response)"
           : renderedMessageText;
-      const messageHeightInput =
-        row.message.attachments === undefined
-          ? {
-              role: row.message.role,
-              text: messageText,
-              ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
-            }
-          : {
-              role: row.message.role,
-              text: messageText,
-              attachments: row.message.attachments,
-              ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
-            };
-      const messageHeight = estimateTimelineMessageHeight(messageHeightInput, {
-        timelineWidthPx: input.timelineWidthPx,
-      });
-      if (row.message.role !== "assistant") {
+      if (!isAssistantTimelineMessage(message)) {
+        const messageHeight = estimateTimelineMessageHeight(
+          {
+            role: message.role,
+            text: messageText,
+            ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+          },
+          {
+            timelineWidthPx: input.timelineWidthPx,
+          },
+        );
         height = messageHeight + 18;
         break;
       }
+
+      const pendingImageGeneration = assistantImageGenerationPlaceholder(message);
+      const messageHeight = estimateTimelineMessageHeight(
+        {
+          role: "assistant",
+          text: messageText,
+          ...(pendingImageGeneration !== null
+            ? { attachments: [{ id: "pending-image-generation" }] }
+            : message.attachments !== undefined
+              ? { attachments: message.attachments }
+              : {}),
+          assistantRenderHint: resolveAssistantMessageRenderHint(message),
+        },
+        {
+          timelineWidthPx: input.timelineWidthPx,
+        },
+      );
       const completionSummaryExtra =
         row.isAssistantTurnTerminal && row.message.completedAt ? 24 : 0;
       height = messageHeight + completionSummaryExtra + 16;
@@ -2051,6 +2081,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
   const assistantImages = props.message.attachments ?? [];
+  const imageGenerationPlaceholder = assistantImageGenerationPlaceholder(props.message);
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
     renderedMessageText.trim().length > 0
@@ -2073,6 +2104,19 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
 
   return (
     <div className="min-w-0">
+      {imageGenerationPlaceholder && (
+        <div
+          className="relative mb-2.5 max-w-3xl overflow-hidden rounded-xl border border-border/55 bg-background/70"
+          data-image-generation-placeholder="true"
+          style={{
+            aspectRatio: `${imageGenerationPlaceholder.width} / ${imageGenerationPlaceholder.height}`,
+          }}
+        >
+          <div className="absolute inset-0 animate-pulse bg-muted/35" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/14 via-transparent to-primary/5" />
+          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background/70 to-transparent" />
+        </div>
+      )}
       {assistantImages.length > 0 && (
         <div className={cn("grid max-w-3xl grid-cols-1 gap-2", messageText ? "mb-2.5" : "")}>
           {assistantImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

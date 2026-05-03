@@ -1453,11 +1453,53 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
-  it("materializes generated image completions as assistant message attachments", async () => {
+  it("shows generated image starts as assistant placeholders and completes with attachments", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     const imageBytes = Buffer.from("generated image bytes");
     const imageDataUrl = `data:image/png;base64,${imageBytes.toString("base64")}`;
+    const assistantMessageId = "assistant:image:1536x1024:image-1";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-image-generation-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "inProgress",
+        title: "Assistant message",
+        data: {
+          item: {
+            type: "imageGeneration",
+            id: "image-1",
+            size: "1536x1024",
+          },
+        },
+      },
+    });
+
+    const placeholderThread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === assistantMessageId && message.streaming,
+      ),
+    );
+    const placeholderMessage = placeholderThread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === assistantMessageId,
+    );
+    expect(placeholderMessage?.text).toBe("");
+    expect(placeholderMessage?.attachments).toBeUndefined();
+    expect(placeholderThread.activities).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Image generation",
+        }),
+      ]),
+    );
 
     harness.emit({
       type: "item.completed",
@@ -1475,6 +1517,7 @@ describe("ProviderRuntimeIngestion", () => {
           item: {
             type: "imageGeneration",
             id: "image-1",
+            size: "1536x1024",
             result: imageDataUrl,
           },
         },
@@ -1484,13 +1527,13 @@ describe("ProviderRuntimeIngestion", () => {
     const thread = await waitForThread(harness.engine, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
-          message.id === "assistant:image-1" &&
+          message.id === assistantMessageId &&
           !message.streaming &&
           (message.attachments?.length ?? 0) === 1,
       ),
     );
     const message = thread.messages.find(
-      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:image-1",
+      (entry: ProviderRuntimeTestMessage) => entry.id === assistantMessageId,
     );
     const attachment = message?.attachments?.[0];
     expect(message?.text).toBe("");

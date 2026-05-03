@@ -662,6 +662,53 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("(empty response)");
   });
 
+  it("renders assistant image generation placeholders without markdown or tool rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-image-placeholder-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant:image:1536x1024:image-1"),
+              role: "assistant",
+              text: "",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: true,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain("aspect-ratio:1536 / 1024");
+    expect(markup).not.toContain("1 tool call");
+    expect(markup).not.toContain("(empty response)");
+    expect(markup).not.toContain("data-chat-markdown");
+  });
+
   it("uses custom restore copy for the revert action tooltip", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const messageId = MessageId.makeUnsafe("user-rebuildable-provider");

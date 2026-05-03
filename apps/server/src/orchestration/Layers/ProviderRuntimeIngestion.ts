@@ -537,9 +537,7 @@ function imageGenerationAssistantMessageId(
 ): MessageId {
   const dimensions = extractImageGenerationDimensions(event.payload);
   const suffix = event.itemId ?? event.turnId ?? event.eventId;
-  return MessageId.makeUnsafe(
-    `assistant:image:${dimensions.width}x${dimensions.height}:${suffix}`,
-  );
+  return MessageId.makeUnsafe(`assistant:image:${dimensions.width}x${dimensions.height}:${suffix}`);
 }
 
 function lineCount(value: string | undefined): number {
