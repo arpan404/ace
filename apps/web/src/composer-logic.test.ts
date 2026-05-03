@@ -7,6 +7,7 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
   parseComposerIssuesCommand,
+  parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
@@ -92,6 +93,18 @@ describe("detectComposerTrigger", () => {
     expect(trigger).toEqual({
       kind: "slash-command",
       query: "iss",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects provider slash command tokens outside the built-in command list", () => {
+    const text = "/review";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-command",
+      query: "review",
       rangeStart: 0,
       rangeEnd: text.length,
     });
@@ -332,6 +345,28 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+});
+
+describe("parseProviderComposerSlashCommand", () => {
+  const providerCommands = [{ name: "plan" }, { name: "review" }, { name: "frontend/component" }];
+
+  it("matches provider commands with optional args", () => {
+    expect(parseProviderComposerSlashCommand("/review src", providerCommands)).toEqual({
+      commandName: "review",
+      args: "src",
+    });
+  });
+
+  it("lets provider commands shadow Ace standalone commands", () => {
+    expect(parseProviderComposerSlashCommand("/plan", providerCommands)).toEqual({
+      commandName: "plan",
+      args: "",
+    });
+  });
+
+  it("ignores unknown slash commands", () => {
+    expect(parseProviderComposerSlashCommand("/unknown", providerCommands)).toBeNull();
   });
 });
 

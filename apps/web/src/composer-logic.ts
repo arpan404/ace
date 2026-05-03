@@ -14,7 +14,6 @@ export interface ComposerTrigger {
   rangeEnd: number;
 }
 
-const SLASH_COMMANDS: readonly ComposerSlashCommand[] = ["model", "plan", "default", "issues"];
 const isInlineTokenSegment = (segment: ComposerPromptSegment): boolean => segment.type !== "text";
 
 function clampCursor(text: string, cursor: number): number {
@@ -196,23 +195,12 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       const commandMatch = /^\/(\S*)$/.exec(commandText);
       if (commandMatch) {
         const commandQuery = commandMatch[1] ?? "";
-        if (commandQuery.toLowerCase() === "model") {
-          return {
-            kind: "slash-model",
-            query: "",
-            rangeStart: commandStart,
-            rangeEnd: cursor,
-          };
-        }
-        if (SLASH_COMMANDS.some((command) => command.startsWith(commandQuery.toLowerCase()))) {
-          return {
-            kind: "slash-command",
-            query: commandQuery,
-            rangeStart: commandStart,
-            rangeEnd: cursor,
-          };
-        }
-        return null;
+        return {
+          kind: "slash-command",
+          query: commandQuery,
+          rangeStart: commandStart,
+          rangeEnd: cursor,
+        };
       }
 
       const modelMatch = /^\/model(?:\s+(.*))?$/.exec(commandText);
@@ -259,6 +247,34 @@ export function parseStandaloneComposerSlashCommand(
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
   return "default";
+}
+
+function normalizeSlashCommandName(value: string): string {
+  return value.trim().replace(/^\/+/, "").toLowerCase();
+}
+
+export function parseProviderComposerSlashCommand(
+  text: string,
+  providerCommands: ReadonlyArray<{ readonly name: string }>,
+): { commandName: string; args: string } | null {
+  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  const commandName = normalizeSlashCommandName(match[1] ?? "");
+  if (!commandName) {
+    return null;
+  }
+  const command = providerCommands.find(
+    (candidate) => normalizeSlashCommandName(candidate.name) === commandName,
+  );
+  if (!command) {
+    return null;
+  }
+  return {
+    commandName: command.name,
+    args: (match[2] ?? "").trim(),
+  };
 }
 
 export function parseComposerIssuesCommand(

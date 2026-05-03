@@ -511,6 +511,7 @@ const make = Effect.gen(function* () {
               : "stopped",
           providerName: provider,
           ...(capabilities ? { capabilities } : {}),
+          commands: input.thread.session?.commands ?? [],
           runtimeMode:
             input.liveSession?.runtimeMode ??
             input.thread.session?.runtimeMode ??
@@ -1027,6 +1028,7 @@ const make = Effect.gen(function* () {
           threadId,
           status: mapProviderSessionStatusToOrchestrationStatus(session.status),
           providerName: session.provider,
+          commands: thread.session?.commands ?? [],
           runtimeMode: desiredRuntimeMode,
           // Provider turn ids are not orchestration turn ids.
           activeTurnId: null,
@@ -1602,6 +1604,7 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
         status: "stopped",
         providerName: thread.session?.providerName ?? null,
+        commands: thread.session?.commands ?? [],
         runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
         lastError: thread.session?.lastError ?? null,

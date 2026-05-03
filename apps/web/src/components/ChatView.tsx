@@ -66,6 +66,7 @@ import {
 import {
   collapseExpandedComposerCursor,
   parseComposerIssuesCommand,
+  parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
 import {
@@ -5795,10 +5796,12 @@ export default function ChatView({
       });
       return;
     }
-    const standaloneSlashCommand =
+    const providerSlashCommandPayload =
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
+        ? parseProviderComposerSlashCommand(trimmed, activeThread.session?.commands ?? [])
         : null;
+    const standaloneSlashCommand =
+      providerSlashCommandPayload === null ? parseStandaloneComposerSlashCommand(trimmed) : null;
     if (standaloneSlashCommand) {
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
@@ -5807,12 +5810,11 @@ export default function ChatView({
       return;
     }
     const composerIssuesCommandPayload =
-      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseComposerIssuesCommand(trimmed)
-        : null;
+      providerSlashCommandPayload === null ? parseComposerIssuesCommand(trimmed) : null;
     const isIssuesCommandText =
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
+      providerSlashCommandPayload === null &&
       /^\/issues\b/i.test(trimmed);
     if (isIssuesCommandText && composerIssuesCommandPayload === null) {
       toastManager.add({
@@ -7108,6 +7110,7 @@ export default function ChatView({
                     selectedModel={selectedModel}
                     selectedProviderModels={selectedProviderModels}
                     selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                    providerCommands={activeThread.session?.commands ?? []}
                     selectedModelForPickerWithCustomFallback={
                       selectedModelForPickerWithCustomFallback
                     }
