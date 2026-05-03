@@ -292,14 +292,17 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 16,
   },
   headerCopy: {
     flex: 1,
+    minWidth: 220,
   },
   headerAction: {
+    marginLeft: "auto",
     paddingTop: 10,
   },
   eyebrow: {

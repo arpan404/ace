@@ -24,10 +24,13 @@ export class ConnectionManager {
   private connections = new Map<string, ManagedConnection>();
   private statusListeners = new Set<(connections: ManagedConnection[]) => void>();
 
-  async connect(host: HostInstance): Promise<MobileWsClient> {
+  async connect(
+    host: HostInstance,
+    options?: { readonly forceReconnect?: boolean },
+  ): Promise<MobileWsClient> {
     const existing = this.connections.get(host.id);
     if (existing) {
-      if (shouldRecreateConnection(existing.host, host)) {
+      if (options?.forceReconnect || shouldRecreateConnection(existing.host, host)) {
         existing.cleanup();
         this.connections.delete(host.id);
       } else {

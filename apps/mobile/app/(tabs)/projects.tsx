@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,8 +11,8 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FolderGit2, Plus, Search } from "lucide-react-native";
-import { DEFAULT_MODEL_BY_PROVIDER } from "@ace/contracts";
+import { ChevronRight, FolderGit2, FolderOpen, Plus, RefreshCw, Search } from "lucide-react-native";
+import { DEFAULT_MODEL_BY_PROVIDER, type FilesystemBrowseResult } from "@ace/contracts";
 import { newCommandId, newProjectId } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
@@ -29,6 +30,7 @@ import { useAggregatedOrchestration, formatTimeAgo } from "../../src/orchestrati
 import { useHostStore } from "../../src/store/HostStore";
 import { useUIStateStore } from "../../src/store/UIStateStore";
 import { formatErrorMessage } from "../../src/errors";
+import { connectionManager } from "../../src/rpc/ConnectionManager";
 
 export default function ProjectsScreen() {
   const router = useRouter();
@@ -45,6 +47,12 @@ export default function ProjectsScreen() {
   const [newProjectPath, setNewProjectPath] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [browsingProjectPath, setBrowsingProjectPath] = useState(false);
+  const [projectBrowseResult, setProjectBrowseResult] = useState<FilesystemBrowseResult | null>(
+    null,
+  );
+  const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
+  const [reconnectingHostId, setReconnectingHostId] = useState<string | null>(null);
 
   useEffect(() => {
     const hasActiveHost = activeHostId ? hosts.some((host) => host.id === activeHostId) : false;
@@ -76,6 +84,31 @@ export default function ProjectsScreen() {
     }
     return connections.find((connection) => connection.status.kind === "connected") ?? null;
   }, [activeHostId, connections]);
+  const activeHost = useMemo(() => {
+    if (activeHostId) {
+      return hosts.find((host) => host.id === activeHostId) ?? null;
+    }
+    return hosts[0] ?? null;
+  }, [activeHostId, hosts]);
+  const activeHostOffline =
+    Boolean(activeHost) && (!activeConnection || activeConnection.status.kind !== "connected");
+
+  const reconnectActiveHost = useCallback(async () => {
+    if (!activeHost || reconnectingHostId) {
+      return;
+    }
+
+    setReconnectingHostId(activeHost.id);
+    setComposerError(null);
+    try {
+      const client = await connectionManager.connect(activeHost, { forceReconnect: true });
+      await client.server.getConfig();
+    } catch (cause) {
+      setComposerError(formatErrorMessage(cause));
+    } finally {
+      setReconnectingHostId(null);
+    }
+  }, [activeHost, reconnectingHostId]);
 
   const createProject = useCallback(async () => {
     if (!activeConnection || activeConnection.status.kind !== "connected") {
@@ -119,6 +152,34 @@ export default function ProjectsScreen() {
     }
   }, [activeConnection, newProjectPath, newProjectTitle, refresh]);
 
+  const browseProjectPath = useCallback(
+    async (partialPath?: string) => {
+      if (!activeConnection || activeConnection.status.kind !== "connected") {
+        setComposerError("Connect a host before browsing project folders.");
+        return;
+      }
+
+      const browsePath = (partialPath ?? newProjectPath).trim() || "~";
+
+      setBrowsingProjectPath(true);
+      setComposerError(null);
+      try {
+        const result = await activeConnection.client.filesystem.browse({
+          partialPath: browsePath,
+        });
+        setProjectBrowseResult(result);
+        setProjectBrowseLoadedPath(browsePath);
+      } catch (cause) {
+        setProjectBrowseResult(null);
+        setProjectBrowseLoadedPath(null);
+        setComposerError(formatErrorMessage(cause));
+      } finally {
+        setBrowsingProjectPath(false);
+      }
+    },
+    [activeConnection, newProjectPath],
+  );
+
   const hasHosts = hosts.length > 0;
 
   return (
@@ -138,11 +199,14 @@ export default function ProjectsScreen() {
           title="Projects"
           subtitle="Browse active workspaces, switch control targets, and launch new project roots."
           action={
-            <IconButton
-              icon={Plus}
-              label="New"
-              onPress={() => setShowComposer((current) => !current)}
-            />
+            <View style={styles.headerActions}>
+              <IconButton icon={Search} label="Find" onPress={() => router.push("/search")} />
+              <IconButton
+                icon={Plus}
+                label="New"
+                onPress={() => setShowComposer((current) => !current)}
+              />
+            </View>
           }
         />
 
@@ -236,24 +300,153 @@ export default function ProjectsScreen() {
                   label={`on ${activeConnection.host.name}`}
                   tone={activeConnection.status.kind === "connected" ? "success" : "warning"}
                 />
+              ) : activeHost ? (
+                <StatusBadge label={`on ${activeHost.name}`} tone="warning" />
               ) : null}
             </View>
-            <TextInput
-              value={newProjectPath}
-              onChangeText={setNewProjectPath}
-              placeholder="/absolute/path/to/project"
-              placeholderTextColor={colors.muted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[
-                styles.textField,
-                {
-                  color: colors.foreground,
-                  backgroundColor: colors.surfaceSecondary,
-                  borderColor: colors.elevatedBorder,
-                },
-              ]}
-            />
+            {activeHostOffline ? (
+              <View
+                style={[
+                  styles.hostRecoveryBanner,
+                  {
+                    backgroundColor: withAlpha(colors.orange, 0.12),
+                    borderColor: withAlpha(colors.orange, 0.22),
+                  },
+                ]}
+              >
+                <View style={styles.hostRecoveryCopy}>
+                  <Text style={[styles.hostRecoveryTitle, { color: colors.foreground }]}>
+                    Selected host is offline
+                  </Text>
+                  <Text style={[styles.hostRecoveryBody, { color: colors.secondaryLabel }]}>
+                    Reconnect {activeHost?.name ?? "this host"} before creating a project.
+                  </Text>
+                </View>
+                <Pressable
+                  disabled={reconnectingHostId !== null}
+                  onPress={() => void reconnectActiveHost()}
+                  style={[
+                    styles.reconnectButton,
+                    {
+                      backgroundColor: colors.background,
+                      borderColor: colors.elevatedBorder,
+                    },
+                    reconnectingHostId !== null && styles.disabled,
+                  ]}
+                >
+                  {reconnectingHostId === activeHost?.id ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <RefreshCw size={16} color={colors.primary} strokeWidth={2.3} />
+                  )}
+                  <Text style={[styles.reconnectLabel, { color: colors.primary }]}>Reconnect</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <View style={styles.pathInputRow}>
+              <TextInput
+                value={newProjectPath}
+                onChangeText={(value) => {
+                  setNewProjectPath(value);
+                  setProjectBrowseResult(null);
+                  setProjectBrowseLoadedPath(null);
+                }}
+                placeholder="/absolute/path/to/project"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[
+                  styles.textField,
+                  styles.pathTextField,
+                  {
+                    color: colors.foreground,
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: colors.elevatedBorder,
+                  },
+                ]}
+              />
+              <Pressable
+                disabled={browsingProjectPath || !activeConnection}
+                onPress={() => void browseProjectPath()}
+                style={[
+                  styles.browseButton,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: colors.elevatedBorder,
+                  },
+                  (browsingProjectPath || !activeConnection) && styles.disabled,
+                ]}
+              >
+                {browsingProjectPath ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <FolderOpen size={17} color={colors.primary} strokeWidth={2.2} />
+                )}
+              </Pressable>
+            </View>
+            {projectBrowseResult ? (
+              <View
+                style={[
+                  styles.browsePanel,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: colors.elevatedBorder,
+                  },
+                ]}
+              >
+                <View style={styles.browseHeader}>
+                  <Text
+                    style={[styles.browseTitle, { color: colors.foreground }]}
+                    numberOfLines={1}
+                  >
+                    {projectBrowseResult.parentPath}
+                  </Text>
+                  <Text style={[styles.browseMeta, { color: colors.tertiaryLabel }]}>
+                    {projectBrowseResult.entries.length} folders
+                  </Text>
+                </View>
+                {projectBrowseResult.entries.length === 0 ? (
+                  <Text style={[styles.browseEmptyText, { color: colors.secondaryLabel }]}>
+                    No matching folders for {projectBrowseLoadedPath ?? "this path"}.
+                  </Text>
+                ) : (
+                  projectBrowseResult.entries.slice(0, 8).map((entry) => (
+                    <View key={entry.fullPath} style={styles.browseRow}>
+                      <Pressable
+                        onPress={() => {
+                          setNewProjectPath(entry.fullPath);
+                        }}
+                        style={styles.browseRowCopy}
+                      >
+                        <Text
+                          style={[styles.browseEntryName, { color: colors.foreground }]}
+                          numberOfLines={1}
+                        >
+                          {entry.name}
+                        </Text>
+                        <Text
+                          style={[styles.browseEntryPath, { color: colors.secondaryLabel }]}
+                          numberOfLines={1}
+                        >
+                          {entry.fullPath}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={browsingProjectPath}
+                        onPress={() => void browseProjectPath(`${entry.fullPath}/`)}
+                        style={[
+                          styles.browseDrillButton,
+                          { backgroundColor: colors.background },
+                          browsingProjectPath && styles.disabled,
+                        ]}
+                      >
+                        <ChevronRight size={17} color={colors.primary} strokeWidth={2.4} />
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </View>
+            ) : null}
             <TextInput
               value={newProjectTitle}
               onChangeText={setNewProjectTitle}
@@ -394,6 +587,11 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   searchShell: {
     marginTop: 24,
     minHeight: 60,
@@ -448,6 +646,46 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  hostRecoveryBanner: {
+    marginTop: 14,
+    minHeight: 72,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  hostRecoveryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hostRecoveryTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  hostRecoveryBody: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  reconnectButton: {
+    minHeight: 44,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  reconnectLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
   textField: {
     marginTop: 14,
     minHeight: 56,
@@ -456,6 +694,83 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 15,
     fontWeight: "500",
+  },
+  pathInputRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 10,
+  },
+  pathTextField: {
+    flex: 1,
+    marginTop: 0,
+  },
+  browseButton: {
+    width: 56,
+    minHeight: 56,
+    borderRadius: Radius.input,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  browsePanel: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    padding: 12,
+    gap: 8,
+  },
+  browseHeader: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  browseTitle: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  browseMeta: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  browseEmptyText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  browseRow: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  browseRowCopy: {
+    flex: 1,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  browseEntryName: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  browseEntryPath: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  browseDrillButton: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
   },
   errorText: {
     marginTop: 12,

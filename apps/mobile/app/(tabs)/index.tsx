@@ -2,11 +2,12 @@ import React, { useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bot, LoaderCircle } from "lucide-react-native";
+import { LoaderCircle, Search } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {
   EmptyState,
+  IconButton,
   MetricCard,
   Panel,
   ScreenBackdrop,
@@ -24,7 +25,11 @@ const FILTERS = [
   { key: "all", label: "All" },
   { key: "live", label: "Live" },
   { key: "queued", label: "Queued" },
+  { key: "input", label: "Input" },
+  { key: "review", label: "Review" },
   { key: "waiting", label: "Ready" },
+  { key: "completed", label: "Done" },
+  { key: "error", label: "Errors" },
 ] as const;
 
 type ThreadFilter = (typeof FILTERS)[number]["key"];
@@ -33,19 +38,21 @@ export default function ThreadsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { activeThreads, refresh, loading, error } = useAggregatedOrchestration();
+  const { threads, refresh, loading, error } = useAggregatedOrchestration();
   const [activeFilter, setActiveFilter] = useState<ThreadFilter>("all");
 
   const filteredThreads = useMemo(() => {
     if (activeFilter === "all") {
-      return activeThreads;
+      return threads;
     }
-    return activeThreads.filter((entry) => entry.status.bucket === activeFilter);
-  }, [activeFilter, activeThreads]);
+    return threads.filter((entry) => entry.status.bucket === activeFilter);
+  }, [activeFilter, threads]);
 
-  const queueCount = activeThreads.filter((entry) => entry.status.bucket === "queued").length;
-  const readyCount = activeThreads.filter((entry) => entry.status.bucket === "waiting").length;
-  const streamingCount = activeThreads.filter((entry) => entry.status.bucket === "live").length;
+  const queueCount = threads.filter((entry) => entry.status.bucket === "queued").length;
+  const attentionCount = threads.filter(
+    (entry) => entry.status.bucket === "input" || entry.status.bucket === "review",
+  ).length;
+  const streamingCount = threads.filter((entry) => entry.status.bucket === "live").length;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -62,14 +69,19 @@ export default function ThreadsScreen() {
         <ScreenHeader
           eyebrow="ace"
           title="Threads"
-          subtitle="Monitor current runs, queued work, and reply-ready threads across connected hosts."
-          action={<StatusBadge label={`${activeThreads.length} active`} tone="success" />}
+          subtitle="Monitor every agent thread across connected hosts, from live runs to review-ready work."
+          action={
+            <View style={styles.headerActions}>
+              <IconButton icon={Search} label="Find" onPress={() => router.push("/search")} />
+              <StatusBadge label={`${threads.length} threads`} tone="success" />
+            </View>
+          }
         />
 
         <View style={styles.metricRow}>
           <MetricCard label="Streaming" value={streamingCount} tone="success" />
           <MetricCard label="Queued" value={queueCount} tone="warning" />
-          <MetricCard label="Ready" value={readyCount} tone="accent" />
+          <MetricCard label="Attention" value={attentionCount} tone="accent" />
         </View>
 
         <ScrollView
@@ -114,7 +126,7 @@ export default function ThreadsScreen() {
         {filteredThreads.length === 0 ? (
           <EmptyState
             title="No active threads"
-            body="Running sessions, queued work, and ready threads will appear here when a connected host is executing."
+            body="Threads from connected hosts will appear here once projects sync or agent runs start."
           />
         ) : (
           <Panel padded={false} style={styles.listShell}>
@@ -236,6 +248,10 @@ function ThreadRow({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  headerActions: {
+    alignItems: "flex-end",
+    gap: 8,
   },
   metricRow: {
     marginTop: 22,

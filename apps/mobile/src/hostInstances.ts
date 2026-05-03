@@ -111,9 +111,10 @@ export async function resolvePairingHostConnection(
       viewerIdentity: await loadMobileRelayDeviceIdentity(),
     });
   }
-  const receipt = await requestPairingClaim(pairing, {
-    ...(options?.requesterName ? { requesterName: options.requesterName } : {}),
-  });
+  const receipt = await requestPairingClaim(
+    pairing,
+    options?.requesterName ? { requesterName: options.requesterName } : {},
+  );
   return waitForPairingApproval(receipt, {
     ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     ...(options?.pollIntervalMs !== undefined ? { pollIntervalMs: options.pollIntervalMs } : {}),

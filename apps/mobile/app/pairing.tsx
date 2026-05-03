@@ -28,7 +28,7 @@ type ConnectionTab = "scan" | "paste" | "manual";
 
 const SCAN_AREA_SIZE = 260;
 const SCAN_LINE_PERIOD = 2400;
-const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
+const PAIRING_REQUEST_TIMEOUT_MS = 90_000;
 const DEFAULT_REQUESTER_NAME = `ace mobile (${Platform.OS})`;
 
 const TAB_META: { key: ConnectionTab; label: string; Icon: React.ElementType }[] = [
@@ -43,6 +43,15 @@ export default function PairingScreen() {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const addHost = useHostStore((s) => s.addHost);
+  const requesterName = useRef(
+    (() => {
+      const deviceName = Constants.deviceName?.trim();
+      if (!deviceName) {
+        return DEFAULT_REQUESTER_NAME;
+      }
+      return `ace mobile (${deviceName})`;
+    })(),
+  ).current;
 
   const [activeTab, setActiveTab] = useState<ConnectionTab>("scan");
   const [scanPaused, setScanPaused] = useState(false);
@@ -101,7 +110,7 @@ export default function PairingScreen() {
           setStatusText("Connecting…");
           const resolvedHost = await resolvePairingHostConnection(parsed.pairing, {
             requesterName,
-            timeoutMs: 90_000,
+            timeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
             pollIntervalMs: 1_200,
           });
           const host = createHostInstance(resolvedHost);
@@ -116,7 +125,7 @@ export default function PairingScreen() {
         setStatusText("");
       }
     },
-    [addHost, router],
+    [addHost, requesterName, router],
   );
 
   // QR scan handler
@@ -612,12 +621,3 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
-const requesterName = useRef(
-  (() => {
-    const deviceName = Constants.deviceName?.trim();
-    if (!deviceName) {
-      return DEFAULT_REQUESTER_NAME;
-    }
-    return `ace mobile (${deviceName})`;
-  })(),
-).current;

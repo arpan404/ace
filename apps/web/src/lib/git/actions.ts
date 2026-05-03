@@ -1,4 +1,12 @@
 import type { GitRunStackedActionResult, GitStackedAction, GitStatusResult } from "@ace/contracts";
+export type {
+  DefaultBranchActionDialogCopy,
+  DefaultBranchConfirmableAction,
+} from "@ace/shared/git";
+export {
+  requiresDefaultBranchConfirmation,
+  resolveDefaultBranchActionDialogCopy,
+} from "@ace/shared/git";
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
@@ -20,18 +28,6 @@ export interface GitQuickAction {
   action?: GitStackedAction;
   hint?: string;
 }
-
-export interface DefaultBranchActionDialogCopy {
-  title: string;
-  description: string;
-  continueLabel: string;
-}
-
-export type DefaultBranchConfirmableAction =
-  | "push"
-  | "create_pr"
-  | "commit_push"
-  | "commit_push_pr";
 
 export function buildGitActionProgressStages(input: {
   action: GitStackedAction;
@@ -264,56 +260,6 @@ export function resolveQuickAction(
     disabled: true,
     kind: "show_hint",
     hint: "Branch is up to date. No action needed.",
-  };
-}
-
-export function requiresDefaultBranchConfirmation(
-  action: GitStackedAction,
-  isDefaultBranch: boolean,
-): boolean {
-  if (!isDefaultBranch) return false;
-  return (
-    action === "push" ||
-    action === "create_pr" ||
-    action === "commit_push" ||
-    action === "commit_push_pr"
-  );
-}
-
-export function resolveDefaultBranchActionDialogCopy(input: {
-  action: DefaultBranchConfirmableAction;
-  branchName: string;
-  includesCommit: boolean;
-}): DefaultBranchActionDialogCopy {
-  const branchLabel = input.branchName;
-  const suffix = ` on "${branchLabel}". You can continue on this branch or create a feature branch and run the same action there.`;
-
-  if (input.action === "push" || input.action === "commit_push") {
-    if (input.includesCommit) {
-      return {
-        title: "Commit & push to default branch?",
-        description: `This action will commit and push changes${suffix}`,
-        continueLabel: `Commit & push to ${branchLabel}`,
-      };
-    }
-    return {
-      title: "Push to default branch?",
-      description: `This action will push local commits${suffix}`,
-      continueLabel: `Push to ${branchLabel}`,
-    };
-  }
-
-  if (input.includesCommit) {
-    return {
-      title: "Commit, push & create PR from default branch?",
-      description: `This action will commit, push, and create a PR${suffix}`,
-      continueLabel: `Commit, push & create PR`,
-    };
-  }
-  return {
-    title: "Push & create PR from default branch?",
-    description: `This action will push local commits and create a PR${suffix}`,
-    continueLabel: "Push & create PR",
   };
 }
 
