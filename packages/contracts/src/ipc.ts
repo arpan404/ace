@@ -261,6 +261,11 @@ export interface DesktopDetachedBrowserOpenInput {
   initialUrl?: string;
 }
 
+export interface DesktopDetachedEditorOpenInput {
+  threadId: string;
+  connectionUrl?: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
@@ -283,6 +288,7 @@ export interface DesktopBridge {
   closeNotification: (id: string) => Promise<boolean>;
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
   openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
+  openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
