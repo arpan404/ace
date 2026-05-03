@@ -881,6 +881,35 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.detail).toContain("rate limit");
   });
 
+  it("extracts generated image previews from image generation tool completions", () => {
+    const imageBase64 = "A".repeat(96);
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "image-generation-complete",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Image generation",
+        payload: {
+          itemType: "image_view",
+          title: "Image generation",
+          data: {
+            item: {
+              type: "imageGeneration",
+              result: imageBase64,
+              savedPath: "/tmp/mockup.png",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.generatedImage).toEqual({
+      src: `data:image/png;base64,${imageBase64}`,
+      name: "mockup.png",
+    });
+  });
+
   it("omits task start and completion lifecycle entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

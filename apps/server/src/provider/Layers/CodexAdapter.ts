@@ -216,6 +216,46 @@ function toCanonicalItemType(raw: unknown): CanonicalItemType {
   return "unknown";
 }
 
+function isImageGenerationItem(source: Record<string, unknown>): boolean {
+  return normalizeItemType(source.type ?? source.kind).includes("image generation");
+}
+
+function imageGenerationDataUrl(source: Record<string, unknown>): string | undefined {
+  const result = asObject(source.result);
+  const candidates = [
+    asString(source.result),
+    asString(result?.data),
+    asString(result?.image),
+    asString(result?.base64),
+    asString(result?.b64_json),
+    asString(result?.base64Json),
+  ];
+
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (/^data:image\/[a-z0-9.+-]+;base64,/iu.test(trimmed)) {
+      return trimmed;
+    }
+    const compact = trimmed.replace(/\s+/g, "");
+    if (compact.length >= 64 && /^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) {
+      return `data:image/png;base64,${compact}`;
+    }
+  }
+
+  return undefined;
+}
+
+function imageGenerationAssistantMarkdown(source: Record<string, unknown>): string | undefined {
+  const dataUrl = imageGenerationDataUrl(source);
+  if (!dataUrl) {
+    return undefined;
+  }
+  return `![Generated image](${dataUrl})`;
+}
+
 function itemTitle(itemType: CanonicalItemType): string | undefined {
   switch (itemType) {
     case "assistant_message":
@@ -245,6 +285,17 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
   }
 }
 
+function itemTitleForSource(
+  itemType: CanonicalItemType,
+  source: Record<string, unknown>,
+): string | undefined {
+  const normalizedType = normalizeItemType(source.type ?? source.kind);
+  if (normalizedType.includes("image generation")) {
+    return "Image generation";
+  }
+  return itemTitle(itemType);
+}
+
 function itemDetail(
   item: Record<string, unknown>,
   payload: Record<string, unknown>,
@@ -257,6 +308,7 @@ function itemDetail(
     asString(item.text),
     asString(item.path),
     asString(item.prompt),
+    asString(item.revisedPrompt),
     asString(nestedResult?.command),
     asString(payload.command),
     asString(payload.message),
@@ -570,6 +622,7 @@ function mapItemLifecycle(
   }
 
   const detail = itemDetail(source, payload ?? {});
+  const title = itemTitleForSource(itemType, source);
   const status =
     lifecycle === "item.started"
       ? "inProgress"
@@ -583,7 +636,7 @@ function mapItemLifecycle(
     payload: {
       itemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
+      ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
@@ -900,6 +953,12 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/started") {
+    const payload = asObject(event.payload);
+    const item = asObject(payload?.item);
+    const source = item ?? payload;
+    if (source && isImageGenerationItem(source)) {
+      return [];
+    }
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
     return started ? [started] : [];
   }
@@ -910,6 +969,25 @@ function mapToRuntimeEvents(
     const source = item ?? payload;
     if (!source) {
       return [];
+    }
+    if (isImageGenerationItem(source)) {
+      const imageMarkdown = imageGenerationAssistantMarkdown(source);
+      if (!imageMarkdown) {
+        return [];
+      }
+      return [
+        {
+          ...runtimeEventBase(event, canonicalThreadId),
+          type: "item.completed",
+          payload: {
+            itemType: "assistant_message",
+            status: "completed",
+            title: "Assistant message",
+            detail: imageMarkdown,
+            ...(event.payload !== undefined ? { data: event.payload } : {}),
+          },
+        },
+      ];
     }
     const itemType = source ? toCanonicalItemType(source.type ?? source.kind) : "unknown";
     if (itemType === "plan") {

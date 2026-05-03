@@ -16,7 +16,7 @@ import React, {
   type ReactNode,
 } from "react";
 import type { Components } from "react-markdown";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { openInPreferredEditor } from "../editorPreferences";
@@ -95,6 +95,7 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const MARKDOWN_DATA_IMAGE_URL_REGEX = /^data:image\/(?:png|jpe?g|gif|webp);base64,/iu;
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -102,6 +103,13 @@ const onMarkdownProfilerRender = (
 ) => {
   recordReactRenderProfile("chat.markdown.render", phase, actualDuration);
 };
+
+function markdownUrlTransform(value: string, key: string): string {
+  if (key === "src" && MARKDOWN_DATA_IMAGE_URL_REGEX.test(value)) {
+    return value;
+  }
+  return defaultUrlTransform(value);
+}
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
@@ -335,7 +343,11 @@ const MarkdownBody = memo(function MarkdownBody({
   markdownComponents: Components;
 }) {
   const markdown = (
-    <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      components={markdownComponents}
+      urlTransform={markdownUrlTransform}
+    >
       {children}
     </ReactMarkdown>
   );
@@ -632,6 +644,15 @@ function ChatMarkdown({
               </Suspense>
             </CodeHighlightErrorBoundary>
           </MarkdownCodeBlock>
+        );
+      },
+      img({ node: _node, alt, ...props }) {
+        return (
+          <img
+            {...props}
+            alt={alt ?? ""}
+            className="my-2 max-h-[70vh] max-w-full rounded-lg border border-border/55 bg-background/70 object-contain"
+          />
         );
       },
     }),
