@@ -607,6 +607,294 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("<img");
   });
 
+  it("renders assistant image attachments as assistant output", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-image-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant:image:1024x1536:attachment-generated-1"),
+              role: "assistant",
+              text: "",
+              attachments: [
+                {
+                  type: "image",
+                  id: "attachment-generated-1",
+                  name: "generated-image.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1200,
+                  previewUrl: "https://example.com/generated-image.png",
+                },
+              ],
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("generated-image.png");
+    expect(markup).toContain("<img");
+    expect(markup).toContain("aspect-ratio:1024 / 1536");
+    expect(markup).toContain("max-width:min(100%, 42rem)");
+    expect(markup).toContain("width:28vh");
+    expect(markup).not.toContain("(empty response)");
+  });
+
+  it("renders assistant image generation placeholders without markdown or tool rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-image-placeholder-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant:image:1536x1024:image-1"),
+              role: "assistant",
+              text: "",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: true,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain("image-generation-placeholder-surface");
+    expect(markup).toContain("image-generation-placeholder-sheen");
+    expect(markup).toContain("aspect-ratio:1536 / 1024");
+    expect(markup).toContain("width:81vh");
+    expect(markup).not.toContain("image-generation-progress-track");
+    expect(markup).not.toContain("1 tool call");
+    expect(markup).not.toContain("(empty response)");
+    expect(markup).not.toContain("data-chat-markdown");
+  });
+
+  it("does not infer image generation placeholders from command or assistant text", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        liveTimers={false}
+        timelineEntries={[
+          {
+            id: "user-imagegen-command",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-imagegen-command"),
+              role: "user",
+              text: "$imagegen create a 1024x1024 app mockup",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-imagegen-status",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-imagegen-status"),
+              role: "assistant",
+              text: "Using imagegen to create the mockup.",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              streaming: true,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-image-generation-placeholder="true"');
+    expect(markup).not.toContain("Generating image");
+    expect(markup).toContain("Working for");
+  });
+
+  it("does not infer image generation placeholders from generic tool detail text", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        liveTimers={false}
+        timelineEntries={[
+          {
+            id: "user-generic-tool-image-request",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-generic-tool-image-request"),
+              role: "user",
+              text: "generate mobile version in portrait",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "work-generic-tool",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "work-generic-tool",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Tool call",
+              detail: "generate image at 1024x1536",
+              tone: "tool",
+              toolTitle: "Tool call",
+              itemType: "dynamic_tool_call",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain('data-work-entry-id="work-generic-tool"');
+    expect(markup).toContain("Working for");
+  });
+
+  it("does not infer image generation placeholders from tool names or dimensions", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        liveTimers={false}
+        timelineEntries={[
+          {
+            id: "user-imagegen-backend-tool",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-imagegen-backend-tool"),
+              role: "user",
+              text: "generate mobile version in portrait",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "work-imagegen-tool",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "work-imagegen-tool",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Tool call",
+              detail: "1024x1536",
+              tone: "tool",
+              toolTitle: "image_gen",
+              itemType: "dynamic_tool_call",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-image-generation-placeholder="true"');
+    expect(markup).not.toContain("aspect-ratio:1024 / 1536");
+    expect(markup).toContain('data-work-entry-id="work-imagegen-tool"');
+    expect(markup).toContain("Working for");
+  });
+
   it("uses custom restore copy for the revert action tooltip", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const messageId = MessageId.makeUnsafe("user-rebuildable-provider");

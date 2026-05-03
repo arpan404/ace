@@ -1,6 +1,10 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
+  type ChatAttachment,
   CommandId,
   MessageId,
   type OrchestrationEvent,
@@ -13,6 +17,7 @@ import {
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
   type ProviderSlashCommand,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
@@ -38,6 +43,9 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
 import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
+import { ServerConfig } from "../../config.ts";
+import { createAttachmentId, resolveAttachmentPath } from "../../attachmentStore.ts";
+import { parseBase64DataUrl } from "../../imageMime.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -195,6 +203,7 @@ const PROVIDER_RUNTIME_CACHE_TRIM_RSS_BYTES = Math.max(
   ) || 1_200 * 1024 * 1024,
 );
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.ACE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const GENERATED_IMAGE_ATTACHMENT_NAME = "generated-image.png";
 
 function streamingAssistantDeltaBatchLimit(provider: ProviderRuntimeEvent["provider"]): number {
   // Cursor ACP emits many token-sized chunks, so a smaller flush threshold keeps the UI live.
@@ -311,6 +320,14 @@ function assistantStreamKey(
   return `${threadId}:${turnId ?? "no-turn"}:${itemId ?? "no-item"}`;
 }
 
+function imageGenerationTurnKey(threadId: ThreadId, turnId: TurnId | undefined) {
+  return `${threadId}:${turnId ?? "no-turn"}:image-generation`;
+}
+
+function imageGenerationStreamKey(threadId: ThreadId, turnId: TurnId | undefined) {
+  return `${threadId}:${turnId ?? "no-turn"}:image-generation`;
+}
+
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
@@ -363,6 +380,313 @@ function asArray(value: unknown): ReadonlyArray<unknown> | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeProviderItemType(value: unknown): string | undefined {
+  return asString(value)
+    ?.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[._/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeGeneratedImageDataUrl(value: unknown): string | undefined {
+  const source = asString(value)?.trim();
+  if (!source) {
+    return undefined;
+  }
+  if (/^data:image\/[a-z0-9.+-]+;base64,/iu.test(source)) {
+    return source;
+  }
+  const compact = source.replace(/\s+/g, "");
+  if (compact.length >= 64 && /^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) {
+    return `data:image/png;base64,${compact}`;
+  }
+  return undefined;
+}
+
+type ImageGenerationDimensions = {
+  width: number;
+  height: number;
+};
+
+const DEFAULT_IMAGE_GENERATION_DIMENSIONS: ImageGenerationDimensions = {
+  width: 1024,
+  height: 1024,
+};
+
+const STRUCTURED_IMAGE_GENERATION_TOOL_NAMES = new Set([
+  "image generation prehook",
+  "imagegen",
+  "image generation",
+  "image gen",
+]);
+
+function normalizeImageGenerationDimension(value: unknown): number | undefined {
+  const dimension = asFiniteNumber(value);
+  if (dimension === undefined || dimension < 32 || dimension > 8192) {
+    return undefined;
+  }
+  return Math.round(dimension);
+}
+
+function parseImageGenerationDimensionsText(value: unknown): ImageGenerationDimensions | undefined {
+  const text = asString(value);
+  if (!text) {
+    return undefined;
+  }
+  const match = /(?<width>\d{2,5})\s*[x×]\s*(?<height>\d{2,5})/iu.exec(text);
+  if (!match?.groups) {
+    return undefined;
+  }
+  const width = normalizeImageGenerationDimension(match.groups.width);
+  const height = normalizeImageGenerationDimension(match.groups.height);
+  return width !== undefined && height !== undefined ? { width, height } : undefined;
+}
+
+function imageGenerationLifecycleSource(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): Record<string, unknown> | undefined {
+  const data = asRecord(payload.data);
+  return asRecord(data?.item) ?? data;
+}
+
+function normalizedStructuredToolName(value: unknown): string | undefined {
+  const direct = asString(value);
+  if (direct) {
+    return normalizeProviderItemType(direct);
+  }
+
+  const record = asRecord(value);
+  return normalizeProviderItemType(
+    record?.name ?? record?.tool ?? record?.toolName ?? record?.tool_name,
+  );
+}
+
+function structuredImageGenerationToolName(
+  item: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!item) {
+    return undefined;
+  }
+
+  for (const candidate of [
+    item.tool,
+    item.name,
+    item.toolName,
+    item.tool_name,
+    item.functionName,
+    item.function_name,
+  ]) {
+    const normalized = normalizedStructuredToolName(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const functionRecord = asRecord(item.function);
+  const toolCallRecord = asRecord(item.toolCall) ?? asRecord(item.tool_call);
+  const inputRecord = asRecord(item.input);
+  for (const candidate of [
+    functionRecord?.name,
+    functionRecord?.tool,
+    toolCallRecord?.name,
+    toolCallRecord?.tool,
+    toolCallRecord?.toolName,
+    toolCallRecord?.tool_name,
+    inputRecord?.name,
+    inputRecord?.tool,
+    inputRecord?.toolName,
+    inputRecord?.tool_name,
+  ]) {
+    const normalized = normalizedStructuredToolName(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
+
+function isStructuredToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  if (isToolLifecycleItemType(payload.itemType)) {
+    return true;
+  }
+
+  const item = imageGenerationLifecycleSource(payload);
+  const normalizedType = normalizeProviderItemType(item?.type ?? item?.kind);
+  return (
+    normalizedType === "dynamic tool call" ||
+    normalizedType === "mcp tool call" ||
+    normalizedType === "tool call" ||
+    normalizedType === "function call" ||
+    normalizedType === "custom tool call" ||
+    normalizedType === "collab agent tool call"
+  );
+}
+
+function isStructuredImageGenerationToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  if (!isStructuredToolLifecyclePayload(payload)) {
+    return false;
+  }
+  const toolName = structuredImageGenerationToolName(imageGenerationLifecycleSource(payload));
+  return toolName !== undefined && STRUCTURED_IMAGE_GENERATION_TOOL_NAMES.has(toolName);
+}
+
+function imageGenerationToolRequestSource(
+  payload: Extract<ProviderRuntimeEvent, { type: "request.opened" }>["payload"],
+): Record<string, unknown> | undefined {
+  const args = asRecord(payload.args);
+  return asRecord(args?.item) ?? args;
+}
+
+function isImageGenerationToolRequestPayload(
+  payload: Extract<ProviderRuntimeEvent, { type: "request.opened" }>["payload"],
+): boolean {
+  if (payload.requestType !== "dynamic_tool_call") {
+    return false;
+  }
+  const toolName = structuredImageGenerationToolName(imageGenerationToolRequestSource(payload));
+  return toolName !== undefined && STRUCTURED_IMAGE_GENERATION_TOOL_NAMES.has(toolName);
+}
+
+function isImageGenerationLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  const item = imageGenerationLifecycleSource(payload);
+  const normalizedType = normalizeProviderItemType(item?.type ?? item?.kind);
+  return normalizedType?.includes("image generation") === true;
+}
+
+function isImageGenerationPlaceholderPayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): boolean {
+  return (
+    isImageGenerationLifecyclePayload(payload) ||
+    isStructuredImageGenerationToolLifecyclePayload(payload)
+  );
+}
+
+function extractGeneratedImageDataUrl(
+  payload: Extract<ProviderRuntimeEvent, { type: "item.completed" }>["payload"],
+): string | undefined {
+  if (!isImageGenerationPlaceholderPayload(payload)) {
+    return undefined;
+  }
+
+  const data = asRecord(payload.data);
+  const item = imageGenerationLifecycleSource(payload);
+  const result = asRecord(item?.result);
+  const output = asRecord(item?.output) ?? asRecord(data?.output);
+  return (
+    normalizeGeneratedImageDataUrl(item?.result) ??
+    normalizeGeneratedImageDataUrl(result?.data) ??
+    normalizeGeneratedImageDataUrl(result?.image) ??
+    normalizeGeneratedImageDataUrl(result?.base64) ??
+    normalizeGeneratedImageDataUrl(result?.b64_json) ??
+    normalizeGeneratedImageDataUrl(result?.base64Json) ??
+    normalizeGeneratedImageDataUrl(item?.image) ??
+    normalizeGeneratedImageDataUrl(output?.data) ??
+    normalizeGeneratedImageDataUrl(output?.image) ??
+    normalizeGeneratedImageDataUrl(output?.base64) ??
+    normalizeGeneratedImageDataUrl(data?.result) ??
+    normalizeGeneratedImageDataUrl(data?.image)
+  );
+}
+
+function extractImageGenerationDimensionsFromSource(
+  item: Record<string, unknown> | undefined,
+): ImageGenerationDimensions {
+  const result = asRecord(item?.result);
+  const input = asRecord(item?.input);
+  const argumentsRecord = asRecord(item?.arguments);
+  const options = asRecord(item?.options);
+
+  for (const record of [item, input, argumentsRecord, options, result]) {
+    if (!record) {
+      continue;
+    }
+    const width = normalizeImageGenerationDimension(record.width ?? record.w);
+    const height = normalizeImageGenerationDimension(record.height ?? record.h);
+    if (width !== undefined && height !== undefined) {
+      return { width, height };
+    }
+  }
+
+  for (const candidate of [
+    item?.size,
+    item?.dimensions,
+    item?.imageSize,
+    item?.image_size,
+    input?.size,
+    input?.dimensions,
+    argumentsRecord?.size,
+    argumentsRecord?.dimensions,
+    options?.size,
+    options?.dimensions,
+    result?.size,
+  ]) {
+    const dimensions = parseImageGenerationDimensionsText(candidate);
+    if (dimensions) {
+      return dimensions;
+    }
+  }
+
+  return DEFAULT_IMAGE_GENERATION_DIMENSIONS;
+}
+
+function imageGenerationAssistantMessageId(
+  event: Extract<ProviderRuntimeEvent, { type: "item.started" | "item.completed" }>,
+): MessageId {
+  const item = imageGenerationLifecycleSource(event.payload);
+  const dimensions = extractImageGenerationDimensionsFromSource(item);
+  const sourceItemId = asNonEmptyString(item?.id);
+  const suffix = event.itemId ?? sourceItemId ?? event.turnId ?? event.eventId;
+  return MessageId.makeUnsafe(`assistant:image:${dimensions.width}x${dimensions.height}:${suffix}`);
+}
+
+function imageGenerationRequestAssistantMessageId(
+  event: Extract<ProviderRuntimeEvent, { type: "request.opened" }>,
+): MessageId {
+  const source = imageGenerationToolRequestSource(event.payload);
+  const dimensions = extractImageGenerationDimensionsFromSource(source);
+  const sourceItemId =
+    asNonEmptyString(source?.id) ??
+    asNonEmptyString(source?.callId) ??
+    asNonEmptyString(source?.call_id);
+  const suffix = event.itemId ?? sourceItemId ?? event.requestId ?? event.turnId ?? event.eventId;
+  return MessageId.makeUnsafe(`assistant:image:${dimensions.width}x${dimensions.height}:${suffix}`);
 }
 
 function lineCount(value: string | undefined): number {
@@ -694,6 +1018,9 @@ function runtimeEventToActivities(
       if (event.payload.requestType === "tool_user_input") {
         return [];
       }
+      if (isImageGenerationToolRequestPayload(event.payload)) {
+        return [];
+      }
       const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
       return [
         {
@@ -1013,6 +1340,9 @@ function runtimeEventToActivities(
       if (!streamingSettings.enableToolStreaming) {
         return [];
       }
+      if (isImageGenerationPlaceholderPayload(event.payload)) {
+        return [];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -1037,6 +1367,9 @@ function runtimeEventToActivities(
     }
 
     case "item.completed": {
+      if (isImageGenerationPlaceholderPayload(event.payload)) {
+        return [];
+      }
       if (event.payload.itemType === "reasoning") {
         if (!streamingSettings.enableThinkingStreaming) {
           return [];
@@ -1087,6 +1420,9 @@ function runtimeEventToActivities(
 
     case "item.started": {
       if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
+      if (isImageGenerationPlaceholderPayload(event.payload)) {
         return [];
       }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
@@ -1157,6 +1493,7 @@ const make = Effect.fn("make")(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
   const providerCapabilitiesByProvider = new Map<
     string,
     ReturnType<typeof resolveProviderIntegrationCapabilities>
@@ -1190,6 +1527,7 @@ const make = Effect.fn("make")(function* () {
   });
   const activeAssistantMessageIdByStreamKey = new Map<string, MessageId>();
   const assistantOutputSeenByStreamKey = new Set<string>();
+  const activeImageGenerationMessageIdByTurnKey = new Map<string, MessageId>();
   const pendingStreamingAssistantDeltasByStreamKey = new Map<
     string,
     {
@@ -1470,10 +1808,12 @@ const make = Effect.fn("make")(function* () {
     const bufferedThinkingActivities = bufferedThinkingActivityByKey.size;
     const assistantStreams = activeAssistantMessageIdByStreamKey.size;
     const assistantOutputSeen = assistantOutputSeenByStreamKey.size;
+    const activeImageGenerationMessages = activeImageGenerationMessageIdByTurnKey.size;
     const activityFingerprints = lastActivityFingerprintByThread.size;
 
     activeAssistantMessageIdByStreamKey.clear();
     assistantOutputSeenByStreamKey.clear();
+    activeImageGenerationMessageIdByTurnKey.clear();
     pendingStreamingAssistantDeltasByStreamKey.clear();
     bufferedThinkingActivityByKey.clear();
     liveTurnDiffByTurnKey.clear();
@@ -1488,6 +1828,7 @@ const make = Effect.fn("make")(function* () {
       bufferedThinkingActivities,
       assistantStreams,
       assistantOutputSeen,
+      activeImageGenerationMessages,
       activityFingerprints,
     };
   });
@@ -1771,6 +2112,11 @@ const make = Effect.fn("make")(function* () {
         assistantOutputSeenByStreamKey.delete(streamKey);
       }
     }
+    for (const turnKey of activeImageGenerationMessageIdByTurnKey.keys()) {
+      if (turnKey.startsWith(prefix)) {
+        activeImageGenerationMessageIdByTurnKey.delete(turnKey);
+      }
+    }
   };
 
   const queueStreamingAssistantDelta = Effect.fn("queueStreamingAssistantDelta")(function* (input: {
@@ -1841,7 +2187,53 @@ const make = Effect.fn("make")(function* () {
         assistantOutputSeenByStreamKey.delete(streamKey);
       }
     }
+    activeImageGenerationMessageIdByTurnKey.delete(imageGenerationTurnKey(threadId, turnId));
   };
+
+  const materializeGeneratedImageAttachment = Effect.fn("materializeGeneratedImageAttachment")(
+    function* (input: { threadId: ThreadId; dataUrl: string }) {
+      const parsed = parseBase64DataUrl(input.dataUrl);
+      if (!parsed || !parsed.mimeType.toLowerCase().startsWith("image/")) {
+        return undefined;
+      }
+
+      const bytes = Buffer.from(parsed.base64, "base64");
+      if (bytes.byteLength <= 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+        return undefined;
+      }
+
+      const attachmentId = createAttachmentId(input.threadId);
+      if (!attachmentId) {
+        return undefined;
+      }
+
+      const attachment: ChatAttachment = {
+        type: "image",
+        id: attachmentId,
+        name: GENERATED_IMAGE_ATTACHMENT_NAME,
+        mimeType: parsed.mimeType,
+        sizeBytes: bytes.byteLength,
+      };
+      const attachmentPath = resolveAttachmentPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachment,
+      });
+      if (!attachmentPath) {
+        return undefined;
+      }
+
+      const didWrite = yield* Effect.tryPromise({
+        try: async () => {
+          await mkdir(path.dirname(attachmentPath), { recursive: true });
+          await writeFile(attachmentPath, bytes);
+          return true;
+        },
+        catch: () => false,
+      }).pipe(Effect.orElseSucceed(() => false));
+
+      return didWrite ? attachment : undefined;
+    },
+  );
 
   const finalizeAssistantMessage = Effect.fn("finalizeAssistantMessage")(function* (input: {
     event: ProviderRuntimeEvent;
@@ -1852,6 +2244,7 @@ const make = Effect.fn("make")(function* () {
     commandTag: string;
     finalDeltaCommandTag: string;
     fallbackText?: string;
+    attachments?: ReadonlyArray<ChatAttachment>;
   }) {
     const bufferedText = yield* takeBufferedAssistantText(input.messageId);
     const text =
@@ -1878,6 +2271,7 @@ const make = Effect.fn("make")(function* () {
       commandId: providerCommandId(input.event, input.commandTag),
       threadId: input.threadId,
       messageId: input.messageId,
+      ...(input.attachments !== undefined ? { attachments: [...input.attachments] } : {}),
       ...(input.turnId ? { turnId: input.turnId } : {}),
       ...providerMessageSequence(input.event),
       createdAt: input.createdAt,
@@ -1896,6 +2290,7 @@ const make = Effect.fn("make")(function* () {
       commandTag: string;
       finalDeltaCommandTag: string;
       fallbackText?: string;
+      attachments?: ReadonlyArray<ChatAttachment>;
     }) {
       yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey);
       yield* finalizeAssistantMessage({
@@ -1907,6 +2302,7 @@ const make = Effect.fn("make")(function* () {
         commandTag: input.commandTag,
         finalDeltaCommandTag: input.finalDeltaCommandTag,
         ...(input.fallbackText !== undefined ? { fallbackText: input.fallbackText } : {}),
+        ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
       });
       activeAssistantMessageIdByStreamKey.delete(input.streamKey);
       if (input.turnId) {
@@ -2380,6 +2776,46 @@ const make = Effect.fn("make")(function* () {
       const proposedPlanDelta =
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
+      const assistantImageGenerationStart =
+        event.type === "item.started" && isImageGenerationPlaceholderPayload(event.payload)
+          ? {
+              messageId: imageGenerationAssistantMessageId(event),
+            }
+          : event.type === "request.opened" && isImageGenerationToolRequestPayload(event.payload)
+            ? {
+                messageId: imageGenerationRequestAssistantMessageId(event),
+              }
+            : undefined;
+
+      if (assistantImageGenerationStart) {
+        const turnId = toTurnId(event.turnId);
+        const turnKey = imageGenerationTurnKey(thread.id, turnId);
+        const streamKey = imageGenerationStreamKey(thread.id, turnId);
+        const messageId =
+          activeImageGenerationMessageIdByTurnKey.get(turnKey) ??
+          assistantImageGenerationStart.messageId;
+        if (
+          !activeAssistantMessageIdByStreamKey.has(streamKey) &&
+          !assistantOutputSeenByStreamKey.has(streamKey)
+        ) {
+          activeImageGenerationMessageIdByTurnKey.set(turnKey, messageId);
+          activeAssistantMessageIdByStreamKey.set(streamKey, messageId);
+          assistantOutputSeenByStreamKey.add(streamKey);
+          if (turnId) {
+            yield* rememberAssistantMessageId(thread.id, turnId, messageId);
+          }
+          yield* dispatchAssistantDeltaCommand({
+            event,
+            threadId: thread.id,
+            messageId,
+            delta: "",
+            ...(turnId ? { turnId } : {}),
+            createdAt: now,
+            commandTag: "assistant-image-generation-placeholder",
+          });
+        }
+      }
+
       if (assistantDelta && assistantDelta.length > 0) {
         const turnId = toTurnId(event.turnId);
         const streamKey = assistantStreamKey(thread.id, turnId, event.itemId);
@@ -2435,13 +2871,35 @@ const make = Effect.fn("make")(function* () {
       }
 
       const assistantCompletion =
-        event.type === "item.completed" && event.payload.itemType === "assistant_message"
-          ? {
-              messageId: MessageId.makeUnsafe(
-                `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-              ),
-              fallbackText: event.payload.detail,
-            }
+        event.type === "item.completed"
+          ? (() => {
+              const isImageGenerationCompletion = isImageGenerationLifecyclePayload(event.payload);
+              const isStructuredImageGenerationCompletion =
+                isStructuredImageGenerationToolLifecyclePayload(event.payload);
+              const imageDataUrl =
+                isImageGenerationCompletion || isStructuredImageGenerationCompletion
+                  ? extractGeneratedImageDataUrl(event.payload)
+                  : undefined;
+              if (
+                event.payload.itemType !== "assistant_message" &&
+                !isImageGenerationCompletion &&
+                !(isStructuredImageGenerationCompletion && imageDataUrl !== undefined)
+              ) {
+                return undefined;
+              }
+              const isImageOutputCompletion =
+                isImageGenerationCompletion || isStructuredImageGenerationCompletion;
+              return {
+                isImageOutputCompletion,
+                messageId: isImageOutputCompletion
+                  ? imageGenerationAssistantMessageId(event)
+                  : MessageId.makeUnsafe(
+                      `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
+                    ),
+                fallbackText: isImageOutputCompletion ? undefined : event.payload.detail,
+                imageDataUrl,
+              };
+            })()
           : undefined;
       const proposedPlanCompletion =
         event.type === "turn.proposed.completed"
@@ -2454,9 +2912,23 @@ const make = Effect.fn("make")(function* () {
 
       if (assistantCompletion) {
         const turnId = toTurnId(event.turnId);
-        const streamKey = assistantStreamKey(thread.id, turnId, event.itemId);
+        const imageGenerationKey = imageGenerationTurnKey(thread.id, turnId);
+        const streamKey = assistantCompletion.isImageOutputCompletion
+          ? imageGenerationStreamKey(thread.id, turnId)
+          : assistantStreamKey(thread.id, turnId, event.itemId);
+        const generatedImageAttachment = assistantCompletion.imageDataUrl
+          ? yield* materializeGeneratedImageAttachment({
+              threadId: thread.id,
+              dataUrl: assistantCompletion.imageDataUrl,
+            })
+          : undefined;
+        const assistantAttachments = generatedImageAttachment ? [generatedImageAttachment] : [];
         yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
-        const activeAssistantMessageId = activeAssistantMessageIdByStreamKey.get(streamKey);
+        const activeAssistantMessageId =
+          activeAssistantMessageIdByStreamKey.get(streamKey) ??
+          (assistantCompletion.isImageOutputCompletion
+            ? activeImageGenerationMessageIdByTurnKey.get(imageGenerationKey)
+            : undefined);
         if (activeAssistantMessageId) {
           yield* finalizeAssistantMessageSegment({
             event,
@@ -2467,6 +2939,7 @@ const make = Effect.fn("make")(function* () {
             createdAt: now,
             commandTag: "assistant-complete",
             finalDeltaCommandTag: "assistant-delta-finalize",
+            ...(assistantAttachments.length > 0 ? { attachments: assistantAttachments } : {}),
           });
         } else if (!assistantOutputSeenByStreamKey.has(streamKey)) {
           const assistantMessageId = assistantCompletion.messageId;
@@ -2482,12 +2955,16 @@ const make = Effect.fn("make")(function* () {
             createdAt: now,
             commandTag: "assistant-complete",
             finalDeltaCommandTag: "assistant-delta-finalize",
-            ...(assistantCompletion.fallbackText !== undefined
+            ...(assistantCompletion.fallbackText !== undefined && assistantAttachments.length === 0
               ? { fallbackText: assistantCompletion.fallbackText }
               : {}),
+            ...(assistantAttachments.length > 0 ? { attachments: assistantAttachments } : {}),
           });
         }
         assistantOutputSeenByStreamKey.delete(streamKey);
+        if (assistantCompletion.isImageOutputCompletion) {
+          activeImageGenerationMessageIdByTurnKey.delete(imageGenerationKey);
+        }
       }
 
       if (proposedPlanCompletion) {

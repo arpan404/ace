@@ -7,18 +7,14 @@ import {
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
-  type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
   type ServerProvider,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_DISPLAY_NAMES,
   type ThreadHandoffMode,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
-  type GitHubIssue,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -340,8 +336,6 @@ const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
-const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
-const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
@@ -1006,6 +1000,7 @@ export default function ChatView({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
+  const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
       const browserThread =
@@ -6713,7 +6708,8 @@ export default function ChatView({
       onImageExpand: onExpandTimelineImage,
       markdownCwd: codingGitCwd ?? undefined,
       onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
-      onOpenFilePath: openMarkdownFileInAppEditor,
+      onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
+      enableLocalFileLinks: canOpenLocalMarkdownFiles,
       providerCommands: composerProviderCommands,
       resolvedTheme,
       timestampFormat,
@@ -6725,6 +6721,7 @@ export default function ChatView({
       activeThread.session?.provider,
       activeForSideEffects,
       activeWorkStartedAt,
+      canOpenLocalMarkdownFiles,
       completionDividerBeforeEntryId,
       completionSummary,
       expandedWorkGroups,
@@ -7366,7 +7363,10 @@ export default function ChatView({
                             markdownCwd={gitCwd ?? undefined}
                             onOpenDiffPanel={isGitRepo ? () => setRightSidePanelMode("diff") : null}
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                            onOpenFilePath={openMarkdownFileInAppEditor}
+                            onOpenFilePath={
+                              canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                            }
+                            enableLocalFileLinks={canOpenLocalMarkdownFiles}
                             workspaceDiffSummary={workspaceDiffSummary}
                             workspaceRoot={activeProject?.cwd ?? undefined}
                           />

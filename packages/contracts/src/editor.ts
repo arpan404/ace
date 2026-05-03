@@ -31,6 +31,11 @@ export const OpenRevealInFileManagerInput = Schema.Struct({
 });
 export type OpenRevealInFileManagerInput = typeof OpenRevealInFileManagerInput.Type;
 
+export const OpenPathExistsInput = Schema.Struct({
+  path: TrimmedNonEmptyString,
+});
+export type OpenPathExistsInput = typeof OpenPathExistsInput.Type;
+
 export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect),

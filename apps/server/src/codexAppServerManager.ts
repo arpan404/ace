@@ -27,6 +27,7 @@ import {
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
 import {
+  CODEX_SPARK_MODEL,
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
   type CodexAccountSnapshot,
@@ -66,6 +67,19 @@ interface PendingUserInputRequest {
   itemId?: ProviderItemId;
 }
 
+interface CodexDynamicToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly deferLoading?: boolean;
+}
+
+interface CodexRuntimeModelInfo {
+  readonly slug: string;
+  readonly supportsImageGeneration: boolean;
+  readonly isDefault: boolean;
+}
+
 interface CodexUserInputAnswer {
   answers: string[];
 }
@@ -79,8 +93,10 @@ interface CodexSessionContext {
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
+  modelsBySlug: Map<string, CodexRuntimeModelInfo>;
   nextRequestId: number;
   stopping: boolean;
+  imageGenerationPreflightEnabled: boolean;
 }
 
 interface JsonRpcError {
@@ -163,6 +179,67 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "missing rollout",
   "rollout not found",
 ];
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME = "image_generation_prehook";
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES = new Set([
+  "image generation prehook",
+  "imagegen",
+  "image gen",
+  "image generation",
+]);
+const CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS = `
+## Image Generation Preflight
+
+When you are about to create or edit a raster image with the native image generation capability, first call the \`${CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME}\` tool exactly once for that image request. This tool only opens Ace's live image placeholder; it does not create the image. After it returns, continue with the native image generation capability and do not treat the preflight tool result as the final answer.
+`.trim();
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL: CodexDynamicToolSpec = {
+  name: CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME,
+  description:
+    "Open Ace's live image-generation placeholder before using the native image generation capability. This tool does not generate an image; call it once immediately before native raster image generation.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      prompt: {
+        type: "string",
+        description: "Brief description of the image that will be generated.",
+      },
+      size: {
+        type: "string",
+        description: "Requested image dimensions, such as 1536x1024 or 1024x1536.",
+      },
+      width: {
+        type: "number",
+        description: "Requested image width in pixels, when known.",
+      },
+      height: {
+        type: "number",
+        description: "Requested image height in pixels, when known.",
+      },
+      aspectRatio: {
+        type: "string",
+        description: "Requested aspect ratio, when known.",
+      },
+    },
+  },
+};
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asStringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asBooleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asUnknownArray(value: unknown): ReadonlyArray<unknown> | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
 
 function messageFromUnknownError(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -303,6 +380,13 @@ The \`request_user_input\` tool is unavailable in Default mode. If you call it w
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 </collaboration_mode>`;
 
+function withCodexImageGenerationPreflightInstructions(instructions: string): string {
+  if (instructions.includes(CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS)) {
+    return instructions;
+  }
+  return `${instructions}\n\n${CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS}`;
+}
+
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: "on-request" | "never";
   readonly sandbox: "workspace-write" | "danger-full-access";
@@ -345,10 +429,56 @@ export function normalizeCodexModelSlug(
   return normalized;
 }
 
+export function readCodexRuntimeModels(response: unknown): Map<string, CodexRuntimeModelInfo> {
+  const record = asRecord(response);
+  const entries =
+    asUnknownArray(response) ??
+    asUnknownArray(record?.data) ??
+    asUnknownArray(record?.models) ??
+    asUnknownArray(record?.items) ??
+    [];
+  const models = new Map<string, CodexRuntimeModelInfo>();
+
+  for (const entry of entries) {
+    const model = asRecord(entry);
+    if (!model) {
+      continue;
+    }
+
+    const id = asStringValue(model.id);
+    const modelName = asStringValue(model.model);
+    const slug = normalizeCodexModelSlug(id ?? modelName, id);
+    if (!slug) {
+      continue;
+    }
+
+    const inputModalities =
+      asUnknownArray(model.inputModalities) ?? asUnknownArray(model.input_modalities) ?? [];
+    const imageGenerationCapability =
+      asBooleanValue(model.imageGeneration) ??
+      asBooleanValue(model.supportsImageGeneration) ??
+      asBooleanValue(asRecord(model.capabilities)?.imageGeneration);
+    const supportsImageGeneration =
+      inputModalities.length > 0 || imageGenerationCapability !== undefined
+        ? inputModalities.some((modality) => asStringValue(modality)?.toLowerCase() === "image") ||
+          imageGenerationCapability === true
+        : slug !== CODEX_SPARK_MODEL;
+
+    models.set(slug, {
+      slug,
+      supportsImageGeneration,
+      isDefault: asBooleanValue(model.isDefault) === true,
+    });
+  }
+
+  return models;
+}
+
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly imageGenerationPreflightEnabled?: boolean;
 }):
   | {
       mode: "default" | "plan";
@@ -368,8 +498,13 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
+      developer_instructions: input.imageGenerationPreflightEnabled
+        ? withCodexImageGenerationPreflightInstructions(
+            input.interactionMode === "plan"
+              ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+              : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          )
+        : input.interactionMode === "plan"
           ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
           : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
     },
@@ -503,8 +638,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
+        modelsBySlug: new Map(),
         nextRequestId: 1,
         stopping: false,
+        imageGenerationPreflightEnabled: false,
       };
 
       this.sessions.set(threadId, context);
@@ -516,7 +653,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       this.writeMessage(context, { method: "initialized" });
       try {
-        await this.sendRequest(context, "model/list", {});
+        const modelListResponse = await this.sendRequest(context, "model/list", {});
+        context.modelsBySlug = readCodexRuntimeModels(modelListResponse);
       } catch (error) {
         this.emitLifecycleEvent(
           context,
@@ -548,7 +686,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const threadStartParams = {
         ...sessionOverrides,
+        developerInstructions: CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS,
+        dynamicTools: [CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL],
         experimentalRawEvents: false,
+        persistExtendedHistory: true,
       };
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
@@ -593,6 +734,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           }
 
           threadOpenMethod = "thread/start";
+          context.imageGenerationPreflightEnabled = true;
           this.emitLifecycleEvent(
             context,
             "session/threadResumeFallback",
@@ -609,6 +751,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
       } else {
         threadOpenMethod = "thread/start";
+        context.imageGenerationPreflightEnabled = true;
         threadOpenResponse = await this.sendRequest(context, "thread/start", threadStartParams);
       }
 
@@ -717,12 +860,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: providerThreadId,
       input: turnInput,
     };
-    const normalizedModel = resolveCodexModelForAccount(
+    const requestedModel = resolveCodexModelForAccount(
       normalizeCodexModelSlug(input.model ?? context.session.model),
       context.account,
     );
-    if (normalizedModel) {
-      turnStartParams.model = normalizedModel;
+    if (requestedModel) {
+      turnStartParams.model = requestedModel;
     }
     if (input.serviceTier !== undefined) {
       turnStartParams.serviceTier = input.serviceTier;
@@ -732,8 +875,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const collaborationMode = buildCodexCollaborationMode({
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
-      ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
+      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      imageGenerationPreflightEnabled: context.imageGenerationPreflightEnabled,
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
@@ -1276,6 +1420,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
 
+    if (this.isImageGenerationPreflightRequest(request)) {
+      this.writeMessage(context, {
+        id: request.id,
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text: "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.",
+            },
+          ],
+        },
+      });
+      return;
+    }
+
     this.writeMessage(context, {
       id: request.id,
       error: {
@@ -1450,6 +1610,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     return undefined;
+  }
+
+  private isImageGenerationPreflightRequest(request: JsonRpcRequest): boolean {
+    if (request.method !== "item/tool/call") {
+      return false;
+    }
+
+    const tool = this.readString(request.params, "tool")
+      ?.trim()
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[._/-]/g, " ")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    return tool !== undefined && CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES.has(tool);
   }
 
   private parseThreadSnapshot(method: string, response: unknown): CodexThreadSnapshot {
