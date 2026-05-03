@@ -84,6 +84,7 @@ const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -143,6 +144,7 @@ const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
+const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
@@ -183,6 +185,7 @@ interface DesktopRendererBootstrapPayload {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const detachedBrowserWindows = new Map<string, BrowserWindow>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -1608,6 +1611,39 @@ function flushInAppBrowserSessionStorage(): void {
   }
 }
 
+function buildRendererWindowUrl(extraSearchParams: Record<string, string> = {}): string {
+  const rendererUrl = appendDesktopBootstrapWsUrl(
+    useDevRenderer && devServerUrl ? devServerUrl : `${DESKTOP_SCHEME}://app/index.html`,
+    backendWsUrl,
+    isDevelopmentBuild,
+  );
+  const parsedUrl = new URL(rendererUrl);
+  for (const [key, value] of Object.entries(extraSearchParams)) {
+    parsedUrl.searchParams.set(key, value);
+  }
+  return parsedUrl.toString();
+}
+
+function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
+  scopeId?: string;
+  initialUrl?: string;
+} {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return {};
+  }
+  const input = rawInput as { scopeId?: unknown; initialUrl?: unknown };
+  const scopeId =
+    typeof input.scopeId === "string" && input.scopeId.trim().length > 0
+      ? input.scopeId.trim()
+      : undefined;
+  const safeInitialUrl =
+    typeof input.initialUrl === "string" ? getSafeExternalUrl(input.initialUrl) : null;
+  return {
+    ...(scopeId ? { scopeId } : {}),
+    ...(safeInitialUrl ? { initialUrl: safeInitialUrl } : {}),
+  };
+}
+
 async function repairInAppBrowserStorage(): Promise<boolean> {
   try {
     const browserSession = getInAppBrowserSession();
@@ -2331,6 +2367,11 @@ function registerIpcHandlers(): void {
     applyAppZoom(owner, rawAction);
   });
 
+  ipcMain.removeHandler(OPEN_DETACHED_BROWSER_CHANNEL);
+  ipcMain.handle(OPEN_DETACHED_BROWSER_CHANNEL, async (_event, rawInput: unknown) => {
+    return createDetachedBrowserWindow(normalizeDetachedBrowserOpenInput(rawInput));
+  });
+
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
   ipcMain.handle(
     CONTEXT_MENU_CHANNEL,
@@ -2677,6 +2718,85 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
   });
 }
 
+function createDetachedBrowserWindow(input: { scopeId?: string; initialUrl?: string }): boolean {
+  const windowKey = input.scopeId ?? "default";
+  const existingWindow = detachedBrowserWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    return true;
+  }
+
+  const window = new BrowserWindow({
+    width: 1180,
+    height: 780,
+    minWidth: 720,
+    minHeight: 520,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Browser`,
+    webPreferences: {
+      preload: Path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+
+  detachedBrowserWindows.set(windowKey, window);
+  setupWebViewEventHandlers(window);
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Browser`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Browser`);
+    emitUpdateState();
+  });
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    detachedBrowserWindows.delete(windowKey);
+  });
+
+  const rendererUrl = buildRendererWindowUrl({
+    aceDetachedBrowser: "1",
+    ...(input.scopeId ? { browserScope: input.scopeId } : {}),
+    ...(input.initialUrl ? { initialUrl: input.initialUrl } : {}),
+  });
+  void window.loadURL(rendererUrl);
+  return true;
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1100,
@@ -2744,18 +2864,10 @@ function createWindow(): BrowserWindow {
   window.webContents.once("did-finish-load", revealWindow);
 
   if (useDevRenderer) {
-    void window.loadURL(
-      appendDesktopBootstrapWsUrl(devServerUrl, backendWsUrl, isDevelopmentBuild),
-    );
+    void window.loadURL(buildRendererWindowUrl());
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(
-      appendDesktopBootstrapWsUrl(
-        `${DESKTOP_SCHEME}://app/index.html`,
-        backendWsUrl,
-        isDevelopmentBuild,
-      ),
-    );
+    void window.loadURL(buildRendererWindowUrl());
   }
 
   window.on("closed", () => {

@@ -16,6 +16,7 @@ import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
+import { InAppBrowser, type InAppBrowserController } from "../components/InAppBrowser";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
@@ -72,6 +73,26 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  const detachedBrowserSearch = useLocation({
+    select: (location) => {
+      const searchParams = new URLSearchParams(location.searchStr);
+      if (searchParams.get("aceDetachedBrowser") !== "1") {
+        return null;
+      }
+      return {
+        initialUrl: searchParams.get("initialUrl"),
+        scopeId: searchParams.get("browserScope"),
+      };
+    },
+  });
+  if (detachedBrowserSearch) {
+    return <DetachedBrowserWindow search={detachedBrowserSearch} />;
+  }
+
+  return <MainRootRouteView />;
+}
+
+function MainRootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
@@ -143,6 +164,43 @@ function RootRouteView() {
         </>
       )}
     </>
+  );
+}
+
+function DetachedBrowserWindow(props: {
+  search: { scopeId: string | null; initialUrl: string | null };
+}) {
+  const openedInitialUrlRef = useRef(false);
+  const [controller, setController] = useState<InAppBrowserController | null>(null);
+
+  useEffect(() => {
+    if (openedInitialUrlRef.current || !controller || !props.search.initialUrl) {
+      return;
+    }
+    openedInitialUrlRef.current = true;
+    controller.openUrl(props.search.initialUrl);
+  }, [controller, props.search.initialUrl]);
+
+  return (
+    <ToastProvider>
+      <AnchoredToastProvider>
+        <UiTypographyBridge />
+        <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+          <InAppBrowser
+            open
+            activeInstance
+            visible
+            detachEnabled={false}
+            mode="full"
+            {...(props.search.scopeId ? { scopeId: props.search.scopeId } : {})}
+            onClose={() => {
+              window.close();
+            }}
+            onControllerChange={setController}
+          />
+        </div>
+      </AnchoredToastProvider>
+    </ToastProvider>
   );
 }
 

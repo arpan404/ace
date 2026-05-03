@@ -77,6 +77,7 @@ interface InAppBrowserProps {
   devToolsShortcutLabel?: string | null;
   forwardShortcutLabel?: string | null;
   reloadShortcutLabel?: string | null;
+  detachEnabled?: boolean;
   onQueueDesignRequest?: (submission: BrowserDesignRequestSubmission) => Promise<void>;
 }
 
@@ -200,6 +201,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     designerElementCommentShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
+    detachEnabled = true,
     onQueueDesignRequest,
   } = props;
   const {
@@ -578,6 +580,20 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [activeTab, activeTabIsInternal, onQueueDesignRequest],
   );
+  const detachBrowser = useCallback(async () => {
+    const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
+    if (!openDetachedBrowser) {
+      return;
+    }
+    const detached = await openDetachedBrowser({
+      ...(scopeId ? { scopeId } : {}),
+      ...(activeTab && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
+    });
+    if (detached) {
+      onClose();
+    }
+  }, [activeTab, activeTabIsInternal, onClose, scopeId]);
+  const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
 
   if (!open) {
     return null;
@@ -801,6 +817,27 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 />
               ) : null}
             </form>
+            {canDetachBrowser ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      type="button"
+                      className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      onClick={() => {
+                        void detachBrowser();
+                      }}
+                      aria-label="Detach browser"
+                    >
+                      <ExternalLinkIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Detach browser</TooltipPopup>
+              </Tooltip>
+            ) : null}
             {designerModeAvailable ? (
               <div
                 ref={designerToolSlotRef}

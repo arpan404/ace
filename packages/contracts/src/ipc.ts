@@ -256,6 +256,11 @@ export type DesktopNotificationPermission = "granted" | "denied" | "default" | "
 export type DesktopZoomAction = "zoom-in" | "zoom-out" | "zoom-reset";
 export type DesktopWindowResumeReason = "focus" | "resume" | "unlock-screen";
 
+export interface DesktopDetachedBrowserOpenInput {
+  scopeId?: string;
+  initialUrl?: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
@@ -277,6 +282,7 @@ export interface DesktopBridge {
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
+  openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
