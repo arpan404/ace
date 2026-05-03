@@ -264,6 +264,7 @@ type GeminiSessionContext = {
   readonly sessionId: string;
   session: ProviderSession;
   metadata: GeminiSessionMetadata;
+  readonly launchApprovalModeApplied?: GeminiLaunchApprovalMode;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
@@ -1765,14 +1766,26 @@ const makeGeminiAdapter = Effect.gen(function* () {
       input.interactionMode,
     );
     const canSetMode = canGeminiSetSessionMode(context.metadata);
+    const planModePinnedAtLaunch =
+      input.interactionMode === "plan" &&
+      !desiredModeId &&
+      context.launchApprovalModeApplied === "plan";
     if (input.interactionMode === "plan" && !desiredModeId) {
-      throw new ProviderAdapterRequestError({
-        provider: PROVIDER,
-        method: "session/set_mode",
-        detail: "Gemini ACP session does not expose a plan mode.",
-      });
+      if (!planModePinnedAtLaunch) {
+        throw new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/set_mode",
+          detail:
+            "Gemini ACP session does not expose a plan mode and the process was not launched with --approval-mode=plan.",
+        });
+      }
     }
-    if (canSetMode && desiredModeId && context.metadata.currentModeId !== desiredModeId) {
+    if (
+      !planModePinnedAtLaunch &&
+      canSetMode &&
+      desiredModeId &&
+      context.metadata.currentModeId !== desiredModeId
+    ) {
       await context.client.request(
         "session/set_mode",
         {
@@ -1837,7 +1850,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
     binaryPath: string,
     cwd: string,
     approvalMode: GeminiLaunchApprovalMode,
-  ): Promise<{ readonly client: AcpClient; readonly metadata: GeminiSessionMetadata }> => {
+  ): Promise<{
+    readonly client: AcpClient;
+    readonly metadata: GeminiSessionMetadata;
+    readonly launchApprovalModeApplied?: GeminiLaunchApprovalMode;
+  }> => {
     const initializeParams = buildGeminiInitializeParams();
 
     const attempts = buildGeminiAcpArgAttempts(approvalMode);
@@ -1858,6 +1875,9 @@ const makeGeminiAdapter = Effect.gen(function* () {
         return {
           client,
           metadata: normalizeInitializeResponse(initializeResult),
+          ...(args.includes(`--approval-mode=${approvalMode}`)
+            ? { launchApprovalModeApplied: approvalMode }
+            : {}),
         };
       } catch (cause) {
         lastError = cause;
@@ -2023,8 +2043,241 @@ const makeGeminiAdapter = Effect.gen(function* () {
         }),
       );
     }
-    sessions.delete(context.threadId);
+    if (sessions.get(context.threadId) === context) {
+      sessions.delete(context.threadId);
+    }
   };
+
+  const startGeminiSessionContext = async (
+    input: ProviderSessionStartInput,
+  ): Promise<GeminiSessionContext> => {
+    const settings = await runPromise(serverSettingsService.getSettings);
+    const cwd = input.cwd ?? serverConfig.cwd;
+    const launchApprovalMode = geminiLaunchApprovalModeForSession(
+      input.runtimeMode,
+      input.interactionMode,
+    );
+    const {
+      client,
+      metadata: initializedMetadata,
+      launchApprovalModeApplied,
+    } = await startInitializedGeminiClient(
+      settings.providers.gemini.binaryPath,
+      cwd,
+      launchApprovalMode,
+    );
+
+    let contextRef: GeminiSessionContext | null = null;
+    client.setNotificationHandler((notification) => {
+      if (contextRef) {
+        handleGeminiNotification(contextRef, notification);
+      }
+    });
+    client.setRequestHandler((request) => {
+      if (!contextRef) {
+        client.respondError(request.id, -32000, "Gemini session is not ready.");
+        return;
+      }
+      if (request.method === "session/request_permission") {
+        void handleGeminiPermissionRequest(contextRef, request).catch((cause) => {
+          client.respondError(
+            request.id,
+            -32000,
+            toMessage(cause, "Failed to handle Gemini permission request"),
+          );
+        });
+        return;
+      }
+      client.respondError(request.id, -32601, `Unsupported ACP client request: ${request.method}`);
+    });
+    client.setProtocolErrorHandler((error) => {
+      if (contextRef) {
+        emit(
+          baseEvent(contextRef, {
+            type: "runtime.error",
+            payload: {
+              ...buildRuntimeErrorPayload({
+                message: toMessage(error, "Gemini ACP protocol error"),
+                cause: error,
+                class: "transport_error",
+              }),
+            },
+          }),
+        );
+      }
+    });
+
+    try {
+      const started = await startOrLoadGeminiSession(client, initializedMetadata, input, cwd);
+
+      const createdAt = isoNow();
+      const session: ProviderSession = {
+        provider: PROVIDER,
+        status: "ready",
+        runtimeMode: input.runtimeMode,
+        cwd,
+        model:
+          input.modelSelection?.provider === PROVIDER
+            ? input.modelSelection.model
+            : DEFAULT_MODEL_BY_PROVIDER.gemini,
+        threadId: input.threadId,
+        resumeCursor: {
+          sessionId: started.sessionId,
+        },
+        createdAt,
+        updatedAt: createdAt,
+      };
+
+      const context: GeminiSessionContext = {
+        threadId: input.threadId,
+        client,
+        sessionId: started.sessionId,
+        session,
+        metadata: started.metadata,
+        ...(launchApprovalModeApplied ? { launchApprovalModeApplied } : {}),
+        turns: [],
+        replayTurns: cloneReplayTurns(input.replayTurns),
+        sequenceTieBreakersByTimestampMs: new Map(),
+        nextFallbackSessionSequence: 0,
+        activeTurn: null,
+        pendingPermissions: new Map(),
+        totalProcessedTokens: 0,
+        pendingBootstrapReset: false,
+        closed: false,
+        stopRequested: false,
+      };
+      context.pendingBootstrapReset =
+        context.replayTurns.length > 0 && started.method === "session/new";
+      contextRef = context;
+      client.setCloseHandler((close) => finalizeContextOnClose(context, close));
+
+      sessions.set(input.threadId, context);
+
+      emit(
+        baseEvent(context, {
+          type: "session.started",
+          payload: {
+            resume: context.session.resumeCursor,
+          },
+        }),
+      );
+      emit(
+        baseEvent(context, {
+          type: "thread.started",
+          payload: {
+            providerThreadId: context.sessionId,
+          },
+        }),
+      );
+
+      await syncGeminiSessionState(context, {
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        modelSelection: input.modelSelection,
+      });
+
+      return context;
+    } catch (cause) {
+      try {
+        await client.close();
+      } catch (closeCause) {
+        reportClientCloseFailure(closeCause, { phase: "startSession" });
+      }
+      throw cause;
+    }
+  };
+
+  const shouldRestartGeminiForInteractionMode = (
+    context: GeminiSessionContext,
+    runtimeMode: ProviderSession["runtimeMode"],
+    interactionMode: ProviderSendTurnInput["interactionMode"],
+  ): boolean => {
+    const desiredLaunchApprovalMode = geminiLaunchApprovalModeForSession(
+      runtimeMode,
+      interactionMode,
+    );
+    const desiredModeId = resolveDesiredModeId(context.metadata, runtimeMode, interactionMode);
+    if (context.launchApprovalModeApplied === "plan" && desiredLaunchApprovalMode !== "plan") {
+      return true;
+    }
+    return (
+      context.launchApprovalModeApplied !== desiredLaunchApprovalMode &&
+      (desiredLaunchApprovalMode === "plan" || !desiredModeId)
+    );
+  };
+
+  const restartGeminiSessionWithInput = async (
+    context: GeminiSessionContext,
+    input: ProviderSessionStartInput,
+    phase: string,
+  ): Promise<GeminiSessionContext> => {
+    context.stopRequested = true;
+    if (sessions.get(context.threadId) === context) {
+      sessions.delete(context.threadId);
+    }
+    try {
+      await context.client.close();
+    } catch (cause) {
+      reportClientCloseFailure(cause, { phase });
+    }
+
+    return await startGeminiSessionContext(input);
+  };
+
+  const restartGeminiSessionForStartInput = async (
+    context: GeminiSessionContext,
+    input: ProviderSessionStartInput,
+  ): Promise<GeminiSessionContext> => {
+    if (context.activeTurn) {
+      throw new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "startSession",
+        detail: `Gemini session is already running turn '${context.activeTurn.id}'. Wait for it to finish or interrupt it before changing approval mode.`,
+      });
+    }
+
+    const restartInput: ProviderSessionStartInput = {
+      threadId: input.threadId,
+      provider: input.provider ?? PROVIDER,
+      runtimeMode: input.runtimeMode,
+      ...(input.cwd ? { cwd: input.cwd } : context.session.cwd ? { cwd: context.session.cwd } : {}),
+      ...(input.threadTitle ? { threadTitle: input.threadTitle } : {}),
+      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+      ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+      ...(input.resumeCursor !== undefined
+        ? { resumeCursor: input.resumeCursor }
+        : context.session.resumeCursor !== undefined
+          ? { resumeCursor: context.session.resumeCursor }
+          : {}),
+      ...(input.replayTurns !== undefined
+        ? { replayTurns: input.replayTurns }
+        : context.replayTurns.length > 0
+          ? { replayTurns: context.replayTurns }
+          : {}),
+    };
+
+    return await restartGeminiSessionWithInput(context, restartInput, "restartForStartMode");
+  };
+
+  const restartGeminiSessionForInteractionMode = async (
+    context: GeminiSessionContext,
+    input: ProviderSendTurnInput,
+    interactionMode: ProviderSendTurnInput["interactionMode"],
+  ): Promise<GeminiSessionContext> =>
+    await restartGeminiSessionWithInput(
+      context,
+      {
+        provider: PROVIDER,
+        threadId: input.threadId,
+        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+        runtimeMode: context.session.runtimeMode,
+        ...(interactionMode ? { interactionMode } : {}),
+        ...(context.session.resumeCursor ? { resumeCursor: context.session.resumeCursor } : {}),
+        ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+        replayTurns: context.replayTurns,
+      },
+      "restartForTurnMode",
+    );
 
   const startSession: GeminiAdapterShape["startSession"] = (input: ProviderSessionStartInput) =>
     Effect.tryPromise({
@@ -2039,138 +2292,34 @@ const makeGeminiAdapter = Effect.gen(function* () {
 
         const existing = sessions.get(input.threadId);
         if (existing && !existing.closed) {
-          return existing.session;
-        }
-
-        const settings = await runPromise(serverSettingsService.getSettings);
-        const cwd = input.cwd ?? serverConfig.cwd;
-        const { client, metadata: initializedMetadata } = await startInitializedGeminiClient(
-          settings.providers.gemini.binaryPath,
-          cwd,
-          geminiLaunchApprovalModeForSession(input.runtimeMode, input.interactionMode),
-        );
-
-        let contextRef: GeminiSessionContext | null = null;
-        client.setNotificationHandler((notification) => {
-          if (contextRef) {
-            handleGeminiNotification(contextRef, notification);
+          if (
+            shouldRestartGeminiForInteractionMode(
+              existing,
+              input.runtimeMode,
+              input.interactionMode,
+            )
+          ) {
+            const context = await restartGeminiSessionForStartInput(existing, input);
+            return context.session;
           }
-        });
-        client.setRequestHandler((request) => {
-          if (!contextRef) {
-            client.respondError(request.id, -32000, "Gemini session is not ready.");
-            return;
-          }
-          if (request.method === "session/request_permission") {
-            void handleGeminiPermissionRequest(contextRef, request).catch((cause) => {
-              client.respondError(
-                request.id,
-                -32000,
-                toMessage(cause, "Failed to handle Gemini permission request"),
-              );
-            });
-            return;
-          }
-          client.respondError(
-            request.id,
-            -32601,
-            `Unsupported ACP client request: ${request.method}`,
-          );
-        });
-        client.setProtocolErrorHandler((error) => {
-          if (contextRef) {
-            emit(
-              baseEvent(contextRef, {
-                type: "runtime.error",
-                payload: {
-                  ...buildRuntimeErrorPayload({
-                    message: toMessage(error, "Gemini ACP protocol error"),
-                    cause: error,
-                    class: "transport_error",
-                  }),
-                },
-              }),
-            );
-          }
-        });
-
-        try {
-          const started = await startOrLoadGeminiSession(client, initializedMetadata, input, cwd);
-
-          const createdAt = isoNow();
-          const session: ProviderSession = {
-            provider: PROVIDER,
-            status: "ready",
-            runtimeMode: input.runtimeMode,
-            cwd,
-            model:
-              input.modelSelection?.provider === PROVIDER
-                ? input.modelSelection.model
-                : DEFAULT_MODEL_BY_PROVIDER.gemini,
-            threadId: input.threadId,
-            resumeCursor: {
-              sessionId: started.sessionId,
-            },
-            createdAt,
-            updatedAt: createdAt,
-          };
-
-          const context: GeminiSessionContext = {
-            threadId: input.threadId,
-            client,
-            sessionId: started.sessionId,
-            session,
-            metadata: started.metadata,
-            turns: [],
-            replayTurns: cloneReplayTurns(input.replayTurns),
-            sequenceTieBreakersByTimestampMs: new Map(),
-            nextFallbackSessionSequence: 0,
-            activeTurn: null,
-            pendingPermissions: new Map(),
-            totalProcessedTokens: 0,
-            pendingBootstrapReset: false,
-            closed: false,
-            stopRequested: false,
-          };
-          context.pendingBootstrapReset =
-            context.replayTurns.length > 0 && started.method === "session/new";
-          contextRef = context;
-          client.setCloseHandler((close) => finalizeContextOnClose(context, close));
-
-          sessions.set(input.threadId, context);
-
-          emit(
-            baseEvent(context, {
-              type: "session.started",
-              payload: {
-                resume: context.session.resumeCursor,
-              },
-            }),
-          );
-          emit(
-            baseEvent(context, {
-              type: "thread.started",
-              payload: {
-                providerThreadId: context.sessionId,
-              },
-            }),
-          );
-
-          await syncGeminiSessionState(context, {
+          await syncGeminiSessionState(existing, {
             runtimeMode: input.runtimeMode,
             interactionMode: input.interactionMode,
             modelSelection: input.modelSelection,
           });
-
-          return context.session;
-        } catch (cause) {
-          try {
-            await client.close();
-          } catch (closeCause) {
-            reportClientCloseFailure(closeCause, { phase: "startSession" });
-          }
-          throw cause;
+          existing.session = {
+            ...existing.session,
+            runtimeMode: input.runtimeMode,
+            ...(input.modelSelection?.provider === PROVIDER
+              ? { model: input.modelSelection.model }
+              : {}),
+            updatedAt: isoNow(),
+          };
+          return existing.session;
         }
+
+        const context = await startGeminiSessionContext(input);
+        return context.session;
       },
       catch: (cause) =>
         isProviderAdapterValidationError(cause) || isProviderAdapterRequestError(cause)
@@ -2186,7 +2335,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
   const sendTurn: GeminiAdapterShape["sendTurn"] = (input: ProviderSendTurnInput) =>
     Effect.tryPromise({
       try: async () => {
-        const context = sessions.get(input.threadId);
+        let context = sessions.get(input.threadId);
         if (!context) {
           throw new ProviderAdapterSessionNotFoundError({
             provider: PROVIDER,
@@ -2206,6 +2355,19 @@ const makeGeminiAdapter = Effect.gen(function* () {
             method: "session/prompt",
             detail: `Gemini session is already running turn '${context.activeTurn.id}'. Wait for it to finish or interrupt it before starting another turn.`,
           });
+        }
+        if (
+          shouldRestartGeminiForInteractionMode(
+            context,
+            context.session.runtimeMode,
+            input.interactionMode,
+          )
+        ) {
+          context = await restartGeminiSessionForInteractionMode(
+            context,
+            input,
+            input.interactionMode,
+          );
         }
 
         const turnId = TurnId.makeUnsafe(`gemini-turn:${randomUUID()}`);
