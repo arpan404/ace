@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   ProviderModelOptions,
+  ProviderSlashCommand,
   RuntimeMode,
   ServerProvider,
   ServerProviderModel,
@@ -36,6 +37,10 @@ import { createPortal } from "react-dom";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
+import {
+  providerSlashCommandExtensionKind,
+  type ProviderExtensionCommandKind,
+} from "@ace/shared/providerSlashCommands";
 
 import {
   clampCollapsedComposerCursor,
@@ -46,7 +51,10 @@ import {
   extendReplacementRangeForTrailingSpace,
   replaceTextRange,
 } from "../../composer-logic";
-import { createMarkedIssueReferenceToken } from "../../composer-editor-mentions";
+import {
+  createMarkedIssueReferenceToken,
+  createMarkedProviderCommandToken,
+} from "../../composer-editor-mentions";
 import {
   deriveEffectiveComposerExecutionModeState,
   type ComposerImageAttachment,
@@ -65,6 +73,7 @@ import {
 import { useEffectEvent } from "../../hooks/useEffectEvent";
 import { gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
 import { basenameOfPath } from "../../vscode-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
@@ -85,6 +94,42 @@ const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 const EMPTY_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> = Object.freeze({});
+
+function normalizeSlashCommandName(name: string): string {
+  return name
+    .trim()
+    .replace(/^[/@$]+/, "")
+    .toLowerCase();
+}
+
+function providerCommandKind(command: ProviderSlashCommand): ProviderExtensionCommandKind | null {
+  const normalizedName = normalizeSlashCommandName(command.name);
+  if (!normalizedName) {
+    return null;
+  }
+  return providerSlashCommandExtensionKind(command, normalizedName);
+}
+
+function providerCommandDescription(
+  command: ProviderSlashCommand,
+  commandKind: ProviderExtensionCommandKind,
+): string {
+  const noun = commandKind === "plugin" ? "Plugin" : "Skill";
+  return command.inputHint
+    ? `${command.description ?? noun} - ${command.inputHint}`
+    : (command.description ?? noun);
+}
+
+function commandMatchesComposerQuery(command: ProviderSlashCommand, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  const normalizedQuery = query.trim().toLowerCase();
+  return (
+    normalizeSlashCommandName(command.name).includes(normalizedQuery) ||
+    command.description?.toLowerCase().includes(normalizedQuery) === true
+  );
+}
 
 export interface ConnectedChatComposerPanelsHandle {
   focusAt(cursor: number): boolean;
@@ -152,6 +197,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  readonly providerCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
   readonly modelOptionsByProvider: ComponentProps<
@@ -531,42 +577,74 @@ export const ConnectedChatComposerPanels = memo(
           }));
         }
         if (composerTrigger.kind === "slash-command") {
+          const query = composerTrigger.query.trim().toLowerCase();
+          const providerCommandItems = props.providerCommands
+            .map((command) => {
+              const commandKind = providerCommandKind(command);
+              return commandKind ? { command, commandKind } : null;
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                command: ProviderSlashCommand;
+                commandKind: ProviderExtensionCommandKind;
+              } => Boolean(item),
+            )
+            .filter(({ command }) => commandMatchesComposerQuery(command, query))
+            .map(({ command, commandKind }) => ({
+              id: `provider-slash:${commandKind}:${command.name}`,
+              type: "provider-command" as const,
+              command: command.name,
+              commandKind,
+              label: formatCommandDisplayLabel(command.name),
+              description: providerCommandDescription(command, commandKind),
+            }));
+          const providerCommandNames = new Set(
+            props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
+          );
           const slashCommandItems = [
             {
               id: "slash:model",
               type: "slash-command" as const,
               command: "model" as const,
-              label: "/model",
+              commandSource: "ace" as const,
+              label: formatCommandDisplayLabel("model"),
               description: "Switch response model for this thread",
             },
             {
               id: "slash:plan",
               type: "slash-command" as const,
               command: "plan" as const,
-              label: "/plan",
+              commandSource: "ace" as const,
+              label: formatCommandDisplayLabel("plan"),
               description: "Switch this thread into plan mode",
             },
             {
               id: "slash:default",
               type: "slash-command" as const,
               command: "default" as const,
-              label: "/default",
+              commandSource: "ace" as const,
+              label: formatCommandDisplayLabel("default"),
               description: "Switch this thread back to normal chat mode",
             },
             {
               id: "slash:issues",
               type: "slash-command" as const,
               command: "issues" as const,
-              label: "/issues",
+              commandSource: "ace" as const,
+              label: formatCommandDisplayLabel("issues"),
               description: "Attach GitHub issue context to this message",
             },
-          ];
-          const query = composerTrigger.query.trim().toLowerCase();
+          ].filter((item) => !providerCommandNames.has(normalizeSlashCommandName(item.command)));
+          const allSlashCommandItems = [...slashCommandItems, ...providerCommandItems];
           if (!query) {
-            return [...slashCommandItems];
+            return allSlashCommandItems;
           }
-          return slashCommandItems.filter(
-            (item) => item.command.includes(query) || item.label.slice(1).includes(query),
+          return allSlashCommandItems.filter(
+            (item) =>
+              normalizeSlashCommandName(item.command).includes(query) ||
+              item.label.toLowerCase().includes(query),
           );
         }
         return searchableModelOptions
@@ -587,7 +665,13 @@ export const ConnectedChatComposerPanels = memo(
             label: name,
             description: `${providerLabel} · ${slug}`,
           }));
-      }, [composerTrigger, issueTriggerMatches, searchableModelOptions, workspaceEntries]);
+      }, [
+        composerTrigger,
+        issueTriggerMatches,
+        props.providerCommands,
+        searchableModelOptions,
+        workspaceEntries,
+      ]);
       const composerMenuOpen = Boolean(composerTrigger);
       const activeComposerMenuItem = useMemo(
         () =>
@@ -887,6 +971,22 @@ export const ConnectedChatComposerPanels = memo(
           }
           if (item.type === "issue") {
             const replacement = `${createMarkedIssueReferenceToken(item.issueNumber)} `;
+            const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+              snapshot.value,
+              trigger.rangeEnd,
+              replacement,
+            );
+            if (
+              applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+                expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+              })
+            ) {
+              setComposerHighlightedItemId(null);
+            }
+            return;
+          }
+          if (item.type === "provider-command") {
+            const replacement = `${createMarkedProviderCommandToken(item.command)} `;
             const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
               snapshot.value,
               trigger.rangeEnd,

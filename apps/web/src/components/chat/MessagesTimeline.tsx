@@ -1,5 +1,10 @@
-import { type MessageId, type TurnId } from "@ace/contracts";
-import { IconTerminal } from "@tabler/icons-react";
+import { type MessageId, type ProviderSlashCommand, type TurnId } from "@ace/contracts";
+import { IconStack2, IconTerminal } from "@tabler/icons-react";
+import {
+  normalizeProviderSlashCommandName,
+  providerSlashCommandExtensionKind,
+  type ProviderExtensionCommandKind,
+} from "@ace/shared/providerSlashCommands";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import {
   Fragment,
@@ -14,6 +19,12 @@ import {
   type ReactNode,
 } from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
+import {
+  COMPOSER_INLINE_CHIP_CLASS_NAME,
+  COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
+  COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
+} from "~/lib/composer/inlineChip";
+import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
 import {
   getChatMessageRenderableText,
   resolveAssistantMessageRenderHint,
@@ -40,6 +51,7 @@ import {
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
+  PlugIcon,
   SquarePenIcon,
   Undo2Icon,
   WrenchIcon,
@@ -53,6 +65,7 @@ import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { VscodeEntryIcon } from "./VscodeEntryIcon";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -61,6 +74,7 @@ import { cn } from "~/lib/utils";
 import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
+import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
@@ -218,6 +232,7 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  providerCommands?: ReadonlyArray<ProviderSlashCommand>;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -250,10 +265,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   markdownCwd,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  providerCommands = [],
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
 }: MessagesTimelineProps) {
+  const userMessageProviderCommandLookup = useMemo(
+    () => buildUserMessageProviderCommandLookup(providerCommands),
+    [providerCommands],
+  );
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
       timelineEntries,
@@ -948,7 +968,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             message={row.message}
             onImageExpand={onImageExpand}
             onRevertUserMessage={onRevertUserMessage}
+            providerCommandLookup={userMessageProviderCommandLookup}
             revertActionTitle={revertActionTitle}
+            resolvedTheme={resolvedTheme}
             timestampFormat={timestampFormat}
           />
         )}
@@ -1612,7 +1634,167 @@ const UserMessageTerminalContextInlineLabel = memo(
   },
 );
 
+type UserMessageProviderCommandDisplay = {
+  readonly kind: ProviderExtensionCommandKind;
+  readonly label: string;
+};
+
+type UserMessageProviderCommandLookup = ReadonlyMap<string, UserMessageProviderCommandDisplay>;
+
+const USER_MESSAGE_INLINE_TOKEN_REGEX =
+  /(^|[\s([{])((?:(?:\/|\$)[A-Za-z0-9][A-Za-z0-9_.:/-]{0,120})(?=$|[\s,.;:!?)}\]])|(?:@[^\s@]+))/g;
+
+function providerCommandKindForDisplay(
+  command: ProviderSlashCommand,
+  normalizedName: string,
+): ProviderExtensionCommandKind | null {
+  if (command.kind === "skill" || command.kind === "plugin") {
+    return command.kind;
+  }
+  return providerSlashCommandExtensionKind(command, normalizedName);
+}
+
+function registerUserMessageProviderCommandToken(
+  lookup: Map<string, UserMessageProviderCommandDisplay>,
+  token: string | null | undefined,
+  display: UserMessageProviderCommandDisplay,
+): void {
+  const normalizedToken = token?.trim();
+  if (!normalizedToken) {
+    return;
+  }
+  lookup.set(normalizedToken.toLowerCase(), display);
+}
+
+function buildUserMessageProviderCommandLookup(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+): UserMessageProviderCommandLookup {
+  const lookup = new Map<string, UserMessageProviderCommandDisplay>();
+  for (const command of commands) {
+    const normalizedName = normalizeProviderSlashCommandName(command.name);
+    if (!normalizedName) {
+      continue;
+    }
+    const kind = providerCommandKindForDisplay(command, normalizedName);
+    if (!kind) {
+      continue;
+    }
+    const display: UserMessageProviderCommandDisplay = {
+      kind,
+      label: formatCommandDisplayLabel(command.name),
+    };
+    const promptPrefixToken = command.promptPrefix?.trim().split(/\s+/u)[0];
+
+    registerUserMessageProviderCommandToken(lookup, `/${normalizedName}`, display);
+    registerUserMessageProviderCommandToken(lookup, promptPrefixToken, display);
+    registerUserMessageProviderCommandToken(
+      lookup,
+      kind === "skill" ? `$${normalizedName}` : `@${normalizedName}`,
+      display,
+    );
+  }
+  return lookup;
+}
+
+function splitTrailingMentionPunctuation(token: string): {
+  token: string;
+  trailingText: string;
+} {
+  const normalizedToken = token.replace(/[),.;:!?}\]]+$/u, "");
+  return {
+    token: normalizedToken,
+    trailingText: token.slice(normalizedToken.length),
+  };
+}
+
+function renderUserMessageInlineText(
+  text: string,
+  keyPrefix: string,
+  providerCommandLookup: UserMessageProviderCommandLookup,
+  resolvedTheme: "light" | "dark",
+): ReactNode[] {
+  if (text.length === 0) {
+    return [];
+  }
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  USER_MESSAGE_INLINE_TOKEN_REGEX.lastIndex = 0;
+
+  for (const match of text.matchAll(USER_MESSAGE_INLINE_TOKEN_REGEX)) {
+    const fullMatch = match[0];
+    const prefix = match[1] ?? "";
+    const matchedToken = match[2] ?? "";
+    const matchIndex = match.index ?? 0;
+    const tokenStart = matchIndex + prefix.length;
+    const tokenEnd = tokenStart + fullMatch.length - prefix.length;
+    const { token, trailingText } = matchedToken.startsWith("@")
+      ? splitTrailingMentionPunctuation(matchedToken)
+      : { token: matchedToken, trailingText: "" };
+
+    if (token.length <= 1) {
+      continue;
+    }
+
+    if (tokenStart > cursor) {
+      nodes.push(<span key={`${keyPrefix}:text:${cursor}`}>{text.slice(cursor, tokenStart)}</span>);
+    }
+
+    const providerCommandDisplay = providerCommandLookup.get(token.toLowerCase());
+
+    if (providerCommandDisplay) {
+      const ProviderCommandIcon = providerCommandDisplay.kind === "plugin" ? PlugIcon : IconStack2;
+      nodes.push(
+        <span
+          key={`${keyPrefix}:provider-command:${tokenStart}`}
+          className="inline-flex items-center gap-1 rounded-md border border-sky-500/35 bg-sky-500/10 px-1 py-px font-medium text-sky-700 leading-[1.15] dark:text-sky-300"
+        >
+          <ProviderCommandIcon
+            aria-hidden="true"
+            className={
+              providerCommandDisplay.kind === "plugin"
+                ? "size-3.5 shrink-0 text-violet-400/90"
+                : "size-3.5 shrink-0 text-cyan-400/90"
+            }
+          />
+          <span>{providerCommandDisplay.label}</span>
+        </span>,
+      );
+    } else if (token.startsWith("@")) {
+      const pathValue = token.slice(1);
+      nodes.push(
+        <span
+          key={`${keyPrefix}:mention:${tokenStart}`}
+          className={COMPOSER_INLINE_CHIP_CLASS_NAME}
+        >
+          <VscodeEntryIcon
+            pathValue={pathValue}
+            kind={inferEntryKindFromPath(pathValue)}
+            theme={resolvedTheme}
+            className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
+          />
+          <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{basenameOfPath(pathValue)}</span>
+        </span>,
+      );
+    } else {
+      nodes.push(<span key={`${keyPrefix}:command-text:${tokenStart}`}>{token}</span>);
+    }
+    if (trailingText) {
+      nodes.push(<span key={`${keyPrefix}:trailing:${tokenStart}`}>{trailingText}</span>);
+    }
+    cursor = tokenEnd;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(<span key={`${keyPrefix}:text:${cursor}`}>{text.slice(cursor)}</span>);
+  }
+
+  return nodes.length > 0 ? nodes : [text];
+}
+
 const UserMessageBody = memo(function UserMessageBody(props: {
+  providerCommandLookup: UserMessageProviderCommandLookup;
+  resolvedTheme: "light" | "dark";
   text: string;
   terminalContexts: ReadonlyArray<ParsedTerminalContextEntry>;
 }) {
@@ -1636,9 +1818,12 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
         if (matchIndex > cursor) {
           inlineNodes.push(
-            <span key={`user-terminal-context-inline-before:${context.header}:${cursor}`}>
-              {props.text.slice(cursor, matchIndex)}
-            </span>,
+            ...renderUserMessageInlineText(
+              props.text.slice(cursor, matchIndex),
+              `user-terminal-context-inline-before:${context.header}:${cursor}`,
+              props.providerCommandLookup,
+              props.resolvedTheme,
+            ),
           );
         }
         inlineNodes.push(
@@ -1653,9 +1838,12 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       if (inlineNodes.length > 0) {
         if (cursor < props.text.length) {
           inlineNodes.push(
-            <span key={`user-message-terminal-context-inline-rest:${cursor}`}>
-              {props.text.slice(cursor)}
-            </span>,
+            ...renderUserMessageInlineText(
+              props.text.slice(cursor),
+              `user-message-terminal-context-inline-rest:${cursor}`,
+              props.providerCommandLookup,
+              props.resolvedTheme,
+            ),
           );
         }
 
@@ -1682,7 +1870,14 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     if (props.text.length > 0) {
-      inlineNodes.push(<span key="user-message-terminal-context-inline-text">{props.text}</span>);
+      inlineNodes.push(
+        ...renderUserMessageInlineText(
+          props.text,
+          "user-message-terminal-context-inline-text",
+          props.providerCommandLookup,
+          props.resolvedTheme,
+        ),
+      );
     } else if (inlinePrefix.length === 0) {
       return null;
     }
@@ -1699,9 +1894,14 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   }
 
   return (
-    <pre className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
-      {props.text}
-    </pre>
+    <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
+      {renderUserMessageInlineText(
+        props.text,
+        "user-message-provider-command",
+        props.providerCommandLookup,
+        props.resolvedTheme,
+      )}
+    </div>
   );
 });
 
@@ -1731,7 +1931,9 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   message: UserTimelineMessage;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onRevertUserMessage: (messageId: MessageId) => void;
+  providerCommandLookup: UserMessageProviderCommandLookup;
   revertActionTitle: string;
+  resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
 }) {
   const userImages = props.message.attachments ?? [];
@@ -1783,6 +1985,8 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
               <UserMessageBody
                 text={displayedUserMessage.visibleText}
                 terminalContexts={terminalContexts}
+                providerCommandLookup={props.providerCommandLookup}
+                resolvedTheme={props.resolvedTheme}
               />
             </div>
           )}

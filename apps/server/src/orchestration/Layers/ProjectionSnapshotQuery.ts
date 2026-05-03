@@ -23,6 +23,7 @@ import {
   ModelSelection,
   ProviderIntegrationCapabilities,
   ProviderKind,
+  ProviderSlashCommand,
   ProjectIcon,
   ProjectId,
   RuntimeMode,
@@ -98,6 +99,7 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession.mapFields(
   Struct.assign({
     capabilities: Schema.NullOr(Schema.fromJsonString(ProviderIntegrationCapabilities)),
+    commands: Schema.fromJsonString(Schema.Array(ProviderSlashCommand)),
   }),
 );
 const ProviderSessionRuntimeDbRowSchema = Schema.Struct({
@@ -280,6 +282,7 @@ function toOrchestrationSession(
           capabilities: row.capabilities ?? defaultProviderIntegrationCapabilities(providerName),
         }
       : {}),
+    commands: row.commands,
     runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
     lastError: row.lastError,
@@ -776,6 +779,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           status,
           provider_name AS "providerName",
           capabilities_json AS "capabilities",
+          COALESCE(commands_json, '[]') AS "commands",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
           runtime_mode AS "runtimeMode",
@@ -797,6 +801,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           status,
           provider_name AS "providerName",
           capabilities_json AS "capabilities",
+          COALESCE(commands_json, '[]') AS "commands",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
           runtime_mode AS "runtimeMode",

@@ -37,6 +37,7 @@ import {
   asArrayOrEmpty as asArray,
   asNonEmptyString as asString,
   asObject,
+  asReadonlyArray,
   asRoundedNonNegativeInt,
 } from "../unknown.ts";
 import {
@@ -227,10 +228,19 @@ type GeminiToolCallLike = {
 type GeminiSessionMetadata = {
   readonly authMethods: ReadonlyArray<GeminiAuthMethod>;
   readonly loadSession: boolean;
+  availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
   currentModeId?: string;
   availableModels: ReadonlyArray<GeminiModel>;
   currentModelId?: string;
+};
+
+type GeminiAvailableCommand = {
+  readonly name: string;
+  readonly description?: string;
+  readonly input?: {
+    readonly hint?: string;
+  };
 };
 
 type GeminiToolItemState = {
@@ -727,6 +737,43 @@ function normalizeSessionModels(value: unknown): {
   return currentModelId ? { availableModels, currentModelId } : { availableModels };
 }
 
+function readAvailableCommandEntries(value: unknown): ReadonlyArray<unknown> | null {
+  const valueRecord = asObject(value);
+  return (
+    asReadonlyArray(value) ??
+    asReadonlyArray(valueRecord?.commands) ??
+    asReadonlyArray(valueRecord?.availableCommands) ??
+    asReadonlyArray(valueRecord?.available_commands) ??
+    null
+  );
+}
+
+function normalizeAvailableCommands(value: unknown): ReadonlyArray<GeminiAvailableCommand> {
+  const commands = readAvailableCommandEntries(value) ?? [];
+  return commands
+    .map((entry) => {
+      const command = asObject(entry);
+      const name = asString(command?.name);
+      if (!name) {
+        return null;
+      }
+      const description = asString(command?.description);
+      const input = asObject(command?.input);
+      const inputHint = asString(input?.hint);
+      const normalized: { name: string; description?: string; input?: { hint?: string } } = {
+        name,
+      };
+      if (description) {
+        normalized.description = description;
+      }
+      if (inputHint) {
+        normalized.input = { hint: inputHint };
+      }
+      return normalized;
+    })
+    .filter((entry): entry is GeminiAvailableCommand => entry !== null);
+}
+
 function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   const record = asObject(value);
   const authMethods = asArray(record?.authMethods)
@@ -761,6 +808,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   return {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
+    availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
     availableModels: [],
   };
@@ -773,8 +821,13 @@ function updateMetadataFromSessionResult(
   const record = asObject(result);
   const modes = normalizeSessionModes(record?.modes);
   const models = normalizeSessionModels(record?.models);
+  const availableCommandEntries = readAvailableCommandEntries(record?.availableCommands);
   return {
     ...metadata,
+    availableCommands:
+      availableCommandEntries !== null
+        ? normalizeAvailableCommands(availableCommandEntries)
+        : metadata.availableCommands,
     availableModes: modes.availableModes,
     ...(modes.currentModeId ? { currentModeId: modes.currentModeId } : {}),
     availableModels: models.availableModels,
@@ -2011,6 +2064,24 @@ const makeGeminiAdapter = Effect.gen(function* () {
         );
         return;
       }
+      case "available_commands_update": {
+        context.metadata = {
+          ...context.metadata,
+          availableCommands: normalizeAvailableCommands(update.availableCommands),
+        };
+        emit(
+          baseEvent(context, {
+            type: "session.configured",
+            ...(notificationCreatedAt ? { createdAt: notificationCreatedAt } : {}),
+            payload: {
+              config: {
+                availableCommands: context.metadata.availableCommands,
+              },
+            },
+          }),
+        );
+        return;
+      }
       default:
         return;
     }
@@ -2428,6 +2499,16 @@ const makeGeminiAdapter = Effect.gen(function* () {
 
       sessions.set(input.threadId, context);
 
+      emit(
+        baseEvent(context, {
+          type: "session.configured",
+          payload: {
+            config: {
+              availableCommands: context.metadata.availableCommands,
+            },
+          },
+        }),
+      );
       emit(
         baseEvent(context, {
           type: "session.started",

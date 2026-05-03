@@ -26,6 +26,10 @@ import {
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import { buildProviderModelSelection } from "@ace/shared/model";
+import {
+  mergeProviderSlashCommands,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 import { truncate } from "@ace/shared/String";
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import {
@@ -66,11 +70,12 @@ import {
 import {
   collapseExpandedComposerCursor,
   parseComposerIssuesCommand,
+  parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
 import {
   extractIssueReferenceNumbers,
-  stripIssueReferenceMarkers,
+  stripComposerInlineMarkers,
 } from "../composer-editor-mentions";
 import {
   deriveCompletionDividerBeforeEntryId,
@@ -1707,6 +1712,21 @@ export default function ChatView({
     sessionProvider: activeThread?.session?.provider ?? null,
     threadModelSelection: activeThread?.modelSelection,
   });
+  const composerProviderCommands = useMemo(() => {
+    const commandProvider = activeThread?.session?.provider ?? selectedProvider;
+    const selectedProviderCommands =
+      providerStatuses.find((provider) => provider.provider === commandProvider)?.commands ?? [];
+    return mergeProviderSlashCommands(
+      activeThread?.session?.commands,
+      selectedProviderCommands,
+      providerFallbackSlashCommands(commandProvider),
+    );
+  }, [
+    activeThread?.session?.commands,
+    activeThread?.session?.provider,
+    providerStatuses,
+    selectedProvider,
+  ]);
   const readCurrentSelectedPromptEffort = useCallback(() => {
     return getComposerProviderState({
       provider: selectedProvider,
@@ -3132,10 +3152,11 @@ export default function ChatView({
       }
       const hiddenDesignMessage = queuedDesignMessageEditRef.current;
       const composerImages = composerImagesRef.current;
+      const promptForQueueWithoutInlineMarkers = stripComposerInlineMarkers(promptRef.current);
       const composerTerminalContexts = composerTerminalContextsRef.current;
       const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
         deriveComposerSendState({
-          prompt: promptRef.current,
+          prompt: promptForQueueWithoutInlineMarkers,
           imageCount: composerImages.length,
           terminalContexts: composerTerminalContexts,
         });
@@ -3164,11 +3185,20 @@ export default function ChatView({
         );
         return false;
       }
+      const providerSlashCommandPayload =
+        composerImages.length === 0 && sendableTerminalContexts.length === 0
+          ? parseProviderComposerSlashCommand(
+              promptForQueueWithoutInlineMarkers.trim(),
+              composerProviderCommands,
+            )
+          : null;
+      const promptForQueueBase =
+        providerSlashCommandPayload?.promptText ?? promptForQueueWithoutInlineMarkers;
       const promptForQueue =
         hiddenDesignMessage === null
-          ? promptRef.current
+          ? promptForQueueBase
           : appendHiddenBrowserDesignContextFromOriginalPrompt(
-              promptRef.current,
+              promptForQueueBase,
               hiddenDesignMessage.prompt,
             );
       const mergedQueuedImages =
@@ -3204,7 +3234,7 @@ export default function ChatView({
         interactionMode,
       };
       const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: promptRef.current,
+        titleSeed: promptForQueueBase,
         modelSelection: selectedModelSelection,
         runtimeMode,
         interactionMode,
@@ -3247,6 +3277,7 @@ export default function ChatView({
     [
       buildQueuedComposerImages,
       clearComposerDraftContent,
+      composerProviderCommands,
       ensureQueuedComposerThread,
       interactionMode,
       appendQueuedComposerMessage,
@@ -5466,7 +5497,7 @@ export default function ChatView({
       if (!api || !activeThread || sendInFlightRef.current) return false;
       if (!activeProject) return false;
 
-      const promptForSend = stripIssueReferenceMarkers(submission.prompt);
+      const promptForSend = stripComposerInlineMarkers(submission.prompt);
       const composerImagesSnapshot = [...submission.images];
       const composerTerminalContextsSnapshot = [...submission.terminalContexts];
       const threadIdForSend = activeThread.id;
@@ -5767,7 +5798,7 @@ export default function ChatView({
     }
     if (sendInFlightRef.current) return;
     const promptForSend = promptRef.current;
-    const promptForSendWithoutIssueMarkers = stripIssueReferenceMarkers(promptForSend);
+    const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
     const composerImages = composerImagesRef.current;
     const composerTerminalContexts = composerTerminalContextsRef.current;
     const hiddenDesignMessage = queuedDesignMessageEditRef.current;
@@ -5777,7 +5808,7 @@ export default function ChatView({
       expiredTerminalContextCount,
       hasSendableContent,
     } = deriveComposerSendState({
-      prompt: promptForSendWithoutIssueMarkers,
+      prompt: promptForSendWithoutInlineMarkers,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
     });
@@ -5795,10 +5826,12 @@ export default function ChatView({
       });
       return;
     }
-    const standaloneSlashCommand =
+    const providerSlashCommandPayload =
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
+        ? parseProviderComposerSlashCommand(trimmed, composerProviderCommands)
         : null;
+    const standaloneSlashCommand =
+      providerSlashCommandPayload === null ? parseStandaloneComposerSlashCommand(trimmed) : null;
     if (standaloneSlashCommand) {
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
@@ -5807,12 +5840,11 @@ export default function ChatView({
       return;
     }
     const composerIssuesCommandPayload =
-      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseComposerIssuesCommand(trimmed)
-        : null;
+      providerSlashCommandPayload === null ? parseComposerIssuesCommand(trimmed) : null;
     const isIssuesCommandText =
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
+      providerSlashCommandPayload === null &&
       /^\/issues\b/i.test(trimmed);
     if (isIssuesCommandText && composerIssuesCommandPayload === null) {
       toastManager.add({
@@ -5876,7 +5908,9 @@ export default function ChatView({
       return;
     }
     if (!activeProject) return;
-    let promptWithIssueContext = promptForSendWithoutIssueMarkers;
+    const promptForDispatchBase =
+      providerSlashCommandPayload?.promptText ?? promptForSendWithoutInlineMarkers;
+    let promptWithIssueContext = promptForDispatchBase;
     let imagesWithIssueContext: Array<ComposerImageAttachment | QueuedComposerImageAttachment> =
       hiddenDesignMessage === null
         ? composerImages
@@ -5884,7 +5918,12 @@ export default function ChatView({
             (image, index, allImages) =>
               allImages.findIndex((candidate) => candidate.id === image.id) === index,
           );
-    if (composerIssuesCommandPayload === null && gitCwd && isGitRepo) {
+    if (
+      providerSlashCommandPayload === null &&
+      composerIssuesCommandPayload === null &&
+      gitCwd &&
+      isGitRepo
+    ) {
       const inlineIssueNumbers = extractIssueReferenceNumbers(promptForSend);
       if (inlineIssueNumbers.length > 0) {
         try {
@@ -5895,7 +5934,7 @@ export default function ChatView({
             includeSummaryLines: false,
           });
           if (payload.prompt.length > 0) {
-            promptWithIssueContext = `${promptForSendWithoutIssueMarkers}\n\n${payload.prompt}`;
+            promptWithIssueContext = `${promptForDispatchBase}\n\n${payload.prompt}`;
           }
           if (payload.images.length > 0) {
             const seenImageIds = new Set<string>();
@@ -6675,6 +6714,7 @@ export default function ChatView({
       markdownCwd: codingGitCwd ?? undefined,
       onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
       onOpenFilePath: openMarkdownFileInAppEditor,
+      providerCommands: composerProviderCommands,
       resolvedTheme,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
@@ -6689,6 +6729,7 @@ export default function ChatView({
       completionSummary,
       expandedWorkGroups,
       codingGitCwd,
+      composerProviderCommands,
       isGitRepo,
       isHandoffThread,
       isRevertingCheckpoint,
@@ -7108,6 +7149,7 @@ export default function ChatView({
                     selectedModel={selectedModel}
                     selectedProviderModels={selectedProviderModels}
                     selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                    providerCommands={composerProviderCommands}
                     selectedModelForPickerWithCustomFallback={
                       selectedModelForPickerWithCustomFallback
                     }

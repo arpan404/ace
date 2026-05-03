@@ -164,4 +164,13 @@ describe("CursorAdapterSessionMetadata", () => {
       configOptions: [],
     });
   });
+
+  it("parses available commands from wrapped ACP updates", () => {
+    assert.deepEqual(
+      parseCursorAvailableCommands({
+        availableCommands: [{ name: "review", description: "Review changes" }],
+      }),
+      [{ name: "review", description: "Review changes" }],
+    );
+  });
 });

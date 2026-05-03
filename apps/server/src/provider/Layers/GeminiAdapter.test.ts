@@ -3,7 +3,7 @@ import { ThreadId } from "@ace/contracts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../acpClient.ts", async (importOriginal) => {
@@ -297,6 +297,73 @@ describe("Gemini ACP launch args", () => {
 });
 
 describe("GeminiAdapterLive startup", () => {
+  it("emits available commands from wrapped ACP session metadata", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return {
+              ...geminiSessionResult("gemini-session-wrapped-commands"),
+              availableCommands: {
+                commands: [
+                  {
+                    name: "review",
+                    description: "Review changes",
+                    input: { hint: "<target>" },
+                  },
+                ],
+              },
+            };
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const configuredPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+          ),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-wrapped-commands"),
+            cwd: "/repo/gemini-wrapped-commands",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+
+        const configuredEventOption = await configuredPromise;
+        expect(Option.isSome(configuredEventOption)).toBe(true);
+        if (!Option.isSome(configuredEventOption)) {
+          return;
+        }
+        const configuredEvent = configuredEventOption.value;
+        expect(configuredEvent.type).toBe("session.configured");
+        if (configuredEvent.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.payload.config.availableCommands).toEqual([
+          {
+            name: "review",
+            description: "Review changes",
+            input: { hint: "<target>" },
+          },
+        ]);
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("does not fail plan startup when launch approval mode is plan but ACP omits a plan mode", async () => {
     const client = makeFakeGeminiClient({
       requestImpl: async (method) => {

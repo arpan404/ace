@@ -58,6 +58,7 @@ import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { upgradeProviderCli } from "./provider/providerCliUpgrade";
+import { withProviderExtensionSlashCommands } from "./provider/providerExtensionSlashCommands";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -253,8 +254,12 @@ const WsRpcLayer = WsRpcGroup.toLayer(
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
-      const providers = yield* providerRegistry.getProviders;
       const settings = yield* serverSettings.getSettings;
+      const providers = withProviderExtensionSlashCommands({
+        providers: yield* providerRegistry.getProviders,
+        cwd: config.cwd,
+        settings,
+      });
 
       return {
         cwd: config.cwd,
@@ -267,6 +272,22 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         relay: yield* relayHostManager.getStatus,
       };
     });
+
+    const withCurrentProviderCommands = (providers: ReadonlyArray<ServerProvider>) =>
+      serverSettings.getSettings.pipe(
+        Effect.map((settings) =>
+          withProviderExtensionSlashCommands({
+            providers,
+            cwd: config.cwd,
+            settings,
+          }),
+        ),
+        Effect.catch((error) =>
+          Effect.logWarning("failed to discover provider extension commands", {
+            error: error.message,
+          }).pipe(Effect.as(providers)),
+        ),
+      );
 
     const loadRuntimeProfile = Effect.gen(function* () {
       const providerSessions = Option.isSome(providerServiceOption)
@@ -530,12 +551,17 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
-        providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+        providerRegistry.refresh().pipe(
+          Effect.flatMap(withCurrentProviderCommands),
+          Effect.map((providers) => ({ providers })),
+        ),
       [WS_METHODS.serverUpgradeProviderCli]: (input) =>
         Effect.gen(function* () {
           const binaryPath = yield* getProviderBinaryPath(input.provider);
           yield* upgradeProviderCli({ provider: input.provider, binaryPath });
-          const providers = yield* providerRegistry.refresh(input.provider);
+          const providers = yield* providerRegistry
+            .refresh(input.provider)
+            .pipe(Effect.flatMap(withCurrentProviderCommands));
           return { providers };
         }),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
@@ -855,6 +881,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })),
             );
             const providerStatuses = providerRegistry.streamChanges.pipe(
+              Stream.mapEffect(withCurrentProviderCommands),
               Stream.map((providers) => ({
                 version: 1 as const,
                 type: "providerStatuses" as const,

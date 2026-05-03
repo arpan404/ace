@@ -76,6 +76,9 @@ export type CursorSessionConfigOption = {
 export type CursorAvailableCommand = {
   readonly name: string;
   readonly description?: string;
+  readonly input?: {
+    readonly hint?: string;
+  };
 };
 
 export type CursorSessionMetadata = {
@@ -326,7 +329,12 @@ export function parseCursorConfigOptions(value: unknown): ReadonlyArray<CursorSe
 export function parseCursorAvailableCommands(
   value: unknown,
 ): ReadonlyArray<CursorAvailableCommand> {
-  const commands = asArray(value);
+  const valueRecord = asObject(value);
+  const commands =
+    asArray(value) ??
+    asArray(valueRecord?.commands) ??
+    asArray(valueRecord?.availableCommands) ??
+    asArray(valueRecord?.available_commands);
   if (!commands) {
     return [];
   }
@@ -340,10 +348,17 @@ export function parseCursorAvailableCommands(
     if (!name) {
       continue;
     }
-    const normalized: { name: string; description?: string } = { name };
+    const normalized: { name: string; description?: string; input?: { hint?: string } } = {
+      name,
+    };
     const description = asString(entry.description);
     if (description) {
       normalized.description = description;
+    }
+    const input = asObject(entry.input);
+    const inputHint = asString(input?.hint);
+    if (inputHint) {
+      normalized.input = { hint: inputHint };
     }
     parsed.push(normalized);
   }

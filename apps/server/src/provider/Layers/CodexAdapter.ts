@@ -11,6 +11,7 @@ import {
   type CanonicalRequestType,
   type ProviderEvent,
   type ProviderRuntimeEvent,
+  type ProviderSlashCommand,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   RuntimeItemId,
@@ -45,7 +46,9 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
+import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { discoverCodexExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
@@ -590,6 +593,7 @@ function mapItemLifecycle(
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
+  availableCommands: ReadonlyArray<ProviderSlashCommand> = providerFallbackSlashCommands(PROVIDER),
 ): ReadonlyArray<ProviderRuntimeEvent> {
   const payload = asObject(event.payload);
   const turn = asObject(payload?.turn);
@@ -702,6 +706,15 @@ function mapToRuntimeEvents(
           ...(event.message ? { message: event.message } : {}),
           ...(event.payload !== undefined ? { resume: event.payload } : {}),
           ...(processPid !== undefined ? { processPid } : {}),
+        },
+      },
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "session.configured",
+        payload: {
+          config: {
+            availableCommands,
+          },
         },
       },
     ];
@@ -1394,6 +1407,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   );
   const serverSettingsService = yield* ServerSettingsService;
   const replayBootstrapByThreadId = new Map<ThreadId, CodexReplayBootstrapState>();
+  const extensionCommandsByThreadId = new Map<ThreadId, ReadonlyArray<ProviderSlashCommand>>();
 
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
@@ -1419,6 +1433,13 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      extensionCommandsByThreadId.set(
+        input.threadId,
+        discoverCodexExtensionSlashCommands({
+          cwd: input.cwd,
+          codexHome: homePath,
+        }),
+      );
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
@@ -1444,7 +1465,11 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             detail: toMessage(cause, "Failed to start Codex adapter session."),
             cause,
           }),
-      });
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => extensionCommandsByThreadId.delete(input.threadId)),
+        ),
+      );
       const replayTurns = cloneReplayTurns(input.replayTurns);
       replayBootstrapByThreadId.set(input.threadId, {
         replayTurns,
@@ -1621,6 +1646,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
     Effect.sync(() => {
       replayBootstrapByThreadId.delete(threadId);
+      extensionCommandsByThreadId.delete(threadId);
       manager.stopSession(threadId);
     });
 
@@ -1633,6 +1659,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const stopAll: CodexAdapterShape["stopAll"] = () =>
     Effect.sync(() => {
       replayBootstrapByThreadId.clear();
+      extensionCommandsByThreadId.clear();
       manager.stopAll();
     });
 
@@ -1649,7 +1676,11 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     const services = yield* Effect.services<never>();
     const listenerEffect = Effect.fn("listener")(function* (event: ProviderEvent) {
       yield* writeNativeEvent(event);
-      const runtimeEvents = mapToRuntimeEvents(event, event.threadId);
+      const runtimeEvents = mapToRuntimeEvents(
+        event,
+        event.threadId,
+        extensionCommandsByThreadId.get(event.threadId),
+      );
       if (runtimeEvents.length === 0) {
         yield* Effect.logDebug("ignoring unhandled Codex provider event", {
           method: event.method,
