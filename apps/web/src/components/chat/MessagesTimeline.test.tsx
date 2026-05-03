@@ -435,6 +435,105 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
+  it("highlights provider command tokens in user messages", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "entry-provider-command",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-provider-command"),
+              role: "user",
+              text: "$frontend-design polish this\n@browser-use inspect it",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        providerCommands={[
+          { name: "frontend-design", kind: "skill", promptPrefix: "$frontend-design" },
+          { name: "browser-use", kind: "plugin", promptPrefix: "@browser-use" },
+        ]}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Frontend Design");
+    expect(markup).toContain("Browser Use");
+    expect(markup).toContain("bg-sky-500/10");
+    expect(markup).toContain("tabler-icon-stack-2");
+    expect(markup).toContain("lucide-plug");
+  });
+
+  it("renders at-prefixed file mentions as mention chips", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "entry-file-mention",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-file-mention"),
+              role: "user",
+              text: "@src/checkpointing/Services directory",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Services");
+    expect(markup).toContain("directory");
+    expect(markup).not.toContain("@src/checkpointing/Services");
+    expect(markup).not.toContain("tabler-icon-stack-2");
+    expect(markup).toContain("bg-accent/40");
+    expect(markup).toContain("<img");
+  });
+
   it("hides design request ids while still showing captured images", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const designPrompt = [

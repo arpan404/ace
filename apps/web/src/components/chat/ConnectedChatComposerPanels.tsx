@@ -37,6 +37,10 @@ import { createPortal } from "react-dom";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
+import {
+  providerSlashCommandExtensionKind,
+  type ProviderExtensionCommandKind,
+} from "@ace/shared/providerSlashCommands";
 
 import {
   clampCollapsedComposerCursor,
@@ -47,7 +51,10 @@ import {
   extendReplacementRangeForTrailingSpace,
   replaceTextRange,
 } from "../../composer-logic";
-import { createMarkedIssueReferenceToken } from "../../composer-editor-mentions";
+import {
+  createMarkedIssueReferenceToken,
+  createMarkedProviderCommandToken,
+} from "../../composer-editor-mentions";
 import {
   deriveEffectiveComposerExecutionModeState,
   type ComposerImageAttachment,
@@ -66,6 +73,7 @@ import {
 import { useEffectEvent } from "../../hooks/useEffectEvent";
 import { gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
 import { basenameOfPath } from "../../vscode-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
@@ -88,7 +96,39 @@ const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES 
 const EMPTY_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> = Object.freeze({});
 
 function normalizeSlashCommandName(name: string): string {
-  return name.trim().replace(/^\/+/, "").toLowerCase();
+  return name
+    .trim()
+    .replace(/^[/@$]+/, "")
+    .toLowerCase();
+}
+
+function providerCommandKind(command: ProviderSlashCommand): ProviderExtensionCommandKind | null {
+  const normalizedName = normalizeSlashCommandName(command.name);
+  if (!normalizedName) {
+    return null;
+  }
+  return providerSlashCommandExtensionKind(command, normalizedName);
+}
+
+function providerCommandDescription(
+  command: ProviderSlashCommand,
+  commandKind: ProviderExtensionCommandKind,
+): string {
+  const noun = commandKind === "plugin" ? "Plugin" : "Skill";
+  return command.inputHint
+    ? `${command.description ?? noun} - ${command.inputHint}`
+    : (command.description ?? noun);
+}
+
+function commandMatchesComposerQuery(command: ProviderSlashCommand, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  const normalizedQuery = query.trim().toLowerCase();
+  return (
+    normalizeSlashCommandName(command.name).includes(normalizedQuery) ||
+    command.description?.toLowerCase().includes(normalizedQuery) === true
+  );
 }
 
 export interface ConnectedChatComposerPanelsHandle {
@@ -537,16 +577,29 @@ export const ConnectedChatComposerPanels = memo(
           }));
         }
         if (composerTrigger.kind === "slash-command") {
-          const providerCommandItems = props.providerCommands.map((command) => ({
-            id: `provider-slash:${command.name}`,
-            type: "slash-command" as const,
-            command: command.name,
-            commandSource: "provider" as const,
-            label: `/${command.name}`,
-            description: command.inputHint
-              ? `${command.description ?? "Provider command"} - ${command.inputHint}`
-              : (command.description ?? "Provider command"),
-          }));
+          const query = composerTrigger.query.trim().toLowerCase();
+          const providerCommandItems = props.providerCommands
+            .map((command) => {
+              const commandKind = providerCommandKind(command);
+              return commandKind ? { command, commandKind } : null;
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                command: ProviderSlashCommand;
+                commandKind: ProviderExtensionCommandKind;
+              } => Boolean(item),
+            )
+            .filter(({ command }) => commandMatchesComposerQuery(command, query))
+            .map(({ command, commandKind }) => ({
+              id: `provider-slash:${commandKind}:${command.name}`,
+              type: "provider-command" as const,
+              command: command.name,
+              commandKind,
+              label: formatCommandDisplayLabel(command.name),
+              description: providerCommandDescription(command, commandKind),
+            }));
           const providerCommandNames = new Set(
             props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
           );
@@ -556,7 +609,7 @@ export const ConnectedChatComposerPanels = memo(
               type: "slash-command" as const,
               command: "model" as const,
               commandSource: "ace" as const,
-              label: "/model",
+              label: formatCommandDisplayLabel("model"),
               description: "Switch response model for this thread",
             },
             {
@@ -564,7 +617,7 @@ export const ConnectedChatComposerPanels = memo(
               type: "slash-command" as const,
               command: "plan" as const,
               commandSource: "ace" as const,
-              label: "/plan",
+              label: formatCommandDisplayLabel("plan"),
               description: "Switch this thread into plan mode",
             },
             {
@@ -572,7 +625,7 @@ export const ConnectedChatComposerPanels = memo(
               type: "slash-command" as const,
               command: "default" as const,
               commandSource: "ace" as const,
-              label: "/default",
+              label: formatCommandDisplayLabel("default"),
               description: "Switch this thread back to normal chat mode",
             },
             {
@@ -580,19 +633,18 @@ export const ConnectedChatComposerPanels = memo(
               type: "slash-command" as const,
               command: "issues" as const,
               commandSource: "ace" as const,
-              label: "/issues",
+              label: formatCommandDisplayLabel("issues"),
               description: "Attach GitHub issue context to this message",
             },
           ].filter((item) => !providerCommandNames.has(normalizeSlashCommandName(item.command)));
-          const allSlashCommandItems = [...providerCommandItems, ...slashCommandItems];
-          const query = composerTrigger.query.trim().toLowerCase();
+          const allSlashCommandItems = [...slashCommandItems, ...providerCommandItems];
           if (!query) {
             return allSlashCommandItems;
           }
           return allSlashCommandItems.filter(
             (item) =>
               normalizeSlashCommandName(item.command).includes(query) ||
-              item.label.slice(1).toLowerCase().includes(query),
+              item.label.toLowerCase().includes(query),
           );
         }
         return searchableModelOptions
@@ -933,23 +985,23 @@ export const ConnectedChatComposerPanels = memo(
             }
             return;
           }
-          if (item.type === "slash-command") {
-            if (item.commandSource === "provider") {
-              const replacement = `/${item.command} `;
-              const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
-                snapshot.value,
-                trigger.rangeEnd,
-                replacement,
-              );
-              if (
-                applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
-                  expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
-                })
-              ) {
-                setComposerHighlightedItemId(null);
-              }
-              return;
+          if (item.type === "provider-command") {
+            const replacement = `${createMarkedProviderCommandToken(item.command)} `;
+            const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+              snapshot.value,
+              trigger.rangeEnd,
+              replacement,
+            );
+            if (
+              applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+                expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+              })
+            ) {
+              setComposerHighlightedItemId(null);
             }
+            return;
+          }
+          if (item.type === "slash-command") {
             if (item.command === "model" || item.command === "issues") {
               const replacement = item.command === "model" ? "/model " : "/issues ";
               const replacementRangeEnd = extendReplacementRangeForTrailingSpace(

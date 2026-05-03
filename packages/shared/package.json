@@ -84,6 +84,10 @@
       "types": "./src/orchestrationCommands.ts",
       "import": "./src/orchestrationCommands.ts"
     },
+    "./providerSlashCommands": {
+      "types": "./src/providerSlashCommands.ts",
+      "import": "./src/providerSlashCommands.ts"
+    },
     "./hostConnections": {
       "types": "./src/hostConnections.ts",
       "import": "./src/hostConnections.ts"

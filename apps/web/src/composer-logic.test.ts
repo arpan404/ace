@@ -11,6 +11,7 @@ import {
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
+import { createMarkedProviderCommandToken } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 describe("detectComposerTrigger", () => {
@@ -108,6 +109,12 @@ describe("detectComposerTrigger", () => {
       rangeStart: 0,
       rangeEnd: text.length,
     });
+  });
+
+  it("does not detect selected provider command tokens as slash triggers", () => {
+    const text = createMarkedProviderCommandToken("frontend-design");
+
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
   it("detects issue tag trigger after /issues", () => {
@@ -355,6 +362,7 @@ describe("parseProviderComposerSlashCommand", () => {
     expect(parseProviderComposerSlashCommand("/review src", providerCommands)).toEqual({
       commandName: "review",
       args: "src",
+      promptText: "/review src",
     });
   });
 
@@ -362,6 +370,31 @@ describe("parseProviderComposerSlashCommand", () => {
     expect(parseProviderComposerSlashCommand("/plan", providerCommands)).toEqual({
       commandName: "plan",
       args: "",
+      promptText: "/plan",
+    });
+  });
+
+  it("rewrites synthetic provider commands to their prompt invocation", () => {
+    expect(
+      parseProviderComposerSlashCommand("/frontend-design make it polished", [
+        { name: "frontend-design", promptPrefix: "$frontend-design" },
+      ]),
+    ).toEqual({
+      commandName: "frontend-design",
+      args: "make it polished",
+      promptText: "$frontend-design make it polished",
+    });
+  });
+
+  it("rewrites slash plugin aliases to their provider prompt invocation", () => {
+    expect(
+      parseProviderComposerSlashCommand("/browser-use inspect localhost", [
+        { name: "browser-use", kind: "plugin", promptPrefix: "@browser-use" },
+      ]),
+    ).toEqual({
+      commandName: "browser-use",
+      args: "inspect localhost",
+      promptText: "@browser-use inspect localhost",
     });
   });
 

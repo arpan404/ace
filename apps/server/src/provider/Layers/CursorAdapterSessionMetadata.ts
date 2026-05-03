@@ -329,7 +329,12 @@ export function parseCursorConfigOptions(value: unknown): ReadonlyArray<CursorSe
 export function parseCursorAvailableCommands(
   value: unknown,
 ): ReadonlyArray<CursorAvailableCommand> {
-  const commands = asArray(value);
+  const valueRecord = asObject(value);
+  const commands =
+    asArray(value) ??
+    asArray(valueRecord?.commands) ??
+    asArray(valueRecord?.availableCommands) ??
+    asArray(valueRecord?.available_commands);
   if (!commands) {
     return [];
   }
