@@ -17,6 +17,7 @@ vi.mock("../acpClient.ts", async (importOriginal) => {
 import {
   buildGeminiAcpArgAttempts,
   buildGeminiInitializeParams,
+  buildGeminiPromptText,
   canGeminiSetSessionMode,
   canGeminiSetSessionModel,
   geminiLaunchApprovalModeForSession,
@@ -182,6 +183,32 @@ describe("Gemini ACP capability guards", () => {
     expect(canGeminiSetSessionModel({ availableModels: [{ modelId: "gemini-2.5-pro" }] })).toBe(
       true,
     );
+  });
+});
+
+describe("Gemini prompt text", () => {
+  it("routes Plan turns through Gemini's slash-command planning workflow", () => {
+    expect(
+      buildGeminiPromptText({
+        threadId: asThreadId("thread-gemini-plan-command"),
+        interactionMode: "plan",
+        input: "Draft the implementation plan.",
+      }),
+    ).toBe("/plan Draft the implementation plan.");
+    expect(
+      buildGeminiPromptText({
+        threadId: asThreadId("thread-gemini-plan-command-existing"),
+        interactionMode: "plan",
+        input: " /plan refine the existing plan ",
+      }),
+    ).toBe("/plan refine the existing plan");
+    expect(
+      buildGeminiPromptText({
+        threadId: asThreadId("thread-gemini-default-command"),
+        interactionMode: "default",
+        input: "Draft the implementation plan.",
+      }),
+    ).toBe("Draft the implementation plan.");
   });
 });
 
@@ -377,6 +404,11 @@ describe("GeminiAdapterLive startup", () => {
               input: "Draft the plan.",
             }),
           );
+
+          expect(client.request).toHaveBeenCalledWith("session/prompt", {
+            sessionId: "gemini-session-plan-file",
+            prompt: [{ type: "text", text: "/plan Draft the plan." }],
+          });
 
           const proposedPlanEvent = await proposedPlanPromise;
           expect(proposedPlanEvent._tag).toBe("Some");
@@ -788,7 +820,7 @@ describe("GeminiAdapterLive approvals", () => {
         );
         expect(planClient.request).toHaveBeenCalledWith("session/prompt", {
           sessionId: "gemini-session-supervised-plan-turn",
-          prompt: [{ type: "text", text: "Plan the work." }],
+          prompt: [{ type: "text", text: "/plan Plan the work." }],
         });
         expect(planClient.request).not.toHaveBeenCalledWith(
           "session/set_mode",

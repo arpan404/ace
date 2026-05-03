@@ -1118,16 +1118,33 @@ function extractToolDetail(
   return undefined;
 }
 
+export function buildGeminiPromptText(input: ProviderSendTurnInput): string {
+  const text = input.input ?? "";
+  if (input.interactionMode !== "plan") {
+    return text;
+  }
+
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return "/plan";
+  }
+  if (/^\/plan(?:\s|$)/iu.test(trimmed)) {
+    return trimmed;
+  }
+  return `/plan ${trimmed}`;
+}
+
 function buildPromptContent(
   input: ProviderSendTurnInput,
   attachmentsDir: string,
 ): ReadonlyArray<GeminiPromptContent> {
   const content: GeminiPromptContent[] = [];
+  const promptText = buildGeminiPromptText(input);
 
-  if (input.input && input.input.trim().length > 0) {
+  if (promptText.trim().length > 0) {
     content.push({
       type: "text",
-      text: input.input,
+      text: promptText,
     });
   }
 
