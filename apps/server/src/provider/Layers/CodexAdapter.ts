@@ -624,6 +624,32 @@ function mapItemLifecycle(
   };
 }
 
+function hookOutputText(run: Record<string, unknown> | undefined): string | undefined {
+  const entries = asArray(run?.entries);
+  if (!entries) {
+    return undefined;
+  }
+
+  const text = entries
+    .map((entry) => asString(asObject(entry)?.text)?.trim())
+    .filter((entry): entry is string => entry !== undefined && entry.length > 0)
+    .join("\n");
+  return text.length > 0 ? text : undefined;
+}
+
+function hookOutcome(value: unknown): "success" | "error" | "cancelled" {
+  switch (asString(value)) {
+    case "completed":
+      return "success";
+    case "stopped":
+      return "cancelled";
+    case "failed":
+    case "blocked":
+    default:
+      return "error";
+  }
+}
+
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
@@ -917,6 +943,39 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "hook/started") {
+    const run = asObject(payload?.run);
+    const hookId = asString(run?.id) ?? String(event.eventId);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "hook.started",
+        payload: {
+          hookId,
+          hookName: asString(run?.handlerType) ?? "hook",
+          hookEvent: asString(run?.eventName) ?? "hook",
+        },
+      },
+    ];
+  }
+
+  if (event.method === "hook/completed") {
+    const run = asObject(payload?.run);
+    const hookId = asString(run?.id) ?? String(event.eventId);
+    const output = hookOutputText(run);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "hook.completed",
+        payload: {
+          hookId,
+          outcome: hookOutcome(run?.status),
+          ...(output ? { output } : {}),
+        },
+      },
+    ];
+  }
+
   if (event.method === "turn/diff/updated") {
     return [
       {
@@ -931,6 +990,16 @@ function mapToRuntimeEvents(
         },
       },
     ];
+  }
+
+  if (event.method === "rawResponseItem/completed") {
+    const payload = asObject(event.payload);
+    const item = asObject(payload?.item);
+    const source = item ?? payload;
+    if (source && isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.completed")];
+    }
+    return [];
   }
 
   if (event.method === "item/started") {

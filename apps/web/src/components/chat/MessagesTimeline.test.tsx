@@ -706,15 +706,17 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain('data-image-generation-placeholder="true"');
-    expect(markup).toContain("image-generation-floating-dot");
+    expect(markup).toContain("image-generation-placeholder-surface");
+    expect(markup).toContain("image-generation-placeholder-sheen");
     expect(markup).toContain("aspect-ratio:1536 / 1024");
     expect(markup).toContain("width:81vh");
+    expect(markup).not.toContain("image-generation-progress-track");
     expect(markup).not.toContain("1 tool call");
     expect(markup).not.toContain("(empty response)");
     expect(markup).not.toContain("data-chat-markdown");
   });
 
-  it("shows an image generation placeholder while an imagegen command is still working", async () => {
+  it("does not infer image generation placeholders from command or assistant text", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -767,14 +769,12 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-image-generation-placeholder="true"');
-    expect(markup).toContain("Generating image");
-    expect(markup).toContain("1024 x 1024");
-    expect(markup).toContain("aspect-ratio:1024 / 1024");
-    expect(markup).not.toContain("Working for");
+    expect(markup).not.toContain('data-image-generation-placeholder="true"');
+    expect(markup).not.toContain("Generating image");
+    expect(markup).toContain("Working for");
   });
 
-  it("shows an image generation placeholder from assistant status text without an imagegen command", async () => {
+  it("does not infer image generation placeholders from generic tool detail text", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -786,11 +786,11 @@ describe("MessagesTimeline", () => {
         liveTimers={false}
         timelineEntries={[
           {
-            id: "user-imagegen-follow-up",
+            id: "user-generic-tool-image-request",
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("user-imagegen-follow-up"),
+              id: MessageId.makeUnsafe("user-generic-tool-image-request"),
               role: "user",
               text: "generate mobile version in portrait",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -798,15 +798,17 @@ describe("MessagesTimeline", () => {
             },
           },
           {
-            id: "assistant-imagegen-follow-up-status",
-            kind: "message",
+            id: "work-generic-tool",
+            kind: "work",
             createdAt: "2026-03-17T19:12:32.000Z",
-            message: {
-              id: MessageId.makeUnsafe("assistant-imagegen-follow-up-status"),
-              role: "assistant",
-              text: "Generating a portrait mobile variant of the UI mockup with the same visual direction.",
+            entry: {
+              id: "work-generic-tool",
               createdAt: "2026-03-17T19:12:32.000Z",
-              streaming: true,
+              label: "Tool call",
+              detail: "generate image at 1024x1536",
+              tone: "tool",
+              toolTitle: "Tool call",
+              itemType: "dynamic_tool_call",
             },
           },
         ]}
@@ -827,13 +829,12 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-image-generation-placeholder="true"');
-    expect(markup).toContain("1024 x 1536");
-    expect(markup).toContain("aspect-ratio:1024 / 1536");
-    expect(markup).not.toContain("Working for");
+    expect(markup).not.toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain('data-work-entry-id="work-generic-tool"');
+    expect(markup).toContain("Working for");
   });
 
-  it("shows an image generation placeholder from backend tool lifecycle activity", async () => {
+  it("does not infer image generation placeholders from tool names or dimensions", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -888,11 +889,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-image-generation-placeholder="true"');
-    expect(markup).toContain("1024 x 1536");
-    expect(markup).toContain("aspect-ratio:1024 / 1536");
-    expect(markup).not.toContain('data-work-entry-id="work-imagegen-tool"');
-    expect(markup).not.toContain("Working for");
+    expect(markup).not.toContain('data-image-generation-placeholder="true"');
+    expect(markup).not.toContain("aspect-ratio:1024 / 1536");
+    expect(markup).toContain('data-work-entry-id="work-imagegen-tool"');
+    expect(markup).toContain("Working for");
   });
 
   it("uses custom restore copy for the revert action tooltip", async () => {
