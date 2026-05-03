@@ -13,6 +13,7 @@ import React, {
   useRef,
   useState,
   useTransition,
+  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 import type { Components } from "react-markdown";
@@ -78,6 +79,7 @@ interface ChatMarkdownProps {
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -96,6 +98,7 @@ const highlightedCodeCache = new LRUCache<string>(
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const MARKDOWN_DATA_IMAGE_URL_REGEX = /^data:image\/(?:png|jpe?g|gif|webp);base64,/iu;
+const localFilePathExistsCache = new Map<string, boolean>();
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -149,10 +152,7 @@ function extractCodeBlock(
   }
 
   const onlyChild = childNodes[0];
-  if (
-    !isValidElement<{ className?: string; children?: ReactNode }>(onlyChild) ||
-    onlyChild.type !== "code"
-  ) {
+  if (!isValidElement<{ className?: string; children?: ReactNode }>(onlyChild)) {
     return null;
   }
 
@@ -160,6 +160,121 @@ function extractCodeBlock(
     className: onlyChild.props.className,
     code: nodeToPlainText(onlyChild.props.children),
   };
+}
+
+function isSingleLineMarkdownNode(node: unknown): boolean {
+  const position = (
+    node as {
+      position?: {
+        start?: { line?: number | undefined } | undefined;
+        end?: { line?: number | undefined } | undefined;
+      };
+    }
+  )?.position;
+  const startLine = position?.start?.line;
+  const endLine = position?.end?.line;
+  return (
+    typeof startLine === "number" &&
+    typeof endLine === "number" &&
+    Number.isFinite(startLine) &&
+    Number.isFinite(endLine) &&
+    startLine === endLine
+  );
+}
+
+function openLocalFilePath(input: {
+  readonly targetPath: string;
+  readonly onOpenFilePath: ((path: string) => void) | null;
+  readonly preferExternalEditor: boolean;
+}): void {
+  if (!input.preferExternalEditor && input.onOpenFilePath) {
+    input.onOpenFilePath(input.targetPath);
+    return;
+  }
+  const api = readNativeApi();
+  if (api) {
+    void openInPreferredEditor(api, input.targetPath).catch((error) => {
+      console.warn("Failed to open file in external editor.", error);
+    });
+  } else {
+    console.warn("Native API not found. Unable to open file in editor.");
+  }
+}
+
+function InlineCodeLocalFileLink(props: {
+  readonly children: ReactNode;
+  readonly code: string;
+  readonly codeProps: ComponentPropsWithoutRef<"code">;
+  readonly cwd: string | undefined;
+  readonly enabled: boolean;
+  readonly onOpenFilePath: ((path: string) => void) | null;
+}) {
+  const targetPath = useMemo(
+    () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
+    [props.code, props.cwd, props.enabled],
+  );
+  const cachedExists = targetPath ? localFilePathExistsCache.get(targetPath) : undefined;
+  const [pathExists, setPathExists] = useState(cachedExists === true);
+
+  useEffect(() => {
+    if (!props.enabled || !targetPath) {
+      setPathExists(false);
+      return;
+    }
+    const cached = localFilePathExistsCache.get(targetPath);
+    if (cached !== undefined) {
+      setPathExists(cached);
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      setPathExists(false);
+      return;
+    }
+    let cancelled = false;
+    void api.shell
+      .pathExists(targetPath)
+      .then((exists) => {
+        localFilePathExistsCache.set(targetPath, exists);
+        if (!cancelled) {
+          setPathExists(exists);
+        }
+      })
+      .catch((error) => {
+        localFilePathExistsCache.set(targetPath, false);
+        if (!cancelled) {
+          setPathExists(false);
+        }
+        console.warn("Failed to check local file path.", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.enabled, targetPath]);
+
+  const codeElement = <code {...props.codeProps}>{props.children}</code>;
+  if (!targetPath || !pathExists) {
+    return codeElement;
+  }
+
+  return (
+    <a
+      href={targetPath}
+      className="chat-markdown-local-file-link"
+      title={`Open ${targetPath}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openLocalFilePath({
+          targetPath,
+          onOpenFilePath: props.onOpenFilePath,
+          preferExternalEditor: event.metaKey || event.ctrlKey,
+        });
+      }}
+    >
+      {codeElement}
+    </a>
+  );
 }
 
 function createHighlightCacheKey(code: string, language: string, themeName: DiffThemeName): string {
@@ -468,6 +583,7 @@ function ChatMarkdown({
   onLayoutChange,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  enableLocalFileLinks = true,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
@@ -507,6 +623,7 @@ function ChatMarkdown({
   const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
   const shouldObserveLayout =
     onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
+  const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
 
   useEffect(() => {
     if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) {
@@ -532,7 +649,7 @@ function ChatMarkdown({
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
-        const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
+        const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
         if (!targetPath) {
           const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
           if (!browserUrl || !onOpenBrowserUrl) {
@@ -578,29 +695,36 @@ function ChatMarkdown({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              if (event.metaKey || event.ctrlKey) {
-                const api = readNativeApi();
-                if (api) {
-                  void openInPreferredEditor(api, targetPath).catch((error) => {
-                    console.warn("Failed to open file in external editor.", error);
-                  });
-                } else {
-                  console.warn("Native API not found. Unable to open file in external editor.");
-                }
-                return;
-              }
-              if (onOpenFilePath) {
-                onOpenFilePath(targetPath);
-                return;
-              }
-              const api = readNativeApi();
-              if (api) {
-                void openInPreferredEditor(api, targetPath);
-              } else {
-                console.warn("Native API not found. Unable to open file in editor.");
-              }
+              openLocalFilePath({
+                targetPath,
+                onOpenFilePath,
+                preferExternalEditor: event.metaKey || event.ctrlKey,
+              });
             }}
           />
+        );
+      },
+      code({ node, className, children, ...props }) {
+        const code = nodeToPlainText(children);
+        const isInlineCode =
+          !className && !code.includes("\n") && code.length > 0 && isSingleLineMarkdownNode(node);
+        if (!isInlineCode) {
+          return (
+            <code {...props} className={className}>
+              {children}
+            </code>
+          );
+        }
+        return (
+          <InlineCodeLocalFileLink
+            code={code}
+            codeProps={{ ...props, className }}
+            cwd={cwd}
+            enabled={canOpenLocalFiles}
+            onOpenFilePath={onOpenFilePath}
+          >
+            {children}
+          </InlineCodeLocalFileLink>
         );
       },
       pre({ node: _node, children, ...props }) {
@@ -657,6 +781,7 @@ function ChatMarkdown({
       },
     }),
     [
+      canOpenLocalFiles,
       cwd,
       diffThemeName,
       isStreaming,

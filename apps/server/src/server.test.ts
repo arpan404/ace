@@ -1665,6 +1665,35 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc shell.pathExists", () =>
+    Effect.gen(function* () {
+      let checkedPath: string | null = null;
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            pathExists: (input) =>
+              Effect.sync(() => {
+                checkedPath = input.path;
+                return true;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const exists = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellPathExists]({
+            path: "/tmp/project/output.pptx",
+          }),
+        ),
+      );
+
+      assert.equal(exists, true);
+      assert.equal(checkedPath, "/tmp/project/output.pptx");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc server.pickFolder", () =>
     Effect.gen(function* () {
       let receivedInitialPath: string | undefined;

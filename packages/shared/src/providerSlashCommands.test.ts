@@ -47,7 +47,9 @@ describe("providerSlashCommands", () => {
       "Provider-specific skill",
     );
     expect(merged.find((command) => command.name === "frontend-design")?.kind).toBe("skill");
-    expect(merged.some((command) => command.name === "status")).toBe(false);
+    expect(merged.find((command) => command.name === "status")?.description).toBe(
+      "Terminal status",
+    );
   });
 
   it("classifies extension commands from provider prompt prefixes", () => {
@@ -62,8 +64,41 @@ describe("providerSlashCommands", () => {
     ]);
   });
 
-  it("does not expose generic fallback extension browsers", () => {
-    expect(providerFallbackSlashCommands("githubCopilot")).toEqual([]);
-    expect(providerFallbackSlashCommands("cursor")).toEqual([]);
+  it("drops redundant primary plugin skills while keeping distinct plugin skills", () => {
+    expect(
+      mergeProviderSlashCommands([
+        providerPluginSlashCommand({ name: "spreadsheets" }),
+        providerSkillSlashCommand({ name: "spreadsheets:Spreadsheets" }),
+        providerPluginSlashCommand({ name: "browser-use" }),
+        providerSkillSlashCommand({ name: "browser-use:browser" }),
+        providerSkillSlashCommand({ name: "browser-use:inspect-page" }),
+      ]),
+    ).toEqual([
+      { name: "spreadsheets", kind: "plugin", promptPrefix: "@spreadsheets" },
+      { name: "browser-use", kind: "plugin", promptPrefix: "@browser-use" },
+      {
+        name: "browser-use:inspect-page",
+        kind: "skill",
+        promptPrefix: "$browser-use:inspect-page",
+      },
+    ]);
+  });
+
+  it("drops redundant provider-reported plugin skills after discovered commands are merged", () => {
+    expect(
+      mergeProviderSlashCommands(
+        [providerPluginSlashCommand({ name: "presentations" })],
+        [providerSkillSlashCommand({ name: "presentations:Presentations" })],
+      ),
+    ).toEqual([{ name: "presentations", kind: "plugin", promptPrefix: "@presentations" }]);
+  });
+
+  it("returns provider fallback commands for providers that define them", () => {
+    expect(
+      providerFallbackSlashCommands("githubCopilot").some((command) => command.name === "model"),
+    ).toBe(true);
+    expect(
+      providerFallbackSlashCommands("cursor").some((command) => command.name === "model"),
+    ).toBe(true);
   });
 });

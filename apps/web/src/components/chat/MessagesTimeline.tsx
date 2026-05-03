@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -51,6 +52,7 @@ import {
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
+  ImageIcon,
   PlugIcon,
   SquarePenIcon,
   Undo2Icon,
@@ -80,6 +82,7 @@ import {
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
+import { COMPOSER_PROVIDER_COMMAND_MARKER } from "~/composer-editor-mentions";
 import {
   buildTimelineRows,
   isCompletedAssistantMessageRow,
@@ -101,6 +104,7 @@ import {
   readCachedTimelineRows,
   writeCachedTimelineRows,
 } from "~/lib/chat/timelineRowsClient";
+import type { TimelineEntry } from "../../session-logic/types";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
@@ -114,11 +118,42 @@ const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
+const IMAGEGEN_COMMAND_TOKEN_REGEX = /(^|[\s([{])(?:\/|\$)imagegen(?=$|[\s,.;:!?)}\]])/iu;
+const IMAGE_GENERATION_TOOL_TEXT_REGEX =
+  /\b(?:imagegen|image[_ -]?gen|image[_ -]?generation|generate[_ -]?image|image[_ -]?generator)\b/iu;
+const IMAGE_GENERATION_STATUS_TEXT_REGEX =
+  /\b(?:generat(?:e|es|ed|ing)|creat(?:e|es|ed|ing)|render(?:s|ed|ing)?|mak(?:e|es|ing))\b[\s\S]{0,180}\b(?:image|mockup|visual|illustration|picture|photo|portrait|landscape)\b|\b(?:image|mockup|visual|illustration|picture|photo|portrait|landscape)\b[\s\S]{0,180}\b(?:generat(?:e|es|ed|ing)|creat(?:e|es|ed|ing)|render(?:s|ed|ing)?|mak(?:e|es|ing))\b/iu;
+const IMAGE_DIMENSIONS_TEXT_REGEX = /(?<width>\d{2,5})\s*[x×]\s*(?<height>\d{2,5})/iu;
+const DEFAULT_IMAGE_GENERATION_PLACEHOLDER_DIMENSIONS = {
+  width: 1536,
+  height: 1024,
+} as const;
+const PORTRAIT_IMAGE_GENERATION_PLACEHOLDER_DIMENSIONS = {
+  width: 1024,
+  height: 1536,
+} as const;
+const SQUARE_IMAGE_GENERATION_PLACEHOLDER_DIMENSIONS = {
+  width: 1024,
+  height: 1024,
+} as const;
+const IMAGE_GENERATION_FRAME_MAX_WIDTH_REM = 42;
+const IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH = 54;
+const IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH = 46;
+const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
 
 interface AssistantImageGenerationPlaceholder {
   readonly width: number;
   readonly height: number;
 }
+
+const IMAGE_GENERATION_FLOATING_DOTS = [
+  { x: "-36px", y: "-18px", size: "7px", delay: "0s", floatX: "5px", floatY: "-10px" },
+  { x: "-16px", y: "10px", size: "10px", delay: "-0.7s", floatX: "-6px", floatY: "-8px" },
+  { x: "10px", y: "-26px", size: "8px", delay: "-1.35s", floatX: "4px", floatY: "11px" },
+  { x: "33px", y: "8px", size: "12px", delay: "-0.35s", floatX: "-7px", floatY: "-7px" },
+  { x: "-4px", y: "-2px", size: "6px", delay: "-1.8s", floatX: "8px", floatY: "6px" },
+  { x: "48px", y: "-20px", size: "6px", delay: "-1.05s", floatX: "-5px", floatY: "9px" },
+] as const;
 
 function canResolveTimelineRowsInWorker(): boolean {
   return (
@@ -129,12 +164,9 @@ function canResolveTimelineRowsInWorker(): boolean {
   );
 }
 
-function assistantImageGenerationPlaceholder(
+function assistantImageGenerationDimensionsFromMessageId(
   message: AssistantTimelineMessage,
 ): AssistantImageGenerationPlaceholder | null {
-  if (!message.streaming || (message.attachments?.length ?? 0) > 0) {
-    return null;
-  }
   const match = ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX.exec(String(message.id));
   const width = match?.groups?.width ? Number(match.groups.width) : Number.NaN;
   const height = match?.groups?.height ? Number(match.groups.height) : Number.NaN;
@@ -142,6 +174,207 @@ function assistantImageGenerationPlaceholder(
     return null;
   }
   return { width, height };
+}
+
+function assistantImageGenerationPlaceholder(
+  message: AssistantTimelineMessage,
+): AssistantImageGenerationPlaceholder | null {
+  if (!message.streaming || (message.attachments?.length ?? 0) > 0) {
+    return null;
+  }
+  return assistantImageGenerationDimensionsFromMessageId(message);
+}
+
+function imageGenerationFrameStyle(dimensions: AssistantImageGenerationPlaceholder): CSSProperties {
+  const aspectRatio = dimensions.width / dimensions.height;
+  const maxHeightVh =
+    aspectRatio < 0.9
+      ? IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH
+      : aspectRatio <= 1.15
+        ? IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH
+        : IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH;
+  const widthVh = maxHeightVh * aspectRatio;
+  return {
+    aspectRatio: `${dimensions.width} / ${dimensions.height}`,
+    maxWidth: `min(100%, ${IMAGE_GENERATION_FRAME_MAX_WIDTH_REM}rem)`,
+    width: `${Number(widthVh.toFixed(4))}vh`,
+  };
+}
+
+function imageGenerationFloatingDotStyle(
+  dot: (typeof IMAGE_GENERATION_FLOATING_DOTS)[number],
+): CSSProperties {
+  return {
+    "--dot-x": dot.x,
+    "--dot-y": dot.y,
+    "--dot-size": dot.size,
+    "--dot-delay": dot.delay,
+    "--dot-float-x": dot.floatX,
+    "--dot-float-y": dot.floatY,
+  } as CSSProperties;
+}
+
+function normalizeImageGenerationDimension(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const dimension = Number(value);
+  if (!Number.isFinite(dimension) || dimension < 32 || dimension > 8192) {
+    return null;
+  }
+  return Math.round(dimension);
+}
+
+function imageGenerationDimensionsFromText(
+  text: string,
+): AssistantImageGenerationPlaceholder | null {
+  const match = IMAGE_DIMENSIONS_TEXT_REGEX.exec(text);
+  const width = normalizeImageGenerationDimension(match?.groups?.width);
+  const height = normalizeImageGenerationDimension(match?.groups?.height);
+  return width !== null && height !== null ? { width, height } : null;
+}
+
+function imageGenerationPlaceholderDimensionsFromText(
+  text: string,
+): AssistantImageGenerationPlaceholder {
+  const explicitDimensions = imageGenerationDimensionsFromText(text);
+  if (explicitDimensions) {
+    return explicitDimensions;
+  }
+  if (/\b(?:portrait|mobile|phone|vertical|tall)\b/iu.test(text)) {
+    return PORTRAIT_IMAGE_GENERATION_PLACEHOLDER_DIMENSIONS;
+  }
+  if (/\b(?:square|avatar|icon)\b/iu.test(text)) {
+    return SQUARE_IMAGE_GENERATION_PLACEHOLDER_DIMENSIONS;
+  }
+  return DEFAULT_IMAGE_GENERATION_PLACEHOLDER_DIMENSIONS;
+}
+
+function imageGenerationWorkEntryText(workEntry: TimelineWorkEntry): string {
+  return [
+    workEntry.toolTitle,
+    workEntry.label,
+    workEntry.detail,
+    workEntry.command,
+    workEntry.itemType,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+}
+
+function imageGenerationPlaceholderDimensionsFromWorkEntry(
+  workEntry: TimelineWorkEntry,
+): AssistantImageGenerationPlaceholder | null {
+  const text = imageGenerationWorkEntryText(workEntry);
+  if (!IMAGE_GENERATION_TOOL_TEXT_REGEX.test(text)) {
+    return null;
+  }
+  return imageGenerationPlaceholderDimensionsFromText(text);
+}
+
+function isImageGenerationWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return imageGenerationPlaceholderDimensionsFromWorkEntry(workEntry) !== null;
+}
+
+function userMessageStartsImageGeneration(message: TimelineMessage): boolean {
+  if (message.role !== "user") {
+    return false;
+  }
+  const text = message.text.replaceAll(COMPOSER_PROVIDER_COMMAND_MARKER, "");
+  return IMAGEGEN_COMMAND_TOKEN_REGEX.test(text);
+}
+
+function assistantMessageIndicatesImageGeneration(
+  message: AssistantTimelineMessage,
+): AssistantImageGenerationPlaceholder | null {
+  if ((message.attachments?.length ?? 0) > 0) {
+    return null;
+  }
+  const text = getChatMessageRenderableText(message).trim();
+  if (!text || !IMAGE_GENERATION_STATUS_TEXT_REGEX.test(text)) {
+    return null;
+  }
+  return imageGenerationPlaceholderDimensionsFromText(text);
+}
+
+function findActiveImageGenerationWorkingPlaceholder(
+  rows: ReadonlyArray<TimelineRow>,
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+): AssistantImageGenerationPlaceholder | null {
+  const toolPlaceholder =
+    findActiveImageGenerationToolPlaceholderFromTimelineEntries(timelineEntries);
+  if (toolPlaceholder) {
+    return toolPlaceholder;
+  }
+
+  let assistantStatusPlaceholder: AssistantImageGenerationPlaceholder | null = null;
+
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row || row.kind !== "message") {
+      continue;
+    }
+    if (
+      isAssistantTimelineMessage(row.message) &&
+      assistantImageGenerationPlaceholder(row.message)
+    ) {
+      return null;
+    }
+    if (isAssistantTimelineMessage(row.message)) {
+      const assistantPlaceholder = assistantMessageIndicatesImageGeneration(row.message);
+      if (assistantPlaceholder) {
+        assistantStatusPlaceholder = assistantPlaceholder;
+      }
+      if ((row.message.attachments?.length ?? 0) > 0) {
+        return null;
+      }
+      continue;
+    }
+    if (row.message.role !== "user") {
+      continue;
+    }
+    if (!userMessageStartsImageGeneration(row.message)) {
+      return assistantStatusPlaceholder;
+    }
+    return imageGenerationPlaceholderDimensionsFromText(row.message.text);
+  }
+
+  return assistantStatusPlaceholder;
+}
+
+function findActiveImageGenerationToolPlaceholderFromTimelineEntries(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+): AssistantImageGenerationPlaceholder | null {
+  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+    const timelineEntry = timelineEntries[index];
+    if (!timelineEntry) {
+      continue;
+    }
+    if (timelineEntry.kind === "work") {
+      const dimensions = imageGenerationPlaceholderDimensionsFromWorkEntry(timelineEntry.entry);
+      if (dimensions) {
+        return dimensions;
+      }
+      continue;
+    }
+    if (timelineEntry.kind !== "message") {
+      continue;
+    }
+    if (timelineEntry.message.role === "user") {
+      return null;
+    }
+    if (!isAssistantTimelineMessage(timelineEntry.message)) {
+      continue;
+    }
+    if (
+      assistantImageGenerationPlaceholder(timelineEntry.message) ||
+      (timelineEntry.message.attachments?.length ?? 0) > 0
+    ) {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 const timelineRowHeightCache = new Map<string, number>();
@@ -254,6 +487,7 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -287,6 +521,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   markdownCwd,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  enableLocalFileLinks = true,
   providerCommands = [],
   resolvedTheme,
   timestampFormat,
@@ -296,9 +531,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => buildUserMessageProviderCommandLookup(providerCommands),
     [providerCommands],
   );
+  const visibleTimelineEntries = useMemo(
+    () =>
+      timelineEntries.filter(
+        (entry) => entry.kind !== "work" || !isImageGenerationWorkEntry(entry.entry),
+      ),
+    [timelineEntries],
+  );
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
-      timelineEntries,
+      timelineEntries: visibleTimelineEntries,
       activeTurnInProgress,
       activeTurnStartedAt,
       completionDividerBeforeEntryId,
@@ -307,7 +549,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [
       activeTurnInProgress,
-      timelineEntries,
+      visibleTimelineEntries,
       completionDividerBeforeEntryId,
       completionSummary,
       isWorking,
@@ -332,6 +574,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const rows = useMemo(
     () => (syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS),
     [syncTimelineRows],
+  );
+  const activeImageGenerationWorkingPlaceholder = useMemo(
+    () =>
+      isWorking && activeTurnInProgress
+        ? findActiveImageGenerationWorkingPlaceholder(rows, timelineEntries)
+        : null,
+    [activeTurnInProgress, isWorking, rows, timelineEntries],
   );
 
   useEffect(() => {
@@ -1023,6 +1272,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   completionSummary={row.completionSummary}
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
+                  liveTimers={liveTimers}
                   showCompletedTiming={row.showAssistantTiming ?? false}
                   showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
                   markdownCwd={markdownCwd}
@@ -1030,6 +1280,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
+                  enableLocalFileLinks={enableLocalFileLinks}
                   renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
                 />
@@ -1055,61 +1306,71 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             cwd={markdownCwd}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onOpenFilePath={onOpenFilePath}
+            enableLocalFileLinks={enableLocalFileLinks}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
           />
         )}
 
-        {row.kind === "working" && (
-          <div className="min-w-0 py-1">
-            <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
-              <span className="inline-flex items-center gap-1">
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
-                    liveTimers ? "animate-pulse" : null,
-                  )}
-                />
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
-                    liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
-                  )}
-                />
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
-                    liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
-                  )}
-                />
-              </span>
-              <span>
-                {row.createdAt ? (
-                  <WorkingTimer
-                    createdAt={row.createdAt}
-                    label={row.mode === "silent-thinking" ? "Getting started for" : "Working for"}
-                    live={liveTimers}
-                  />
-                ) : row.mode === "silent-thinking" ? (
-                  "Getting started..."
-                ) : (
-                  "Working..."
-                )}
-              </span>
+        {row.kind === "working" &&
+          (activeImageGenerationWorkingPlaceholder ? (
+            <div className="min-w-0 py-1">
+              <ImageGenerationPlaceholderFrame
+                createdAt={row.createdAt}
+                dimensions={activeImageGenerationWorkingPlaceholder}
+                liveTimers={liveTimers}
+              />
             </div>
-            {row.intentText && (
-              <p
-                className="mt-1 pl-5 text-[11px] leading-5 text-muted-foreground/66"
-                data-inline-intent="true"
-              >
-                <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
-                  Intent
+          ) : (
+            <div className="min-w-0 py-1">
+              <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
+                      liveTimers ? "animate-pulse" : null,
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
+                      liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
+                      liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
+                    )}
+                  />
                 </span>
-                <span className="text-foreground/72">{row.intentText}</span>
-              </p>
-            )}
-          </div>
-        )}
+                <span>
+                  {row.createdAt ? (
+                    <WorkingTimer
+                      createdAt={row.createdAt}
+                      label={row.mode === "silent-thinking" ? "Getting started for" : "Working for"}
+                      live={liveTimers}
+                    />
+                  ) : row.mode === "silent-thinking" ? (
+                    "Getting started..."
+                  ) : (
+                    "Working..."
+                  )}
+                </span>
+              </div>
+              {row.intentText && (
+                <p
+                  className="mt-1 pl-5 text-[11px] leading-5 text-muted-foreground/66"
+                  data-inline-intent="true"
+                >
+                  <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                    Intent
+                  </span>
+                  <span className="text-foreground/72">{row.intentText}</span>
+                </p>
+              )}
+            </div>
+          ))}
       </div>
     );
   };
@@ -1362,6 +1623,55 @@ const WorkingTimer = memo(function WorkingTimer({
     <>
       {label} {formatElapsedSeconds(elapsed)}
     </>
+  );
+});
+
+const ImageGenerationPlaceholderFrame = memo(function ImageGenerationPlaceholderFrame(props: {
+  readonly createdAt: string | null;
+  readonly dimensions: AssistantImageGenerationPlaceholder;
+  readonly liveTimers: boolean;
+}) {
+  const dimensionLabel = `${props.dimensions.width} x ${props.dimensions.height}`;
+
+  return (
+    <div
+      className="image-generation-placeholder-frame relative mb-2.5 max-w-3xl overflow-hidden rounded-xl border border-border/55 bg-muted/20"
+      data-image-generation-placeholder="true"
+      style={imageGenerationFrameStyle(props.dimensions)}
+    >
+      <div className="absolute inset-0 animate-pulse bg-muted/35" />
+      <div
+        className="image-generation-floating-dot-cluster pointer-events-none absolute inset-0"
+        aria-hidden="true"
+      >
+        {IMAGE_GENERATION_FLOATING_DOTS.map((dot) => (
+          <span
+            key={`image-generation-floating-dot:${dot.x}:${dot.y}:${dot.size}`}
+            className="image-generation-floating-dot"
+            style={imageGenerationFloatingDotStyle(dot)}
+          />
+        ))}
+      </div>
+      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background/72 to-transparent" />
+      <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-md border border-border/50 bg-background/76 px-2.5 py-1.5 text-xs font-medium text-foreground/86 shadow-sm backdrop-blur">
+        <span className="inline-flex size-6 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <ImageIcon className="size-3.5" strokeWidth={2.2} />
+        </span>
+        <span>Generating image</span>
+        <span className="text-muted-foreground/62">{dimensionLabel}</span>
+      </div>
+      <div className="absolute bottom-4 left-4 rounded-md border border-border/45 bg-background/72 px-2.5 py-1.5 text-[11px] text-muted-foreground/80 backdrop-blur">
+        {props.createdAt ? (
+          <WorkingTimer
+            createdAt={props.createdAt}
+            label="Generating for"
+            live={props.liveTimers}
+          />
+        ) : (
+          "Generating..."
+        )}
+      </div>
+    </div>
   );
 });
 
@@ -2064,10 +2374,69 @@ const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendi
   );
 });
 
+const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFrame(props: {
+  readonly generationDimensions: AssistantImageGenerationPlaceholder | null;
+  readonly image: NonNullable<TimelineMessage["attachments"]>[number];
+  readonly images: ReadonlyArray<NonNullable<TimelineMessage["attachments"]>[number]>;
+  readonly onImageExpand: (preview: ExpandedImagePreview) => void;
+}) {
+  const [naturalDimensions, setNaturalDimensions] =
+    useState<AssistantImageGenerationPlaceholder | null>(null);
+  const frameDimensions = naturalDimensions ?? props.generationDimensions;
+
+  return (
+    <div
+      className="inline-flex max-w-full justify-self-start overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      style={frameDimensions ? imageGenerationFrameStyle(frameDimensions) : undefined}
+    >
+      {props.image.previewUrl ? (
+        <button
+          type="button"
+          className={cn(
+            "inline-flex max-w-full cursor-zoom-in items-start justify-start bg-background/55",
+            frameDimensions ? "h-full" : "",
+          )}
+          aria-label={`Preview ${props.image.name}`}
+          onClick={() => {
+            const preview = buildExpandedImagePreview(props.images, props.image.id);
+            if (!preview) return;
+            props.onImageExpand(preview);
+          }}
+        >
+          <img
+            src={props.image.previewUrl}
+            alt={props.image.name}
+            className={cn(
+              "block object-contain",
+              frameDimensions ? "h-full w-full" : "max-h-[52vh] max-w-full",
+            )}
+            onLoad={(event) => {
+              const { naturalHeight, naturalWidth } = event.currentTarget;
+              if (naturalWidth <= 0 || naturalHeight <= 0) {
+                return;
+              }
+              setNaturalDimensions((current) =>
+                current?.width === naturalWidth && current.height === naturalHeight
+                  ? current
+                  : { width: naturalWidth, height: naturalHeight },
+              );
+            }}
+          />
+        </button>
+      ) : (
+        <div className="flex min-h-24 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
+          {props.image.name}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
   completionSummary: string | null;
   durationStart: string;
   isAssistantTurnTerminal?: boolean;
+  liveTimers: boolean;
   showCompletedTiming?: boolean;
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
@@ -2075,6 +2444,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   renderMarkdown: boolean;
   timestampFormat: TimestampFormat;
 }) {
@@ -2082,6 +2452,9 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   const onOpenFilePath = props.onOpenFilePath ?? null;
   const assistantImages = props.message.attachments ?? [];
   const imageGenerationPlaceholder = assistantImageGenerationPlaceholder(props.message);
+  const imageGenerationAttachmentDimensions = assistantImageGenerationDimensionsFromMessageId(
+    props.message,
+  );
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
     renderedMessageText.trim().length > 0
@@ -2105,48 +2478,27 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   return (
     <div className="min-w-0">
       {imageGenerationPlaceholder && (
-        <div
-          className="relative mb-2.5 max-w-3xl overflow-hidden rounded-xl border border-border/55 bg-background/70"
-          data-image-generation-placeholder="true"
-          style={{
-            aspectRatio: `${imageGenerationPlaceholder.width} / ${imageGenerationPlaceholder.height}`,
-          }}
-        >
-          <div className="absolute inset-0 animate-pulse bg-muted/35" />
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/14 via-transparent to-primary/5" />
-          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background/70 to-transparent" />
-        </div>
+        <ImageGenerationPlaceholderFrame
+          createdAt={props.message.createdAt}
+          dimensions={imageGenerationPlaceholder}
+          liveTimers={props.liveTimers}
+        />
       )}
       {assistantImages.length > 0 && (
-        <div className={cn("grid max-w-3xl grid-cols-1 gap-2", messageText ? "mb-2.5" : "")}>
+        <div
+          className={cn(
+            "grid w-fit max-w-full grid-cols-1 justify-items-start gap-2",
+            messageText ? "mb-2.5" : "",
+          )}
+        >
           {assistantImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-            <div
+            <AssistantImageAttachmentFrame
               key={image.id}
-              className="overflow-hidden rounded-xl border border-border/55 bg-background/70"
-            >
-              {image.previewUrl ? (
-                <button
-                  type="button"
-                  className="block w-full cursor-zoom-in bg-background/55"
-                  aria-label={`Preview ${image.name}`}
-                  onClick={() => {
-                    const preview = buildExpandedImagePreview(assistantImages, image.id);
-                    if (!preview) return;
-                    props.onImageExpand(preview);
-                  }}
-                >
-                  <img
-                    src={image.previewUrl}
-                    alt={image.name}
-                    className="max-h-[70vh] w-full object-contain"
-                  />
-                </button>
-              ) : (
-                <div className="flex min-h-24 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
-                  {image.name}
-                </div>
-              )}
-            </div>
+              generationDimensions={imageGenerationAttachmentDimensions}
+              image={image}
+              images={assistantImages}
+              onImageExpand={props.onImageExpand}
+            />
           ))}
         </div>
       )}
@@ -2175,6 +2527,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           isStreaming={Boolean(props.message.streaming)}
           onOpenBrowserUrl={onOpenBrowserUrl}
           onOpenFilePath={onOpenFilePath}
+          enableLocalFileLinks={props.enableLocalFileLinks ?? true}
           {...(props.message.streamingTextState
             ? { streamingTextState: props.message.streamingTextState }
             : {})}
@@ -2265,6 +2618,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
   proposedPlan: TimelineProposedPlan;
   workspaceRoot: string | undefined;
 }) {
@@ -2277,6 +2631,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
         cwd={props.cwd}
         onOpenBrowserUrl={onOpenBrowserUrl}
         onOpenFilePath={onOpenFilePath}
+        enableLocalFileLinks={props.enableLocalFileLinks ?? true}
         workspaceRoot={props.workspaceRoot}
       />
     </div>

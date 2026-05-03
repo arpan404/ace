@@ -622,7 +622,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("assistant-image-1"),
+              id: MessageId.makeUnsafe("assistant:image:1024x1536:attachment-generated-1"),
               role: "assistant",
               text: "",
               attachments: [
@@ -659,6 +659,9 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("generated-image.png");
     expect(markup).toContain("<img");
+    expect(markup).toContain("aspect-ratio:1024 / 1536");
+    expect(markup).toContain("max-width:min(100%, 42rem)");
+    expect(markup).toContain("width:28vh");
     expect(markup).not.toContain("(empty response)");
   });
 
@@ -703,10 +706,193 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain("image-generation-floating-dot");
     expect(markup).toContain("aspect-ratio:1536 / 1024");
+    expect(markup).toContain("width:81vh");
     expect(markup).not.toContain("1 tool call");
     expect(markup).not.toContain("(empty response)");
     expect(markup).not.toContain("data-chat-markdown");
+  });
+
+  it("shows an image generation placeholder while an imagegen command is still working", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        liveTimers={false}
+        timelineEntries={[
+          {
+            id: "user-imagegen-command",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-imagegen-command"),
+              role: "user",
+              text: "$imagegen create a 1024x1024 app mockup",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-imagegen-status",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-imagegen-status"),
+              role: "assistant",
+              text: "Using imagegen to create the mockup.",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              streaming: true,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain("Generating image");
+    expect(markup).toContain("1024 x 1024");
+    expect(markup).toContain("aspect-ratio:1024 / 1024");
+    expect(markup).not.toContain("Working for");
+  });
+
+  it("shows an image generation placeholder from assistant status text without an imagegen command", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        liveTimers={false}
+        timelineEntries={[
+          {
+            id: "user-imagegen-follow-up",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-imagegen-follow-up"),
+              role: "user",
+              text: "generate mobile version in portrait",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-imagegen-follow-up-status",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-imagegen-follow-up-status"),
+              role: "assistant",
+              text: "Generating a portrait mobile variant of the UI mockup with the same visual direction.",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              streaming: true,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain("1024 x 1536");
+    expect(markup).toContain("aspect-ratio:1024 / 1536");
+    expect(markup).not.toContain("Working for");
+  });
+
+  it("shows an image generation placeholder from backend tool lifecycle activity", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+        getScrollContainer={() => null}
+        liveTimers={false}
+        timelineEntries={[
+          {
+            id: "user-imagegen-backend-tool",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-imagegen-backend-tool"),
+              role: "user",
+              text: "generate mobile version in portrait",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "work-imagegen-tool",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "work-imagegen-tool",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Tool call",
+              detail: "1024x1536",
+              tone: "tool",
+              toolTitle: "image_gen",
+              itemType: "dynamic_tool_call",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-image-generation-placeholder="true"');
+    expect(markup).toContain("1024 x 1536");
+    expect(markup).toContain("aspect-ratio:1024 / 1536");
+    expect(markup).not.toContain('data-work-entry-id="work-imagegen-tool"');
+    expect(markup).not.toContain("Working for");
   });
 
   it("uses custom restore copy for the revert action tooltip", async () => {

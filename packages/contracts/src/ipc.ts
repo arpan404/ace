@@ -357,6 +357,10 @@ export interface NativeApi {
       path: string,
       options?: { readonly connectionUrl?: string | null | undefined },
     ) => Promise<void>;
+    pathExists: (
+      path: string,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<boolean>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {
