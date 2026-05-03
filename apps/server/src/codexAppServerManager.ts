@@ -179,8 +179,9 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "missing rollout",
   "rollout not found",
 ];
-const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME = "image_gen";
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME = "image_generation_prehook";
 const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES = new Set([
+  "image generation prehook",
   "imagegen",
   "image gen",
   "image generation",
@@ -685,9 +686,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const threadStartParams = {
         ...sessionOverrides,
-        developerInstructions: withCodexImageGenerationPreflightInstructions(
-          CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
-        ),
+        developerInstructions: CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS,
         dynamicTools: [CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL],
         experimentalRawEvents: false,
         persistExtendedHistory: true,
@@ -1429,8 +1428,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           contentItems: [
             {
               type: "inputText",
-              text:
-                "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.",
+              text: "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.",
             },
           ],
         },

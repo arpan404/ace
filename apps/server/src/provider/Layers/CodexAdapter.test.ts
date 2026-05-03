@@ -799,6 +799,94 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("maps Codex hook lifecycle notifications", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-hook-start"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "hook/started",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          run: {
+            id: "hook-run-1",
+            eventName: "preToolUse",
+            handlerType: "command",
+            status: "running",
+            entries: [],
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "hook.started");
+      if (firstEvent.value.type !== "hook.started") {
+        return;
+      }
+      assert.deepEqual(firstEvent.value.payload, {
+        hookId: "hook-run-1",
+        hookName: "command",
+        hookEvent: "preToolUse",
+      });
+    }),
+  );
+
+  it.effect("maps Codex hook completion output", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-hook-complete"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "hook/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          run: {
+            id: "hook-run-1",
+            eventName: "preToolUse",
+            handlerType: "command",
+            status: "completed",
+            entries: [{ kind: "context", text: "hook output" }],
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "hook.completed");
+      if (firstEvent.value.type !== "hook.completed") {
+        return;
+      }
+      assert.deepEqual(firstEvent.value.payload, {
+        hookId: "hook-run-1",
+        outcome: "success",
+        output: "hook output",
+      });
+    }),
+  );
+
   it.effect("preserves file-read request type when mapping serverRequest/resolved", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

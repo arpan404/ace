@@ -945,7 +945,7 @@ function mapToRuntimeEvents(
 
   if (event.method === "hook/started") {
     const run = asObject(payload?.run);
-    const hookId = asString(run?.id) ?? String(event.eventId);
+    const hookId = asString(run?.id) ?? String(event.id);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -961,7 +961,7 @@ function mapToRuntimeEvents(
 
   if (event.method === "hook/completed") {
     const run = asObject(payload?.run);
-    const hookId = asString(run?.id) ?? String(event.eventId);
+    const hookId = asString(run?.id) ?? String(event.id);
     const output = hookOutputText(run);
     return [
       {

@@ -427,7 +427,12 @@ const DEFAULT_IMAGE_GENERATION_DIMENSIONS: ImageGenerationDimensions = {
   height: 1024,
 };
 
-const STRUCTURED_IMAGE_GENERATION_TOOL_NAMES = new Set(["image generation", "image gen"]);
+const STRUCTURED_IMAGE_GENERATION_TOOL_NAMES = new Set([
+  "image generation prehook",
+  "imagegen",
+  "image generation",
+  "image gen",
+]);
 
 function normalizeImageGenerationDimension(value: unknown): number | undefined {
   const dimension = asFiniteNumber(value);
@@ -659,15 +664,6 @@ function extractImageGenerationDimensionsFromSource(
   }
 
   return DEFAULT_IMAGE_GENERATION_DIMENSIONS;
-}
-
-function extractImageGenerationDimensions(
-  payload: Extract<
-    ProviderRuntimeEvent,
-    { type: "item.started" | "item.updated" | "item.completed" }
-  >["payload"],
-): ImageGenerationDimensions {
-  return extractImageGenerationDimensionsFromSource(imageGenerationLifecycleSource(payload));
 }
 
 function imageGenerationAssistantMessageId(
