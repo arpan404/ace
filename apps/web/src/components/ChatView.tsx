@@ -7076,6 +7076,7 @@ export default function ChatView({
                     terminalOpen={terminalState.terminalOpen}
                     threadId={activeThread.id}
                     worktreePath={activeThread.worktreePath ?? null}
+                    onDetached={() => onWorkspaceModeChange("chat")}
                   />
                 </Suspense>
               </div>
@@ -7247,6 +7248,7 @@ export default function ChatView({
                           terminalOpen={terminalState.terminalOpen}
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}
+                          onDetached={() => onWorkspaceModeChange("chat")}
                         />
                       </Suspense>
                     </div>
@@ -7358,6 +7360,7 @@ export default function ChatView({
                               terminalOpen={terminalState.terminalOpen}
                               threadId={activeThread.id}
                               worktreePath={activeThread.worktreePath ?? null}
+                              onDetached={onCloseRightSidePanelEditor}
                             />
                           </Suspense>
                         ) : null}

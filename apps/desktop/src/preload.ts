@@ -7,6 +7,7 @@ const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
+const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -157,6 +158,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   applyAppZoom: (action) => ipcRenderer.invoke(APP_ZOOM_CHANNEL, action),
   openDetachedBrowser: async (input) => {
     const result = await ipcRenderer.invoke(OPEN_DETACHED_BROWSER_CHANNEL, input);
+    return result === true;
+  },
+  openDetachedEditor: async (input) => {
+    const result = await ipcRenderer.invoke(OPEN_DETACHED_EDITOR_CHANNEL, input);
     return result === true;
   },
   onNotificationClick: (listener) => {

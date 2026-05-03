@@ -85,6 +85,7 @@ const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
+const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -145,6 +146,7 @@ const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
 const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
+const DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
@@ -186,6 +188,7 @@ interface DesktopRendererBootstrapPayload {
 
 let mainWindow: BrowserWindow | null = null;
 const detachedBrowserWindows = new Map<string, BrowserWindow>();
+const detachedEditorWindows = new Map<string, BrowserWindow>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -1644,6 +1647,27 @@ function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
   };
 }
 
+function normalizeDetachedEditorOpenInput(rawInput: unknown): {
+  threadId: string;
+  connectionUrl?: string;
+} | null {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return null;
+  }
+  const input = rawInput as { threadId?: unknown; connectionUrl?: unknown };
+  if (typeof input.threadId !== "string" || input.threadId.trim().length === 0) {
+    return null;
+  }
+  const connectionUrl =
+    typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
+      ? input.connectionUrl.trim()
+      : undefined;
+  return {
+    threadId: input.threadId.trim(),
+    ...(connectionUrl ? { connectionUrl } : {}),
+  };
+}
+
 async function repairInAppBrowserStorage(): Promise<boolean> {
   try {
     const browserSession = getInAppBrowserSession();
@@ -2372,6 +2396,12 @@ function registerIpcHandlers(): void {
     return createDetachedBrowserWindow(normalizeDetachedBrowserOpenInput(rawInput));
   });
 
+  ipcMain.removeHandler(OPEN_DETACHED_EDITOR_CHANNEL);
+  ipcMain.handle(OPEN_DETACHED_EDITOR_CHANNEL, async (_event, rawInput: unknown) => {
+    const input = normalizeDetachedEditorOpenInput(rawInput);
+    return input ? createDetachedEditorWindow(input) : false;
+  });
+
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
   ipcMain.handle(
     CONTEXT_MENU_CHANNEL,
@@ -2792,6 +2822,87 @@ function createDetachedBrowserWindow(input: { scopeId?: string; initialUrl?: str
     aceDetachedBrowser: "1",
     ...(input.scopeId ? { browserScope: input.scopeId } : {}),
     ...(input.initialUrl ? { initialUrl: input.initialUrl } : {}),
+  });
+  void window.loadURL(rendererUrl);
+  return true;
+}
+
+function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: string }): boolean {
+  const windowKey = input.connectionUrl
+    ? `${input.connectionUrl}\0${input.threadId}`
+    : input.threadId;
+  const existingWindow = detachedEditorWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    return true;
+  }
+
+  const window = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 820,
+    minHeight: 560,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Editor`,
+    webPreferences: {
+      preload: Path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+
+  detachedEditorWindows.set(windowKey, window);
+  setupWebViewEventHandlers(window);
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Editor`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Editor`);
+    emitUpdateState();
+  });
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    detachedEditorWindows.delete(windowKey);
+  });
+
+  const rendererUrl = buildRendererWindowUrl({
+    aceDetachedEditor: "1",
+    threadId: input.threadId,
+    ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
   });
   void window.loadURL(rendererUrl);
   return true;
