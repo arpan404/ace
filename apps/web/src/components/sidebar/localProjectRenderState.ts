@@ -168,9 +168,9 @@ export function deriveSidebarLocalProjectThreadGroup(input: {
     input.threadSortOrder,
   );
   const collapsedPreviewThread = !input.projectExpanded
-    ? ((input.activeThreadId
-        ? (projectThreads.find((thread) => thread.id === input.activeThreadId) ?? null)
-        : null) ?? null)
+    ? input.activeThreadId
+      ? (projectThreads.find((thread) => thread.id === input.activeThreadId) ?? null)
+      : null
     : null;
   const shouldShowThreadPanel = input.projectExpanded || collapsedPreviewThread !== null;
   const { hasHiddenThreads, hiddenThreads, visibleThreads } = shouldShowThreadPanel

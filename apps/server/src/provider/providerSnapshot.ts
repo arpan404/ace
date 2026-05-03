@@ -5,6 +5,7 @@ import type {
   ServerProviderAuth,
   ServerProviderModel,
   ServerProviderState,
+  ServerProviderVersionStatus,
 } from "@ace/contracts";
 import { Effect, Option, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -23,6 +24,8 @@ export interface CommandResult {
 export interface ProviderProbeResult {
   readonly installed: boolean;
   readonly version: string | null;
+  readonly minimumVersion?: string | null;
+  readonly versionStatus?: ServerProviderVersionStatus;
   readonly status: Exclude<ServerProviderState, "disabled">;
   readonly auth: ServerProviderAuth;
   readonly message?: string;
@@ -189,6 +192,8 @@ export function buildServerProvider(input: {
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,
+    minimumVersion: input.probe.minimumVersion ?? null,
+    versionStatus: input.probe.versionStatus ?? "unknown",
     status: input.enabled ? input.probe.status : "disabled",
     auth: input.probe.auth,
     checkedAt: input.checkedAt,

@@ -334,6 +334,9 @@ it.effect("decodes thread archived and unarchived events", () =>
     });
 
     assert.strictEqual(archived.type, "thread.archived");
+    if (archived.type !== "thread.archived") {
+      return;
+    }
     assert.strictEqual(archived.payload.archivedAt, "2026-01-01T00:00:00.000Z");
     assert.strictEqual(unarchived.type, "thread.unarchived");
   }),
@@ -362,6 +365,9 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.modelSelection?.provider, "codex");
+    if (parsed.modelSelection?.provider !== "codex") {
+      return;
+    }
     assert.strictEqual(parsed.modelSelection?.options?.reasoningEffort, "high");
     assert.strictEqual(parsed.modelSelection?.options?.fastMode, true);
   }),
@@ -389,6 +395,9 @@ it.effect("accepts github copilot reasoning effort in thread.turn.start", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.modelSelection?.provider, "githubCopilot");
+    if (parsed.modelSelection?.provider !== "githubCopilot") {
+      return;
+    }
     assert.strictEqual(parsed.modelSelection?.options?.reasoningEffort, "high");
   }),
 );

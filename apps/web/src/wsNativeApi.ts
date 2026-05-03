@@ -168,6 +168,7 @@ export function createWsNativeApi(): NativeApi {
     server: {
       getConfig: localRpcClient.server.getConfig,
       refreshProviders: localRpcClient.server.refreshProviders,
+      upgradeProviderCli: localRpcClient.server.upgradeProviderCli,
       getLspToolsStatus: localRpcClient.server.getLspToolsStatus,
       installLspTools: (input) => localRpcClient.server.installLspTools(input ?? {}),
       searchLspMarketplace: localRpcClient.server.searchLspMarketplace,

@@ -47,6 +47,7 @@ function SortableQueuedMessageRow(props: {
   const textPreview = props.message.prompt.replace(/\s+/g, " ").trim();
   const preview = textPreview.length > 0 ? textPreview : "Queue Message";
   const isSteered = props.steerMessageId === props.message.id;
+  const showSteerAction = props.steerMessageId == null || isSteered;
 
   return (
     <div
@@ -96,27 +97,33 @@ function SortableQueuedMessageRow(props: {
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
-            isSteered
-              ? "border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16 motion-safe:animate-pulse"
-              : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
-          )}
-          onClick={() => {
-            props.onOptimisticallySteer(props.message.id);
-            props.onSteer(props.message.id);
-          }}
-          aria-label={isSteered ? "Steering queued message" : "Steer queued message"}
-        >
-          <span className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}>
-            ↳
-          </span>
-          {isSteered ? "Steering" : "Steer"}
-        </Button>
+        {showSteerAction ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className={cn(
+              "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
+              isSteered
+                ? "border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
+                : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
+            )}
+            onClick={() => {
+              if (!isSteered) {
+                props.onOptimisticallySteer(props.message.id);
+              }
+              props.onSteer(props.message.id);
+            }}
+            aria-label={isSteered ? "Move steering message to queue" : "Steer queued message"}
+          >
+            <span
+              className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}
+            >
+              ↳
+            </span>
+            {isSteered ? "Queue" : "Steer"}
+          </Button>
+        ) : null}
         <Button
           type="button"
           size="icon-xs"

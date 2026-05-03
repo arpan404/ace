@@ -38,6 +38,9 @@ export interface GitHubCopilotSessionClient {
   readonly workspacePath?: string | undefined;
   readonly rpc?:
     | {
+        readonly mode?: {
+          set(params: { readonly mode: "interactive" | "plan" | "autopilot" }): Promise<void>;
+        };
         readonly plan?: {
           read(): Promise<{
             readonly exists: boolean;

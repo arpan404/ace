@@ -25,6 +25,7 @@ import {
   OrchestrationReplayEventsError,
   type TerminalEvent,
   ServerLspToolsError,
+  ServerProviderCliUpgradeError,
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorCompleteError,
   WorkspaceEditorDefinitionError,
@@ -56,6 +57,7 @@ import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
+import { upgradeProviderCli } from "./provider/providerCliUpgrade";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -302,6 +304,31 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       yield* providerRegistry.refresh(providerToRefresh);
     });
 
+    const getProviderBinaryPath = (provider: ProviderKind) =>
+      serverSettings.getSettings.pipe(
+        Effect.flatMap((settings) => {
+          switch (provider) {
+            case "codex":
+              return Effect.succeed(settings.providers.codex.binaryPath);
+            case "gemini":
+              return Effect.succeed(settings.providers.gemini.binaryPath);
+            default:
+              return Effect.fail(
+                new ServerProviderCliUpgradeError({
+                  message: "One-click upgrade is not supported for this provider.",
+                }),
+              );
+          }
+        }),
+        Effect.mapError(
+          (cause) =>
+            new ServerProviderCliUpgradeError({
+              message: "Unable to read provider settings before upgrading the CLI.",
+              cause,
+            }),
+        ),
+      );
+
     yield* Effect.forkScoped(
       Effect.forever(
         Effect.sleep(PROVIDER_AUTO_REFRESH_TICK_MS).pipe(
@@ -504,6 +531,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+      [WS_METHODS.serverUpgradeProviderCli]: (input) =>
+        Effect.gen(function* () {
+          const binaryPath = yield* getProviderBinaryPath(input.provider);
+          yield* upgradeProviderCli({ provider: input.provider, binaryPath });
+          const providers = yield* providerRegistry.refresh(input.provider);
+          return { providers };
+        }),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
       [WS_METHODS.serverSearchOpenCodeModels]: (input) =>
         Effect.gen(function* () {

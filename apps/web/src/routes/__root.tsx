@@ -6,7 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
@@ -16,6 +16,7 @@ import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
+import { InAppBrowser, type InAppBrowserController } from "../components/InAppBrowser";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
@@ -27,8 +28,10 @@ import { readNativeApi } from "../nativeApi";
 import { isElectron } from "../env";
 import {
   type ServerConfigUpdateSource,
+  useServerAvailableEditors,
   useServerConfig,
   useServerConfigUpdatedSubscription,
+  useServerKeybindings,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
 import { ServerStateBootstrap } from "../rpc/serverStateBootstrap";
@@ -61,6 +64,10 @@ import { useHostConnectionStore } from "../hostConnectionStore";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
 
+const DetachedThreadWorkspaceEditor = lazy(
+  () => import("../components/editor/ThreadWorkspaceEditor"),
+);
+
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
@@ -72,6 +79,37 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  const detachedWindowSearch = useLocation({
+    select: (location) => {
+      const searchParams = new URLSearchParams(location.searchStr);
+      if (searchParams.get("aceDetachedBrowser") === "1") {
+        return {
+          kind: "browser" as const,
+          initialUrl: searchParams.get("initialUrl"),
+          scopeId: searchParams.get("browserScope"),
+        };
+      }
+      if (searchParams.get("aceDetachedEditor") === "1") {
+        return {
+          kind: "editor" as const,
+          connectionUrl: searchParams.get("connectionUrl"),
+          threadId: searchParams.get("threadId"),
+        };
+      }
+      return null;
+    },
+  });
+  if (detachedWindowSearch?.kind === "browser") {
+    return <DetachedBrowserWindow search={detachedWindowSearch} />;
+  }
+  if (detachedWindowSearch?.kind === "editor") {
+    return <DetachedEditorWindow search={detachedWindowSearch} />;
+  }
+
+  return <MainRootRouteView />;
+}
+
+function MainRootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
@@ -143,6 +181,170 @@ function RootRouteView() {
         </>
       )}
     </>
+  );
+}
+
+function DetachedBrowserWindow(props: {
+  search: { kind: "browser"; scopeId: string | null; initialUrl: string | null };
+}) {
+  const openedInitialUrlRef = useRef(false);
+  const [controller, setController] = useState<InAppBrowserController | null>(null);
+
+  useEffect(() => {
+    if (openedInitialUrlRef.current || !controller || !props.search.initialUrl) {
+      return;
+    }
+    openedInitialUrlRef.current = true;
+    controller.openUrl(props.search.initialUrl);
+  }, [controller, props.search.initialUrl]);
+
+  return (
+    <ToastProvider>
+      <AnchoredToastProvider>
+        <UiTypographyBridge />
+        <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+          <InAppBrowser
+            open
+            activeInstance
+            visible
+            detachEnabled={false}
+            mode="full"
+            {...(props.search.scopeId ? { scopeId: props.search.scopeId } : {})}
+            onClose={() => {
+              window.close();
+            }}
+            onControllerChange={setController}
+          />
+        </div>
+      </AnchoredToastProvider>
+    </ToastProvider>
+  );
+}
+
+function DetachedEditorWindow(props: {
+  search: { kind: "editor"; threadId: string | null; connectionUrl: string | null };
+}) {
+  return (
+    <ToastProvider>
+      <AnchoredToastProvider>
+        <UiTypographyBridge />
+        <ServerStateBootstrap />
+        <DetachedEditorSnapshotBootstrap
+          connectionUrl={props.search.connectionUrl}
+          threadId={props.search.threadId}
+        />
+        <DetachedEditorWindowContent
+          connectionUrl={props.search.connectionUrl}
+          threadId={props.search.threadId}
+        />
+      </AnchoredToastProvider>
+    </ToastProvider>
+  );
+}
+
+function DetachedEditorSnapshotBootstrap(props: {
+  threadId: string | null;
+  connectionUrl: string | null;
+}) {
+  const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
+
+  useEffect(() => {
+    if (!props.threadId) {
+      return;
+    }
+    const threadId = ThreadId.makeUnsafe(props.threadId);
+    const connectionUrl = props.connectionUrl?.trim() || null;
+    let disposed = false;
+
+    runAsyncTask(
+      (async () => {
+        const snapshot = connectionUrl
+          ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot({
+              hydrateThreadId: threadId,
+            })
+          : await readNativeApi()?.orchestration.getSnapshot({ hydrateThreadId: threadId });
+        if (!snapshot || disposed) {
+          return;
+        }
+        mergeServerReadModel(snapshot, {
+          hydrateThreadId: threadId,
+          ...(connectionUrl ? { connectionUrl } : {}),
+        });
+      })(),
+      "Detached editor snapshot bootstrap failed.",
+    );
+
+    return () => {
+      disposed = true;
+    };
+  }, [mergeServerReadModel, props.connectionUrl, props.threadId]);
+
+  return null;
+}
+
+function DetachedEditorWindowContent(props: {
+  threadId: string | null;
+  connectionUrl: string | null;
+}) {
+  const threadId = useMemo(
+    () => (props.threadId ? ThreadId.makeUnsafe(props.threadId) : null),
+    [props.threadId],
+  );
+  const thread = useStore((store) =>
+    threadId
+      ? (store.threadsById?.[threadId] ??
+        store.threads.find((candidate) => candidate.id === threadId) ??
+        null)
+      : null,
+  );
+  const project = useStore((store) =>
+    thread ? (store.projects.find((candidate) => candidate.id === thread.projectId) ?? null) : null,
+  );
+  const keybindings = useServerKeybindings();
+  const availableEditors = useServerAvailableEditors();
+
+  if (!threadId) {
+    return <DetachedWindowMessage title="Editor unavailable" description="Missing thread id." />;
+  }
+  if (!thread || !project) {
+    return (
+      <DetachedWindowMessage title="Loading editor" description="Preparing workspace state..." />
+    );
+  }
+
+  const gitCwd = thread.worktreePath ?? project.cwd;
+  return (
+    <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      <Suspense
+        fallback={<DetachedWindowMessage title="Loading editor" description="Starting Monaco..." />}
+      >
+        <DetachedThreadWorkspaceEditor
+          availableEditors={availableEditors}
+          branch={thread.branch}
+          browserOpen={false}
+          connectionUrl={props.connectionUrl}
+          gitCwd={gitCwd}
+          keybindings={keybindings}
+          lspCwd={project.cwd}
+          terminalOpen={false}
+          threadId={threadId}
+          worktreePath={thread.worktreePath}
+          workspaceMode="editor"
+          detachEnabled={false}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+function DetachedWindowMessage(props: { title: string; description: string }) {
+  return (
+    <div className="flex h-dvh min-h-0 items-center justify-center bg-background px-6 text-center text-foreground">
+      <div>
+        <h1 className="text-sm font-semibold">{props.title}</h1>
+        <p className="mt-2 text-xs text-muted-foreground">{props.description}</p>
+      </div>
+    </div>
   );
 }
 

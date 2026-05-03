@@ -13,6 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  ExternalLinkIcon,
   FilePlus2Icon,
   FolderPlusIcon,
   GitForkIcon,
@@ -146,15 +147,13 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
     () => resolveOpenInEditorOptions(navigator.platform, availableEditors),
     [availableEditors],
   );
-  const preferredEditorOption = useMemo(
-    () =>
-      (preferredEditor
-        ? (editorOptions.find((option) => option.value === preferredEditor) ?? null)
-        : null) ??
-      editorOptions[0] ??
-      null,
-    [editorOptions, preferredEditor],
-  );
+  const preferredEditorOption = useMemo(() => {
+    const fallbackEditorOption = editorOptions[0];
+    if (!preferredEditor) {
+      return fallbackEditorOption;
+    }
+    return editorOptions.find((option) => option.value === preferredEditor) ?? fallbackEditorOption;
+  }, [editorOptions, preferredEditor]);
   const handleOpenPreferredEditor = useCallback(() => {
     if (!api || !gitCwd || !preferredEditorOption) {
       return;
@@ -645,6 +644,8 @@ function ThreadWorkspaceEditor(inputProps: {
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
+  detachEnabled?: boolean;
+  onDetached?: () => void;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
@@ -655,6 +656,30 @@ function ThreadWorkspaceEditor(inputProps: {
     [inputProps.gitCwd, inputProps.threadId],
   );
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
+  const detachedEditorConnectionUrl = inputProps.connectionUrl;
+  const detachedEditorThreadId = inputProps.threadId;
+  const onEditorDetached = inputProps.onDetached;
+  const canDetachEditor =
+    inputProps.detachEnabled !== false && Boolean(window.desktopBridge?.openDetachedEditor);
+  const detachEditor = useCallback(async () => {
+    const openDetachedEditor = window.desktopBridge?.openDetachedEditor;
+    if (!openDetachedEditor) {
+      return;
+    }
+    const detached = await openDetachedEditor({
+      threadId: detachedEditorThreadId,
+      ...(detachedEditorConnectionUrl ? { connectionUrl: detachedEditorConnectionUrl } : {}),
+    });
+    if (detached) {
+      onEditorDetached?.();
+      return;
+    }
+    toastManager.add({
+      title: "Could not detach editor",
+      description: "The desktop app did not open a detached editor window.",
+      type: "error",
+    });
+  }, [detachedEditorConnectionUrl, detachedEditorThreadId, onEditorDetached]);
 
   const { resolvedTheme } = useTheme();
   const { themePreset } = useAppearancePrefs();
@@ -2153,6 +2178,24 @@ function ThreadWorkspaceEditor(inputProps: {
                   ) : null}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {canDetachEditor ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
+                            onClick={() => void detachEditor()}
+                            aria-label="Detach editor"
+                          >
+                            <ExternalLinkIcon className="size-3.5" />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-xs"
