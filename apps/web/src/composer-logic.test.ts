@@ -7,9 +7,11 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
   parseComposerIssuesCommand,
+  parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
+import { createMarkedProviderCommandToken } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 describe("detectComposerTrigger", () => {
@@ -95,6 +97,24 @@ describe("detectComposerTrigger", () => {
       rangeStart: 0,
       rangeEnd: text.length,
     });
+  });
+
+  it("detects provider slash command tokens outside the built-in command list", () => {
+    const text = "/review";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-command",
+      query: "review",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("does not detect selected provider command tokens as slash triggers", () => {
+    const text = createMarkedProviderCommandToken("frontend-design");
+
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
   it("detects issue tag trigger after /issues", () => {
@@ -332,6 +352,54 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+});
+
+describe("parseProviderComposerSlashCommand", () => {
+  const providerCommands = [{ name: "plan" }, { name: "review" }, { name: "frontend/component" }];
+
+  it("matches provider commands with optional args", () => {
+    expect(parseProviderComposerSlashCommand("/review src", providerCommands)).toEqual({
+      commandName: "review",
+      args: "src",
+      promptText: "/review src",
+    });
+  });
+
+  it("lets provider commands shadow Ace standalone commands", () => {
+    expect(parseProviderComposerSlashCommand("/plan", providerCommands)).toEqual({
+      commandName: "plan",
+      args: "",
+      promptText: "/plan",
+    });
+  });
+
+  it("rewrites synthetic provider commands to their prompt invocation", () => {
+    expect(
+      parseProviderComposerSlashCommand("/frontend-design make it polished", [
+        { name: "frontend-design", promptPrefix: "$frontend-design" },
+      ]),
+    ).toEqual({
+      commandName: "frontend-design",
+      args: "make it polished",
+      promptText: "$frontend-design make it polished",
+    });
+  });
+
+  it("rewrites slash plugin aliases to their provider prompt invocation", () => {
+    expect(
+      parseProviderComposerSlashCommand("/browser-use inspect localhost", [
+        { name: "browser-use", kind: "plugin", promptPrefix: "@browser-use" },
+      ]),
+    ).toEqual({
+      commandName: "browser-use",
+      args: "inspect localhost",
+      promptText: "@browser-use inspect localhost",
+    });
+  });
+
+  it("ignores unknown slash commands", () => {
+    expect(parseProviderComposerSlashCommand("/unknown", providerCommands)).toBeNull();
   });
 });
 

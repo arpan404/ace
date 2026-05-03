@@ -1,4 +1,5 @@
 import {
+  COMPOSER_PROVIDER_COMMAND_MARKER,
   splitPromptIntoComposerSegments,
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
@@ -14,7 +15,6 @@ export interface ComposerTrigger {
   rangeEnd: number;
 }
 
-const SLASH_COMMANDS: readonly ComposerSlashCommand[] = ["model", "plan", "default", "issues"];
 const isInlineTokenSegment = (segment: ComposerPromptSegment): boolean => segment.type !== "text";
 
 function clampCursor(text: string, cursor: number): number {
@@ -49,6 +49,9 @@ function expandedSegmentLength(segment: ComposerPromptSegment): number {
   }
   if (segment.type === "issue-reference") {
     return String(segment.issueNumber).length + 1;
+  }
+  if (segment.type === "provider-command") {
+    return segment.name.length + 1;
   }
   return 1;
 }
@@ -190,29 +193,16 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     const characterBeforeSlash = commandStart > 0 ? text[commandStart - 1] : "";
     const slashStartsToken = commandStart === 0 || isWhitespace(characterBeforeSlash ?? "");
     const commandText = linePrefix.slice(slashIndex);
-    if (!slashStartsToken) {
-      // Ignore slashes embedded in existing tokens (e.g. urls/paths).
-    } else {
+    if (slashStartsToken && !commandText.includes(COMPOSER_PROVIDER_COMMAND_MARKER)) {
       const commandMatch = /^\/(\S*)$/.exec(commandText);
       if (commandMatch) {
         const commandQuery = commandMatch[1] ?? "";
-        if (commandQuery.toLowerCase() === "model") {
-          return {
-            kind: "slash-model",
-            query: "",
-            rangeStart: commandStart,
-            rangeEnd: cursor,
-          };
-        }
-        if (SLASH_COMMANDS.some((command) => command.startsWith(commandQuery.toLowerCase()))) {
-          return {
-            kind: "slash-command",
-            query: commandQuery,
-            rangeStart: commandStart,
-            rangeEnd: cursor,
-          };
-        }
-        return null;
+        return {
+          kind: "slash-command",
+          query: commandQuery,
+          rangeStart: commandStart,
+          rangeEnd: cursor,
+        };
       }
 
       const modelMatch = /^\/model(?:\s+(.*))?$/.exec(commandText);
@@ -259,6 +249,44 @@ export function parseStandaloneComposerSlashCommand(
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
   return "default";
+}
+
+function normalizeSlashCommandName(value: string): string {
+  return value
+    .trim()
+    .replace(/^[/@$]+/, "")
+    .toLowerCase();
+}
+
+export function parseProviderComposerSlashCommand(
+  text: string,
+  providerCommands: ReadonlyArray<{
+    readonly name: string;
+    readonly promptPrefix?: string | undefined;
+    readonly kind?: "provider" | "skill" | "plugin" | undefined;
+  }>,
+): { commandName: string; args: string; promptText: string } | null {
+  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  const commandName = normalizeSlashCommandName(match[1] ?? "");
+  if (!commandName) {
+    return null;
+  }
+  const command = providerCommands.find(
+    (candidate) => normalizeSlashCommandName(candidate.name) === commandName,
+  );
+  if (!command) {
+    return null;
+  }
+  const args = (match[2] ?? "").trim();
+  const promptPrefix = command.promptPrefix?.trim() || `/${command.name}`;
+  return {
+    commandName: command.name,
+    args,
+    promptText: args ? `${promptPrefix} ${args}` : promptPrefix,
+  };
 }
 
 export function parseComposerIssuesCommand(

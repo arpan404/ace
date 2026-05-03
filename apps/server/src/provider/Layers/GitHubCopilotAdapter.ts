@@ -42,6 +42,7 @@ import {
   normalizeGitHubCopilotModelOptionsForModel,
   stopGitHubCopilotClient,
 } from "../githubCopilotSdk";
+import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
 import { loadGitHubCopilotSdkModule, type GitHubCopilotSdkLoader } from "../providerSdkRuntime";
 import {
   ProviderAdapterProcessError,
@@ -2558,6 +2559,22 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             rawSource: "github-copilot.sdk.event",
             rawPayload: {
               sessionId: sdkSession.sessionId,
+            },
+          }),
+        );
+
+        emitRuntimeEvent(
+          makeBaseEvent(createdContext, {
+            type: "session.configured",
+            payload: {
+              config: {
+                availableCommands: providerFallbackSlashCommands(PROVIDER),
+              },
+            },
+            rawMethod: "session.configured",
+            rawSource: "github-copilot.sdk.event",
+            rawPayload: {
+              availableCommands: providerFallbackSlashCommands(PROVIDER),
             },
           }),
         );

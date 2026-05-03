@@ -12,10 +12,16 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
+  type ProviderSlashCommand,
 } from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
+import {
+  mergeProviderSlashCommands,
+  normalizeProviderSlashCommandName,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -36,6 +42,103 @@ import { resolveProviderIntegrationCapabilities } from "../../provider/providerC
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
   CommandId.makeUnsafe(`provider:${event.eventId}:${tag}:${crypto.randomUUID()}`);
+
+function asNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeProviderSlashCommands(
+  value: unknown,
+): ReadonlyArray<ProviderSlashCommand> | null {
+  const commandEntries = Array.isArray(value)
+    ? value
+    : (asRecord(value)?.commands ??
+      asRecord(value)?.availableCommands ??
+      asRecord(value)?.available_commands ??
+      asRecord(value)?.slash_commands ??
+      asRecord(value)?.slashCommands);
+  if (!Array.isArray(commandEntries)) {
+    return null;
+  }
+
+  const seenNames = new Set<string>();
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of commandEntries) {
+    const record = asRecord(entry);
+    const rawName =
+      typeof entry === "string"
+        ? entry
+        : (asNonEmptyString(record?.name) ??
+          asNonEmptyString(record?.command) ??
+          asNonEmptyString(record?.id));
+    if (!rawName) {
+      continue;
+    }
+    const name = normalizeProviderSlashCommandName(rawName);
+    if (!name) {
+      continue;
+    }
+    const nameKey = name.toLowerCase();
+    if (seenNames.has(nameKey)) {
+      continue;
+    }
+    seenNames.add(nameKey);
+
+    const input = asRecord(record?.input);
+    const description = asNonEmptyString(record?.description);
+    const inputHint =
+      asNonEmptyString(input?.hint) ??
+      asNonEmptyString(record?.inputHint) ??
+      asNonEmptyString(record?.argumentHint);
+    const rawKind =
+      asNonEmptyString(record?.kind) ??
+      asNonEmptyString(record?.source) ??
+      asNonEmptyString(record?.type);
+    const kind =
+      rawKind === "skill" || rawKind === "plugin" || rawKind === "provider" ? rawKind : undefined;
+    const promptPrefix =
+      asNonEmptyString(record?.promptPrefix) ??
+      asNonEmptyString(record?.prompt_prefix) ??
+      asNonEmptyString(record?.replacementPrefix);
+    commands.push({
+      name,
+      ...(description ? { description } : {}),
+      ...(inputHint ? { inputHint } : {}),
+      ...(kind ? { kind } : {}),
+      ...(promptPrefix ? { promptPrefix } : {}),
+    });
+  }
+
+  return commands;
+}
+
+function providerSlashCommandsFromSessionConfigured(
+  event: ProviderRuntimeEvent,
+): ReadonlyArray<ProviderSlashCommand> | null {
+  if (event.type !== "session.configured") {
+    return null;
+  }
+  const config = asRecord(event.payload.config);
+  if (!config) {
+    return null;
+  }
+
+  const providerCommands =
+    normalizeProviderSlashCommands(config.availableCommands) ??
+    normalizeProviderSlashCommands(config.available_commands) ??
+    normalizeProviderSlashCommands(config.slash_commands) ??
+    normalizeProviderSlashCommands(config.slashCommands) ??
+    normalizeProviderSlashCommands(config.commands);
+
+  if (providerCommands === null) {
+    return null;
+  }
+
+  return mergeProviderSlashCommands(
+    providerCommands,
+    providerFallbackSlashCommands(event.provider),
+  );
+}
 
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = Math.max(
   256,
@@ -2238,6 +2341,7 @@ const make = Effect.fn("make")(function* () {
               status,
               providerName: event.provider,
               capabilities: yield* resolveSessionCapabilities(event.provider),
+              commands: thread.session?.commands ?? [],
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
@@ -2246,6 +2350,27 @@ const make = Effect.fn("make")(function* () {
             createdAt: now,
           });
         }
+      }
+
+      const providerCommands = providerSlashCommandsFromSessionConfigured(event);
+      if (providerCommands !== null) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.session.set",
+          commandId: providerCommandId(event, "thread-session-commands-set"),
+          threadId: thread.id,
+          session: {
+            threadId: thread.id,
+            status: thread.session?.status ?? "ready",
+            providerName: event.provider,
+            capabilities: yield* resolveSessionCapabilities(event.provider),
+            commands: providerCommands,
+            runtimeMode: thread.session?.runtimeMode ?? "full-access",
+            activeTurnId: thread.session?.activeTurnId ?? null,
+            lastError: thread.session?.lastError ?? null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
       }
 
       const assistantDelta =
@@ -2451,6 +2576,7 @@ const make = Effect.fn("make")(function* () {
               status: "error",
               providerName: event.provider,
               capabilities: yield* resolveSessionCapabilities(event.provider),
+              commands: thread.session?.commands ?? [],
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
