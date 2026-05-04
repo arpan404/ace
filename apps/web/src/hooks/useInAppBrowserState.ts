@@ -195,6 +195,22 @@ function readTimeoutMs(args: Record<string, unknown>, fallbackMs = 5000): number
   return Math.max(0, Math.min(timeoutMs, 30000));
 }
 
+function readBrowserBridgeKeys(args: Record<string, unknown>): string[] {
+  const rawKeys = args.keys;
+  if (Array.isArray(rawKeys)) {
+    const keys = rawKeys.filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    );
+    if (keys.length > 0) {
+      return keys;
+    }
+  }
+  const key =
+    readStringArgAny(args, ["key", "value", "text"]) ??
+    (typeof args.keyCode === "string" && args.keyCode.trim().length > 0 ? args.keyCode : undefined);
+  return key ? [key] : ["Enter"];
+}
+
 function readBrowserBridgeTabIndexArg(
   args: Record<string, unknown>,
   tabCount: number,
@@ -1261,6 +1277,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
               args,
             ),
           );
+          if (action === "keypress") {
+            await handle.pressKeys(readBrowserBridgeKeys(args));
+            return { ok: true, tab: { id: tab.id, ...snapshot } };
+          }
           const result = await handle.executeJavaScript(buildBrowserCuaActionScript(action, args));
           return { ok: true, result, tab: { id: tab.id, ...snapshot } };
         }

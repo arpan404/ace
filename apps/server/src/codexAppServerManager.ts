@@ -1547,6 +1547,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
+      if (!this.shouldApplyActiveTurnTerminalNotification(context, rawRoute.turnId)) {
+        return;
+      }
       context.collabReceiverTurns.clear();
       const turn = this.readObject(notification.params, "turn");
       const status = this.readString(turn, "status");
@@ -1563,6 +1566,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
+      if (!this.shouldApplyActiveTurnTerminalNotification(context, rawRoute.turnId)) {
+        return;
+      }
       context.collabReceiverTurns.clear();
       this.updateSession(context, {
         status: "ready",
@@ -1577,9 +1583,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       const message = this.readString(this.readObject(notification.params)?.error, "message");
       const willRetry = this.readBoolean(notification.params, "willRetry");
+      const hasUnscopedActiveTurnError =
+        context.session.activeTurnId !== undefined && rawRoute.turnId === undefined;
 
       this.updateSession(context, {
-        status: willRetry ? "running" : "error",
+        status: willRetry || hasUnscopedActiveTurnError ? "running" : "error",
         lastError: message ?? context.session.lastError,
       });
     }
@@ -2091,6 +2099,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       method === "turn/plan/updated" ||
       method === "item/plan/delta"
     );
+  }
+
+  private shouldApplyActiveTurnTerminalNotification(
+    context: CodexSessionContext,
+    turnId: TurnId | undefined,
+  ): boolean {
+    const activeTurnId = context.session.activeTurnId;
+    if (!activeTurnId) {
+      return true;
+    }
+    if (!turnId) {
+      return false;
+    }
+    return turnId === activeTurnId;
   }
 
   private readObject(value: unknown, key?: string): Record<string, unknown> | undefined {
