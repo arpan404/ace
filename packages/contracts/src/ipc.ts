@@ -79,6 +79,7 @@ import type {
   BrowserBridgeRequest,
   BrowserBridgeResolveInput,
   BrowserBridgeResolveResult,
+  IosSimulatorBridgeActionInput,
 } from "./browserBridge";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
@@ -321,6 +322,9 @@ export interface NativeApi {
     repairStorage: () => Promise<boolean>;
     resolveBridgeRequest: (input: BrowserBridgeResolveInput) => Promise<BrowserBridgeResolveResult>;
     onBridgeRequest: (callback: (request: BrowserBridgeRequest) => void) => () => void;
+    runSimulatorOperation: (
+      input: IosSimulatorBridgeActionInput,
+    ) => Promise<Record<string, unknown>>;
   };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;

@@ -22,6 +22,7 @@ import {
   MessageSquareIcon,
   Minimize2Icon,
   PlusIcon,
+  SmartphoneIcon,
   XIcon,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useRef, type MutableRefObject } from "react";
@@ -36,7 +37,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
-type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
+type RightSidePanelMode = "browser" | "diff" | "editor" | "simulator" | "summary";
 
 function LocalDiffLoadingFallback() {
   return (
@@ -145,6 +146,7 @@ function RightSidePanelAddTabMenu(props: {
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
   editorOpen: boolean;
+  simulatorAvailable: boolean;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
   onNewBrowserTab: () => void;
@@ -199,6 +201,15 @@ function RightSidePanelAddTabMenu(props: {
             <MenuShortcut>{props.editorShortcutLabel}</MenuShortcut>
           ) : null}
         </MenuItem>
+        <MenuItem
+          disabled={!props.simulatorAvailable}
+          onClick={() => {
+            props.onSelectMode("simulator");
+          }}
+        >
+          <SmartphoneIcon className="size-4" />
+          <span>iOS Simulator</span>
+        </MenuItem>
       </MenuPopup>
     </Menu>
   );
@@ -215,6 +226,7 @@ export function RightSidePanelTabStrip(props: {
   editorShortcutLabel: string | null;
   editorOpen: boolean;
   fullscreen: boolean;
+  simulatorAvailable: boolean;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
   floatingChatOpen: boolean;
@@ -224,6 +236,7 @@ export function RightSidePanelTabStrip(props: {
   onDiffClose: () => void;
   onEditorClose: () => void;
   onNewBrowserTab: () => void;
+  onSimulatorClose: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
   onTogglePanelVisibility: () => void;
   onToggleFloatingChat: () => void;
@@ -243,6 +256,7 @@ export function RightSidePanelTabStrip(props: {
   const editorTooltipLabel = props.editorShortcutLabel
     ? `Editor (${props.editorShortcutLabel})`
     : "Editor";
+  const simulatorTooltipLabel = "iOS Simulator";
   const panelToggleTooltipLabel = props.panelToggleShortcutLabel
     ? `Close panel (${props.panelToggleShortcutLabel})`
     : "Close panel";
@@ -394,6 +408,48 @@ export function RightSidePanelTabStrip(props: {
             </Tooltip>
           </>
         ) : null}
+        {props.activeMode === "simulator" ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={tabClassName(true)}
+                    aria-pressed
+                    onClick={() => props.onSelectMode("simulator")}
+                  />
+                }
+              >
+                <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                  <SmartphoneIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                    aria-label="Close iOS simulator tab"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onSimulatorClose();
+                    }}
+                  >
+                    <XIcon className="size-3.5" />
+                  </span>
+                </span>
+                <span className="min-w-0 truncate text-left">iOS Simulator</span>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" align="start">
+                {simulatorTooltipLabel}
+              </TooltipPopup>
+            </Tooltip>
+          </>
+        ) : null}
         {props.browserSession?.tabs.length ? (
           <span className="h-5 w-px shrink-0 bg-border/70" />
         ) : null}
@@ -433,6 +489,7 @@ export function RightSidePanelTabStrip(props: {
             diffAvailable={props.diffAvailable}
             editorShortcutLabel={props.editorShortcutLabel}
             editorOpen={props.editorOpen}
+            simulatorAvailable={props.simulatorAvailable}
             reviewShortcutLabel={props.reviewShortcutLabel}
             reviewOpen={props.reviewOpen}
             onNewBrowserTab={props.onNewBrowserTab}
@@ -447,6 +504,7 @@ export function RightSidePanelTabStrip(props: {
           diffAvailable={props.diffAvailable}
           editorShortcutLabel={props.editorShortcutLabel}
           editorOpen={props.editorOpen}
+          simulatorAvailable={props.simulatorAvailable}
           reviewShortcutLabel={props.reviewShortcutLabel}
           reviewOpen={props.reviewOpen}
           onNewBrowserTab={props.onNewBrowserTab}

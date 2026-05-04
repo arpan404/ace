@@ -1491,6 +1491,17 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           handle.reload();
           return { ok: true, tabId: tab.id };
         }
+        case "ios_simulator_list_devices":
+        case "ios_simulator_boot":
+        case "ios_simulator_shutdown":
+        case "ios_simulator_open_url":
+        case "ios_simulator_launch_app":
+        case "ios_simulator_terminate_app":
+        case "ios_simulator_screenshot": {
+          throw new Error(
+            "The iOS simulator operations are executed by the backend bridge runner and are not handled by the in-app browser runtime.",
+          );
+        }
         default:
           throw new Error(`Unsupported Ace browser operation: ${request.operation}`);
       }

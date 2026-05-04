@@ -2,7 +2,18 @@ import { Schema } from "effect";
 
 import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 
-const UnknownRecord = Schema.Record(Schema.String, Schema.Unknown);
+export const BrowserBridgeRecord = Schema.Record(Schema.String, Schema.Unknown);
+
+export const IosSimulatorBridgeOperation = Schema.Literals([
+  "ios_simulator_list_devices",
+  "ios_simulator_boot",
+  "ios_simulator_shutdown",
+  "ios_simulator_open_url",
+  "ios_simulator_launch_app",
+  "ios_simulator_terminate_app",
+  "ios_simulator_screenshot",
+]);
+export type IosSimulatorBridgeOperation = typeof IosSimulatorBridgeOperation.Type;
 
 export const BrowserBridgeOperation = Schema.Literals([
   "open_url",
@@ -59,6 +70,13 @@ export const BrowserBridgeOperation = Schema.Literals([
   "tab_clipboard_read_text",
   "tab_clipboard_write_text",
   "tab_dev_logs",
+  "ios_simulator_list_devices",
+  "ios_simulator_boot",
+  "ios_simulator_shutdown",
+  "ios_simulator_open_url",
+  "ios_simulator_launch_app",
+  "ios_simulator_terminate_app",
+  "ios_simulator_screenshot",
   "set_viewport_size",
   "resize_browser",
   "get_viewport_size",
@@ -76,18 +94,24 @@ export const BrowserBridgeOperation = Schema.Literals([
 ]);
 export type BrowserBridgeOperation = typeof BrowserBridgeOperation.Type;
 
+export const IosSimulatorBridgeActionInput = Schema.Struct({
+  operation: IosSimulatorBridgeOperation,
+  args: BrowserBridgeRecord,
+});
+export type IosSimulatorBridgeActionInput = typeof IosSimulatorBridgeActionInput.Type;
+
 export const BrowserBridgeRequest = Schema.Struct({
   requestId: TrimmedNonEmptyString,
   threadId: ThreadId,
   operation: BrowserBridgeOperation,
-  args: UnknownRecord,
+  args: BrowserBridgeRecord,
 });
 export type BrowserBridgeRequest = typeof BrowserBridgeRequest.Type;
 
 export const BrowserBridgeResolveInput = Schema.Struct({
   requestId: TrimmedNonEmptyString,
   ok: Schema.Boolean,
-  result: Schema.optional(UnknownRecord),
+  result: Schema.optional(BrowserBridgeRecord),
   error: Schema.optional(TrimmedNonEmptyString),
 });
 export type BrowserBridgeResolveInput = typeof BrowserBridgeResolveInput.Type;

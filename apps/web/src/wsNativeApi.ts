@@ -75,6 +75,8 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForActiveRoute().browserBridge.resolve(input),
       onBridgeRequest: (callback) =>
         resolveRpcClientForActiveRoute().browserBridge.onRequest(callback),
+      runSimulatorOperation: (input) =>
+        resolveRpcClientForActiveRoute().browserBridge.runSimulatorOperation(input),
     },
     terminal: {
       open: (input) => resolveRpcClientForInput(input).terminal.open(input as never),

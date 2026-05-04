@@ -71,6 +71,7 @@ export interface WsRpcClient {
   readonly browserBridge: {
     readonly resolve: RpcUnaryMethod<typeof WS_METHODS.browserBridgeResolve>;
     readonly onRequest: RpcStreamMethod<typeof WS_METHODS.subscribeBrowserBridgeRequests>;
+    readonly runSimulatorOperation: RpcUnaryMethod<typeof WS_METHODS.browserRunSimulatorOperation>;
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
@@ -201,6 +202,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
           (client) => client[WS_METHODS.subscribeBrowserBridgeRequests](streamIdentity),
           listener,
         ),
+      runSimulatorOperation: (input) =>
+        transport.request((client) => client[WS_METHODS.browserRunSimulatorOperation](input)),
     },
     projects: {
       searchEntries: (input) =>

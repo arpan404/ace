@@ -128,9 +128,11 @@ import {
 import { PickFolderOptions } from "./ipc";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 import {
+  BrowserBridgeRecord,
   BrowserBridgeRequest,
   BrowserBridgeResolveInput,
   BrowserBridgeResolveResult,
+  IosSimulatorBridgeActionInput,
 } from "./browserBridge";
 
 export const WS_METHODS = {
@@ -199,6 +201,7 @@ export const WS_METHODS = {
   serverUpdateSettings: "server.updateSettings",
   serverDisconnect: "server.disconnect",
   browserBridgeResolve: "browserBridge.resolve",
+  browserRunSimulatorOperation: "browser.runSimulatorOperation",
 
   // Streaming subscriptions
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
@@ -301,6 +304,11 @@ export const WsServerDisconnectRpc = Rpc.make(WS_METHODS.serverDisconnect, {
 export const WsBrowserBridgeResolveRpc = Rpc.make(WS_METHODS.browserBridgeResolve, {
   payload: BrowserBridgeResolveInput,
   success: BrowserBridgeResolveResult,
+});
+
+export const WsBrowserRunSimulatorOperationRpc = Rpc.make(WS_METHODS.browserRunSimulatorOperation, {
+  payload: IosSimulatorBridgeActionInput,
+  success: BrowserBridgeRecord,
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -604,6 +612,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsServerDisconnectRpc,
   WsBrowserBridgeResolveRpc,
+  WsBrowserRunSimulatorOperationRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsListTreeRpc,
   WsProjectsCreateEntryRpc,

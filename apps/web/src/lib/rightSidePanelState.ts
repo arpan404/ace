@@ -15,10 +15,10 @@ export const RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY = "ace:chat:right-side-panel
 export const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v1";
 export const RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY = "ace:chat:right-side-panel-width:v1";
 
-export type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
+export type RightSidePanelMode = "browser" | "diff" | "editor" | "simulator" | "summary";
 
 export const RightSidePanelModeStorageSchema = Schema.NullOr(
-  Schema.Literals(["browser", "diff", "editor", "summary"]),
+  Schema.Literals(["browser", "diff", "editor", "simulator", "summary"]),
 );
 
 export function resolveThreadRightSidePanelStorageKeys(threadId: ThreadId): {

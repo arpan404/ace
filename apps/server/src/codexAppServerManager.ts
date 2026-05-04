@@ -35,6 +35,7 @@ import {
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
 import { browserBridge } from "./browserBridge";
+import { isIosSimulatorBridgeOperation, runIosSimulatorBridgeRequest } from "./iosSimulatorBridge";
 
 export { buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
@@ -281,6 +282,13 @@ const CODEX_BROWSER_BRIDGE_OPERATIONS: readonly BrowserBridgeOperation[] = [
   "tab_clipboard_read_text",
   "tab_clipboard_write_text",
   "tab_dev_logs",
+  "ios_simulator_list_devices",
+  "ios_simulator_boot",
+  "ios_simulator_shutdown",
+  "ios_simulator_open_url",
+  "ios_simulator_launch_app",
+  "ios_simulator_terminate_app",
+  "ios_simulator_screenshot",
   "set_viewport_size",
   "resize_browser",
   "get_viewport_size",
@@ -300,6 +308,15 @@ const CODEX_BROWSER_BRIDGE_INSTRUCTIONS = `
 ## Ace Browser Bridge
 
 When you need browser automation, use the \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\` dynamic tool. It controls Ace's in-app browser for this thread. Prefer it over any separate/native browser surface when opening pages, inspecting DOM, taking screenshots, clicking, filling, typing, scrolling, navigating tabs, reading clipboard text, or reading console logs.
+
+Use the native iOS simulator operations in this same tool for simulator control workflows:
+- ios_simulator_list_devices
+- ios_simulator_boot
+- ios_simulator_shutdown
+- ios_simulator_open_url
+- ios_simulator_launch_app
+- ios_simulator_terminate_app
+- ios_simulator_screenshot
 
 If the user selected or refers to Browser Use, browser-use, or an in-app browser skill/plugin, fulfill those browser actions through \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\`. Do not bootstrap a separate browser-client runtime or use Codex's native browser for Ace browser tasks.
 
@@ -1873,6 +1890,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     try {
       const args = this.readObject(request.params, "arguments") ?? {};
       const operation = this.readBrowserBridgeOperation(args);
+      if (isIosSimulatorBridgeOperation(operation)) {
+        const result = await runIosSimulatorBridgeRequest({ args, operation });
+        this.writeMessage(context, {
+          id: request.id,
+          result: {
+            success: true,
+            contentItems: this.formatBrowserBridgeContentItems(result),
+          },
+        });
+        return;
+      }
+
       const result = await browserBridge.request({
         args,
         operation,

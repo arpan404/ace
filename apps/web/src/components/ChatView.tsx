@@ -210,6 +210,7 @@ import {
   type InAppBrowserMode,
 } from "./InAppBrowser";
 import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
+import { IosSimulatorPanel } from "./IosSimulatorPanel";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
@@ -750,7 +751,7 @@ export default function ChatView({
   const [rightSidePanelLastNonDiffMode, setRightSidePanelLastNonDiffMode] = useLocalStorage(
     rightSidePanelLastNonDiffModeStorageKey,
     "summary" satisfies Exclude<RightSidePanelMode, "diff">,
-    Schema.Literals(["browser", "editor", "summary"]),
+    Schema.Literals(["browser", "editor", "simulator", "summary"]),
   );
   const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
     rightSidePanelDiffOpenStorageKey,
@@ -3566,6 +3567,10 @@ export default function ChatView({
       }
       if (mode === "browser") {
         openBrowser();
+        return;
+      }
+      if (mode === "simulator") {
+        setRightSidePanelMode("simulator");
         return;
       }
       if (mode === "diff") {
@@ -7192,6 +7197,7 @@ export default function ChatView({
         editorShortcutLabel={rightPanelEditorShortcutLabel}
         editorOpen={rightSidePanelEditorOpen}
         fullscreen={rightSidePanelFullscreen}
+        simulatorAvailable={readNativeApi() !== undefined}
         reviewShortcutLabel={reviewPanelShortcutLabel}
         reviewOpen={rightSidePanelReviewOpen}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
@@ -7201,6 +7207,7 @@ export default function ChatView({
         onDiffClose={onCloseRightSidePanelDiff}
         onEditorClose={onCloseRightSidePanelEditor}
         onNewBrowserTab={onOpenRightSidePanelBrowserTab}
+        onSimulatorClose={() => setRightSidePanelMode("summary")}
         onSelectMode={onSelectRightSidePanelMode}
         onTogglePanelVisibility={onToggleRightSidePanel}
         onToggleFloatingChat={() => {
@@ -7676,6 +7683,8 @@ export default function ChatView({
                               onDetached={onCloseRightSidePanelEditor}
                             />
                           </Suspense>
+                        ) : activeRightSidePanelMode === "simulator" ? (
+                          <IosSimulatorPanel />
                         ) : null}
                       </motion.div>
                     ) : null}

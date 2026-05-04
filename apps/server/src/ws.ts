@@ -49,6 +49,7 @@ import { browserBridge } from "./browserBridge";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
+import { runIosSimulatorBridgeRequest } from "./iosSimulatorBridge";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
@@ -658,6 +659,12 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         Effect.sync(() => {
           browserBridge.resolve(input);
           return {};
+        }),
+      [WS_METHODS.browserRunSimulatorOperation]: (input) =>
+        Effect.tryPromise({
+          try: () => runIosSimulatorBridgeRequest(input),
+          catch: (cause) =>
+            cause instanceof Error ? cause : new Error("Unable to run iOS simulator operation."),
         }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         workspaceEntries.search(input).pipe(
