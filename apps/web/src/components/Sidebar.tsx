@@ -56,6 +56,7 @@ import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
   DESKTOP_HEADER_CHROME_CLASS_NAME,
   DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -5604,7 +5605,10 @@ export default function Sidebar() {
       </CommandDialog>
 
       {isElectron ? (
-        <SidebarHeader className={cn("drag-region", DESKTOP_HEADER_CHROME_CLASS_NAME)}>
+        <SidebarHeader
+          className={cn("drag-region", DESKTOP_HEADER_CHROME_CLASS_NAME)}
+          style={MAC_TITLEBAR_LEFT_INSET_STYLE}
+        >
           {sidebarHeaderChrome}
         </SidebarHeader>
       ) : (

@@ -114,14 +114,15 @@ function SortableQueuedMessageRow(props: {
               }
               props.onSteer(props.message.id);
             }}
-            aria-label={isSteered ? "Move steering message to queue" : "Steer queued message"}
+            aria-label={isSteered ? "Steering message" : "Steer queued message"}
+            title={isSteered ? "Click to move back to queue" : "Steer queued message"}
           >
             <span
               className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}
             >
               ↳
             </span>
-            {isSteered ? "Queue" : "Steer"}
+            {isSteered ? "Steering" : "Steer"}
           </Button>
         ) : null}
         <Button
