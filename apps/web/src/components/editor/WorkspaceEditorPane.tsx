@@ -35,7 +35,6 @@ import {
   buildWorkspaceSelectionPrompt,
   countOpenWorkspaceCodeComments,
   createWorkspaceCodeComment,
-  formatWorkspaceRangeLabel,
   type WorkspaceCodeComment,
   type WorkspaceSelectionContext,
 } from "~/lib/editor/workspaceDesigner";
@@ -171,6 +170,7 @@ const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 type MonacoApi = typeof import("monaco-editor");
 
 interface ActiveSelectionState {
+  readonly id: string;
   readonly context: WorkspaceSelectionContext;
   readonly top: number;
   readonly left: number;
@@ -243,6 +243,24 @@ function toWorkspaceLocationFromSelection(
     endLine: Math.max(0, selection.endLineNumber - 1),
     endColumn: Math.max(selection.endColumn - 1, selection.selectionStartColumn - 1),
   };
+}
+
+function workspaceSelectionId(input: {
+  relativePath: string;
+  selection: {
+    selectionStartLineNumber: number;
+    selectionStartColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  };
+}): string {
+  return [
+    input.relativePath,
+    input.selection.selectionStartLineNumber,
+    input.selection.selectionStartColumn,
+    input.selection.endLineNumber,
+    input.selection.endColumn,
+  ].join(":");
 }
 
 function resolveRelativePathFromEditorModel(
@@ -610,6 +628,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const [problems, setProblems] = useState<readonly MonacoEditor.IMarker[]>([]);
   const [cursorLabel, setCursorLabel] = useState("Ln 1, Col 1");
   const [activeSelection, setActiveSelection] = useState<ActiveSelectionState | null>(null);
+  const [selectionActionsExpanded, setSelectionActionsExpanded] = useState(false);
+  const [selectionCommentOpen, setSelectionCommentOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
@@ -692,6 +712,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     paneId: pane.id,
     activeFilePath: pane.activeFilePath,
   });
+  const activeSelectionIdRef = useRef<string | null>(null);
   const onOpenFileInPaneRef = useRef(onOpenFileInPane);
   const draftsByFilePathRef = useRef(props.draftsByFilePath);
 
@@ -764,6 +785,9 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     const model = editor?.getModel();
     if (!editor || !monacoInstance || !model || !workspaceCwd || isPreviewMode) {
       setActiveSelection(null);
+      setSelectionActionsExpanded(false);
+      setSelectionCommentOpen(false);
+      activeSelectionIdRef.current = null;
       return;
     }
     const position = editor.getPosition();
@@ -777,12 +801,25 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     );
     if (!selection || selection.isEmpty() || !relativePath) {
       setActiveSelection(null);
+      setSelectionActionsExpanded(false);
+      setSelectionCommentOpen(false);
+      activeSelectionIdRef.current = null;
       return;
     }
     const text = model.getValueInRange(selection);
     if (text.trim().length === 0) {
       setActiveSelection(null);
+      setSelectionActionsExpanded(false);
+      setSelectionCommentOpen(false);
+      activeSelectionIdRef.current = null;
       return;
+    }
+    const selectionId = workspaceSelectionId({ relativePath, selection });
+    if (activeSelectionIdRef.current !== selectionId) {
+      activeSelectionIdRef.current = selectionId;
+      setSelectionActionsExpanded(false);
+      setSelectionCommentOpen(false);
+      setCommentDraft("");
     }
     const location = toWorkspaceLocationFromSelection(relativePath, selection);
     const visiblePosition = editor.getScrolledVisiblePosition({
@@ -805,6 +842,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       text,
     });
     setActiveSelection({
+      id: selectionId,
       context,
       left: Math.max(12, Math.min((visiblePosition?.left ?? 24) + 8, 360)),
       top: Math.max(12, (visiblePosition?.top ?? 24) + 28),
@@ -1703,6 +1741,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         activeSelection.context,
         buildWorkspaceSelectionPrompt(activeSelection.context, intent),
       );
+      setSelectionActionsExpanded(false);
+      setSelectionCommentOpen(false);
     },
     [activeSelection, props],
   );
@@ -1725,6 +1765,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       }),
     );
     setCommentDraft("");
+    setSelectionActionsExpanded(false);
+    setSelectionCommentOpen(false);
   }, [activeSelection, commentDraft, props, workspaceCwd]);
 
   useEffect(() => {
@@ -2036,87 +2078,105 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             />
             {activeSelection ? (
               <div
-                className="absolute z-20 w-[min(30rem,calc(100%-1rem))] overflow-hidden rounded-xl border border-border/70 bg-popover/96 shadow-xl shadow-black/10 backdrop-blur"
+                className="absolute z-20"
                 style={{
                   left: activeSelection.left,
                   top: activeSelection.top,
                 }}
               >
-                <div className="flex items-start gap-2 border-b border-border/60 bg-card/80 px-2.5 py-2">
-                  <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
-                    <SparklesIcon className="size-3.5" />
+                {!selectionActionsExpanded ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border/65 bg-background/94 px-2 text-[10px] font-medium text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
+                    onClick={() => setSelectionActionsExpanded(true)}
+                    aria-label="Open selection actions"
+                  >
+                    <SparklesIcon className="size-3.5 text-primary" />
+                    AI
+                  </button>
+                ) : (
+                  <div className="w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border/65 bg-card/96 shadow-md">
+                    <div className="flex items-center gap-1.5 p-1.5">
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-border/55 bg-background/70 px-2 text-[10px] font-medium text-foreground hover:bg-accent"
+                        onClick={() => handleQueueSelection("review")}
+                        title="Review selection"
+                      >
+                        <BotIcon className="size-3 text-primary" />
+                        Review
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-border/55 bg-background/70 px-2 text-[10px] font-medium text-foreground hover:bg-accent"
+                        onClick={() => handleQueueSelection("ask")}
+                        title="Add context"
+                      >
+                        <MessageSquarePlusIcon className="size-3 text-primary" />
+                        Context
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-border/55 bg-background/70 px-2 text-[10px] font-medium text-foreground hover:bg-accent"
+                        onClick={() => handleQueueSelection("fix")}
+                        title="Fix diagnostic"
+                      >
+                        <WrenchIcon className="size-3 text-amber-600" />
+                        Fix
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-border/55 bg-background/70 px-2 text-[10px] font-medium text-foreground hover:bg-accent"
+                        onClick={() => handleQueueSelection("explain")}
+                        title="Explain symbol"
+                      >
+                        <SparklesIcon className="size-3 text-sky-600" />
+                        Explain
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex h-7 items-center gap-1 rounded-md border border-border/55 bg-background/70 px-2 text-[10px] font-medium text-foreground hover:bg-accent",
+                          selectionCommentOpen && "bg-accent",
+                        )}
+                        onClick={() => setSelectionCommentOpen((current) => !current)}
+                        title="Add code comment"
+                      >
+                        <MessageSquarePlusIcon className="size-3 text-primary" />
+                        Comment
+                      </button>
+                      <button
+                        type="button"
+                        className="ml-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                        onClick={() => {
+                          setSelectionActionsExpanded(false);
+                          setSelectionCommentOpen(false);
+                        }}
+                        aria-label="Collapse selection actions"
+                      >
+                        <XIcon className="size-3.5" />
+                      </button>
+                    </div>
+                    {selectionCommentOpen ? (
+                      <div className="flex items-center gap-1.5 border-t border-border/60 bg-background/45 p-1.5">
+                        <input
+                          value={commentDraft}
+                          onChange={(event) => setCommentDraft(event.target.value)}
+                          placeholder="Comment on selection"
+                          className="h-7 min-w-0 flex-1 rounded-md border border-border/65 bg-background/92 px-2 font-mono text-[11px] outline-none focus:border-primary/50"
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2 text-[10px] font-medium text-primary-foreground disabled:opacity-45"
+                          disabled={commentDraft.trim().length === 0}
+                          onClick={handleAddSelectionComment}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11px] font-semibold text-foreground">
-                      {props.pane.activeFilePath
-                        ? `${basenameOfPath(props.pane.activeFilePath)} ${formatWorkspaceRangeLabel(activeSelection.context.range)}`
-                        : formatWorkspaceRangeLabel(activeSelection.context.range)}
-                    </p>
-                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                      {activeSelection.context.text.split("\n").length} selected lines ready for
-                      agent context
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-lg px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    onClick={() => setActiveSelection(null)}
-                    aria-label="Dismiss selection actions"
-                  >
-                    <XIcon className="size-3" />
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5 p-2">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
-                    onClick={() => handleQueueSelection("review")}
-                  >
-                    <BotIcon className="size-3.5 text-primary" />
-                    Review range
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
-                    onClick={() => handleQueueSelection("ask")}
-                  >
-                    <MessageSquarePlusIcon className="size-3.5 text-primary" />
-                    Add context
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
-                    onClick={() => handleQueueSelection("fix")}
-                  >
-                    <WrenchIcon className="size-3.5 text-amber-600" />
-                    Fix diagnostic
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
-                    onClick={() => handleQueueSelection("explain")}
-                  >
-                    <SparklesIcon className="size-3.5 text-sky-600" />
-                    Explain symbol
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5 border-t border-border/60 bg-background/45 p-2">
-                  <input
-                    value={commentDraft}
-                    onChange={(event) => setCommentDraft(event.target.value)}
-                    placeholder="Comment on this code range"
-                    className="h-8 min-w-0 flex-1 rounded-lg border border-border/65 bg-background/90 px-2 font-mono text-[11px] outline-none focus:border-primary/50"
-                  />
-                  <button
-                    type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-sm disabled:opacity-45"
-                    disabled={commentDraft.trim().length === 0}
-                    onClick={handleAddSelectionComment}
-                  >
-                    <MessageSquarePlusIcon className="size-3.5" />
-                    Comment
-                  </button>
-                </div>
+                )}
               </div>
             ) : null}
           </div>
