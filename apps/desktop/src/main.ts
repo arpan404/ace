@@ -151,8 +151,6 @@ const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
 const BROWSER_DEVTOOLS_ACCELERATOR = "CmdOrCtrl+Shift+I";
-const FORCE_DISABLE_GPU_ARG = "--ace-disable-gpu";
-const STARTUP_RENDERER_CRASH_WINDOW_MS = 30_000;
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
@@ -198,9 +196,6 @@ let backendAuthToken = "";
 let backendWsUrl = "";
 let backendManagedByDaemon = false;
 let mainWindowShownAtMs: number | null = null;
-let mainWindowCreatedAtMs: number | null = null;
-let mainWindowDidFinishLoad = false;
-let startupRendererCrashRecoveryAttempted = false;
 let restartAttempt = 0;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
@@ -699,12 +694,6 @@ function captureBackendOutput(child: ChildProcess.ChildProcess): void {
 }
 
 initializePackagedLogging();
-
-const forceDisableGpu = process.argv.includes(FORCE_DISABLE_GPU_ARG);
-if (forceDisableGpu) {
-  app.disableHardwareAcceleration();
-  app.commandLine.appendSwitch("disable-gpu");
-}
 
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("class", LINUX_WM_CLASS);
@@ -2610,12 +2599,7 @@ function attachWebContentsContextMenu(input: {
         ...(input.includeDevToolsAction
           ? {
               devToolsAccelerator: BROWSER_DEVTOOLS_ACCELERATOR,
-              devToolsOpen: input.targetContents.isDevToolsOpened(),
-              onToggleDevTools: () => {
-                if (input.targetContents.isDevToolsOpened()) {
-                  input.targetContents.closeDevTools();
-                  return;
-                }
+              onOpenDevTools: () => {
                 input.targetContents.openDevTools();
               },
             }
@@ -2708,33 +2692,6 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
     writeDesktopLogHeader(
       `main-window render-process-gone ${formatWebContentsGoneDetails(details)}`,
     );
-    const isPrimaryWindow = mainWindow === null || window === mainWindow;
-    if (!isPrimaryWindow || isQuitting) {
-      return;
-    }
-    const elapsedSinceCreateMs =
-      mainWindowCreatedAtMs === null
-        ? Number.POSITIVE_INFINITY
-        : Date.now() - mainWindowCreatedAtMs;
-    const crashedDuringStartup =
-      !mainWindowDidFinishLoad || elapsedSinceCreateMs <= STARTUP_RENDERER_CRASH_WINDOW_MS;
-    if (
-      details.reason === "crashed" &&
-      crashedDuringStartup &&
-      !startupRendererCrashRecoveryAttempted &&
-      !forceDisableGpu
-    ) {
-      startupRendererCrashRecoveryAttempted = true;
-      writeDesktopLogHeader(
-        "main-window startup crash detected; relaunching once with GPU acceleration disabled",
-      );
-      const nextArgs = process.argv.slice(1).filter((arg) => arg !== FORCE_DISABLE_GPU_ARG);
-      nextArgs.push(FORCE_DISABLE_GPU_ARG);
-      app.relaunch({ args: nextArgs });
-      isQuitting = true;
-      app.exit(0);
-      return;
-    }
   });
   window.webContents.on("unresponsive", () => {
     writeDesktopLogHeader("main-window unresponsive");
@@ -2963,10 +2920,6 @@ function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: s
 }
 
 function createWindow(): BrowserWindow {
-  mainWindowCreatedAtMs = Date.now();
-  mainWindowDidFinishLoad = false;
-  startupRendererCrashRecoveryAttempted = false;
-
   const window = new BrowserWindow({
     width: 1100,
     height: 780,
@@ -3008,9 +2961,6 @@ function createWindow(): BrowserWindow {
   window.on("leave-html-full-screen", () => emitTitlebarLeftInsetChanged(window));
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
-    if (window === mainWindow) {
-      mainWindowDidFinishLoad = true;
-    }
     emitTitlebarLeftInsetChanged(window);
     emitUpdateState();
     flushPendingPairingUrls(window);

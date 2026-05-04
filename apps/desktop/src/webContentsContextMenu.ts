@@ -13,11 +13,10 @@ type EditableContextMenuParams = {
 
 interface BuildWebContentsContextMenuOptions {
   devToolsAccelerator?: string;
-  devToolsOpen?: boolean;
   onCopyLink?: () => void;
+  onOpenDevTools?: () => void;
   onOpenLink?: () => void;
   onReplaceMisspelling: (suggestion: string) => void;
-  onToggleDevTools?: () => void;
 }
 
 export function buildWebContentsContextMenuTemplate(
@@ -38,10 +37,10 @@ export function buildWebContentsContextMenuTemplate(
       click: options.onCopyLink,
     });
   }
-  if (options.onToggleDevTools) {
+  if (options.onOpenDevTools) {
     template.push({
-      label: options.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools",
-      click: options.onToggleDevTools,
+      label: "Open Developer Tools",
+      click: options.onOpenDevTools,
       ...(options.devToolsAccelerator ? { accelerator: options.devToolsAccelerator } : {}),
     });
   }
