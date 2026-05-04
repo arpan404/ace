@@ -43,6 +43,7 @@ import {
 import {
   BROWSER_NEW_TAB_URL,
   BrowserSessionStorageSchema,
+  type BrowserTabState,
   addBrowserTab,
   closeBrowserTab,
   createBrowserTabState,
@@ -154,6 +155,19 @@ function readBooleanArg(args: Record<string, unknown>, key: string): boolean | u
   return typeof value === "boolean" ? value : undefined;
 }
 
+function readBooleanArgAny(
+  args: Record<string, unknown>,
+  keys: ReadonlyArray<string>,
+): boolean | undefined {
+  for (const key of keys) {
+    const value = readBooleanArg(args, key);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function readNumberArg(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -178,6 +192,33 @@ function readTimeoutMs(args: Record<string, unknown>, fallbackMs = 5000): number
     return fallbackMs;
   }
   return Math.max(0, Math.min(timeoutMs, 30000));
+}
+
+function readBrowserBridgeTabIndexArg(
+  args: Record<string, unknown>,
+  tabCount: number,
+): number | null {
+  const zeroBasedIndex = readNumberArgAny(args, ["index", "tabIndex", "tab_index"]);
+  if (
+    zeroBasedIndex !== undefined &&
+    Number.isInteger(zeroBasedIndex) &&
+    zeroBasedIndex >= 0 &&
+    zeroBasedIndex < tabCount
+  ) {
+    return zeroBasedIndex;
+  }
+
+  const oneBasedIndex = readNumberArgAny(args, ["number", "position", "tabNumber", "tab_number"]);
+  if (
+    oneBasedIndex !== undefined &&
+    Number.isInteger(oneBasedIndex) &&
+    oneBasedIndex >= 1 &&
+    oneBasedIndex <= tabCount
+  ) {
+    return oneBasedIndex - 1;
+  }
+
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -384,6 +425,31 @@ export function shouldAutoFocusBrowserAddressBarOnOpen(options: {
   return options.activeTabIsNewTab && options.browserTabCount === 1;
 }
 
+export function shouldReuseInitialBlankBrowserTabForBridgeNavigation(options: {
+  activeTabIsNewTab: boolean;
+  browserTabCount: number;
+  forceNewTab?: boolean;
+  requestedUrlPresent: boolean;
+}): boolean {
+  return (
+    options.requestedUrlPresent &&
+    options.forceNewTab !== true &&
+    options.activeTabIsNewTab &&
+    options.browserTabCount === 1
+  );
+}
+
+export function resolveNextBrowserTabIndex(
+  currentIndex: number,
+  tabCount: number,
+  direction: -1 | 1,
+): number | null {
+  if (tabCount <= 0 || currentIndex < 0 || currentIndex >= tabCount) {
+    return null;
+  }
+  return (currentIndex + direction + tabCount) % tabCount;
+}
+
 export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion): string {
   return suggestion.kind === "search" ? suggestion.title : suggestion.url;
 }
@@ -548,11 +614,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         return;
       }
       const currentIndex = browserSession.tabs.findIndex((tab) => tab.id === activeTab.id);
-      if (currentIndex === -1) {
+      const nextIndex = resolveNextBrowserTabIndex(
+        currentIndex,
+        browserSession.tabs.length,
+        direction,
+      );
+      if (nextIndex === null) {
         return;
       }
-      const nextIndex =
-        (currentIndex + direction + browserSession.tabs.length) % browserSession.tabs.length;
       setActiveTabByIndex(nextIndex);
     },
     [activeTab, browserSession.tabs, setActiveTabByIndex],
@@ -833,6 +902,65 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     async (request: BrowserBridgeRequest): Promise<Record<string, unknown>> => {
       const args = request.args as Record<string, unknown>;
       const operation = request.operation;
+      const readBridgeTabSnapshot = (tab: BrowserTabState) => {
+        const handle = webviewHandlesRef.current.get(tab.id);
+        const snapshot = handle?.getSnapshot() ?? {
+          canGoBack: false,
+          canGoForward: false,
+          devToolsOpen: false,
+          loading: false,
+          title: tab.title,
+          url: tab.url,
+        };
+        return {
+          active: tab.id === browserSession.activeTabId,
+          id: tab.id,
+          ...snapshot,
+        };
+      };
+      const activateBridgeTab = (tab: BrowserTabState) => {
+        dismissAddressBarSuggestionOverlay();
+        updateBrowserSession((current) => setActiveBrowserTab(current, tab.id));
+        return {
+          ok: true,
+          tab: {
+            ...readBridgeTabSnapshot(tab),
+            active: true,
+          },
+        };
+      };
+      const replaceBridgeTabUrl = (
+        tab: BrowserTabState,
+        url: string,
+        options?: { activate?: boolean },
+      ) => {
+        dismissAddressBarSuggestionOverlay();
+        updateBrowserSession((current) => {
+          const nextState = updateBrowserTab(current, tab.id, { url });
+          return options?.activate === false ? nextState : setActiveBrowserTab(nextState, tab.id);
+        });
+        if (!isBrowserInternalTabUrl(tab.url)) {
+          webviewHandlesRef.current.get(tab.id)?.navigate(url);
+        }
+        return {
+          ok: true,
+          reusedInitialBlankTab: isBrowserNewTabUrl(tab.url),
+          tab: {
+            active: options?.activate !== false,
+            id: tab.id,
+            title: tab.title,
+            url,
+          },
+          url,
+        };
+      };
+      const shouldReuseActiveInitialBlankTabForUrl = (url: string) =>
+        shouldReuseInitialBlankBrowserTabForBridgeNavigation({
+          activeTabIsNewTab,
+          browserTabCount: browserSession.tabs.length,
+          forceNewTab: readBooleanArgAny(args, ["forceNewTab", "force_new_tab"]) === true,
+          requestedUrlPresent: url.trim().length > 0,
+        });
       switch (operation) {
         case "name_session": {
           browserSessionNameRef.current =
@@ -859,22 +987,44 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!tab) {
             throw new Error("Ace browser tab was not found.");
           }
-          const handle = webviewHandlesRef.current.get(tab.id);
-          const snapshot = handle?.getSnapshot() ?? {
-            canGoBack: false,
-            canGoForward: false,
-            devToolsOpen: false,
-            loading: false,
-            title: tab.title,
-            url: tab.url,
-          };
           return {
-            tab: {
-              active: tab.id === browserSession.activeTabId,
-              id: tab.id,
-              ...snapshot,
-            },
+            tab: readBridgeTabSnapshot(tab),
           };
+        }
+        case "select_tab":
+        case "switch_tab":
+        case "activate_tab": {
+          const requestedTabId = readStringArgAny(args, ["tabId", "tab_id", "id"]);
+          const requestedIndex = readBrowserBridgeTabIndexArg(args, browserSession.tabs.length);
+          const tab = requestedTabId
+            ? browserSession.tabs.find((item) => item.id === requestedTabId)
+            : requestedIndex !== null
+              ? browserSession.tabs[requestedIndex]
+              : null;
+          if (!tab) {
+            throw new Error("select_tab requires a valid tabId/tab_id/id, index, or tabNumber.");
+          }
+          return activateBridgeTab(tab);
+        }
+        case "next_tab":
+        case "select_next_tab":
+        case "previous_tab":
+        case "select_previous_tab": {
+          const direction =
+            operation === "previous_tab" || operation === "select_previous_tab" ? -1 : 1;
+          const currentIndex = browserSession.tabs.findIndex(
+            (tab) => tab.id === browserSession.activeTabId,
+          );
+          const nextIndex = resolveNextBrowserTabIndex(
+            currentIndex,
+            browserSession.tabs.length,
+            direction,
+          );
+          const tab = nextIndex === null ? null : browserSession.tabs[nextIndex];
+          if (!tab) {
+            throw new Error("No browser tab is available to select.");
+          }
+          return activateBridgeTab(tab);
         }
         case "create_tab":
         case "new_tab": {
@@ -884,6 +1034,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
             : BROWSER_NEW_TAB_URL;
           if (requestedUrl) {
             dismissAddressBarSuggestionOverlay();
+          }
+          if (requestedUrl && activeTab && shouldReuseActiveInitialBlankTabForUrl(requestedUrl)) {
+            return replaceBridgeTabUrl(activeTab, nextUrl);
           }
           const nextTab = createBrowserTabState(nextUrl);
           updateBrowserSession((current) => ({
@@ -918,10 +1071,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
             throw new Error("open_url requires a url argument.");
           }
           const newTab = readBooleanArg(args, "newTab");
+          const normalizedUrl = normalizeBrowserInput(url, browserSearchEngine);
+          if (activeTab && shouldReuseActiveInitialBlankTabForUrl(url)) {
+            return replaceBridgeTabUrl(activeTab, normalizedUrl);
+          }
           openUrl(url, newTab === undefined ? undefined : { newTab });
           return {
             ok: true,
-            url: normalizeBrowserInput(url, browserSearchEngine),
+            url: normalizedUrl,
           };
         }
         case "navigate_tab_url": {
@@ -933,6 +1090,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           const normalizedUrl = normalizeBrowserInput(url, browserSearchEngine);
           if (!targetTabId || targetTabId === browserSession.activeTabId) {
             const newTab = readBooleanArg(args, "newTab");
+            if (activeTab && shouldReuseActiveInitialBlankTabForUrl(url)) {
+              return replaceBridgeTabUrl(activeTab, normalizedUrl);
+            }
             openUrl(url, newTab === undefined ? undefined : { newTab });
             return { ok: true, url: normalizedUrl };
           }
