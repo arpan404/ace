@@ -130,8 +130,6 @@ export type BrowserShortcutAction =
   | "close-tab"
   | "devtools"
   | "designer-area-comment"
-  | "designer-cursor"
-  | "designer-draw-comment"
   | "designer-element-comment"
   | "duplicate-tab"
   | "focus-address-bar"
