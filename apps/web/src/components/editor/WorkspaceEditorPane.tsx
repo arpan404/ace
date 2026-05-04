@@ -1049,6 +1049,47 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           void runEditorAction(editor, "editor.action.selectHighlights");
         },
       );
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd |
+          monacoInstance.KeyMod.Alt |
+          monacoInstance.KeyCode.DownArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.insertCursorBelow");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.UpArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.insertCursorAbove");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.KeyI,
+        () => {
+          void runEditorAction(editor, "editor.action.insertCursorAtEndOfEachLineSelected");
+        },
+      );
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyU, () => {
+        void runEditorAction(editor, "cursorUndo");
+      });
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyK,
+        () => {
+          void runEditorAction(editor, "editor.action.deleteLines");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.DownArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.copyLinesDownAction");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.UpArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.copyLinesUpAction");
+        },
+      );
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.BracketRight, () => {
         void runEditorAction(editor, "editor.action.indentLines");
       });
@@ -1710,7 +1751,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-10 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/80 px-1.5 scrollbar-none",
+          "flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5 scrollbar-none",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1723,7 +1764,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden scrollbar-none"
+          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden scrollbar-none"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1737,10 +1778,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   type="button"
                   data-editor-tab="true"
                   className={cn(
-                    "group/tab relative flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] transition-colors",
+                    "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
                     isActive
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                      ? "border-border/70 bg-background text-foreground"
+                      : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground",
                   )}
                   draggable
                   onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
@@ -1775,9 +1816,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   }
                   title={filePath}
                 >
-                  {isActive ? (
-                    <div className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary/70" />
-                  ) : null}
                   <VscodeEntryIcon
                     pathValue={filePath}
                     kind="file"
@@ -1792,7 +1830,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   ) : null}
                   <span
                     className={cn(
-                      "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover/tab:opacity-100",
+                      "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
+                      isActive ? "opacity-100" : "group-hover/tab:opacity-100",
                       "hover:bg-background/70",
                       isDirty ? "hidden group-hover/tab:flex" : "",
                     )}

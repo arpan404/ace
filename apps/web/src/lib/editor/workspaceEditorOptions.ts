@@ -54,6 +54,8 @@ export function createWorkspaceEditorOptions(
     lineNumbers: editorSettings.lineNumbers,
     matchBrackets: "always" as const,
     minimap: { enabled: editorSettings.minimap },
+    multiCursorModifier: "alt",
+    multiCursorPaste: "spread" as const,
     mouseWheelZoom: true,
     occurrencesHighlight: "singleFile" as const,
     occurrencesHighlightDelay: 150,
