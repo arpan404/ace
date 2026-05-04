@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appendWorkspaceCodeContextToPrompt,
+  buildWorkspaceCodeCommentPrompt,
   buildWorkspaceSelectionContext,
   buildWorkspaceSelectionPrompt,
   countOpenWorkspaceCodeComments,
@@ -40,6 +42,35 @@ describe("workspaceDesigner", () => {
     expect(comment.relativePath).toBe("src/editor.ts");
     expect(comment.code).toContain("return value");
     expect(comment.status).toBe("open");
+  });
+
+  it("builds a sendable prompt from a code comment", () => {
+    const comment = createWorkspaceCodeComment({
+      body: "Explain whether this null-check should be inverted.",
+      code: "if (node === null) return;",
+      createdAt: "2026-05-04T12:00:00.000Z",
+      cwd: "/repo",
+      id: "comment-2",
+      range,
+    });
+
+    const prompt = buildWorkspaceCodeCommentPrompt(comment);
+    expect(prompt).toContain("Explain whether this null-check should be inverted.");
+    expect(prompt).toContain("<workspace_code_context>");
+    expect(prompt).toContain('"relativePath": "src/editor.ts"');
+    expect(prompt).toContain('"code": "if (node === null) return;"');
+  });
+
+  it("appends hidden workspace code context to plain prompts", () => {
+    const prompt = appendWorkspaceCodeContextToPrompt("Refactor this branch logic.", {
+      code: "if (flag) { return; }",
+      cwd: "/repo",
+      range,
+    });
+
+    expect(prompt).toContain("Refactor this branch logic.\n\n<workspace_code_context>");
+    expect(prompt).toContain('"cwd": "/repo"');
+    expect(prompt).toContain('"startLine": 9');
   });
 
   it("filters diagnostics into structured selection context", () => {

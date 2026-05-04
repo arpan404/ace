@@ -47,6 +47,12 @@ export interface WorkspaceSelectionContext {
   readonly text: string;
 }
 
+interface WorkspaceCodePromptContext {
+  readonly code: string;
+  readonly cwd: string;
+  readonly range: WorkspaceEditorLocation;
+}
+
 export function createWorkspaceDesignerState(): WorkspaceDesignerState {
   return {
     active: false,
@@ -144,6 +150,40 @@ export function createWorkspaceCodeComment(input: {
 
 export function formatWorkspaceCodeCommentTitle(comment: WorkspaceCodeComment): string {
   return formatWorkspaceRangeLabel(comment.range);
+}
+
+export function buildWorkspaceCodeCommentPrompt(comment: WorkspaceCodeComment): string {
+  return appendWorkspaceCodeContextToPrompt(comment.body, {
+    code: comment.code,
+    cwd: comment.cwd,
+    range: comment.range,
+  });
+}
+
+export function buildWorkspaceCodeContextBlock(context: WorkspaceCodePromptContext): string {
+  const compactContext = {
+    cwd: context.cwd,
+    relativePath: context.range.relativePath,
+    startLine: context.range.startLine,
+    startColumn: context.range.startColumn,
+    endLine: context.range.endLine,
+    endColumn: context.range.endColumn,
+    code: context.code,
+  };
+  return [
+    "<workspace_code_context>",
+    JSON.stringify(compactContext, null, 2),
+    "</workspace_code_context>",
+  ].join("\n");
+}
+
+export function appendWorkspaceCodeContextToPrompt(
+  prompt: string,
+  context: WorkspaceCodePromptContext,
+): string {
+  const trimmedPrompt = prompt.trim();
+  const contextBlock = buildWorkspaceCodeContextBlock(context);
+  return trimmedPrompt.length > 0 ? `${trimmedPrompt}\n\n${contextBlock}` : contextBlock;
 }
 
 export function updateWorkspaceCodeCommentStatus(

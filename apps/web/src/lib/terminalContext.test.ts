@@ -1,6 +1,7 @@
 import { ThreadId } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
+import { appendWorkspaceCodeContextToPrompt } from "./editor/workspaceDesigner";
 import {
   appendBrowserDesignContextToPrompt,
   appendTerminalContextsToPrompt,
@@ -230,6 +231,27 @@ describe("terminalContext", () => {
     });
     expect(deriveDisplayedUserMessageState(prompt)).toEqual({
       visibleText: "Tighten the hero spacing",
+      copyText: prompt,
+      contextCount: 0,
+      previewTitle: null,
+      contexts: [],
+    });
+  });
+
+  it("hides trailing workspace code context blocks from rendered user message text", () => {
+    const prompt = appendWorkspaceCodeContextToPrompt("Please simplify this condition.", {
+      code: "if ((a && b) || (a && c)) return true;",
+      cwd: "/repo",
+      range: {
+        relativePath: "src/logic.ts",
+        startLine: 12,
+        startColumn: 2,
+        endLine: 12,
+        endColumn: 40,
+      },
+    });
+    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
+      visibleText: "Please simplify this condition.",
       copyText: prompt,
       contextCount: 0,
       previewTitle: null,
