@@ -243,16 +243,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const browserToolbarRef = useRef<HTMLDivElement | null>(null);
   const designerToolMeasureRef = useRef<HTMLDivElement | null>(null);
   const designerToolSlotRef = useRef<HTMLDivElement | null>(null);
-  const designerToolListRef = useRef<HTMLDivElement | null>(null);
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
-  const [designerToolHighlightFrame, setDesignerToolHighlightFrame] = useState<{
-    height: number;
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
   const {
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
@@ -439,49 +432,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [selectDesignerTool],
   );
-  useLayoutEffect(() => {
-    const toolList = designerToolListRef.current;
-    const activeButton = designerToolButtonRefs.current.get(designerState.tool);
-    if (designerToolsCollapsed || !designerState.active || !toolList || !activeButton) {
-      setDesignerToolHighlightFrame(null);
-      return;
-    }
-    const syncHighlightFrame = () => {
-      const listRect = toolList.getBoundingClientRect();
-      const buttonRect = activeButton.getBoundingClientRect();
-      const nextFrame = {
-        height: Math.round(buttonRect.height),
-        left: Math.round(buttonRect.left - listRect.left),
-        top: Math.round(buttonRect.top - listRect.top),
-        width: Math.round(buttonRect.width),
-      };
-      setDesignerToolHighlightFrame((current) => {
-        if (
-          current?.height === nextFrame.height &&
-          current.left === nextFrame.left &&
-          current.top === nextFrame.top &&
-          current.width === nextFrame.width
-        ) {
-          return current;
-        }
-        return nextFrame;
-      });
-    };
-    syncHighlightFrame();
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncHighlightFrame();
-          })
-        : null;
-    resizeObserver?.observe(toolList);
-    resizeObserver?.observe(activeButton);
-    window.addEventListener("resize", syncHighlightFrame);
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", syncHighlightFrame);
-    };
-  }, [designerState.active, designerState.tool, designerToolsCollapsed]);
   useLayoutEffect(() => {
     if (!designerModeAvailable) {
       setDesignerToolsCollapsed(false);
@@ -933,22 +883,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     </MenuPopup>
                   </Menu>
                 ) : (
-                  <div
-                    ref={designerToolListRef}
-                    className="relative flex shrink-0 items-center gap-1"
-                  >
-                    <div
-                      className="pointer-events-none absolute z-0 h-0.5 rounded-full bg-foreground/72 transition-[top,left,width,opacity] duration-200 ease-out"
-                      style={
-                        designerToolHighlightFrame
-                          ? {
-                              left: `${designerToolHighlightFrame.left + 6}px`,
-                              top: `${designerToolHighlightFrame.top + designerToolHighlightFrame.height + 2}px`,
-                              width: `${Math.max(10, designerToolHighlightFrame.width - 12)}px`,
-                            }
-                          : { opacity: 0 }
-                      }
-                    />
+                  <div className="relative flex shrink-0 items-center gap-1">
                     {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
                       <Tooltip key={tool}>
                         <TooltipTrigger
@@ -960,8 +895,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               type="button"
                               className={cn(
                                 "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
-                                designerState.tool === tool
-                                  ? "border-foreground/18 bg-background text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.62)]"
+                                designerState.tool === tool && designerState.active
+                                  ? "border-primary/30 bg-primary/[0.12] text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
                                   : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
                               )}
                               onPointerDown={(event) => {
