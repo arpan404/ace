@@ -56,6 +56,17 @@ describe("resolveBrowserShortcutAction", () => {
     ).toBe("designer-draw-comment");
   });
 
+  it("maps F12 to browser devtools", () => {
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          key: "F12",
+        }),
+        "linux",
+      ),
+    ).toBe("devtools");
+  });
+
   it("ignores unmodified keys", () => {
     expect(resolveBrowserShortcutAction(input({ key: "r" }), "darwin")).toBeNull();
   });
