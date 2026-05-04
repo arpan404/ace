@@ -136,6 +136,8 @@ const TRAILING_GITHUB_ISSUE_CONTEXT_BLOCK_PATTERN =
   /\n*<github_issue_context>\n([\s\S]*?)\n<\/github_issue_context>\s*$/;
 const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
   /\n*<browser_design_context>\n([\s\S]*?)\n<\/browser_design_context>\s*$/;
+const TRAILING_WORKSPACE_CODE_CONTEXT_BLOCK_PATTERN =
+  /\n*<workspace_code_context>\n([\s\S]*?)\n<\/workspace_code_context>\s*$/;
 
 export function isTerminalContextExpired(context: { text: string }): boolean {
   return !hasTerminalContextText(context);
@@ -301,15 +303,29 @@ function stripTrailingBrowserDesignContexts(prompt: string): string {
   }
 }
 
+function stripTrailingWorkspaceCodeContexts(prompt: string): string {
+  let promptText = prompt;
+  while (true) {
+    const match = TRAILING_WORKSPACE_CODE_CONTEXT_BLOCK_PATTERN.exec(promptText);
+    if (!match) {
+      return promptText;
+    }
+    promptText = promptText.slice(0, match.index).replace(/\n+$/, "");
+  }
+}
+
 function stripTrailingHiddenContextBlocks(prompt: string): string {
   let promptText = prompt;
   while (true) {
     const withoutIssueContexts = stripTrailingGitHubIssueContexts(promptText);
     const withoutBrowserDesignContexts = stripTrailingBrowserDesignContexts(withoutIssueContexts);
-    if (withoutBrowserDesignContexts === promptText) {
+    const withoutWorkspaceCodeContexts = stripTrailingWorkspaceCodeContexts(
+      withoutBrowserDesignContexts,
+    );
+    if (withoutWorkspaceCodeContexts === promptText) {
       return promptText;
     }
-    promptText = withoutBrowserDesignContexts;
+    promptText = withoutWorkspaceCodeContexts;
   }
 }
 

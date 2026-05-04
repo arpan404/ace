@@ -5867,6 +5867,39 @@ export default function ChatView({
       setThreadError,
     ],
   );
+  const submitWorkspaceAgentNote = useCallback(
+    async (input: { mode: "queue" | "send"; prompt: string }) => {
+      const trimmedPrompt = input.prompt.trim();
+      if (trimmedPrompt.length === 0) {
+        return false;
+      }
+      if (input.mode === "queue") {
+        return queuePreparedMessage(trimmedPrompt);
+      }
+      if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
+        return false;
+      }
+      return dispatchComposerMessage({
+        prompt: trimmedPrompt,
+        images: [],
+        terminalContexts: [],
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      });
+    },
+    [
+      dispatchComposerMessage,
+      interactionMode,
+      isConnecting,
+      isSendBusy,
+      liveTurnInProgress,
+      queuePreparedMessage,
+      runtimeMode,
+      selectedModelSelection,
+    ],
+  );
+
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
@@ -7386,6 +7419,7 @@ export default function ChatView({
                     threadId={activeThread.id}
                     worktreePath={activeThread.worktreePath ?? null}
                     onDetached={() => onWorkspaceModeChange("chat")}
+                    onSubmitAgentNote={submitWorkspaceAgentNote}
                   />
                 </Suspense>
               </div>
@@ -7559,6 +7593,7 @@ export default function ChatView({
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}
                           onDetached={() => onWorkspaceModeChange("chat")}
+                          onSubmitAgentNote={submitWorkspaceAgentNote}
                         />
                       </Suspense>
                     </div>
@@ -7674,6 +7709,7 @@ export default function ChatView({
                               threadId={activeThread.id}
                               worktreePath={activeThread.worktreePath ?? null}
                               onDetached={onCloseRightSidePanelEditor}
+                              onSubmitAgentNote={submitWorkspaceAgentNote}
                             />
                           </Suspense>
                         ) : null}

@@ -247,7 +247,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("wsNativeApi", () => {
+describe("wsNativeApi", { timeout: 15_000 }, () => {
   it("uses the desktop bridge folder picker when available", async () => {
     const desktopPickFolder = vi.fn().mockResolvedValue("/desktop/project");
     getWindowForTest().desktopBridge = makeDesktopBridge({

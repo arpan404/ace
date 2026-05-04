@@ -156,7 +156,7 @@ function RightSidePanelAddTabMenu(props: {
         <TooltipTrigger
           render={
             <MenuTrigger
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label="Open side panel tab"
             />
           }
@@ -249,7 +249,7 @@ export function RightSidePanelTabStrip(props: {
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
-      "group/tab inline-flex h-9 min-w-max shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-medium transition-colors",
+      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
       active
         ? "bg-accent text-foreground"
         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -460,7 +460,7 @@ export function RightSidePanelTabStrip(props: {
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
+                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
                   props.floatingChatOpen
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -485,7 +485,7 @@ export function RightSidePanelTabStrip(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={
                 props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"
               }
@@ -508,7 +508,8 @@ export function RightSidePanelTabStrip(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-pressed="true"
               aria-label={panelToggleTooltipLabel}
               onClick={props.onTogglePanelVisibility}
             />

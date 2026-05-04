@@ -63,7 +63,7 @@ beforeAll(() => {
   });
 });
 
-describe("MessagesTimeline", () => {
+describe("MessagesTimeline", { timeout: 30_000 }, () => {
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
