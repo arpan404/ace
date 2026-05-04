@@ -67,6 +67,7 @@ import {
 } from "~/lib/editor/workspaceEntrySearch";
 import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import {
+  buildWorkspaceCodeCommentPrompt,
   countOpenWorkspaceCodeComments,
   formatWorkspaceCodeCommentTitle,
   type WorkspaceCodeComment,
@@ -350,6 +351,11 @@ interface QueuedWorkspaceContext {
   readonly prompt: string;
 }
 
+interface WorkspaceAgentNoteSubmission {
+  readonly mode: "queue" | "send";
+  readonly prompt: string;
+}
+
 function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number {
   if (left.kind !== right.kind) {
     return left.kind === "directory" ? -1 : 1;
@@ -614,6 +620,20 @@ function symbolKindIcon(kind: string): ReactNode {
   }
 }
 
+function buildCombinedAgentNotesPrompt(
+  contexts: readonly QueuedWorkspaceContext[],
+  comments: readonly WorkspaceCodeComment[],
+): string {
+  const sections: string[] = [];
+  for (const entry of contexts) {
+    sections.push(entry.prompt.trim());
+  }
+  for (const comment of comments) {
+    sections.push(buildWorkspaceCodeCommentPrompt(comment));
+  }
+  return sections.join("\n\n");
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -871,6 +891,7 @@ function ThreadWorkspaceEditor(inputProps: {
   threadId: ThreadId;
   worktreePath?: string | null;
   workspaceMode?: ThreadWorkspaceMode | undefined;
+  onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
   const editorStateScopeId = useMemo(
     () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
@@ -939,6 +960,7 @@ function ThreadWorkspaceEditor(inputProps: {
   const [queuedWorkspaceContexts, setQueuedWorkspaceContexts] = useState<
     readonly QueuedWorkspaceContext[]
   >([]);
+  const [agentNoteSubmissionBusy, setAgentNoteSubmissionBusy] = useState(false);
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1573,6 +1595,10 @@ function ThreadWorkspaceEditor(inputProps: {
     () => countOpenWorkspaceCodeComments(codeComments),
     [codeComments],
   );
+  const unresolvedCodeComments = useMemo(
+    () => codeComments.filter((comment) => comment.status !== "resolved"),
+    [codeComments],
+  );
   const queueWorkspaceSelectionContext = useCallback(
     (context: WorkspaceSelectionContext, prompt: string) => {
       const id =
@@ -1736,6 +1762,122 @@ function ThreadWorkspaceEditor(inputProps: {
     },
     [addCodeComment, props.threadId, setExplorerOpen],
   );
+  const submitAgentNotePrompt = useCallback(
+    async (submission: WorkspaceAgentNoteSubmission) => {
+      if (!inputProps.onSubmitAgentNote || agentNoteSubmissionBusy) {
+        return false;
+      }
+      const trimmedPrompt = submission.prompt.trim();
+      if (trimmedPrompt.length === 0) {
+        return false;
+      }
+      setAgentNoteSubmissionBusy(true);
+      try {
+        const sent = await inputProps.onSubmitAgentNote({
+          ...submission,
+          prompt: trimmedPrompt,
+        });
+        return sent;
+      } finally {
+        setAgentNoteSubmissionBusy(false);
+      }
+    },
+    [agentNoteSubmissionBusy, inputProps],
+  );
+  const handleAddAndSendCodeComment = useCallback(
+    async (comment: WorkspaceCodeComment) => {
+      addCodeComment(props.threadId, comment);
+      setSidebarMode("notes");
+      setExplorerOpen(props.threadId, true);
+      const sent = await submitAgentNotePrompt({
+        mode: "send",
+        prompt: buildWorkspaceCodeCommentPrompt(comment),
+      });
+      if (!sent) {
+        toastManager.add({
+          description: "Saved to Agent Notes. You can send it from there.",
+          title: "Comment queued",
+          type: "info",
+        });
+        return false;
+      }
+      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+      toastManager.add({
+        description: formatWorkspaceCodeCommentTitle(comment),
+        title: "Code comment sent",
+        type: "success",
+      });
+      return true;
+    },
+    [
+      addCodeComment,
+      props.threadId,
+      setExplorerOpen,
+      submitAgentNotePrompt,
+      updateCodeCommentStatus,
+    ],
+  );
+  const handleSendQueuedContext = useCallback(
+    async (entry: QueuedWorkspaceContext) => {
+      const sent = await submitAgentNotePrompt({ mode: "send", prompt: entry.prompt });
+      if (!sent) {
+        return;
+      }
+      setQueuedWorkspaceContexts((current) => current.filter((item) => item.id !== entry.id));
+      toastManager.add({
+        description: `${entry.context.relativePath}:${entry.context.range.startLine + 1}-${entry.context.range.endLine + 1}`,
+        title: "Selection context sent",
+        type: "success",
+      });
+    },
+    [submitAgentNotePrompt],
+  );
+  const handleSendCodeComment = useCallback(
+    async (comment: WorkspaceCodeComment) => {
+      const sent = await submitAgentNotePrompt({
+        mode: "send",
+        prompt: buildWorkspaceCodeCommentPrompt(comment),
+      });
+      if (!sent) {
+        return;
+      }
+      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+      toastManager.add({
+        description: formatWorkspaceCodeCommentTitle(comment),
+        title: "Code comment sent",
+        type: "success",
+      });
+    },
+    [props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
+  );
+  const handleSendAllAgentNotes = useCallback(async () => {
+    if (queuedWorkspaceContexts.length === 0 && unresolvedCodeComments.length === 0) {
+      return;
+    }
+    const combinedPrompt = buildCombinedAgentNotesPrompt(
+      queuedWorkspaceContexts,
+      unresolvedCodeComments,
+    );
+    const sent = await submitAgentNotePrompt({ mode: "send", prompt: combinedPrompt });
+    if (!sent) {
+      return;
+    }
+    setQueuedWorkspaceContexts([]);
+    for (const comment of unresolvedCodeComments) {
+      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+    }
+    toastManager.add({
+      description: `Sent ${queuedWorkspaceContexts.length + unresolvedCodeComments.length} note${queuedWorkspaceContexts.length + unresolvedCodeComments.length === 1 ? "" : "s"} to the agent.`,
+      title: "Agent notes sent",
+      type: "success",
+    });
+  }, [
+    props.threadId,
+    queuedWorkspaceContexts,
+    submitAgentNotePrompt,
+    unresolvedCodeComments,
+    updateCodeCommentStatus,
+  ]);
 
   useEffect(() => {
     if (!activePane?.activeFilePath) {
@@ -3242,6 +3384,19 @@ function ThreadWorkspaceEditor(inputProps: {
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
                       Agent Notes
                     </span>
+                    {inputProps.onSubmitAgentNote &&
+                    (queuedWorkspaceContexts.length > 0 || unresolvedCodeComments.length > 0) ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          void handleSendAllAgentNotes();
+                        }}
+                        disabled={agentNoteSubmissionBusy}
+                      >
+                        {agentNoteSubmissionBusy ? "Sending..." : "Send all"}
+                      </button>
+                    ) : null}
                     <span className="text-[10px] text-muted-foreground/76">
                       {openCodeCommentCount + queuedWorkspaceContexts.length}
                     </span>
@@ -3268,68 +3423,101 @@ function ThreadWorkspaceEditor(inputProps: {
                               <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[10px] text-muted-foreground">
                                 {entry.prompt}
                               </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1">
+                                {inputProps.onSubmitAgentNote ? (
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                    onClick={() => {
+                                      void handleSendQueuedContext(entry);
+                                    }}
+                                    disabled={agentNoteSubmissionBusy}
+                                  >
+                                    Send
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  onClick={() =>
+                                    setQueuedWorkspaceContexts((current) =>
+                                      current.filter((item) => item.id !== entry.id),
+                                    )
+                                  }
+                                  disabled={agentNoteSubmissionBusy}
+                                >
+                                  Dismiss
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
                       ))}
-                      {codeComments
-                        .filter((comment) => comment.status !== "resolved")
-                        .map((comment) => (
-                          <div
-                            key={comment.id}
-                            className="overflow-hidden rounded-xl border border-border/60 bg-background/72"
-                          >
-                            <div className="flex items-start gap-2 border-l-2 border-primary/60 p-2">
-                              <ClipboardListIcon className="mt-0.5 size-3.5 text-primary/80" />
-                              <div className="min-w-0 flex-1">
+                      {unresolvedCodeComments.map((comment) => (
+                        <div
+                          key={comment.id}
+                          className="overflow-hidden rounded-xl border border-border/60 bg-background/72"
+                        >
+                          <div className="flex items-start gap-2 border-l-2 border-primary/60 p-2">
+                            <ClipboardListIcon className="mt-0.5 size-3.5 text-primary/80" />
+                            <div className="min-w-0 flex-1">
+                              <button
+                                type="button"
+                                className="block max-w-full truncate text-left text-[11px] font-semibold text-foreground hover:underline"
+                                onClick={() => handleOpenFile(comment.relativePath, false)}
+                              >
+                                {formatWorkspaceCodeCommentTitle(comment)}
+                              </button>
+                              <pre className="mt-1 max-h-20 overflow-hidden rounded-sm border border-border/55 bg-foreground/4 p-1.5 font-mono text-[10px] leading-4 text-muted-foreground">
+                                {comment.code}
+                              </pre>
+                              <p className="mt-1 text-[11px] text-foreground/84">{comment.body}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1">
+                                {inputProps.onSubmitAgentNote ? (
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                    onClick={() => {
+                                      void handleSendCodeComment(comment);
+                                    }}
+                                    disabled={agentNoteSubmissionBusy}
+                                  >
+                                    Send
+                                  </button>
+                                ) : null}
                                 <button
                                   type="button"
-                                  className="block max-w-full truncate text-left text-[11px] font-semibold text-foreground hover:underline"
-                                  onClick={() => handleOpenFile(comment.relativePath, false)}
+                                  className="rounded-md bg-foreground/8 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80 hover:bg-foreground/12"
+                                  onClick={() =>
+                                    updateCodeCommentStatus(props.threadId, comment.id, "queued")
+                                  }
+                                  disabled={agentNoteSubmissionBusy || comment.status === "queued"}
                                 >
-                                  {formatWorkspaceCodeCommentTitle(comment)}
+                                  {comment.status === "queued" ? "Queued" : "Queue"}
                                 </button>
-                                <pre className="mt-1 max-h-20 overflow-hidden rounded-sm border border-border/55 bg-foreground/4 p-1.5 font-mono text-[10px] leading-4 text-muted-foreground">
-                                  {comment.code}
-                                </pre>
-                                <p className="mt-1 text-[11px] text-foreground/84">
-                                  {comment.body}
-                                </p>
-                                <div className="mt-2 flex gap-1">
-                                  <button
-                                    type="button"
-                                    className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/15"
-                                    onClick={() =>
-                                      updateCodeCommentStatus(props.threadId, comment.id, "queued")
-                                    }
-                                  >
-                                    Queue
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-md bg-foreground/8 px-1.5 py-0.5 text-[10px] hover:bg-foreground/12"
-                                    onClick={() =>
-                                      updateCodeCommentStatus(
-                                        props.threadId,
-                                        comment.id,
-                                        "resolved",
-                                      )
-                                    }
-                                  >
-                                    Resolve
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                                    onClick={() => removeCodeComment(props.threadId, comment.id)}
-                                  >
-                                    Dismiss
-                                  </button>
-                                </div>
+                                <button
+                                  type="button"
+                                  className="rounded-md bg-foreground/8 px-1.5 py-0.5 text-[10px] hover:bg-foreground/12"
+                                  onClick={() =>
+                                    updateCodeCommentStatus(props.threadId, comment.id, "resolved")
+                                  }
+                                  disabled={agentNoteSubmissionBusy}
+                                >
+                                  Resolve
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  onClick={() => removeCodeComment(props.threadId, comment.id)}
+                                  disabled={agentNoteSubmissionBusy}
+                                >
+                                  Dismiss
+                                </button>
                               </div>
                             </div>
                           </div>
-                        ))}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -3586,6 +3774,7 @@ function ThreadWorkspaceEditor(inputProps: {
                             editorOptions={editorOptions}
                             gitCwd={props.gitCwd}
                             onAddCodeComment={handleAddCodeComment}
+                            onAddCodeCommentAndSend={handleAddAndSendCodeComment}
                             onCloseFile={(paneId, filePath) =>
                               closeFile(props.threadId, filePath, paneId)
                             }
