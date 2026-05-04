@@ -3,6 +3,10 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizePaneRatios } from "./lib/paneRatios";
 import { resolveStorage } from "./lib/storage";
+import type {
+  WorkspaceCodeComment,
+  WorkspaceCodeCommentStatus,
+} from "./lib/editor/workspaceDesigner";
 
 export type EditorStateScopeId = string;
 
@@ -57,6 +61,7 @@ interface RowlessPersistedThreadEditorState {
 }
 
 interface RuntimeThreadEditorState {
+  codeComments: WorkspaceCodeComment[];
   draftsByFilePath: Record<string, EditorDraftState>;
   recentlyClosedEntries: RecentlyClosedEditorEntry[];
 }
@@ -69,6 +74,7 @@ interface PersistedEditorStoreSnapshot {
 }
 
 interface EditorStoreState {
+  addCodeComment: (threadId: EditorStateScopeId, comment: WorkspaceCodeComment) => void;
   closeFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeFilesToRight: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeOtherFiles: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
@@ -89,6 +95,7 @@ interface EditorStoreState {
   ) => void;
   openFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   removeEntry: (threadId: EditorStateScopeId, relativePath: string) => void;
+  removeCodeComment: (threadId: EditorStateScopeId, commentId: string) => void;
   renameEntry: (threadId: EditorStateScopeId, previousPath: string, nextPath: string) => void;
   reopenClosedFile: (threadId: EditorStateScopeId, paneId?: string) => string | null;
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
@@ -105,10 +112,16 @@ interface EditorStoreState {
   syncTree: (threadId: EditorStateScopeId, validPaths: readonly string[]) => void;
   threadStateByThreadId: Record<string, PersistedThreadEditorState>;
   toggleDirectory: (threadId: EditorStateScopeId, directoryPath: string) => void;
+  updateCodeCommentStatus: (
+    threadId: EditorStateScopeId,
+    commentId: string,
+    status: WorkspaceCodeCommentStatus,
+  ) => void;
   updateDraft: (threadId: EditorStateScopeId, filePath: string, draftContents: string) => void;
 }
 
 export interface ThreadEditorState extends PersistedThreadEditorState {
+  codeComments: WorkspaceCodeComment[];
   draftsByFilePath: Record<string, EditorDraftState>;
 }
 
@@ -298,6 +311,7 @@ function createDefaultThreadEditorState(): PersistedThreadEditorState {
 
 function createDefaultRuntimeThreadEditorState(): RuntimeThreadEditorState {
   return {
+    codeComments: [],
     draftsByFilePath: {},
     recentlyClosedEntries: [],
   };
@@ -638,6 +652,7 @@ export function selectThreadEditorState(
   const runtimeThreadState = runtimeThreadStateInput ?? DEFAULT_RUNTIME_THREAD_EDITOR_STATE;
   const editorState = {
     ...persistedThreadState,
+    codeComments: runtimeThreadState.codeComments,
     draftsByFilePath: runtimeThreadState.draftsByFilePath,
   };
   threadEditorStateCache.set(threadId, {
@@ -651,6 +666,27 @@ export function selectThreadEditorState(
 export const useEditorStateStore = create<EditorStoreState>()(
   persist(
     (set, get) => ({
+      addCodeComment: (threadId, comment) =>
+        set((state) => {
+          const runtime = getRuntimeThreadState(state.runtimeStateByThreadId, threadId);
+          const existingIndex = runtime.codeComments.findIndex((entry) => entry.id === comment.id);
+          const nextCodeComments =
+            existingIndex >= 0
+              ? runtime.codeComments.map((entry, index) =>
+                  index === existingIndex ? comment : entry,
+                )
+              : [...runtime.codeComments, comment];
+          return {
+            ...state,
+            runtimeStateByThreadId: {
+              ...state.runtimeStateByThreadId,
+              [threadId]: {
+                ...runtime,
+                codeComments: nextCodeComments,
+              },
+            },
+          };
+        }),
       closeFile: (threadId, filePath, paneId) =>
         set((state) => {
           const normalizedPath = filePath.trim();
@@ -1099,11 +1135,15 @@ export const useEditorStateStore = create<EditorStoreState>()(
           const nextRecentlyClosedEntries = runtime.recentlyClosedEntries.filter(
             (entry) => !isPathWithinPrefix(entry.filePath, normalizedPath),
           );
+          const nextCodeComments = runtime.codeComments.filter(
+            (comment) => !isPathWithinPrefix(comment.relativePath, normalizedPath),
+          );
 
           if (
             threadStatesEqual(current, nextThreadState) &&
             draftMapsEqual(runtime.draftsByFilePath, nextDraftsByFilePath) &&
-            recentlyClosedEntriesEqual(runtime.recentlyClosedEntries, nextRecentlyClosedEntries)
+            recentlyClosedEntriesEqual(runtime.recentlyClosedEntries, nextRecentlyClosedEntries) &&
+            nextCodeComments.length === runtime.codeComments.length
           ) {
             return state;
           }
@@ -1114,8 +1154,29 @@ export const useEditorStateStore = create<EditorStoreState>()(
               ...state.runtimeStateByThreadId,
               [threadId]: {
                 ...runtime,
+                codeComments: nextCodeComments,
                 draftsByFilePath: nextDraftsByFilePath,
                 recentlyClosedEntries: nextRecentlyClosedEntries,
+              },
+            },
+          };
+        }),
+      removeCodeComment: (threadId, commentId) =>
+        set((state) => {
+          const runtime = getRuntimeThreadState(state.runtimeStateByThreadId, threadId);
+          const nextCodeComments = runtime.codeComments.filter(
+            (comment) => comment.id !== commentId,
+          );
+          if (nextCodeComments.length === runtime.codeComments.length) {
+            return state;
+          }
+          return {
+            ...state,
+            runtimeStateByThreadId: {
+              ...state.runtimeStateByThreadId,
+              [threadId]: {
+                ...runtime,
+                codeComments: nextCodeComments,
               },
             },
           };
@@ -1172,11 +1233,32 @@ export const useEditorStateStore = create<EditorStoreState>()(
               replacePathPrefix(entry.filePath, normalizedPreviousPath, normalizedNextPath) ??
               entry.filePath,
           }));
+          let codeCommentsChanged = false;
+          const nextCodeComments = runtime.codeComments.map((comment) => {
+            const nextRelativePath = replacePathPrefix(
+              comment.relativePath,
+              normalizedPreviousPath,
+              normalizedNextPath,
+            );
+            if (!nextRelativePath) {
+              return comment;
+            }
+            codeCommentsChanged = true;
+            return {
+              ...comment,
+              range: {
+                ...comment.range,
+                relativePath: nextRelativePath,
+              },
+              relativePath: nextRelativePath,
+            };
+          });
 
           if (
             threadStatesEqual(current, nextThreadState) &&
             draftMapsEqual(runtime.draftsByFilePath, nextDraftsByFilePath) &&
-            recentlyClosedEntriesEqual(runtime.recentlyClosedEntries, nextRecentlyClosedEntries)
+            recentlyClosedEntriesEqual(runtime.recentlyClosedEntries, nextRecentlyClosedEntries) &&
+            !codeCommentsChanged
           ) {
             return state;
           }
@@ -1187,6 +1269,7 @@ export const useEditorStateStore = create<EditorStoreState>()(
               ...state.runtimeStateByThreadId,
               [threadId]: {
                 ...runtime,
+                codeComments: nextCodeComments,
                 draftsByFilePath: nextDraftsByFilePath,
                 recentlyClosedEntries: nextRecentlyClosedEntries,
               },
@@ -1433,10 +1516,14 @@ export const useEditorStateStore = create<EditorStoreState>()(
           const nextRecentlyClosedEntries = runtime.recentlyClosedEntries.filter((entry) =>
             validPathSet.has(entry.filePath),
           );
+          const nextCodeComments = runtime.codeComments.filter((comment) =>
+            validPathSet.has(comment.relativePath),
+          );
           if (
             threadStatesEqual(current, nextThreadState) &&
             draftMapsEqual(runtime.draftsByFilePath, nextDraftsByFilePath) &&
-            recentlyClosedEntriesEqual(runtime.recentlyClosedEntries, nextRecentlyClosedEntries)
+            recentlyClosedEntriesEqual(runtime.recentlyClosedEntries, nextRecentlyClosedEntries) &&
+            nextCodeComments.length === runtime.codeComments.length
           ) {
             return state;
           }
@@ -1447,6 +1534,7 @@ export const useEditorStateStore = create<EditorStoreState>()(
               ...state.runtimeStateByThreadId,
               [threadId]: {
                 ...runtime,
+                codeComments: nextCodeComments,
                 draftsByFilePath: nextDraftsByFilePath,
                 recentlyClosedEntries: nextRecentlyClosedEntries,
               },
@@ -1464,6 +1552,31 @@ export const useEditorStateStore = create<EditorStoreState>()(
               ? current.expandedDirectoryPaths.filter((path) => path !== directoryPath)
               : [...current.expandedDirectoryPaths, directoryPath],
           });
+        }),
+      updateCodeCommentStatus: (threadId, commentId, status) =>
+        set((state) => {
+          const runtime = getRuntimeThreadState(state.runtimeStateByThreadId, threadId);
+          let changed = false;
+          const nextCodeComments = runtime.codeComments.map((comment) => {
+            if (comment.id !== commentId || comment.status === status) {
+              return comment;
+            }
+            changed = true;
+            return { ...comment, status };
+          });
+          if (!changed) {
+            return state;
+          }
+          return {
+            ...state,
+            runtimeStateByThreadId: {
+              ...state.runtimeStateByThreadId,
+              [threadId]: {
+                ...runtime,
+                codeComments: nextCodeComments,
+              },
+            },
+          };
         }),
       updateDraft: (threadId, filePath, draftContents) =>
         set((state) => {
