@@ -2882,7 +2882,15 @@ export function BrowserTabWebview(props: {
                 height: `${activeOverlaySelection.height}px`,
               }}
             >
-              <div className="absolute inset-0 rounded-[3px] border-2 border-sky-500 bg-sky-500/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_0_5px_rgba(14,165,233,0.22)]" />
+              <div className="absolute inset-0 rounded-[2px] outline outline-1 -outline-offset-1 outline-black/28" />
+              <span className="absolute -left-0.5 -top-0.5 size-4 border-l-2 border-t-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
+              <span className="absolute -left-0.5 -top-0.5 size-4 border-l border-t border-black/82" />
+              <span className="absolute -right-0.5 -top-0.5 size-4 border-r-2 border-t-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
+              <span className="absolute -right-0.5 -top-0.5 size-4 border-r border-t border-black/82" />
+              <span className="absolute -bottom-0.5 -left-0.5 size-4 border-b-2 border-l-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
+              <span className="absolute -bottom-0.5 -left-0.5 size-4 border-b border-l border-black/82" />
+              <span className="absolute -bottom-0.5 -right-0.5 size-4 border-b-2 border-r-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
+              <span className="absolute -bottom-0.5 -right-0.5 size-4 border-b border-r border-black/82" />
             </div>
           )}
           {designDraft && designRequestPanelStyle && (

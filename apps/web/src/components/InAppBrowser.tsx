@@ -938,14 +938,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     className="relative flex shrink-0 items-center gap-1"
                   >
                     <div
-                      className="pointer-events-none absolute z-0 rounded-md bg-primary/14 transition-[top,left,width,height,opacity] duration-200 ease-out"
+                      className="pointer-events-none absolute z-0 h-0.5 rounded-full bg-foreground/72 transition-[top,left,width,opacity] duration-200 ease-out"
                       style={
                         designerToolHighlightFrame
                           ? {
-                              height: `${designerToolHighlightFrame.height}px`,
-                              left: `${designerToolHighlightFrame.left}px`,
-                              top: `${designerToolHighlightFrame.top}px`,
-                              width: `${designerToolHighlightFrame.width}px`,
+                              left: `${designerToolHighlightFrame.left + 6}px`,
+                              top: `${designerToolHighlightFrame.top + designerToolHighlightFrame.height + 2}px`,
+                              width: `${Math.max(10, designerToolHighlightFrame.width - 12)}px`,
                             }
                           : { opacity: 0 }
                       }
@@ -960,10 +959,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               }}
                               type="button"
                               className={cn(
-                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color] duration-150",
+                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
                                 designerState.tool === tool
-                                  ? "border-primary/40 text-primary"
-                                  : "border-border/60 bg-background/90 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                                  ? "border-foreground/18 bg-background text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.62)]"
+                                  : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
                               )}
                               onPointerDown={(event) => {
                                 handleDesignerToolPointerDown(event, tool);
