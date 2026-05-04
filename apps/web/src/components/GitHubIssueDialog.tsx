@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import {
   CheckIcon,
+  ChevronDownIcon,
   CircleDotIcon,
   CircleXIcon,
   ExternalLinkIcon,
@@ -29,6 +30,7 @@ import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { Spinner } from "./ui/spinner";
 
@@ -73,6 +75,7 @@ export interface GitHubIssueDialogProps {
     prompt: string;
     images: ComposerImageAttachment[];
   }) => void | Promise<void>;
+  onFixIssuesInParallelWorktrees: (issueNumbers: ReadonlyArray<number>) => void | Promise<void>;
 }
 
 export function GitHubIssueDialog({
@@ -82,6 +85,7 @@ export function GitHubIssueDialog({
   initialSelectedIssueNumbers = [],
   onOpenChange,
   onFixIssue,
+  onFixIssuesInParallelWorktrees,
 }: GitHubIssueDialogProps) {
   const queryClient = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -89,19 +93,22 @@ export function GitHubIssueDialog({
   const [debouncedSearch, searchDebouncer] = useDebouncedValue(search, { wait: 320 }, (state) => ({
     isPending: state.isPending,
   }));
-  const [isSolving, setIsSolving] = useState(false);
+  const [solveAction, setSolveAction] = useState<"current-thread" | "parallel-worktrees" | null>(
+    null,
+  );
   const [focusedIssueNumber, setFocusedIssueNumber] = useState<number | null>(null);
   const [selectedIssueNumbers, setSelectedIssueNumbers] = useState<number[]>([]);
   const [stateFilter, setStateFilter] = useState<GitHubIssueListStateFilter>("open");
   const [issueLimit, setIssueLimit] = useState<(typeof ISSUE_LIMIT_OPTIONS)[number]>(40);
   const [labelFilters, setLabelFilters] = useState<string[]>([]);
+  const isSolving = solveAction !== null;
 
   useEffect(() => {
     if (!open) {
       return;
     }
     setSearch(initialIssueNumber !== null ? `#${initialIssueNumber}` : "");
-    setIsSolving(false);
+    setSolveAction(null);
     setStateFilter(initialIssueNumber !== null ? "all" : "open");
     setIssueLimit(40);
     setLabelFilters([]);
@@ -199,22 +206,39 @@ export function GitHubIssueDialog({
     );
   }, []);
 
-  const handleSolveSelectedIssues = useCallback(async () => {
-    if (!cwd || isSolving || selectedIssueNumbersForSolve.length === 0) {
-      return;
-    }
-    setIsSolving(true);
-    try {
-      const payload = await buildGitHubIssueSelectionPayload({
-        cwd,
-        issueNumbers: selectedIssueNumbersForSolve,
-        queryClient,
-      });
-      await onFixIssue({ prompt: payload.prompt, images: payload.images });
-    } finally {
-      setIsSolving(false);
-    }
-  }, [cwd, isSolving, onFixIssue, queryClient, selectedIssueNumbersForSolve]);
+  const handleSolveSelectedIssues = useCallback(
+    async (action: "current-thread" | "parallel-worktrees") => {
+      if (isSolving || selectedIssueNumbersForSolve.length === 0) {
+        return;
+      }
+      setSolveAction(action);
+      try {
+        if (action === "parallel-worktrees") {
+          await onFixIssuesInParallelWorktrees(selectedIssueNumbersForSolve);
+          return;
+        }
+        if (!cwd) {
+          return;
+        }
+        const payload = await buildGitHubIssueSelectionPayload({
+          cwd,
+          issueNumbers: selectedIssueNumbersForSolve,
+          queryClient,
+        });
+        await onFixIssue({ prompt: payload.prompt, images: payload.images });
+      } finally {
+        setSolveAction(null);
+      }
+    },
+    [
+      cwd,
+      isSolving,
+      onFixIssue,
+      onFixIssuesInParallelWorktrees,
+      queryClient,
+      selectedIssueNumbersForSolve,
+    ],
+  );
 
   const errorMessage =
     issuesQuery.isError && issuesQuery.error instanceof Error
@@ -238,21 +262,27 @@ export function GitHubIssueDialog({
     >
       <DialogPopup
         showCloseButton={false}
-        className="flex h-[min(42rem,92vh)] min-h-[24rem] max-w-[min(72rem,calc(100vw-1rem))] gap-0 overflow-hidden p-0"
+        className="flex h-[min(42rem,92vh)] min-h-[24rem] max-w-[min(72rem,calc(100vw-1rem))] gap-0 overflow-hidden border-border/65 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_97%,transparent),color-mix(in_srgb,var(--background)_94%,transparent))] p-0 shadow-[0_24px_72px_color-mix(in_srgb,var(--foreground)_10%,transparent)] supports-[backdrop-filter]:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))]"
       >
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(15rem,40%)_minmax(0,1fr)] overflow-hidden md:grid-cols-[minmax(15rem,28%)_minmax(0,1fr)] md:grid-rows-none">
           {/* ── Left sidebar: issue list ── */}
-          <div className="flex min-h-0 flex-col border-b border-border/60 bg-muted/10 dark:bg-muted/5 md:border-e md:border-b-0">
-            <div className="shrink-0 border-b border-border/60 px-3.5 py-3 sm:px-4">
-              <DialogHeader className="gap-0.5 p-0 text-start">
+          <div className="flex min-h-0 flex-col border-b border-border/55 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--muted)_24%,transparent),color-mix(in_srgb,var(--background)_92%,transparent))] md:border-e md:border-b-0">
+            <div className="shrink-0 border-b border-border/55 px-3.5 py-3 sm:px-4">
+              <DialogHeader className="gap-1 p-0 text-start">
+                <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
+                  Repository Context
+                </span>
                 <DialogTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
                   <GitHubIcon className="size-4 opacity-80" />
                   GitHub Issues
                 </DialogTitle>
+                <p className="text-[11px] text-muted-foreground/72">
+                  Select issues, inspect context, then dispatch work.
+                </p>
               </DialogHeader>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-3 pb-2 pt-2 sm:px-3.5">
+            <div className="flex min-h-0 flex-1 flex-col gap-2 px-3 pb-2.5 pt-2.5 sm:px-3.5">
               {/* Search */}
               <label className="relative block shrink-0">
                 <SearchIcon
@@ -265,7 +295,7 @@ export function GitHubIssueDialog({
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   className={cn(
-                    "h-8 rounded-[var(--control-radius)] border-border/55 bg-card/72 ps-8 text-xs shadow-none",
+                    "h-8 rounded-[var(--control-radius)] border-border/60 bg-[color-mix(in_srgb,var(--card)_74%,transparent)] ps-8 text-xs shadow-none",
                     "placeholder:text-muted-foreground/50",
                     "focus-visible:border-ring/50 focus-visible:ring-2 focus-visible:ring-ring/15",
                   )}
@@ -345,7 +375,7 @@ export function GitHubIssueDialog({
               </div>
 
               {/* Status bar */}
-              <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+              <div className="flex shrink-0 items-center gap-1.5 border-b border-border/40 pb-2 text-[10px] text-muted-foreground">
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 font-medium tabular-nums",
@@ -413,7 +443,7 @@ export function GitHubIssueDialog({
 
               {/* Issue list */}
               <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-                <div role="listbox" aria-label="Issues">
+                <div role="listbox" aria-label="Issues" className="pb-1">
                   {issuesQuery.isPending && issues.length === 0 ? (
                     <GitHubIssueListSkeleton count={ISSUE_SKELETON_KEYS.length} />
                   ) : issues.length === 0 ? (
@@ -433,10 +463,10 @@ export function GitHubIssueDialog({
                             role="option"
                             aria-selected={active}
                             className={cn(
-                              "group flex items-start gap-2 rounded-[var(--control-radius)] border border-transparent px-2 py-2 transition-colors",
-                              "hover:border-border/35 hover:bg-muted/30 dark:hover:border-border/25 dark:hover:bg-muted/15",
+                              "group flex items-start gap-2 rounded-[calc(var(--control-radius)+1px)] border border-transparent px-2 py-2.5 transition-colors",
+                              "hover:border-border/45 hover:bg-[color-mix(in_srgb,var(--muted)_28%,transparent)] dark:hover:border-border/30 dark:hover:bg-muted/15",
                               active &&
-                                "border-border/50 bg-muted/34  dark:border-border/40 dark:bg-muted/20",
+                                "border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--muted)_36%,transparent),color-mix(in_srgb,var(--background)_92%,transparent))] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:border-border/45 dark:bg-muted/20",
                             )}
                           >
                             <Checkbox
@@ -497,11 +527,14 @@ export function GitHubIssueDialog({
           </div>
 
           {/* ── Right panel: issue detail ── */}
-          <div className="flex min-h-0 min-w-0 flex-col bg-popover md:bg-popover">
+          <div className="flex min-h-0 min-w-0 flex-col bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_86%,var(--card)),color-mix(in_srgb,var(--background)_94%,transparent))]">
             {focusedIssue ? (
               <>
                 {/* Issue header */}
-                <div className="shrink-0 border-b border-border/50 px-4 py-3 sm:px-6 sm:py-4">
+                <div className="shrink-0 border-b border-border/55 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--foreground)_2.5%,transparent),transparent)] px-4 py-3 sm:px-6 sm:py-4">
+                  <span className="mb-2 inline-flex text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
+                    Issue Details
+                  </span>
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="min-w-0 flex-1 text-base font-semibold leading-snug tracking-tight text-foreground">
                       <span className="font-mono text-sm font-normal text-muted-foreground/70 tabular-nums">
@@ -528,8 +561,8 @@ export function GitHubIssueDialog({
                     >
                       {focusedIssue.state}
                     </Badge>
-                    <span>
-                      Opened by{" "}
+                    <span className="inline-flex items-center gap-1">
+                      <span>Opened by</span>
                       <span className="font-medium text-foreground/90">
                         {focusedIssue.author?.login ?? "unknown"}
                       </span>
@@ -562,7 +595,7 @@ export function GitHubIssueDialog({
                     ) : thread ? (
                       <div className="space-y-5">
                         {/* Description */}
-                        <div className="rounded-[var(--control-radius)] border border-border/40 bg-muted/10 px-4 py-3 dark:bg-muted/5">
+                        <div className="rounded-[calc(var(--control-radius)+1px)] border border-border/45 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--muted)_18%,transparent),color-mix(in_srgb,var(--background)_92%,transparent))] px-4 py-3 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_3%,transparent)] dark:bg-muted/5">
                           <IssueMarkdown
                             text={
                               thread.body?.trim().length ? thread.body : "No description provided."
@@ -584,7 +617,7 @@ export function GitHubIssueDialog({
                                     comment.url ??
                                     `${comment.createdAt}-${comment.author?.login ?? "unknown"}`
                                   }
-                                  className="rounded-[var(--control-radius)] border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
+                                  className="rounded-[calc(var(--control-radius)+1px)] border border-border/40 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_88%,transparent),color-mix(in_srgb,var(--background)_94%,transparent))] px-4 py-3 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_2.5%,transparent)] dark:bg-background/20"
                                 >
                                   <div className="mb-2 flex items-center gap-2 text-[11px]">
                                     <span className="font-semibold text-foreground/85">
@@ -631,7 +664,7 @@ export function GitHubIssueDialog({
             )}
 
             {/* Footer */}
-            <DialogFooter className="shrink-0 border-t border-border/50 bg-muted/10 px-4 py-2.5 dark:bg-muted/5 sm:px-6 sm:py-2.5">
+            <DialogFooter className="shrink-0 border-t border-border/55 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--muted)_20%,transparent),color-mix(in_srgb,var(--background)_96%,transparent))] px-4 py-2.5 dark:bg-muted/5 sm:px-6 sm:py-2.5">
               <span className="w-full text-center text-[11px] text-muted-foreground sm:me-auto sm:w-auto sm:text-left">
                 {selectedIssueNumbersForSolve.length > 1
                   ? `${selectedIssueNumbersForSolve.length} issues selected`
@@ -639,25 +672,52 @@ export function GitHubIssueDialog({
                     ? "1 issue selected"
                     : "Select an issue to solve"}
               </span>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                disabled={selectedIssueNumbersForSolve.length === 0 || isSolving}
-                className="w-full min-w-[7.5rem] text-xs sm:w-auto"
-                onClick={() => void handleSolveSelectedIssues()}
-              >
-                {isSolving ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Spinner className="size-3" />
-                    Solving…
-                  </span>
-                ) : selectedIssueNumbersForSolve.length > 1 ? (
-                  `Solve ${selectedIssueNumbersForSolve.length} issues`
-                ) : (
-                  "Solve issue"
-                )}
-              </Button>
+              <div className="flex w-full items-center justify-end sm:w-auto">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  disabled={selectedIssueNumbersForSolve.length === 0 || isSolving}
+                  className="h-9 min-w-0 flex-1 rounded-l-[var(--control-radius)] rounded-r-none border-r-0 px-4 text-xs sm:h-8 sm:min-w-[8.75rem] sm:flex-none"
+                  onClick={() => void handleSolveSelectedIssues("current-thread")}
+                >
+                  {isSolving ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Spinner className="size-3" />
+                      {solveAction === "parallel-worktrees" ? "Starting…" : "Solving…"}
+                    </span>
+                  ) : selectedIssueNumbersForSolve.length > 1 ? (
+                    `Solve ${selectedIssueNumbersForSolve.length} issues`
+                  ) : (
+                    "Solve issue"
+                  )}
+                </Button>
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-9 rounded-l-none rounded-r-[var(--control-radius)] border-l border-primary-foreground/16 px-2 sm:h-8"
+                        aria-label="Issue solve actions"
+                        disabled={selectedIssueNumbersForSolve.length === 0 || isSolving}
+                      />
+                    }
+                  >
+                    <ChevronDownIcon className="size-3.5" />
+                  </MenuTrigger>
+                  <MenuPopup align="end" side="top">
+                    <MenuItem
+                      disabled={selectedIssueNumbersForSolve.length === 0 || isSolving}
+                      onClick={() => void handleSolveSelectedIssues("parallel-worktrees")}
+                    >
+                      {selectedIssueNumbersForSolve.length > 1
+                        ? "Solve each issue in parallel worktrees"
+                        : "Solve in a new worktree thread"}
+                    </MenuItem>
+                  </MenuPopup>
+                </Menu>
+              </div>
             </DialogFooter>
           </div>
         </div>

@@ -46,21 +46,24 @@ export function normalizeGitHubIssueMarkdown(text: string): string {
 }
 
 /**
- * Formats an ISO date string into a human-readable relative time.
+ * Formats an ISO date string into a concise calendar label.
  */
 export function formatIssueRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const diffMs = Date.now() - then;
-  const days = Math.floor(diffMs / 86_400_000);
-  if (days < 1) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return new Date(iso).toLocaleDateString(undefined, {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return "";
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDay = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const dayDiff = Math.round((today.getTime() - targetDay.getTime()) / 86_400_000);
+
+  if (dayDiff === 0) return "Today";
+  if (dayDiff === 1) return "Yesterday";
+
+  return then.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    year: "numeric",
+    ...(then.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}),
   });
 }
 
