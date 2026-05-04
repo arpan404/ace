@@ -3199,16 +3199,52 @@ function ThreadWorkspaceEditor(inputProps: {
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
                       {sidebarMode === "outline" ? "Outline" : "Problems"}
                     </span>
-                    {sidebarMode === "problems" ? (
+                    {sidebarMode === "outline" ? (
+                      <span className="text-[10px] text-muted-foreground/76">
+                        {workspaceSymbols.length}
+                      </span>
+                    ) : sidebarMode === "problems" ? (
                       <span className="text-[10px] text-muted-foreground/76">
                         {workspaceProblems.length}
                       </span>
                     ) : null}
                   </div>
-                  {sidebarMode === "outline" ? (
+                  {sidebarMode === "outline" && workspaceSymbols.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
                       <ListTreeIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
-                      Document symbols will appear here as the LSP surface expands.
+                      No symbols detected in open editor files.
+                    </div>
+                  ) : sidebarMode === "outline" ? (
+                    <div className="py-1.5">
+                      {workspaceSymbols.map((report) => (
+                        <button
+                          key={`${report.paneId}:${report.relativePath}:${report.symbol.kind}:${report.symbol.startLineNumber}:${report.symbol.startColumn}:${report.symbol.name}`}
+                          type="button"
+                          className="group flex h-[28px] w-full items-center gap-2 border-l-2 border-transparent px-2.5 text-left text-[11px] transition-colors hover:border-primary/55 hover:bg-primary/7"
+                          onClick={() => handleOpenSymbol(report)}
+                        >
+                          <span
+                            className="flex min-w-0 flex-1 items-center gap-1.5"
+                            style={{ paddingLeft: `${Math.min(42, report.symbol.depth * 10)}px` }}
+                          >
+                            <CircleDotIcon className="size-3 shrink-0 text-muted-foreground/58 group-hover:text-primary" />
+                            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                              {report.symbol.name}
+                            </span>
+                          </span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase",
+                              symbolKindClass(report.symbol.kind),
+                            )}
+                          >
+                            {symbolKindLabel(report.symbol.kind)}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/72">
+                            {report.symbol.startLineNumber}
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   ) : workspaceProblems.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
