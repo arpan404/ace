@@ -150,6 +150,7 @@ const DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
+const BROWSER_DEVTOOLS_ACCELERATOR = "CmdOrCtrl+Shift+I";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
@@ -2578,6 +2579,7 @@ function getIconOption(): { icon: string } | Record<string, never> {
 }
 
 function attachWebContentsContextMenu(input: {
+  includeDevToolsAction?: boolean;
   targetContents: Electron.WebContents;
   window: BrowserWindow;
   onMenuShown?: () => void;
@@ -2594,6 +2596,19 @@ function attachWebContentsContextMenu(input: {
         misspelledWord: params.misspelledWord,
       },
       {
+        ...(input.includeDevToolsAction
+          ? {
+              devToolsAccelerator: BROWSER_DEVTOOLS_ACCELERATOR,
+              devToolsOpen: input.targetContents.isDevToolsOpened(),
+              onToggleDevTools: () => {
+                if (input.targetContents.isDevToolsOpened()) {
+                  input.targetContents.closeDevTools();
+                  return;
+                }
+                input.targetContents.openDevTools();
+              },
+            }
+          : {}),
         ...(linkUrl
           ? {
               onCopyLink: () => clipboard.writeText(linkUrl),
@@ -2739,6 +2754,7 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
       safelySendToWindow(window, BROWSER_SHORTCUT_ACTION_CHANNEL, action);
     });
     attachWebContentsContextMenu({
+      includeDevToolsAction: true,
       targetContents: guestContents,
       window,
       onMenuShown: () => {
