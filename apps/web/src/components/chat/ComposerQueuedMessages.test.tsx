@@ -6,7 +6,7 @@ import { appendBrowserDesignContextToPrompt } from "../../lib/terminalContext";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 
 describe("ComposerQueuedMessages", () => {
-  it("renders a queue action for the active steering row with edit/delete actions and icon-only attachments", () => {
+  it("renders a steering state for the active steering row with edit/delete actions and icon-only attachments", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages
         messages={[
@@ -27,8 +27,8 @@ describe("ComposerQueuedMessages", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Move steering message to queue"');
-    expect(markup).toContain(">Queue</button>");
+    expect(markup).toContain('aria-label="Steering message"');
+    expect(markup).toContain(">Steering</button>");
     expect(markup).not.toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
     expect(markup).toContain('aria-label="Delete queued message"');
@@ -64,7 +64,7 @@ describe("ComposerQueuedMessages", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Move steering message to queue"');
+    expect(markup).toContain('aria-label="Steering message"');
     expect(markup).not.toContain('aria-label="Steer queued message"');
     expect(markup).toContain("Keep this in the normal queue.");
   });

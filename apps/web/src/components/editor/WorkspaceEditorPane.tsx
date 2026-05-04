@@ -393,7 +393,9 @@ function createWorkspaceEditorPaneSymbol(input: {
   return symbol;
 }
 
-function extractWorkspaceEditorPaneSymbols(model: MonacoEditor.ITextModel): WorkspaceEditorPaneSymbol[] {
+function extractWorkspaceEditorPaneSymbols(
+  model: MonacoEditor.ITextModel,
+): WorkspaceEditorPaneSymbol[] {
   const symbols: WorkspaceEditorPaneSymbol[] = [];
   for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber += 1) {
     const line = model.getLineContent(lineNumber);
@@ -408,16 +410,46 @@ function extractWorkspaceEditorPaneSymbols(model: MonacoEditor.ITextModel): Work
       nameIndex: number;
       pattern: RegExp;
     }> = [
-      { kind: "function", nameIndex: 1, pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern:
+          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern:
+          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u,
+      },
       { kind: "function", nameIndex: 1, pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u,
+      },
       { kind: "class", nameIndex: 1, pattern: /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/u },
       { kind: "class", nameIndex: 1, pattern: /^\s*class\s+([A-Za-z_]\w*)\b/u },
-      { kind: "interface", nameIndex: 1, pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u },
+      {
+        kind: "interface",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u,
+      },
       { kind: "type", nameIndex: 1, pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/u },
       { kind: "type", nameIndex: 1, pattern: /^\s*type\s+([A-Za-z_]\w*)\b/u },
       { kind: "struct", nameIndex: 1, pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b/u },
@@ -425,7 +457,11 @@ function extractWorkspaceEditorPaneSymbols(model: MonacoEditor.ITextModel): Work
       { kind: "enum", nameIndex: 1, pattern: /^\s*(?:pub\s+)?enum\s+([A-Za-z_]\w*)\b/u },
       { kind: "trait", nameIndex: 1, pattern: /^\s*(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b/u },
       { kind: "impl", nameIndex: 1, pattern: /^\s*impl(?:<[^>]+>)?\s+([A-Za-z_][\w:]*)\b/u },
-      { kind: "variable", nameIndex: 1, pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u },
+      {
+        kind: "variable",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u,
+      },
       { kind: "variable", nameIndex: 1, pattern: /^\s*(?:const|var)\s+([A-Za-z_]\w*)\b/u },
     ];
 
@@ -435,16 +471,25 @@ function extractWorkspaceEditorPaneSymbols(model: MonacoEditor.ITextModel): Work
       if (!match || !name) {
         continue;
       }
-      symbols.push(
-        createWorkspaceEditorPaneSymbol({
-          detail: entry.detail?.(match),
-          kind: entry.kind,
-          line,
-          lineNumber,
-          matchIndex: match.index + match[0].indexOf(name),
-          name,
-        }),
-      );
+      const symbolInput: {
+        detail?: string;
+        kind: string;
+        line: string;
+        lineNumber: number;
+        matchIndex: number;
+        name: string;
+      } = {
+        kind: entry.kind,
+        line,
+        lineNumber,
+        matchIndex: match.index + match[0].indexOf(name),
+        name,
+      };
+      const detail = entry.detail?.(match);
+      if (detail) {
+        symbolInput.detail = detail;
+      }
+      symbols.push(createWorkspaceEditorPaneSymbol(symbolInput));
       break;
     }
   }
@@ -1665,7 +1710,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-9 shrink-0 items-center overflow-hidden border-b border-border/70 bg-card/86 shadow-[0_1px_0_hsl(var(--background)/0.78)] scrollbar-none",
+          "flex h-10 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/80 px-1.5 scrollbar-none",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1678,7 +1723,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden scrollbar-none"
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden scrollbar-none"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1692,10 +1737,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   type="button"
                   data-editor-tab="true"
                   className={cn(
-                    "group/tab relative flex h-9 shrink-0 items-center gap-1.5 border-r px-3 text-[12px] transition-colors",
+                    "group/tab relative flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] transition-colors",
                     isActive
-                      ? "border-border/70 bg-background text-foreground shadow-[inset_0_2px_0_hsl(var(--primary))]"
-                      : "border-border/60 bg-card/88 text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
                   )}
                   draggable
                   onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
@@ -1730,9 +1775,9 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   }
                   title={filePath}
                 >
-                  {isActive && (
-                    <div className={cn("absolute right-0 bottom-0 left-0 h-px", "bg-background")} />
-                  )}
+                  {isActive ? (
+                    <div className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary/70" />
+                  ) : null}
                   <VscodeEntryIcon
                     pathValue={filePath}
                     kind="file"
@@ -1747,8 +1792,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   ) : null}
                   <span
                     className={cn(
-                      "flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover/tab:opacity-100",
-                      "hover:bg-foreground/8",
+                      "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover/tab:opacity-100",
+                      "hover:bg-background/70",
                       isDirty ? "hidden group-hover/tab:flex" : "",
                     )}
                     onClick={(event) => {
@@ -1768,16 +1813,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
           ) : null}
         </div>
-        <div
-          className={cn("flex shrink-0 items-center gap-0.5 border-l px-1.5", "border-border/70")}
-        >
+        <div className={cn("flex shrink-0 items-center gap-0.5 border-l px-1", "border-border/70")}>
           {props.chromeActions ? (
             <div className="mr-1 flex shrink-0 items-center gap-0.5">{props.chromeActions}</div>
           ) : null}
           <Button
             variant="ghost"
             size="icon-xs"
-            className="size-6 rounded-sm text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+            className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
             onClick={() => props.onSplitPane(props.pane.id)}
             disabled={!props.canSplitPane}
             title="Split Editor Right"
@@ -1787,7 +1830,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className="size-6 rounded-sm text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+            className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
             onClick={() => props.onSplitPaneDown(props.pane.id)}
             disabled={!props.canSplitPane}
             title="Split Editor Down"
@@ -1798,7 +1841,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="size-6 rounded-sm text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+              className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
               onClick={() => props.onClosePane(props.pane.id)}
               title="Close Editor Group"
             >
@@ -1808,12 +1851,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </div>
       </div>
 
-      <div
-        className={cn(
-          "relative min-h-0 min-w-0 flex-1",
-          "bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.035),transparent_34rem),hsl(var(--background))]",
-        )}
-      >
+      <div className={cn("relative min-h-0 min-w-0 flex-1", "bg-background")}>
         {!props.pane.activeFilePath ? (
           <div className="flex h-full items-center justify-center">
             <div className="opacity-[0.03] pointer-events-none text-foreground flex items-center justify-center">
@@ -1959,14 +1997,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             />
             {activeSelection ? (
               <div
-                className="absolute z-20 w-[min(30rem,calc(100%-1rem))] overflow-hidden rounded-lg border border-primary/25 bg-popover/98 shadow-2xl shadow-black/12 backdrop-blur"
+                className="absolute z-20 w-[min(30rem,calc(100%-1rem))] overflow-hidden rounded-xl border border-border/70 bg-popover/96 shadow-xl shadow-black/10 backdrop-blur"
                 style={{
                   left: activeSelection.left,
                   top: activeSelection.top,
                 }}
               >
-                <div className="flex items-start gap-2 border-b border-border/60 bg-primary/7 px-2.5 py-2">
-                  <div className="flex size-6 shrink-0 items-center justify-center rounded-sm bg-primary/12 text-primary">
+                <div className="flex items-start gap-2 border-b border-border/60 bg-card/80 px-2.5 py-2">
+                  <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
                     <SparklesIcon className="size-3.5" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -1982,7 +2020,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   </div>
                   <button
                     type="button"
-                    className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-foreground/8 hover:text-foreground"
+                    className="rounded-lg px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={() => setActiveSelection(null)}
                     aria-label="Dismiss selection actions"
                   >
@@ -1992,7 +2030,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 <div className="grid grid-cols-2 gap-1.5 p-2">
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 rounded-sm border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-primary/30 hover:bg-primary/8"
+                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
                     onClick={() => handleQueueSelection("review")}
                   >
                     <BotIcon className="size-3.5 text-primary" />
@@ -2000,7 +2038,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   </button>
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 rounded-sm border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-primary/30 hover:bg-primary/8"
+                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
                     onClick={() => handleQueueSelection("ask")}
                   >
                     <MessageSquarePlusIcon className="size-3.5 text-primary" />
@@ -2008,7 +2046,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   </button>
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 rounded-sm border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-primary/30 hover:bg-primary/8"
+                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
                     onClick={() => handleQueueSelection("fix")}
                   >
                     <WrenchIcon className="size-3.5 text-amber-600" />
@@ -2016,7 +2054,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   </button>
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 rounded-sm border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-primary/30 hover:bg-primary/8"
+                    className="flex items-center gap-1.5 rounded-lg border border-border/55 bg-background/72 px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:border-border hover:bg-accent"
                     onClick={() => handleQueueSelection("explain")}
                   >
                     <SparklesIcon className="size-3.5 text-sky-600" />
@@ -2028,11 +2066,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
                     placeholder="Comment on this code range"
-                    className="h-7 min-w-0 flex-1 rounded-sm border border-border/65 bg-background/90 px-2 font-mono text-[11px] outline-none focus:border-primary/50"
+                    className="h-8 min-w-0 flex-1 rounded-lg border border-border/65 bg-background/90 px-2 font-mono text-[11px] outline-none focus:border-primary/50"
                   />
                   <button
                     type="button"
-                    className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-primary px-2 text-[11px] font-medium text-primary-foreground shadow-sm disabled:opacity-45"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-sm disabled:opacity-45"
                     disabled={commentDraft.trim().length === 0}
                     onClick={handleAddSelectionComment}
                   >
@@ -2047,10 +2085,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       </div>
 
       {!isPreviewMode && problemsOpen ? (
-        <section className={cn("shrink-0 border-t", "border-border/70 bg-card/78")}>
+        <section className={cn("shrink-0 border-t", "border-border bg-card/72")}>
           <header
             className={cn(
-              "flex h-7 items-center justify-between border-b bg-card/80 px-2.5 text-[11px] text-muted-foreground",
+              "flex h-8 items-center justify-between border-b bg-transparent px-3 text-[11px] text-muted-foreground",
               "border-border/70",
             )}
           >
@@ -2068,7 +2106,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     <button
                       key={`${problem.owner}:${problem.startLineNumber}:${problem.startColumn}:${problem.message}`}
                       type="button"
-                      className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-foreground/5"
+                      className="mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] hover:bg-accent"
                       onClick={() => handleProblemClick(problem)}
                     >
                       <span
@@ -2100,7 +2138,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </section>
       ) : null}
 
-      <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-card/88 px-2.5 text-[10.5px] text-muted-foreground shadow-[0_-1px_0_hsl(var(--background)/0.72)]">
+      <footer className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border bg-card/80 px-2.5 text-[10.5px] text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
           {props.pane.activeFilePath ? (
             <>
@@ -2108,23 +2146,23 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 {props.pane.activeFilePath}
               </span>
               {activeFileSizeBytes !== null ? (
-                <span className="shrink-0 rounded-sm bg-foreground/6 px-1.5 py-px text-foreground/72">
+                <span className="shrink-0 rounded-md bg-foreground/6 px-1.5 py-px text-foreground/72">
                   {formatFileSize(activeFileSizeBytes)}
                 </span>
               ) : null}
               {activeFileDirty ? (
-                <span className="shrink-0 rounded-sm bg-amber-500/12 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
+                <span className="shrink-0 rounded-md bg-amber-500/12 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
                   Modified
                 </span>
               ) : null}
               {activeFileCommentCount > 0 ? (
-                <span className="shrink-0 rounded-sm bg-primary/10 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-primary uppercase">
+                <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-primary uppercase">
                   {activeFileCommentCount} comments
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="rounded-sm bg-foreground/6 px-1.5 py-px text-foreground/72">
+            <span className="rounded-md bg-foreground/6 px-1.5 py-px text-foreground/72">
               Ready
             </span>
           )}
@@ -2147,19 +2185,19 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </span>
           ) : null}
           {props.pane.activeFilePath && !isPreviewMode ? (
-            <span className="rounded-sm bg-foreground/5 px-1.5 py-px text-foreground/65">
+            <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
               {cursorLabel}
             </span>
           ) : null}
           {activeMonacoLanguage && !isPreviewMode ? (
-            <span className="rounded-sm bg-foreground/5 px-1.5 py-px text-foreground/65">
+            <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
               {activeMonacoLanguage}
             </span>
           ) : null}
           {props.pane.activeFilePath && !isPreviewMode ? (
             <button
               type="button"
-              className="rounded-sm px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-foreground/8 hover:text-foreground"
+              className="rounded-md px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-accent hover:text-foreground"
               onClick={() => {
                 setProblemsOpen((open) => !open);
               }}
@@ -2175,7 +2213,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
               type="button"
-              className="rounded-sm px-1.5 py-px text-foreground/72 transition-[background-color,color] hover:bg-foreground/8 hover:text-foreground"
+              className="rounded-md px-1.5 py-px text-foreground/72 transition-[background-color,color] hover:bg-accent hover:text-foreground"
               onClick={() => props.onDiscardDraft(props.pane.activeFilePath!)}
             >
               Revert
@@ -2184,7 +2222,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
               type="button"
-              className="rounded-sm bg-foreground/10 px-1.5 py-px font-medium text-foreground transition-colors hover:bg-foreground/14"
+              className="rounded-md bg-foreground/10 px-1.5 py-px font-medium text-foreground transition-colors hover:bg-foreground/14"
               onClick={handleSave}
               disabled={props.savingFilePath === props.pane.activeFilePath}
             >
