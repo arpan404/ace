@@ -23,6 +23,7 @@ import {
   type BrowserDesignElementDescriptor,
   type BrowserDesignSelectionRect,
   type BrowserConsoleLogEntry,
+  type BrowserWebviewKeyboardInputEvent,
   type BrowserTabHandle,
   type BrowserTabSnapshotOptions,
   type BrowserTabSnapshot,
@@ -499,6 +500,95 @@ function waitForBrowserPointerFrame(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function normalizeBrowserInputKey(rawKey: string): {
+  keyCode: string;
+  modifiers: NonNullable<BrowserWebviewKeyboardInputEvent["modifiers"]>;
+} {
+  const modifierSet = new Set<NonNullable<BrowserWebviewKeyboardInputEvent["modifiers"]>[number]>();
+  const parts = rawKey
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const keyPart = parts.pop() ?? rawKey;
+  for (const part of parts) {
+    switch (part.toLowerCase()) {
+      case "alt":
+      case "option":
+        modifierSet.add("alt");
+        break;
+      case "cmd":
+      case "command":
+      case "meta":
+      case "super":
+      case "win":
+      case "windows":
+        modifierSet.add("meta");
+        break;
+      case "control":
+      case "ctrl":
+        modifierSet.add("control");
+        break;
+      case "ctrlorcmd":
+      case "ctrlormeta":
+      case "controlorcommand":
+      case "controlormeta":
+      case "mod":
+        modifierSet.add(isMacPlatform(navigator.platform) ? "meta" : "control");
+        break;
+      case "shift":
+        modifierSet.add("shift");
+        break;
+    }
+  }
+
+  const keyCodeByAlias: Record<string, string> = {
+    arrowdown: "Down",
+    arrowleft: "Left",
+    arrowright: "Right",
+    arrowup: "Up",
+    backspace: "Backspace",
+    delete: "Delete",
+    del: "Delete",
+    down: "Down",
+    end: "End",
+    enter: "Enter",
+    esc: "Escape",
+    escape: "Escape",
+    home: "Home",
+    insert: "Insert",
+    left: "Left",
+    pagedown: "PageDown",
+    pageup: "PageUp",
+    return: "Enter",
+    right: "Right",
+    space: "Space",
+    spacebar: "Space",
+    tab: "Tab",
+    up: "Up",
+  };
+  const normalizedKey = keyCodeByAlias[keyPart.toLowerCase()] ?? keyPart;
+  return {
+    keyCode: normalizedKey.length === 1 ? normalizedKey.toUpperCase() : normalizedKey,
+    modifiers: Array.from(modifierSet),
+  };
+}
+
+function sendBrowserKey(webview: BrowserWebview, rawKey: string): void {
+  if (!webview.sendInputEvent) {
+    throw new Error("The browser tab cannot receive native keyboard input.");
+  }
+  const { keyCode, modifiers } = normalizeBrowserInputKey(rawKey);
+  webview.focus?.();
+  const keyDownEvent: BrowserWebviewKeyboardInputEvent = { keyCode, type: "keyDown" };
+  const keyUpEvent: BrowserWebviewKeyboardInputEvent = { keyCode, type: "keyUp" };
+  if (modifiers.length > 0) {
+    keyDownEvent.modifiers = modifiers;
+    keyUpEvent.modifiers = modifiers;
+  }
+  webview.sendInputEvent(keyDownEvent);
+  webview.sendInputEvent(keyUpEvent);
 }
 
 function easeBrowserPointerMovement(progress: number): number {
@@ -1982,6 +2072,16 @@ export function BrowserTabWebview(props: {
         if (!readyRef.current || !webviewRef.current) return;
         webviewRef.current.reload();
       },
+      pressKeys: async (keys) => {
+        const webview = webviewRef.current;
+        if (!readyRef.current || !webview) {
+          throw new Error("The browser tab cannot receive keyboard input yet.");
+        }
+        for (const key of keys) {
+          sendBrowserKey(webview, key);
+          await waitForBrowserPointerFrame(12);
+        }
+      },
       setZoomFactor: (factor) => {
         if (!readyRef.current || !webviewRef.current) return;
         setWebviewZoomFactor(webviewRef.current, factor);
@@ -2861,11 +2961,11 @@ export function BrowserTabWebview(props: {
             }}
           >
             {agentPointer.pressed ? (
-              <span className="absolute -left-3 -top-3 size-7 rounded-full border border-sky-400/70 bg-sky-400/12 shadow-[0_0_18px_rgba(56,189,248,0.26)]" />
+              <span className="absolute -left-3 -top-3 size-7 rounded-full border border-primary/70 bg-primary/12 shadow-[0_0_18px_color-mix(in_srgb,var(--primary)_26%,transparent)]" />
             ) : null}
             {agentPointer.mode === "scroll" ? (
               <span
-                className="absolute left-5 top-4 flex size-8 items-center justify-center rounded-full border border-sky-400/35 bg-background/78 text-sky-300 shadow-lg shadow-black/10 backdrop-blur-md"
+                className="absolute left-5 top-4 flex size-8 items-center justify-center rounded-full border border-primary/35 bg-background/78 text-primary shadow-lg shadow-black/10 backdrop-blur-md"
                 style={{ transform: `rotate(${agentPointerScrollRotation}deg)` }}
                 aria-hidden="true"
               >
@@ -2876,7 +2976,7 @@ export function BrowserTabWebview(props: {
               </span>
             ) : null}
             <MousePointer2Icon
-              className="size-5 -translate-x-0.5 -translate-y-0.5 fill-background stroke-sky-300 drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]"
+              className="size-5 -translate-x-0.5 -translate-y-0.5 fill-background stroke-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]"
               strokeWidth={2.4}
               aria-hidden="true"
             />
