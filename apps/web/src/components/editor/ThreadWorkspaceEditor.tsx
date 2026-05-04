@@ -152,6 +152,7 @@ interface WorkspaceOutlineSymbolNode {
 interface WorkspaceOutlineFileGroup {
   readonly id: string;
   readonly relativePath: string;
+  readonly symbolCount: number;
   readonly symbols: readonly WorkspaceOutlineSymbolNode[];
 }
 
@@ -1102,38 +1103,28 @@ function ThreadWorkspaceEditor(inputProps: {
       );
       const normalizedBaseDepth = Number.isFinite(baseDepth) ? baseDepth : 0;
       const stack: number[] = [];
-      const nodes = reports.map<WorkspaceOutlineSymbolNode>((report, index) => {
+      const nodes: Array<{
+        depth: number;
+        hasChildren: boolean;
+        id: string;
+        report: WorkspaceSymbolReport;
+      }> = [];
+      for (const [index, report] of reports.entries()) {
         const depth = Math.max(0, report.symbol.depth - normalizedBaseDepth);
         while (stack.length > depth) {
           stack.pop();
         }
         const parentIndex = depth > 0 ? stack[depth - 1] : undefined;
-        stack[depth] = index;
-        stack.length = depth + 1;
-        return {
+        nodes.push({
           depth,
-          hasChildren: parentIndex === undefined ? false : false,
+          hasChildren: false,
           id: workspaceSymbolNodeId(report),
           report,
-        };
-      });
-
-      const mutableNodes = nodes.map((node) => ({ ...node }));
-      stack.length = 0;
-      for (let index = 0; index < reports.length; index += 1) {
-        const report = reports[index];
-        if (!report) {
-          continue;
-        }
-        const depth = Math.max(0, report.symbol.depth - normalizedBaseDepth);
-        while (stack.length > depth) {
-          stack.pop();
-        }
-        const parentIndex = depth > 0 ? stack[depth - 1] : undefined;
+        });
         if (parentIndex !== undefined) {
-          const parent = mutableNodes[parentIndex];
+          const parent = nodes[parentIndex];
           if (parent) {
-            mutableNodes[parentIndex] = { ...parent, hasChildren: true };
+            parent.hasChildren = true;
           }
         }
         stack[depth] = index;
@@ -1143,7 +1134,8 @@ function ThreadWorkspaceEditor(inputProps: {
       return {
         id: `file:${relativePath}`,
         relativePath,
-        symbols: mutableNodes,
+        symbolCount: nodes.length,
+        symbols: nodes,
       };
     });
   }, [workspaceSymbols]);
@@ -2647,6 +2639,15 @@ function ThreadWorkspaceEditor(inputProps: {
         return;
       }
 
+      if (command === "search.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSidebarMode("search");
+        setExplorerOpen(props.threadId, true);
+        window.setTimeout(() => treeSearchInputRef.current?.focus(), 0);
+        return;
+      }
+
       if (command === "editor.split") {
         event.preventDefault();
         event.stopPropagation();
@@ -3355,40 +3356,114 @@ function ThreadWorkspaceEditor(inputProps: {
                   </div>
                   {sidebarMode === "outline" && workspaceSymbols.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      <ListTreeIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      <div className="mx-auto mb-2 flex size-7 items-center justify-center rounded-md border border-border/70 bg-background/70">
+                        <ListTreeIcon className="size-4 text-muted-foreground/55" />
+                      </div>
                       No symbols detected in open editor files.
                     </div>
                   ) : sidebarMode === "outline" ? (
-                    <div className="py-1.5">
-                      {workspaceSymbols.map((report) => (
-                        <button
-                          key={`${report.paneId}:${report.relativePath}:${report.symbol.kind}:${report.symbol.startLineNumber}:${report.symbol.startColumn}:${report.symbol.name}`}
-                          type="button"
-                          className="group mx-1 flex h-7 w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2 text-left text-[11px] transition-colors hover:bg-accent"
-                          onClick={() => handleOpenSymbol(report)}
-                        >
-                          <span
-                            className="flex min-w-0 flex-1 items-center gap-1.5"
-                            style={{ paddingLeft: `${Math.min(42, report.symbol.depth * 10)}px` }}
-                          >
-                            {symbolKindIcon(report.symbol.kind)}
-                            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                              {report.symbol.name}
-                            </span>
-                          </span>
-                          <span
+                    <div className="space-y-1.5 p-1.5">
+                      {visibleOutlineGroups.map((group) => {
+                        const fileCollapsed = collapsedOutlineIds.has(group.id);
+                        const isActiveFile = activePane?.activeFilePath === group.relativePath;
+                        return (
+                          <div
+                            key={group.id}
                             className={cn(
-                              "shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase",
-                              symbolKindClass(report.symbol.kind),
+                              "overflow-hidden rounded-[8px] border border-border/65 bg-background/52",
+                              isActiveFile && "border-primary/35 bg-primary/[0.05]",
                             )}
                           >
-                            {symbolKindLabel(report.symbol.kind)}
-                          </span>
-                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/72">
-                            {report.symbol.startLineNumber}
-                          </span>
-                        </button>
-                      ))}
+                            <button
+                              type="button"
+                              className={cn(
+                                "flex h-8 w-full items-center gap-2 border-b border-transparent px-2 text-left text-[11px] text-muted-foreground/88 transition-colors hover:bg-accent/55 hover:text-foreground",
+                                !fileCollapsed && "border-border/65",
+                              )}
+                              onClick={() => toggleOutlineId(group.id)}
+                            >
+                              {fileCollapsed ? (
+                                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/72" />
+                              ) : (
+                                <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/72" />
+                              )}
+                              <VscodeEntryIcon
+                                pathValue={group.relativePath}
+                                kind="file"
+                                theme={resolvedTheme}
+                                className="size-3.5"
+                              />
+                              <span className="min-w-0 flex-1 truncate font-medium text-foreground/92">
+                                {group.relativePath}
+                              </span>
+                              <span className="rounded-md bg-foreground/8 px-1.5 py-px text-[9px] tabular-nums text-muted-foreground/84">
+                                {group.symbolCount}
+                              </span>
+                            </button>
+                            {fileCollapsed ? null : (
+                              <div className="py-1">
+                                {group.symbols.map((node) => {
+                                  const nodeCollapsed =
+                                    node.hasChildren && collapsedOutlineIds.has(node.id);
+                                  const isActiveSymbol = activeOutlineSymbolId === node.id;
+                                  return (
+                                    <button
+                                      key={node.id}
+                                      type="button"
+                                      className={cn(
+                                        "group mx-1 my-0.5 flex h-7 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-left text-[11px] transition-colors",
+                                        isActiveSymbol
+                                          ? "bg-accent text-foreground"
+                                          : "text-muted-foreground/90 hover:bg-accent/65 hover:text-foreground",
+                                      )}
+                                      onClick={() => {
+                                        if (node.hasChildren) {
+                                          toggleOutlineId(node.id);
+                                          return;
+                                        }
+                                        handleOpenSymbol(node.report);
+                                      }}
+                                      onDoubleClick={() => handleOpenSymbol(node.report)}
+                                    >
+                                      <span
+                                        className="flex min-w-0 flex-1 items-center gap-1.5"
+                                        style={{
+                                          paddingLeft: `${Math.min(54, node.depth * 12)}px`,
+                                        }}
+                                      >
+                                        {node.hasChildren ? (
+                                          nodeCollapsed ? (
+                                            <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/70" />
+                                          ) : (
+                                            <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/70" />
+                                          )
+                                        ) : (
+                                          <span className="size-3 shrink-0" aria-hidden="true" />
+                                        )}
+                                        {symbolKindIcon(node.report.symbol.kind)}
+                                        <span className="min-w-0 flex-1 truncate font-medium text-foreground/95">
+                                          {node.report.symbol.name}
+                                        </span>
+                                      </span>
+                                      <span
+                                        className={cn(
+                                          "shrink-0 rounded-md px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.01em]",
+                                          symbolKindClass(node.report.symbol.kind),
+                                        )}
+                                      >
+                                        {symbolKindLabel(node.report.symbol.kind)}
+                                      </span>
+                                      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/75">
+                                        {node.report.symbol.startLineNumber}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : workspaceProblems.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
