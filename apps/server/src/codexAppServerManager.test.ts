@@ -1432,6 +1432,55 @@ describe("collab child conversation routing", () => {
     );
   });
 
+  it("ignores unscoped terminal notifications while a parent turn is still active", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "turn/completed",
+      params: {
+        threadId: "provider_parent",
+        turn: { status: "completed" },
+      },
+    });
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "notification",
+        method: "turn/completed",
+        threadId: "thread_1",
+      }),
+    );
+    expect(updateSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps the live session running for unscoped errors during an active turn", () => {
+    const { manager, context, updateSession } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "error",
+      params: {
+        threadId: "provider_parent",
+        error: { message: "JSON-RPC bridge request failed" },
+      },
+    });
+
+    expect(updateSession).toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({
+        status: "running",
+        lastError: "JSON-RPC bridge request failed",
+      }),
+    );
+  });
+
   it("rewrites child approval requests onto the parent turn", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 
