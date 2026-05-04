@@ -795,7 +795,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
-  it("accepts turn completion without turnId for the active thread turn", async () => {
+  it("ignores turn completion without turnId while a turn is active", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -826,9 +826,31 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "running" &&
+        entry.session?.activeTurnId === "turn-no-turnid-complete",
+    );
+    expect(thread.session?.status).toBe("running");
+    expect(thread.session?.activeTurnId).toBe("turn-no-turnid-complete");
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-no-turnid-complete-matched"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-no-turnid-complete"),
+      payload: {
+        state: "completed",
+      },
+    });
+
     await waitForThread(
       harness.engine,
-      (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
+      (entry) => entry.session?.status === "ready" && entry.session?.activeTurnId === null,
     );
   });
 
@@ -3314,6 +3336,47 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime exploded");
+  });
+
+  it("keeps the session running when an unscoped runtime.error arrives during an active turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-runtime-error-active-turn-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-runtime-error-active"),
+      payload: {},
+    });
+
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-runtime-error-unscoped-active"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        message: "JSON-RPC bridge request failed",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "running" &&
+        entry.session?.activeTurnId === "turn-runtime-error-active" &&
+        entry.session?.lastError === "JSON-RPC bridge request failed" &&
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.id === "evt-runtime-error-unscoped-active" &&
+            activity.kind === "runtime.error",
+        ),
+    );
+    expect(thread.session?.status).toBe("running");
+    expect(thread.session?.activeTurnId).toBe("turn-runtime-error-active");
   });
 
   it("records runtime.error activities from the typed payload message", async () => {
