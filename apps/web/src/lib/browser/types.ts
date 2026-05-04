@@ -60,6 +60,21 @@ export type BrowserDesignSelectionRect = {
   height: number;
 };
 
+export type BrowserAgentPointerPoint = {
+  x: number;
+  y: number;
+};
+
+export type BrowserAgentPointerEffect = {
+  path?: BrowserAgentPointerPoint[];
+  scrollX?: number;
+  scrollY?: number;
+  targetRect?: BrowserDesignSelectionRect;
+  type: "click" | "double_click" | "drag" | "keypress" | "move" | "scroll" | "type";
+  x?: number;
+  y?: number;
+};
+
 export type BrowserDesignElementDescriptor = {
   tagName: string | null;
   id: string | null;
@@ -105,14 +120,32 @@ export type BrowserTabSnapshotOptions = {
   recordHistory?: boolean;
 };
 
+export type BrowserConsoleLogEntry = {
+  level: "debug" | "info" | "log" | "warn" | "error";
+  message: string;
+  timestamp: string;
+  url?: string;
+};
+
 export type BrowserTabHandle = {
+  animateAgentPointer: (effect: BrowserAgentPointerEffect) => Promise<void>;
+  captureVisiblePage: () => Promise<string>;
   closeDevTools: () => void;
+  executeJavaScript: <T = unknown>(code: string) => Promise<T>;
+  getZoomFactor: () => number;
+  getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
   goForward: () => void;
   isDevToolsOpen: () => boolean;
   navigate: (url: string) => void;
   openDevTools: () => void;
+  readConsoleLogs: (options?: {
+    filter?: string;
+    levels?: Array<BrowserConsoleLogEntry["level"] | "warning">;
+    limit?: number;
+  }) => BrowserConsoleLogEntry[];
   reload: () => void;
+  setZoomFactor: (factor: number) => void;
   stop: () => void;
   zoomIn: () => void;
   zoomOut: () => void;

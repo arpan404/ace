@@ -127,6 +127,11 @@ import {
 } from "./server";
 import { PickFolderOptions } from "./ipc";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+import {
+  BrowserBridgeRequest,
+  BrowserBridgeResolveInput,
+  BrowserBridgeResolveResult,
+} from "./browserBridge";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -193,10 +198,12 @@ export const WS_METHODS = {
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
   serverDisconnect: "server.disconnect",
+  browserBridgeResolve: "browserBridge.resolve",
 
   // Streaming subscriptions
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
   subscribeTerminalEvents: "subscribeTerminalEvents",
+  subscribeBrowserBridgeRequests: "subscribeBrowserBridgeRequests",
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
 } as const;
@@ -289,6 +296,11 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
 export const WsServerDisconnectRpc = Rpc.make(WS_METHODS.serverDisconnect, {
   payload: WsClientDisconnectInput,
   success: Schema.Struct({}),
+});
+
+export const WsBrowserBridgeResolveRpc = Rpc.make(WS_METHODS.browserBridgeResolve, {
+  payload: BrowserBridgeResolveInput,
+  success: BrowserBridgeResolveResult,
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -554,6 +566,15 @@ export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTermina
   stream: true,
 });
 
+export const WsSubscribeBrowserBridgeRequestsRpc = Rpc.make(
+  WS_METHODS.subscribeBrowserBridgeRequests,
+  {
+    payload: WsClientStreamIdentity,
+    success: BrowserBridgeRequest,
+    stream: true,
+  },
+);
+
 export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerConfig, {
   payload: WsClientStreamIdentity,
   success: ServerConfigStreamEvent,
@@ -582,6 +603,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsServerDisconnectRpc,
+  WsBrowserBridgeResolveRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsListTreeRpc,
   WsProjectsCreateEntryRpc,
@@ -620,6 +642,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalCloseRpc,
   WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
+  WsSubscribeBrowserBridgeRequestsRpc,
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
