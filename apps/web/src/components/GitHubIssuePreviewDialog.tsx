@@ -91,8 +91,8 @@ export function GitHubIssuePreviewDialog({
                   >
                     {displayIssue.state}
                   </Badge>
-                  <span>
-                    Opened by{" "}
+                  <span className="inline-flex items-center gap-1">
+                    <span>Opened by</span>
                     <span className="font-medium text-foreground/90">
                       {displayIssue.author?.login ?? "unknown"}
                     </span>

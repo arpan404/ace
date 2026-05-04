@@ -6786,6 +6786,189 @@ export default function ChatView({
       selectedModelSelection,
     ],
   );
+  const onFixGitHubIssuesInParallelWorktrees = useEffectEvent(
+    async (issueNumbers: ReadonlyArray<number>) => {
+      const api = readNativeApi();
+      if (!api || !activeThread || !activeProject) {
+        return;
+      }
+      if (issueNumbers.length === 0) {
+        return;
+      }
+      if (!gitCwd || !isGitRepo) {
+        toastManager.add({
+          type: "error",
+          title: "GitHub issues are unavailable",
+          description: "Open a Git repository to solve issues in parallel worktrees.",
+        });
+        return;
+      }
+      if (!activeThread.branch) {
+        toastManager.add({
+          type: "warning",
+          title: "Select a base branch first",
+          description: "Parallel worktrees need a base branch to branch from.",
+        });
+        return;
+      }
+
+      const setupScript = setupProjectScript(activeProject.scripts);
+      const startedIssueNumbers: number[] = [];
+      const failureMessages: string[] = [];
+
+      for (const issueNumber of issueNumbers) {
+        const nextThreadId = newThreadId();
+        let threadCreated = false;
+
+        try {
+          const payload = await buildGitHubIssueSelectionPayload({
+            cwd: gitCwd,
+            issueNumbers: [issueNumber],
+            queryClient,
+          });
+          const issueThread = payload.threads[0];
+          if (!issueThread) {
+            throw new Error(`Issue #${issueNumber} did not return thread details.`);
+          }
+
+          const createdAt = new Date().toISOString();
+          const issueTitle = truncate(`#${issueThread.number} ${issueThread.title}`);
+          const providerModels = getProviderModels(
+            providerStatuses,
+            selectedModelSelection.provider,
+          );
+          const outgoingIssuePrompt = formatOutgoingPrompt({
+            provider: selectedModelSelection.provider,
+            model: selectedModelSelection.model,
+            models: providerModels,
+            effort: readCurrentSelectedPromptEffort(),
+            text: payload.prompt,
+          });
+          const turnAttachments = await Promise.all(
+            payload.images.map(async (image) => ({
+              type: "image" as const,
+              name: image.name,
+              mimeType: image.mimeType,
+              sizeBytes: image.sizeBytes,
+              dataUrl: await readFileAsDataUrl(image.file),
+            })),
+          );
+          const worktreeResult = await createWorktreeMutation.mutateAsync({
+            cwd: activeProject.cwd,
+            branch: activeThread.branch,
+            newBranch: buildTemporaryWorktreeBranchName(),
+          });
+
+          await api.orchestration.dispatchCommand({
+            type: "thread.create",
+            commandId: newCommandId(),
+            threadId: nextThreadId,
+            projectId: activeProject.id,
+            title: issueTitle,
+            modelSelection: selectedModelSelection,
+            runtimeMode,
+            interactionMode,
+            branch: worktreeResult.worktree.branch,
+            worktreePath: worktreeResult.worktree.path,
+            createdAt,
+          });
+          threadCreated = true;
+
+          if (setupScript) {
+            await runProjectScript(setupScript, {
+              cwd: worktreeResult.worktree.path,
+              worktreePath: worktreeResult.worktree.path,
+              rememberAsLastInvoked: false,
+            });
+          }
+
+          await api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: nextThreadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: outgoingIssuePrompt,
+              attachments: turnAttachments,
+            },
+            modelSelection: selectedModelSelection,
+            titleSeed: issueTitle,
+            runtimeMode,
+            interactionMode,
+            createdAt,
+          });
+
+          try {
+            const readModelThread = await hydrateThreadFromCache(nextThreadId, {
+              expectedUpdatedAt: null,
+            });
+            startTransition(() => {
+              hydrateThreadFromReadModel(readModelThread);
+            });
+          } catch (error) {
+            reportBackgroundError("Failed to hydrate issue worktree thread.", error);
+          }
+
+          startedIssueNumbers.push(issueNumber);
+        } catch (error) {
+          if (threadCreated) {
+            await api.orchestration
+              .dispatchCommand({
+                type: "thread.delete",
+                commandId: newCommandId(),
+                threadId: nextThreadId,
+              })
+              .catch((cleanupError: unknown) => {
+                reportBackgroundError(
+                  "Failed to clean up issue worktree thread after startup failure.",
+                  cleanupError,
+                );
+              });
+          }
+          failureMessages.push(
+            error instanceof Error
+              ? `#${issueNumber}: ${error.message}`
+              : `#${issueNumber}: Failed to start.`,
+          );
+        }
+      }
+
+      if (startedIssueNumbers.length > 0) {
+        closeGitHubIssueDialog();
+      }
+
+      if (startedIssueNumbers.length > 0 && failureMessages.length === 0) {
+        toastManager.add({
+          type: "success",
+          title:
+            startedIssueNumbers.length === 1
+              ? `Started issue #${startedIssueNumbers[0]} in a worktree`
+              : `Started ${startedIssueNumbers.length} issue threads in parallel`,
+          description:
+            startedIssueNumbers.length === 1
+              ? "The agent is now working in a dedicated worktree thread."
+              : "Each selected issue is running in its own dedicated worktree thread.",
+        });
+        return;
+      }
+
+      if (startedIssueNumbers.length > 0) {
+        toastManager.add({
+          type: "warning",
+          title: `Started ${startedIssueNumbers.length} of ${issueNumbers.length} issue threads`,
+          description: failureMessages[0] ?? "Some issue threads could not be started.",
+        });
+        return;
+      }
+
+      toastManager.add({
+        type: "error",
+        title: "Could not start issue worktree threads",
+        description: failureMessages[0] ?? "Please try again.",
+      });
+    },
+  );
 
   if (!activeThread) {
     return <NewThreadLanding />;
@@ -6937,6 +7120,7 @@ export default function ChatView({
           }
         },
         onFixIssue: onFixGitHubIssue,
+        onFixIssuesInParallelWorktrees: onFixGitHubIssuesInParallelWorktrees,
       }
     : null;
   const pullRequestDialogProps = pullRequestDialogState
