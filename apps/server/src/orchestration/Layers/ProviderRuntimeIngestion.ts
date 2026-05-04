@@ -2582,10 +2582,11 @@ const make = Effect.fn("make")(function* () {
               return false;
             }
             // Some providers emit turn completion scoped to the thread but omit
-            // turnId. When we already track an active turn for this thread, treat
-            // this as completion of that active turn so lifecycle state can close.
+            // turnId. Do not let those unscoped terminal events close a known
+            // active turn: recoverable JSON-RPC/tool errors can emit unscoped
+            // lifecycle noise while the agent continues working.
             if (missingTurnForActiveTurn) {
-              return true;
+              return false;
             }
             // Only the active turn may close the lifecycle state.
             if (activeTurnId !== null && eventTurnId !== undefined) {
@@ -3044,18 +3045,19 @@ const make = Effect.fn("make")(function* () {
           : activeTurnId === null || eventTurnId === undefined || sameId(activeTurnId, eventTurnId);
 
         if (shouldApplyRuntimeError) {
+          const isUnscopedActiveTurnError = activeTurnId !== null && eventTurnId === undefined;
           yield* orchestrationEngine.dispatch({
             type: "thread.session.set",
             commandId: providerCommandId(event, "runtime-error-session-set"),
             threadId: thread.id,
             session: {
               threadId: thread.id,
-              status: "error",
+              status: isUnscopedActiveTurnError ? "running" : "error",
               providerName: event.provider,
               capabilities: yield* resolveSessionCapabilities(event.provider),
               commands: thread.session?.commands ?? [],
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
-              activeTurnId: eventTurnId ?? null,
+              activeTurnId: eventTurnId ?? activeTurnId,
               lastError: runtimeErrorMessage,
               updatedAt: now,
             },
