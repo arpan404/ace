@@ -228,27 +228,85 @@ const CODEX_BROWSER_BRIDGE_TOOL_NAME = "ace_browser";
 const CODEX_BROWSER_BRIDGE_TOOL_NAMES = new Set(["ace browser", "ace_browser"]);
 const CODEX_BROWSER_BRIDGE_OPERATIONS: readonly BrowserBridgeOperation[] = [
   "open_url",
+  "navigate_tab_url",
   "list_tabs",
   "selected_tab",
+  "get_tab",
+  "create_tab",
+  "new_tab",
+  "close_tab",
   "dom_snapshot",
+  "playwright_dom_snapshot",
+  "dom_cua_get_visible_dom",
   "screenshot",
+  "playwright_screenshot",
+  "cua_get_visible_screenshot",
   "click",
+  "cua_click",
+  "cua_double_click",
+  "cua_drag",
+  "cua_keypress",
+  "cua_move",
+  "cua_scroll",
+  "cua_type",
+  "dom_cua_click",
+  "dom_cua_double_click",
+  "dom_cua_keypress",
+  "dom_cua_scroll",
+  "dom_cua_type",
   "fill",
+  "playwright_locator_click",
+  "playwright_locator_count",
+  "playwright_locator_dblclick",
+  "playwright_locator_fill",
+  "playwright_locator_get_attribute",
+  "playwright_locator_inner_text",
+  "playwright_locator_is_enabled",
+  "playwright_locator_is_visible",
+  "playwright_locator_press",
+  "playwright_locator_select_option",
+  "playwright_locator_set_checked",
+  "playwright_locator_text_content",
+  "playwright_locator_wait_for",
+  "playwright_wait_for_load_state",
+  "playwright_wait_for_timeout",
+  "playwright_wait_for_url",
+  "tab_clipboard_read_text",
+  "tab_clipboard_write_text",
+  "tab_dev_logs",
+  "set_viewport_size",
+  "resize_browser",
+  "get_viewport_size",
+  "get_browser_zoom",
+  "set_browser_zoom",
+  "reset_browser_zoom",
+  "zoom_browser",
+  "name_session",
   "back",
+  "navigate_tab_back",
   "forward",
+  "navigate_tab_forward",
   "reload",
+  "navigate_tab_reload",
 ];
 const CODEX_BROWSER_BRIDGE_INSTRUCTIONS = `
 ## Ace Browser Bridge
 
-When you need browser automation, use the \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\` dynamic tool. It controls Ace's in-app browser for this thread. Prefer it over any separate/native browser surface when opening pages, inspecting DOM, taking screenshots, clicking, filling, navigating back/forward, or reloading.
+When you need browser automation, use the \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\` dynamic tool. It controls Ace's in-app browser for this thread. Prefer it over any separate/native browser surface when opening pages, inspecting DOM, taking screenshots, clicking, filling, typing, scrolling, navigating tabs, reading clipboard text, or reading console logs.
 
 If the user selected or refers to Browser Use, browser-use, or an in-app browser skill/plugin, fulfill those browser actions through \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\`. Do not bootstrap a separate browser-client runtime or use Codex's native browser for Ace browser tasks.
+
+Use the official Browser Use operation names when possible: navigate_tab_url, create_tab, selected_tab, list_tabs, close_tab, playwright_dom_snapshot, playwright_screenshot, playwright_locator_*, dom_cua_*, cua_*, tab_clipboard_*, tab_dev_logs, and wait operations. Use set_viewport_size or resize_browser with a width when testing responsive layouts; Ace will resize the right browser panel and report the resulting viewport. Use get_browser_zoom, set_browser_zoom, reset_browser_zoom, or zoom_browser when zoom matters. You may also use the shorter compatibility names open_url, dom_snapshot, screenshot, click, fill, back, forward, and reload.
+
+Use playwright_dom_snapshot for readable page content and locator ground truth. Use dom_cua_get_visible_dom when you need node ids for DOM CUA actions. For page scrolling, prefer dom_cua_scroll with x/y deltas or cua_scroll with scrollX/scrollY and viewport coordinates; do not use cua_keypress or dom_cua_keypress for page scrolling unless a focused control explicitly needs a keypress.
+
+Screenshots are normalized to the browser viewport's CSS-pixel coordinate space. Use the returned pageViewport, browserZoomFactor, and coordinateSpace metadata before coordinate-based CUA actions if the Ace app or in-app browser is zoomed.
+
+Do not request Browser Use site-access approval for pages controlled through Ace's in-app browser bridge. The bridge is the browser surface for this thread.
 `.trim();
 const CODEX_BROWSER_BRIDGE_TOOL: CodexDynamicToolSpec = {
   name: CODEX_BROWSER_BRIDGE_TOOL_NAME,
-  description:
-    "Control Ace's in-app browser for this thread: open URLs, list tabs, inspect DOM, take screenshots, click, fill, and navigate.",
+  description: "Control Ace's in-app browser for this thread with Browser Use-style operations.",
   inputSchema: {
     type: "object",
     additionalProperties: true,
@@ -257,12 +315,11 @@ const CODEX_BROWSER_BRIDGE_TOOL: CodexDynamicToolSpec = {
       operation: {
         type: "string",
         enum: [...CODEX_BROWSER_BRIDGE_OPERATIONS],
-        description:
-          "Browser operation to run. Use open_url, list_tabs, selected_tab, dom_snapshot, screenshot, click, fill, back, forward, or reload.",
+        description: "Browser operation to run.",
       },
       url: {
         type: "string",
-        description: "URL for open_url.",
+        description: "URL for open_url or navigate_tab_url.",
       },
       newTab: {
         type: "boolean",
@@ -272,13 +329,85 @@ const CODEX_BROWSER_BRIDGE_TOOL: CodexDynamicToolSpec = {
         type: "string",
         description: "Optional target Ace browser tab id. Defaults to the selected tab.",
       },
+      tab_id: {
+        type: "string",
+        description: "Browser Use-style tab id alias.",
+      },
       selector: {
         type: "string",
-        description: "CSS selector for click or fill.",
+        description: "CSS selector for locator operations.",
+      },
+      node_id: {
+        type: "string",
+        description: "DOM node id from dom_cua_get_visible_dom.",
+      },
+      x: {
+        type: "number",
+        description: "Viewport x coordinate for CUA operations.",
+      },
+      y: {
+        type: "number",
+        description: "Viewport y coordinate for CUA operations.",
+      },
+      scrollX: {
+        type: "number",
+        description: "Horizontal scroll delta for Browser Use scroll operations.",
+      },
+      scrollY: {
+        type: "number",
+        description: "Vertical scroll delta for Browser Use scroll operations.",
+      },
+      width: {
+        type: "number",
+        description: "Requested browser viewport width in CSS pixels for set_viewport_size.",
+      },
+      height: {
+        type: "number",
+        description:
+          "Requested browser viewport height in CSS pixels. Ace reports the actual available height.",
+      },
+      panelWidth: {
+        type: "number",
+        description: "Requested Ace right side browser panel width in CSS pixels.",
+      },
+      rightSidePanelWidth: {
+        type: "number",
+        description: "Alias for panelWidth.",
+      },
+      zoomFactor: {
+        type: "number",
+        description: "Requested browser zoom factor for set_browser_zoom or zoom_browser.",
+      },
+      factor: {
+        type: "number",
+        description: "Alias for zoomFactor.",
+      },
+      zoom: {
+        type: "number",
+        description: "Alias for zoomFactor.",
+      },
+      delta: {
+        type: "number",
+        description: "Relative zoom delta for zoom_browser, such as 0.1 or -0.1.",
       },
       value: {
         type: "string",
-        description: "Value for fill.",
+        description: "Value for fill, typing, keypress, attribute name, or select option.",
+      },
+      keys: {
+        type: "array",
+        items: {
+          type: "string",
+        },
+        description: "Key names for Browser Use keypress operations.",
+      },
+      text: {
+        type: "string",
+        description: "Text matcher or text to type.",
+      },
+      timeoutMs: {
+        type: "number",
+        description: "Optional timeout in milliseconds.",
       },
     },
   },
@@ -1757,17 +1886,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     result: Record<string, unknown>,
   ): Array<{ type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }> {
     const imageDataUrl = typeof result.imageDataUrl === "string" ? result.imageDataUrl : undefined;
+    const domSnapshot = typeof result.domSnapshot === "string" ? result.domSnapshot : undefined;
     const textResult: Record<string, unknown> = { ...result };
+    delete textResult.domSnapshot;
     delete textResult.imageDataUrl;
 
     const contentItems: Array<
       { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }
-    > = [
-      {
+    > = [];
+
+    if (domSnapshot) {
+      const metadata =
+        Object.keys(textResult).length > 0 ? `\n\nMetadata: ${JSON.stringify(textResult)}` : "";
+      contentItems.push({
+        type: "inputText",
+        text: `Ace browser DOM snapshot:\n${domSnapshot}${metadata}`,
+      });
+    } else {
+      contentItems.push({
         type: "inputText",
         text: `Ace browser result: ${JSON.stringify(textResult)}`,
-      },
-    ];
+      });
+    }
 
     if (imageDataUrl) {
       contentItems.push({ type: "inputImage", imageUrl: imageDataUrl });
