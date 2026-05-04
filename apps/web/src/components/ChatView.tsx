@@ -522,6 +522,14 @@ function ConnectedRetainedThreadTerminalDrawers({
 }
 const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
 const MAX_CACHED_BROWSER_INSTANCES = 3;
+const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
+const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
+
+function waitForBrowserBridgePoll(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, BROWSER_BRIDGE_CONTROLLER_POLL_MS);
+  });
+}
 
 function clampRightSidePanelWidth(width: number, viewportWidth: number): number {
   const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
@@ -3463,6 +3471,33 @@ export default function ChatView({
     setBrowserMode("split");
     setRightSidePanelVisible(true);
   }, [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
+  const ensureBrowserBridgeController = useCallback(
+    async (requestThreadId: ThreadId): Promise<InAppBrowserController> => {
+      const existingController = browserControllerByThreadRef.current.get(requestThreadId);
+      if (existingController) {
+        return existingController;
+      }
+      if (!isElectron) {
+        throw new Error("Ace browser bridge is only available in the desktop app.");
+      }
+      if (requestThreadId !== activeThreadId) {
+        throw new Error("Ace browser bridge can only control a mounted thread browser.");
+      }
+
+      openBrowser();
+      const deadline = Date.now() + BROWSER_BRIDGE_CONTROLLER_WAIT_MS;
+      while (Date.now() < deadline) {
+        const controller = browserControllerByThreadRef.current.get(requestThreadId);
+        if (controller) {
+          return controller;
+        }
+        await waitForBrowserBridgePoll();
+      }
+
+      throw new Error("Ace browser bridge could not attach to the in-app browser.");
+    },
+    [activeThreadId, openBrowser],
+  );
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
@@ -3761,6 +3796,38 @@ export default function ChatView({
     handleBrowserLaunchRequest();
     return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
   }, [handleBrowserLaunchRequest, ownsGlobalSideEffects, rightSidePanelInteractive]);
+
+  useEffect(() => {
+    if (!ownsGlobalSideEffects || !rightSidePanelInteractive || !isElectron) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    return api.browser.onBridgeRequest((request) => {
+      void (async () => {
+        try {
+          const controller = await ensureBrowserBridgeController(request.threadId);
+          const result = await controller.runBridgeRequest(request);
+          await api.browser.resolveBridgeRequest({
+            ok: true,
+            requestId: request.requestId,
+            result,
+          });
+        } catch (error) {
+          await api.browser.resolveBridgeRequest({
+            error:
+              error instanceof Error && error.message ? error.message : "Browser bridge failed.",
+            ok: false,
+            requestId: request.requestId,
+          });
+        }
+      })().catch((error: unknown) => {
+        reportBackgroundError("Failed to resolve browser bridge request.", error);
+      });
+    });
+  }, [ensureBrowserBridgeController, ownsGlobalSideEffects, rightSidePanelInteractive]);
 
   const syncBrowserSplitWidth = useCallback(
     (nextWidth: number) => {

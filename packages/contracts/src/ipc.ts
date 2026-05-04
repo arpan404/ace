@@ -75,6 +75,11 @@ import type {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
+import type {
+  BrowserBridgeRequest,
+  BrowserBridgeResolveInput,
+  BrowserBridgeResolveResult,
+} from "./browserBridge";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
@@ -316,6 +321,8 @@ export interface NativeApi {
   };
   browser: {
     repairStorage: () => Promise<boolean>;
+    resolveBridgeRequest: (input: BrowserBridgeResolveInput) => Promise<BrowserBridgeResolveResult>;
+    onBridgeRequest: (callback: (request: BrowserBridgeRequest) => void) => () => void;
   };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;

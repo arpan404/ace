@@ -106,7 +106,10 @@ export type BrowserTabSnapshotOptions = {
 };
 
 export type BrowserTabHandle = {
+  captureVisiblePage: () => Promise<string>;
   closeDevTools: () => void;
+  executeJavaScript: <T = unknown>(code: string) => Promise<T>;
+  getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
   goForward: () => void;
   isDevToolsOpen: () => boolean;

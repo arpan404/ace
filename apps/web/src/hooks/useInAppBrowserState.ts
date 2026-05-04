@@ -8,10 +8,16 @@ import {
   useRef,
   useState,
 } from "react";
+import type { BrowserBridgeRequest } from "@ace/contracts";
 
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
+import {
+  buildBrowserClickScript,
+  buildBrowserDomSnapshotScript,
+  buildBrowserFillScript,
+} from "~/lib/browser/bridgeScripts";
 import {
   BROWSER_HISTORY_STORAGE_KEY,
   BrowserHistorySchema,
@@ -65,6 +71,7 @@ export interface InAppBrowserController {
   openUrl: (rawUrl: string, options?: { newTab?: boolean }) => void;
   reorderTabs: (draggedTabId: string, targetTabId: string) => void;
   reload: () => void;
+  runBridgeRequest: (request: BrowserBridgeRequest) => Promise<Record<string, unknown>>;
   setActiveTabByIndex: (index: number) => void;
   toggleDesignerTool: (tool: BrowserDesignerTool) => void;
   toggleDevTools: () => void;
@@ -95,6 +102,16 @@ interface UseInAppBrowserStateOptions {
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
+
+function readStringArg(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readBooleanArg(args: Record<string, unknown>, key: string): boolean | undefined {
+  const value = args[key];
+  return typeof value === "boolean" ? value : undefined;
+}
 
 export function shouldAutoFocusBrowserAddressBarOnOpen(options: {
   activeTabIsNewTab: boolean;
@@ -506,6 +523,154 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     handle?.reload();
   }, [activeRuntime.loading, activeTab]);
 
+  const resolveBridgeTarget = useCallback(
+    (args: Record<string, unknown>) => {
+      const tabId = readStringArg(args, "tabId") ?? browserSession.activeTabId;
+      const tab = browserSession.tabs.find((item) => item.id === tabId);
+      if (!tab) {
+        throw new Error("Ace browser tab was not found.");
+      }
+      if (isBrowserInternalTabUrl(tab.url)) {
+        throw new Error("Ace browser tab is still on an internal page. Open a URL first.");
+      }
+      const handle = webviewHandlesRef.current.get(tab.id);
+      if (!handle) {
+        throw new Error("Ace browser tab is not ready yet.");
+      }
+      const snapshot = handle.getSnapshot() ?? {
+        canGoBack: false,
+        canGoForward: false,
+        devToolsOpen: false,
+        loading: false,
+        title: tab.title,
+        url: tab.url,
+      };
+      return { handle, snapshot, tab };
+    },
+    [browserSession.activeTabId, browserSession.tabs],
+  );
+
+  const runBridgeRequest = useCallback(
+    async (request: BrowserBridgeRequest): Promise<Record<string, unknown>> => {
+      const args = request.args as Record<string, unknown>;
+      switch (request.operation) {
+        case "list_tabs":
+          return {
+            tabs: browserSession.tabs.map((tab) => ({
+              active: tab.id === browserSession.activeTabId,
+              id: tab.id,
+              title: tab.title,
+              url: tab.url,
+              ...(tabRuntimeById[tab.id] ? { runtime: tabRuntimeById[tab.id] } : {}),
+            })),
+          };
+        case "selected_tab": {
+          const { snapshot, tab } = resolveBridgeTarget(args);
+          return {
+            tab: {
+              active: true,
+              id: tab.id,
+              ...snapshot,
+            },
+          };
+        }
+        case "open_url": {
+          const url = readStringArg(args, "url");
+          if (!url) {
+            throw new Error("open_url requires a url argument.");
+          }
+          const newTab = readBooleanArg(args, "newTab");
+          openUrl(url, newTab === undefined ? undefined : { newTab });
+          return {
+            ok: true,
+            url: normalizeBrowserInput(url, browserSearchEngine),
+          };
+        }
+        case "dom_snapshot": {
+          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const dom = await handle.executeJavaScript(buildBrowserDomSnapshotScript());
+          return {
+            dom,
+            tab: {
+              id: tab.id,
+              ...snapshot,
+            },
+          };
+        }
+        case "screenshot": {
+          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const imageDataUrl = await handle.captureVisiblePage();
+          return {
+            imageDataUrl,
+            mimeType: "image/png",
+            tab: {
+              id: tab.id,
+              ...snapshot,
+            },
+          };
+        }
+        case "click": {
+          const selector = readStringArg(args, "selector");
+          if (!selector) {
+            throw new Error("click requires a selector argument.");
+          }
+          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const action = await handle.executeJavaScript(buildBrowserClickScript(selector));
+          return {
+            action,
+            ok: true,
+            tab: {
+              id: tab.id,
+              ...snapshot,
+            },
+          };
+        }
+        case "fill": {
+          const selector = readStringArg(args, "selector");
+          const value = typeof args.value === "string" ? args.value : "";
+          if (!selector) {
+            throw new Error("fill requires a selector argument.");
+          }
+          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const action = await handle.executeJavaScript(buildBrowserFillScript(selector, value));
+          return {
+            action,
+            ok: true,
+            tab: {
+              id: tab.id,
+              ...snapshot,
+            },
+          };
+        }
+        case "back": {
+          const { handle, tab } = resolveBridgeTarget(args);
+          handle.goBack();
+          return { ok: true, tabId: tab.id };
+        }
+        case "forward": {
+          const { handle, tab } = resolveBridgeTarget(args);
+          handle.goForward();
+          return { ok: true, tabId: tab.id };
+        }
+        case "reload": {
+          const { handle, tab } = resolveBridgeTarget(args);
+          handle.reload();
+          return { ok: true, tabId: tab.id };
+        }
+        default:
+          throw new Error(`Unsupported Ace browser operation: ${request.operation}`);
+      }
+    },
+    [
+      browserSearchEngine,
+      browserSession.activeTabId,
+      browserSession.tabs,
+      openUrl,
+      resolveBridgeTarget,
+      tabRuntimeById,
+    ],
+  );
+
   const openDevTools = useCallback(() => {
     if (!activeTab) return;
     webviewHandlesRef.current.get(activeTab.id)?.openDevTools();
@@ -611,6 +776,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const reorderTabsEvent = useEffectEvent(reorderTabs);
   const openUrlEvent = useEffectEvent(openUrl);
   const reloadEvent = useEffectEvent(reload);
+  const runBridgeRequestEvent = useEffectEvent(runBridgeRequest);
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
   const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
   const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
@@ -632,6 +798,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       openUrl: (rawUrl, options) => openUrlEvent(rawUrl, options),
       reorderTabs: (draggedTabId, targetTabId) => reorderTabsEvent(draggedTabId, targetTabId),
       reload: () => reloadEvent(),
+      runBridgeRequest: (request) => runBridgeRequestEvent(request),
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
       toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
       toggleDevTools: () => toggleDevToolsEvent(),

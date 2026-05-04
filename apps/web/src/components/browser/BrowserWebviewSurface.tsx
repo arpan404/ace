@@ -1487,6 +1487,22 @@ export function BrowserTabWebview(props: {
     [resolveSnapshotUrl],
   );
 
+  const readSnapshot = useCallback((): BrowserTabSnapshot | null => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      return null;
+    }
+    const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+    return {
+      canGoBack: webview.canGoBack(),
+      canGoForward: webview.canGoForward(),
+      devToolsOpen: webview.isDevToolsOpened(),
+      loading: webview.isLoading(),
+      title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+      url: resolvedUrl,
+    };
+  }, [resolveSnapshotUrl]);
+
   const flushScheduledSnapshot = useCallback(() => {
     snapshotFlushTimerRef.current = null;
     const options = pendingSnapshotOptionsRef.current ?? undefined;
@@ -1614,10 +1630,26 @@ export function BrowserTabWebview(props: {
 
   useEffect(() => {
     const handle: BrowserTabHandle = {
+      captureVisiblePage: async () => {
+        const webview = webviewRef.current;
+        if (!readyRef.current || !webview?.capturePage) {
+          throw new Error("The browser tab cannot capture a screenshot yet.");
+        }
+        const image = await webview.capturePage();
+        return image.toDataURL();
+      },
       closeDevTools: () => {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
       },
+      executeJavaScript: async <T = unknown,>(code: string): Promise<T> => {
+        const webview = webviewRef.current;
+        if (!readyRef.current || !webview?.executeJavaScript) {
+          throw new Error("The browser tab cannot execute JavaScript yet.");
+        }
+        return webview.executeJavaScript<T>(code, true);
+      },
+      getSnapshot: () => readSnapshot(),
       goBack: () => {
         if (!readyRef.current || !webviewRef.current?.canGoBack()) return;
         webviewRef.current.goBack();
@@ -1668,7 +1700,7 @@ export function BrowserTabWebview(props: {
     return () => {
       onHandleChange(tab.id, null);
     };
-  }, [navigate, onHandleChange, tab.id]);
+  }, [navigate, onHandleChange, readSnapshot, tab.id]);
 
   useEffect(() => {
     mountedRef.current = true;
