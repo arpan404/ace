@@ -17,6 +17,7 @@ import {
   readCodexRuntimeModels,
   resolveCodexModelForAccount,
 } from "./codexAppServerManager";
+import { browserBridge } from "./browserBridge";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
@@ -1152,6 +1153,156 @@ describe("respondToUserInput", () => {
         },
       })}\n`,
     );
+  });
+
+  it("routes Ace browser dynamic tool requests through the browser bridge", async () => {
+    const manager = new CodexAppServerManager();
+    const write = vi.fn();
+    const context = {
+      session: {
+        sessionId: "sess_1",
+        provider: "codex",
+        status: "ready",
+        threadId: asThreadId("thread_1"),
+        resumeCursor: { threadId: "thread_1" },
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      child: {
+        stdin: {
+          writable: true,
+          write,
+        },
+      },
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+    };
+    const unsubscribe = browserBridge.subscribe((request) => {
+      expect(request.threadId).toBe(asThreadId("thread_1"));
+      expect(request.operation).toBe("list_tabs");
+      browserBridge.resolve({
+        ok: true,
+        requestId: request.requestId,
+        result: { tabs: [] },
+      });
+    });
+
+    try {
+      (
+        manager as unknown as {
+          handleServerRequest: (context: unknown, request: Record<string, unknown>) => void;
+        }
+      ).handleServerRequest(context, {
+        jsonrpc: "2.0",
+        id: 43,
+        method: "item/tool/call",
+        params: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          callId: "call-browser-1",
+          tool: "ace_browser",
+          arguments: {
+            operation: "list_tabs",
+          },
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(write).toHaveBeenCalledWith(
+          `${JSON.stringify({
+            id: 43,
+            result: {
+              success: true,
+              contentItems: [
+                {
+                  type: "inputText",
+                  text: 'Ace browser result: {"tabs":[]}',
+                },
+              ],
+            },
+          })}\n`,
+        );
+      });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("returns Ace browser DOM snapshots as readable text", async () => {
+    const manager = new CodexAppServerManager();
+    const write = vi.fn();
+    const context = {
+      session: {
+        sessionId: "sess_1",
+        provider: "codex",
+        status: "ready",
+        threadId: asThreadId("thread_1"),
+        resumeCursor: { threadId: "thread_1" },
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      child: {
+        stdin: {
+          writable: true,
+          write,
+        },
+      },
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+    };
+    const unsubscribe = browserBridge.subscribe((request) => {
+      expect(request.operation).toBe("playwright_dom_snapshot");
+      browserBridge.resolve({
+        ok: true,
+        requestId: request.requestId,
+        result: {
+          domSnapshot: '- page "Example" https://example.test/\n- [node-1] h1 0,0 320x48 "Hello"',
+          tab: { id: "tab-1", title: "Example", url: "https://example.test/" },
+        },
+      });
+    });
+
+    try {
+      (
+        manager as unknown as {
+          handleServerRequest: (context: unknown, request: Record<string, unknown>) => void;
+        }
+      ).handleServerRequest(context, {
+        jsonrpc: "2.0",
+        id: 44,
+        method: "item/tool/call",
+        params: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          callId: "call-browser-snapshot-1",
+          tool: "ace_browser",
+          arguments: {
+            operation: "playwright_dom_snapshot",
+          },
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(write).toHaveBeenCalledWith(
+          `${JSON.stringify({
+            id: 44,
+            result: {
+              success: true,
+              contentItems: [
+                {
+                  type: "inputText",
+                  text: 'Ace browser DOM snapshot:\n- page "Example" https://example.test/\n- [node-1] h1 0,0 320x48 "Hello"\n\nMetadata: {"tab":{"id":"tab-1","title":"Example","url":"https://example.test/"}}',
+                },
+              ],
+            },
+          })}\n`,
+        );
+      });
+    } finally {
+      unsubscribe();
+    }
   });
 });
 

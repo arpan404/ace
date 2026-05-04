@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, GlobeIcon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon, XIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -16,10 +16,13 @@ import { runAsyncTask } from "~/lib/async";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { type BrowserTabState, resolveBrowserTabTitle } from "~/lib/browser/session";
 import {
+  type BrowserAgentPointerEffect,
+  type BrowserAgentPointerPoint,
   type BrowserDesignCaptureResult,
   type BrowserDesignCaptureSubmission,
   type BrowserDesignElementDescriptor,
   type BrowserDesignSelectionRect,
+  type BrowserConsoleLogEntry,
   type BrowserTabHandle,
   type BrowserTabSnapshotOptions,
   type BrowserTabSnapshot,
@@ -77,6 +80,27 @@ function setWebviewZoomFactor(webview: BrowserWebview, factor: number): void {
   webview.setZoomFactor?.(clampBrowserZoomFactor(factor));
 }
 
+function normalizeConsoleLogLevel(value: unknown): BrowserConsoleLogEntry["level"] {
+  if (typeof value === "string") {
+    switch (value.toLowerCase()) {
+      case "debug":
+      case "info":
+      case "log":
+      case "warn":
+      case "error":
+        return value.toLowerCase() as BrowserConsoleLogEntry["level"];
+      case "warning":
+        return "warn";
+      default:
+        return "log";
+    }
+  }
+  if (typeof value === "number") {
+    return value >= 2 ? "error" : "log";
+  }
+  return "log";
+}
+
 function resolveBrowserFaviconSources(url: string): string[] {
   try {
     const parsed = new URL(url);
@@ -109,6 +133,17 @@ interface BrowserDesignCaptureDraft {
   tool: BrowserDesignerTool;
   viewportWidth: number;
   viewportHeight: number;
+}
+
+interface AgentBrowserPointerState {
+  key: number;
+  mode: BrowserAgentPointerEffect["type"];
+  pressed: boolean;
+  scrollX: number;
+  scrollY: number;
+  visible: boolean;
+  x: number;
+  y: number;
 }
 
 type AnnotationTool = "ellipse" | "eraser" | "line" | "pencil" | "rectangle";
@@ -463,6 +498,92 @@ async function cropCapturedImageDataUrl(input: {
   }
   context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
   return canvas.toDataURL(resolveDataUrlMimeType(input.dataUrl));
+}
+
+async function normalizeVisibleBrowserScreenshotDataUrl(input: {
+  dataUrl: string;
+  viewportWidth: number;
+  viewportHeight: number;
+}): Promise<string> {
+  const image = await loadImageDataUrl(input.dataUrl);
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  const viewportWidth = Math.max(1, Math.round(input.viewportWidth));
+  const viewportHeight = Math.max(1, Math.round(input.viewportHeight));
+  if (
+    imageWidth <= 0 ||
+    imageHeight <= 0 ||
+    (imageWidth === viewportWidth && imageHeight === viewportHeight)
+  ) {
+    return input.dataUrl;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = viewportWidth;
+  canvas.height = viewportHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return input.dataUrl;
+  }
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, 0, 0, viewportWidth, viewportHeight);
+  return canvas.toDataURL(resolveDataUrlMimeType(input.dataUrl));
+}
+
+function waitForBrowserPointerFrame(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function easeBrowserPointerMovement(progress: number): number {
+  const clamped = Math.max(0, Math.min(1, progress));
+  return clamped < 0.5 ? 4 * clamped * clamped * clamped : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
+}
+
+function readBrowserPointerDistance(
+  start: BrowserAgentPointerPoint,
+  end: BrowserAgentPointerPoint,
+): number {
+  return Math.hypot(end.x - start.x, end.y - start.y);
+}
+
+function resolveBrowserPointerMovementDuration(
+  start: BrowserAgentPointerPoint,
+  end: BrowserAgentPointerPoint,
+  multiplier = 1,
+): number {
+  const distance = readBrowserPointerDistance(start, end);
+  return Math.round(Math.max(160, Math.min(720, (150 + Math.sqrt(distance) * 24) * multiplier)));
+}
+
+function resolveBrowserPointerCurvePoint(
+  start: BrowserAgentPointerPoint,
+  end: BrowserAgentPointerPoint,
+  progress: number,
+  curveSeed: number,
+): BrowserAgentPointerPoint {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  const bend = Math.min(92, Math.max(12, distance * 0.18));
+  const direction = curveSeed % 2 === 0 ? 1 : -1;
+  const control = {
+    x: start.x + dx * 0.5 + (-dy / distance) * bend * direction,
+    y: start.y + dy * 0.5 + (dx / distance) * bend * direction,
+  };
+  const inverse = 1 - progress;
+  return {
+    x:
+      inverse * inverse * start.x +
+      2 * inverse * progress * control.x +
+      progress * progress * end.x,
+    y:
+      inverse * inverse * start.y +
+      2 * inverse * progress * control.y +
+      progress * progress * end.y,
+  };
 }
 
 function normalizeCapturedDescriptor(value: unknown): BrowserDesignElementDescriptor | null {
@@ -1345,6 +1466,7 @@ export function BrowserTabWebview(props: {
   const pendingUrlRef = useRef<string | null>(null);
   const pendingSnapshotOptionsRef = useRef<BrowserTabSnapshotOptions | null>(null);
   const snapshotFlushTimerRef = useRef<number | null>(null);
+  const consoleLogsRef = useRef<BrowserConsoleLogEntry[]>([]);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const designRequestPanelRef = useRef<HTMLFormElement | null>(null);
@@ -1368,6 +1490,10 @@ export function BrowserTabWebview(props: {
   const hoveredElementPointRef = useRef<{ x: number; y: number } | null>(null);
   const latestElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestTokenRef = useRef(0);
+  const agentPointerTokenRef = useRef(0);
+  const agentPointerActionTimerRef = useRef<number | null>(null);
+  const agentPointerFrameRef = useRef<number | null>(null);
+  const agentPointerPositionRef = useRef<BrowserAgentPointerPoint | null>(null);
   const annotationPointerRef = useRef<{
     color: string;
     pointerId: number;
@@ -1392,6 +1518,7 @@ export function BrowserTabWebview(props: {
   const [hasAnnotationStrokes, setHasAnnotationStrokes] = useState(false);
   const [isSubmittingDesignRequest, setIsSubmittingDesignRequest] = useState(false);
   const [overlayViewportSize, setOverlayViewportSize] = useState<OverlayViewportSize | null>(null);
+  const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
   const [designRequestPanelSize, setDesignRequestPanelSize] = useState<FloatingOverlaySize>(
     DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
   );
@@ -1486,6 +1613,22 @@ export function BrowserTabWebview(props: {
     },
     [resolveSnapshotUrl],
   );
+
+  const readSnapshot = useCallback((): BrowserTabSnapshot | null => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      return null;
+    }
+    const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+    return {
+      canGoBack: webview.canGoBack(),
+      canGoForward: webview.canGoForward(),
+      devToolsOpen: webview.isDevToolsOpened(),
+      loading: webview.isLoading(),
+      title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+      url: resolvedUrl,
+    };
+  }, [resolveSnapshotUrl]);
 
   const flushScheduledSnapshot = useCallback(() => {
     snapshotFlushTimerRef.current = null;
@@ -1612,12 +1755,303 @@ export function BrowserTabWebview(props: {
     [inspectBrowserPoint],
   );
 
+  const clearAgentPointerActionTimer = useCallback(() => {
+    if (agentPointerActionTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(agentPointerActionTimerRef.current);
+    agentPointerActionTimerRef.current = null;
+  }, []);
+
+  const cancelAgentPointerAnimation = useCallback(() => {
+    if (agentPointerFrameRef.current === null) {
+      return;
+    }
+    window.cancelAnimationFrame(agentPointerFrameRef.current);
+    agentPointerFrameRef.current = null;
+  }, []);
+
+  const resolveAgentPointerViewport = useCallback(() => {
+    const host = overlayRef.current ?? hostRef.current;
+    return {
+      height: Math.max(1, Math.round(host?.clientHeight ?? 1)),
+      width: Math.max(1, Math.round(host?.clientWidth ?? 1)),
+    };
+  }, []);
+
+  const clampAgentPointerPoint = useCallback(
+    (point: { x: number; y: number }): { x: number; y: number } => {
+      const viewport = resolveAgentPointerViewport();
+      return {
+        x: Math.max(0, Math.min(viewport.width, Math.round(point.x))),
+        y: Math.max(0, Math.min(viewport.height, Math.round(point.y))),
+      };
+    },
+    [resolveAgentPointerViewport],
+  );
+
+  const resolveAgentPointerPoint = useCallback(
+    (effect: BrowserAgentPointerEffect): { x: number; y: number } => {
+      const pathEnd = effect.path?.at(-1);
+      if (pathEnd && Number.isFinite(pathEnd.x) && Number.isFinite(pathEnd.y)) {
+        return clampAgentPointerPoint(pathEnd);
+      }
+      if (effect.targetRect) {
+        return clampAgentPointerPoint({
+          x: effect.targetRect.x + effect.targetRect.width / 2,
+          y: effect.targetRect.y + effect.targetRect.height / 2,
+        });
+      }
+      const effectX = effect.x;
+      const effectY = effect.y;
+      if (
+        typeof effectX === "number" &&
+        Number.isFinite(effectX) &&
+        typeof effectY === "number" &&
+        Number.isFinite(effectY)
+      ) {
+        return clampAgentPointerPoint({ x: effectX, y: effectY });
+      }
+      if (agentPointerPositionRef.current) {
+        return clampAgentPointerPoint(agentPointerPositionRef.current);
+      }
+      const viewport = resolveAgentPointerViewport();
+      return {
+        x: Math.round(viewport.width / 2),
+        y: Math.round(viewport.height / 2),
+      };
+    },
+    [clampAgentPointerPoint, resolveAgentPointerViewport],
+  );
+
+  const setAgentPointerFrame = useCallback(
+    (
+      effect: BrowserAgentPointerEffect,
+      point: { x: number; y: number },
+      options?: { pressed?: boolean | undefined },
+    ) => {
+      const key = agentPointerTokenRef.current;
+      const nextPoint = clampAgentPointerPoint(point);
+      agentPointerPositionRef.current = nextPoint;
+      setAgentPointer({
+        key,
+        mode: effect.type,
+        pressed: options?.pressed === true,
+        scrollX: effect.scrollX ?? 0,
+        scrollY: effect.scrollY ?? 0,
+        visible: true,
+        ...nextPoint,
+      });
+    },
+    [clampAgentPointerPoint],
+  );
+
+  const scheduleAgentPointerRest = useCallback(
+    (token: number, delayMs: number) => {
+      clearAgentPointerActionTimer();
+      agentPointerActionTimerRef.current = window.setTimeout(() => {
+        agentPointerActionTimerRef.current = null;
+        if (agentPointerTokenRef.current === token) {
+          setAgentPointer((current) =>
+            current
+              ? {
+                  ...current,
+                  mode: "move",
+                  pressed: false,
+                  scrollX: 0,
+                  scrollY: 0,
+                  visible: true,
+                }
+              : current,
+          );
+        }
+      }, delayMs);
+    },
+    [clearAgentPointerActionTimer],
+  );
+
+  const animateAgentPointerTo = useCallback(
+    (
+      effect: BrowserAgentPointerEffect,
+      point: BrowserAgentPointerPoint,
+      options?: {
+        durationMultiplier?: number;
+        pressed?: boolean | undefined;
+        token: number;
+      },
+    ): Promise<void> => {
+      const target = clampAgentPointerPoint(point);
+      const start =
+        agentPointerPositionRef.current ??
+        clampAgentPointerPoint({
+          x: target.x - 28,
+          y: target.y + 24,
+        });
+      const distance = readBrowserPointerDistance(start, target);
+      if (distance < 2) {
+        setAgentPointerFrame(effect, target, { pressed: options?.pressed });
+        return Promise.resolve();
+      }
+
+      const token = options?.token ?? agentPointerTokenRef.current;
+      const startedAt = performance.now();
+      const duration = resolveBrowserPointerMovementDuration(
+        start,
+        target,
+        options?.durationMultiplier,
+      );
+      const curveSeed = token + Math.round(start.x * 0.13 + target.y * 0.17);
+
+      cancelAgentPointerAnimation();
+      return new Promise((resolve) => {
+        const step = (timestamp: number) => {
+          if (agentPointerTokenRef.current !== token) {
+            resolve();
+            return;
+          }
+          const progress = easeBrowserPointerMovement((timestamp - startedAt) / duration);
+          const current = resolveBrowserPointerCurvePoint(start, target, progress, curveSeed);
+          setAgentPointerFrame(effect, current, { pressed: options?.pressed });
+          if (progress >= 1) {
+            agentPointerFrameRef.current = null;
+            setAgentPointerFrame(effect, target, { pressed: options?.pressed });
+            resolve();
+            return;
+          }
+          agentPointerFrameRef.current = window.requestAnimationFrame(step);
+        };
+        agentPointerFrameRef.current = window.requestAnimationFrame(step);
+      });
+    },
+    [cancelAgentPointerAnimation, clampAgentPointerPoint, setAgentPointerFrame],
+  );
+
+  const animateAgentPointer = useCallback(
+    async (effect: BrowserAgentPointerEffect): Promise<void> => {
+      if (!activeRef.current) {
+        return;
+      }
+      const token = agentPointerTokenRef.current + 1;
+      agentPointerTokenRef.current = token;
+      clearAgentPointerActionTimer();
+
+      const path = effect.path
+        ?.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+        .map(clampAgentPointerPoint);
+
+      if (effect.type === "drag" && path && path.length >= 2) {
+        await animateAgentPointerTo(effect, path[0]!, {
+          durationMultiplier: 0.82,
+          pressed: false,
+          token,
+        });
+        if (agentPointerTokenRef.current !== token) {
+          return;
+        }
+        setAgentPointerFrame(effect, path[0]!, { pressed: true });
+        await waitForBrowserPointerFrame(80);
+        if (agentPointerTokenRef.current !== token) {
+          return;
+        }
+        const dragMovement = (async () => {
+          const steps = path.slice(1);
+          for (const point of steps) {
+            if (agentPointerTokenRef.current !== token) {
+              return;
+            }
+            await animateAgentPointerTo(effect, point, {
+              durationMultiplier: 0.62,
+              pressed: true,
+              token,
+            });
+          }
+        })();
+        await dragMovement;
+        if (agentPointerTokenRef.current !== token) {
+          return;
+        }
+        setAgentPointerFrame(effect, path[path.length - 1]!, { pressed: false });
+        scheduleAgentPointerRest(token, 260);
+        return;
+      }
+
+      const point = resolveAgentPointerPoint(effect);
+      await animateAgentPointerTo(effect, point, {
+        durationMultiplier: effect.type === "scroll" ? 0.78 : 1,
+        pressed: false,
+        token,
+      });
+      if (agentPointerTokenRef.current !== token) {
+        return;
+      }
+      if (effect.type === "click" || effect.type === "double_click") {
+        setAgentPointerFrame(effect, point, { pressed: true });
+        await waitForBrowserPointerFrame(effect.type === "double_click" ? 90 : 80);
+        if (agentPointerTokenRef.current !== token) {
+          return;
+        }
+        setAgentPointerFrame(effect, point, { pressed: false });
+        if (effect.type === "double_click") {
+          await waitForBrowserPointerFrame(80);
+          if (agentPointerTokenRef.current !== token) {
+            return;
+          }
+          setAgentPointerFrame(effect, point, { pressed: true });
+          await waitForBrowserPointerFrame(80);
+          if (agentPointerTokenRef.current !== token) {
+            return;
+          }
+          setAgentPointerFrame(effect, point, { pressed: false });
+        }
+        scheduleAgentPointerRest(token, 220);
+        return;
+      }
+      scheduleAgentPointerRest(token, effect.type === "scroll" ? 620 : 180);
+    },
+    [
+      animateAgentPointerTo,
+      clampAgentPointerPoint,
+      clearAgentPointerActionTimer,
+      resolveAgentPointerPoint,
+      scheduleAgentPointerRest,
+      setAgentPointerFrame,
+    ],
+  );
+
   useEffect(() => {
     const handle: BrowserTabHandle = {
+      animateAgentPointer,
+      captureVisiblePage: async () => {
+        const webview = webviewRef.current;
+        if (!readyRef.current || !webview?.capturePage) {
+          throw new Error("The browser tab cannot capture a screenshot yet.");
+        }
+        const image = await webview.capturePage();
+        const overlayHost = overlayRef.current ?? hostRef.current;
+        const viewportWidth = overlayHost?.clientWidth ?? webview.clientWidth;
+        const viewportHeight = overlayHost?.clientHeight ?? webview.clientHeight;
+        return normalizeVisibleBrowserScreenshotDataUrl({
+          dataUrl: image.toDataURL(),
+          viewportHeight,
+          viewportWidth,
+        });
+      },
       closeDevTools: () => {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
       },
+      executeJavaScript: async <T = unknown,>(code: string): Promise<T> => {
+        const webview = webviewRef.current;
+        if (!readyRef.current || !webview?.executeJavaScript) {
+          throw new Error("The browser tab cannot execute JavaScript yet.");
+        }
+        return webview.executeJavaScript<T>(code, true);
+      },
+      getZoomFactor: () => {
+        if (!readyRef.current || !webviewRef.current) return 1;
+        return getWebviewZoomFactor(webviewRef.current);
+      },
+      getSnapshot: () => readSnapshot(),
       goBack: () => {
         if (!readyRef.current || !webviewRef.current?.canGoBack()) return;
         webviewRef.current.goBack();
@@ -1637,9 +2071,27 @@ export function BrowserTabWebview(props: {
         }
         webviewRef.current.openDevTools({ mode: "detach" });
       },
+      readConsoleLogs: (options) => {
+        const levels = new Set(
+          options?.levels?.map((level) => (level === "warning" ? "warn" : level)) ?? [],
+        );
+        const filter = options?.filter?.toLowerCase().trim();
+        const limit =
+          typeof options?.limit === "number" && Number.isFinite(options.limit)
+            ? Math.max(1, Math.min(Math.round(options.limit), 200))
+            : 100;
+        return consoleLogsRef.current
+          .filter((entry) => levels.size === 0 || levels.has(entry.level))
+          .filter((entry) => !filter || entry.message.toLowerCase().includes(filter))
+          .slice(-limit);
+      },
       reload: () => {
         if (!readyRef.current || !webviewRef.current) return;
         webviewRef.current.reload();
+      },
+      setZoomFactor: (factor) => {
+        if (!readyRef.current || !webviewRef.current) return;
+        setWebviewZoomFactor(webviewRef.current, factor);
       },
       stop: () => {
         if (!readyRef.current || !webviewRef.current) return;
@@ -1668,14 +2120,16 @@ export function BrowserTabWebview(props: {
     return () => {
       onHandleChange(tab.id, null);
     };
-  }, [navigate, onHandleChange, tab.id]);
+  }, [animateAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      clearAgentPointerActionTimer();
+      cancelAgentPointerAnimation();
     };
-  }, []);
+  }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -1748,6 +2202,26 @@ export function BrowserTabWebview(props: {
         performance.now(),
       );
     };
+    const handleConsoleMessage = (event: Event) => {
+      const detail = event as Event & {
+        level?: number | string;
+        message?: string;
+        sourceId?: string;
+      };
+      const message = typeof detail.message === "string" ? detail.message : "";
+      if (!message) {
+        return;
+      }
+      consoleLogsRef.current = [
+        ...consoleLogsRef.current.slice(-199),
+        {
+          level: normalizeConsoleLogLevel(detail.level),
+          message,
+          timestamp: new Date().toISOString(),
+          ...(detail.sourceId ? { url: detail.sourceId } : {}),
+        },
+      ];
+    };
     const handleRenderProcessGone = (event: Event) => {
       readyRef.current = false;
       cancelScheduledSnapshot();
@@ -1776,6 +2250,7 @@ export function BrowserTabWebview(props: {
     webview.addEventListener("page-title-updated", handleNavigation);
     webview.addEventListener("did-fail-load", handleFailLoad);
     webview.addEventListener("contextmenu", handleContextMenu);
+    webview.addEventListener("console-message", handleConsoleMessage);
     webview.addEventListener("render-process-gone", handleRenderProcessGone);
 
     host.replaceChildren(webview);
@@ -1792,6 +2267,7 @@ export function BrowserTabWebview(props: {
       webview.removeEventListener("page-title-updated", handleNavigation);
       webview.removeEventListener("did-fail-load", handleFailLoad);
       webview.removeEventListener("contextmenu", handleContextMenu);
+      webview.removeEventListener("console-message", handleConsoleMessage);
       webview.removeEventListener("render-process-gone", handleRenderProcessGone);
       stopWebviewBeforeRemoval(webview);
       host.replaceChildren();
@@ -2865,6 +3341,24 @@ export function BrowserTabWebview(props: {
       ? null
       : (selectionRect ??
         (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null));
+  const agentPointerScrollAxis =
+    agentPointer && Math.abs(agentPointer.scrollX) > Math.abs(agentPointer.scrollY) ? "x" : "y";
+  const agentPointerScrollDirection =
+    agentPointerScrollAxis === "x"
+      ? (agentPointer?.scrollX ?? 0) >= 0
+        ? 1
+        : -1
+      : (agentPointer?.scrollY ?? 0) >= 0
+        ? 1
+        : -1;
+  const agentPointerScrollRotation =
+    agentPointerScrollAxis === "x"
+      ? agentPointerScrollDirection >= 0
+        ? 90
+        : -90
+      : agentPointerScrollDirection >= 0
+        ? 0
+        : 180;
   const canSubmitDesignDraft = designDraft
     ? designInstructions.trim().length > 0 ||
       (designDraft.tool === "draw-comment" && hasAnnotationStrokes)
@@ -2876,6 +3370,39 @@ export function BrowserTabWebview(props: {
       className={cn("absolute inset-0 min-h-0 [&_webview]:size-full", active ? "block" : "hidden")}
     >
       <div ref={hostRef} className="size-full min-h-0" />
+      {agentPointer?.visible ? (
+        <div className="pointer-events-none absolute inset-0 z-[35] overflow-hidden">
+          <div
+            className="absolute left-0 top-0"
+            style={{
+              transform: `translate3d(${agentPointer.x}px, ${agentPointer.y}px, 0) scale(${
+                agentPointer.pressed ? 0.96 : 1
+              })`,
+            }}
+          >
+            {agentPointer.pressed ? (
+              <span className="absolute -left-3 -top-3 size-7 rounded-full border border-sky-400/70 bg-sky-400/12 shadow-[0_0_18px_rgba(56,189,248,0.26)]" />
+            ) : null}
+            {agentPointer.mode === "scroll" ? (
+              <span
+                className="absolute left-5 top-4 flex size-8 items-center justify-center rounded-full border border-sky-400/35 bg-background/78 text-sky-300 shadow-lg shadow-black/10 backdrop-blur-md"
+                style={{ transform: `rotate(${agentPointerScrollRotation}deg)` }}
+                aria-hidden="true"
+              >
+                <span className="flex -translate-y-0.5 flex-col items-center gap-0.5 animate-bounce">
+                  <span className="size-1.5 rotate-45 border-b border-r border-current" />
+                  <span className="size-1.5 rotate-45 border-b border-r border-current opacity-70" />
+                </span>
+              </span>
+            ) : null}
+            <MousePointer2Icon
+              className="size-5 -translate-x-0.5 -translate-y-0.5 fill-background stroke-sky-300 drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]"
+              strokeWidth={2.4}
+              aria-hidden="true"
+            />
+          </div>
+        </div>
+      ) : null}
       {(designerModeActive || activeOverlaySelection || designDraft) && (
         <div
           ref={overlayRef}
