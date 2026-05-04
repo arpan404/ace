@@ -2236,29 +2236,11 @@ export default function ChatView({
       rightPanelBrowserShortcutLabel,
     [rightPanelBrowserShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
   );
-  const browserDesignerCursorShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "browser.designer.cursor",
-        browserActionShortcutLabelOptions,
-      ),
-    [browserActionShortcutLabelOptions, keybindings],
-  );
   const browserDesignerAreaCommentShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(
         keybindings,
         "browser.designer.areaComment",
-        browserActionShortcutLabelOptions,
-      ),
-    [browserActionShortcutLabelOptions, keybindings],
-  );
-  const browserDesignerDrawCommentShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "browser.designer.drawComment",
         browserActionShortcutLabelOptions,
       ),
     [browserActionShortcutLabelOptions, keybindings],
@@ -5331,7 +5313,7 @@ export default function ChatView({
         !event.shiftKey &&
         browserOpen
       ) {
-        browserControllerRef.current?.toggleDesignerTool("cursor");
+        browserControllerRef.current?.setDesignerModeActive(false);
       }
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
@@ -5457,24 +5439,10 @@ export default function ChatView({
         return;
       }
 
-      if (command === "browser.designer.cursor") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.toggleDesignerTool("cursor");
-        return;
-      }
-
       if (command === "browser.designer.areaComment") {
         event.preventDefault();
         event.stopPropagation();
         browserControllerRef.current?.toggleDesignerTool("area-comment");
-        return;
-      }
-
-      if (command === "browser.designer.drawComment") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.toggleDesignerTool("draw-comment");
         return;
       }
 
@@ -7175,8 +7143,6 @@ export default function ChatView({
                   onResizeViewport: resizeBrowserViewportForBridge,
                   backShortcutLabel: browserBackShortcutLabel,
                   designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
-                  designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,
-                  designerDrawCommentShortcutLabel: browserDesignerDrawCommentShortcutLabel,
                   designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
                   devToolsShortcutLabel: browserDevToolsShortcutLabel,
                   forwardShortcutLabel: browserForwardShortcutLabel,

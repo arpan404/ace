@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -146,15 +146,6 @@ interface AgentBrowserPointerState {
   y: number;
 }
 
-type AnnotationTool = "ellipse" | "eraser" | "line" | "pencil" | "rectangle";
-
-interface AnnotationBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 interface OverlayViewportSize {
   width: number;
   height: number;
@@ -170,26 +161,24 @@ interface FloatingOverlaySize {
   height: number;
 }
 
+interface PendingElementCommentWheel {
+  clientX: number;
+  clientY: number;
+  deltaX: number;
+  deltaY: number;
+}
+
 const MIN_CAPTURE_SIZE_PX = 24;
 const MIN_ELEMENT_CAPTURE_SIZE_PX = 8;
-const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
-const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
+const DESIGN_REQUEST_PANEL_WIDTH_PX = 360;
+const DESIGN_REQUEST_PANEL_HEIGHT_PX = 56;
 const DESIGN_REQUEST_PANEL_MARGIN_PX = 8;
 const BROWSER_SNAPSHOT_COALESCE_MS = 150;
+const ELEMENT_HOVER_INSPECTION_SCROLL_PAUSE_MS = 120;
 const DEFAULT_DESIGN_REQUEST_PANEL_SIZE: FloatingOverlaySize = {
   width: DESIGN_REQUEST_PANEL_WIDTH_PX,
   height: DESIGN_REQUEST_PANEL_HEIGHT_PX,
 };
-const DRAW_COLOR_SWATCHES: readonly string[] = [
-  "#4F8CFF",
-  "#FF6B57",
-  "#FDBA32",
-  "#32D399",
-  "#F472B6",
-  "#F8FAFC",
-];
-const DEFAULT_ANNOTATION_COLOR = DRAW_COLOR_SWATCHES[0] ?? "#4F8CFF";
-
 function clampPoint(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -268,16 +257,6 @@ function resolveDefaultDesignRequestPanelPosition(
   viewport: OverlayViewportSize,
   panelSize: FloatingOverlaySize = DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
 ): DesignRequestPanelPosition {
-  if (draft.tool === "draw-comment") {
-    return clampDesignRequestPanelPosition(
-      {
-        left: Math.max(16, viewport.width - panelSize.width - 16),
-        top: Math.max(16, viewport.height - panelSize.height - 16),
-      },
-      viewport,
-      panelSize,
-    );
-  }
   const selection = draft.capture.selection;
   const desiredX = selection.x + selection.width + 12;
   const desiredY = selection.y;
@@ -300,21 +279,6 @@ function resolveDefaultDesignRequestPanelPosition(
     viewport,
     panelSize,
   );
-}
-
-function resolveAnnotationBounds(
-  draft: BrowserDesignCaptureDraft,
-  canvas: HTMLCanvasElement | null,
-): AnnotationBounds {
-  if (draft.tool === "draw-comment") {
-    return {
-      x: 0,
-      y: 0,
-      width: Math.max(1, canvas?.width ?? draft.capture.selection.width),
-      height: Math.max(1, canvas?.height ?? draft.capture.selection.height),
-    };
-  }
-  return draft.capture.selection;
 }
 
 function isPointInsideSelectionRect(
@@ -1271,7 +1235,7 @@ function buildElementCommentScrollScript(input: {
   let target = document.elementFromPoint(point.x, point.y);
   while (target && target !== document.body && target !== document.documentElement) {
     if (canScroll(target, dominantAxis)) {
-      target.scrollBy({ left: delta.left, top: delta.top, behavior: "smooth" });
+      target.scrollBy({ left: delta.left, top: delta.top });
       return;
     }
     target = target.parentElement;
@@ -1279,7 +1243,6 @@ function buildElementCommentScrollScript(input: {
   window.scrollBy({
     left: delta.left,
     top: delta.top,
-    behavior: "smooth",
   });
 })();`;
 }
@@ -1303,87 +1266,6 @@ function stopWebviewBeforeRemoval(webview: BrowserWebview): void {
     // The guest may already be torn down by Chromium.
   }
 }
-
-function DrawingToolIcon(props: { tool: AnnotationTool; className?: string }) {
-  const { className, tool } = props;
-  switch (tool) {
-    case "eraser":
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          className={className}
-        >
-          <path d="M6.5 14.5 13 8a2.5 2.5 0 0 1 3.5 0l1.5 1.5a2.5 2.5 0 0 1 0 3.5l-4.5 4.5H9.5l-3-3a2.5 2.5 0 0 1 0-3.5Z" />
-          <path d="M13.5 17.5h5" />
-        </svg>
-      );
-    case "line":
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          className={className}
-        >
-          <path d="M5 19 19 5" />
-          <circle cx="6.5" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
-          <circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
-        </svg>
-      );
-    case "rectangle":
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          className={className}
-        >
-          <rect x="5" y="7" width="14" height="10" rx="2.5" />
-        </svg>
-      );
-    case "ellipse":
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          className={className}
-        >
-          <ellipse cx="12" cy="12" rx="7" ry="5" />
-        </svg>
-      );
-    default:
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          className={className}
-        >
-          <path d="M6 18 16.5 7.5a1.8 1.8 0 0 1 2.5 0l.5.5a1.8 1.8 0 0 1 0 2.5L9 21H6v-3Z" />
-          <path d="m14 10 3 3" />
-        </svg>
-      );
-  }
-}
-
-const DRAW_TOOL_OPTIONS: ReadonlyArray<{
-  label: string;
-  tool: AnnotationTool;
-}> = [
-  { label: "Pencil", tool: "pencil" },
-  { label: "Line", tool: "line" },
-  { label: "Rectangle", tool: "rectangle" },
-  { label: "Ellipse", tool: "ellipse" },
-  { label: "Eraser", tool: "eraser" },
-];
 
 export function BrowserFavicon(props: {
   url: string;
@@ -1468,16 +1350,8 @@ export function BrowserTabWebview(props: {
   const snapshotFlushTimerRef = useRef<number | null>(null);
   const consoleLogsRef = useRef<BrowserConsoleLogEntry[]>([]);
   const overlayRef = useRef<HTMLDivElement | null>(null);
-  const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const designRequestPanelRef = useRef<HTMLFormElement | null>(null);
   const dragSelectionRef = useRef<ActiveDragSelection | null>(null);
-  const designRequestPanelDragStateRef = useRef<{
-    originLeft: number;
-    originTop: number;
-    pointerId: number;
-    startX: number;
-    startY: number;
-  } | null>(null);
   const designRequestPanelRequestIdRef = useRef<string | null>(null);
   const previousDesignRequestPanelLayoutRef = useRef<{
     panelSize: FloatingOverlaySize;
@@ -1490,20 +1364,13 @@ export function BrowserTabWebview(props: {
   const hoveredElementPointRef = useRef<{ x: number; y: number } | null>(null);
   const latestElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestTokenRef = useRef(0);
+  const elementCommentWheelFrameRef = useRef<number | null>(null);
+  const lastElementCommentWheelAtRef = useRef(0);
+  const pendingElementCommentWheelRef = useRef<PendingElementCommentWheel | null>(null);
   const agentPointerTokenRef = useRef(0);
   const agentPointerActionTimerRef = useRef<number | null>(null);
   const agentPointerFrameRef = useRef<number | null>(null);
   const agentPointerPositionRef = useRef<BrowserAgentPointerPoint | null>(null);
-  const annotationPointerRef = useRef<{
-    color: string;
-    pointerId: number;
-    lastX: number;
-    lastY: number;
-    snapshot: ImageData | null;
-    startX: number;
-    startY: number;
-    tool: AnnotationTool;
-  } | null>(null);
   const requestedUrlRef = useRef(tab.url);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const activeRef = useRef(active);
@@ -1513,9 +1380,6 @@ export function BrowserTabWebview(props: {
     useState<BrowserPageElementCapture | null>(null);
   const [designDraft, setDesignDraft] = useState<BrowserDesignCaptureDraft | null>(null);
   const [designInstructions, setDesignInstructions] = useState("");
-  const [annotationColor, setAnnotationColor] = useState(DEFAULT_ANNOTATION_COLOR);
-  const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("pencil");
-  const [hasAnnotationStrokes, setHasAnnotationStrokes] = useState(false);
   const [isSubmittingDesignRequest, setIsSubmittingDesignRequest] = useState(false);
   const [overlayViewportSize, setOverlayViewportSize] = useState<OverlayViewportSize | null>(null);
   const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
@@ -2232,10 +2096,8 @@ export function BrowserTabWebview(props: {
       setHoveredElementCapture(null);
       hoveredElementCaptureRef.current = null;
       dragSelectionRef.current = null;
-      annotationPointerRef.current = null;
       setDesignDraft(null);
       setDesignInstructions("");
-      setHasAnnotationStrokes(false);
       setIsSubmittingDesignRequest(false);
       cancelDesignCaptureEvent();
     };
@@ -2281,36 +2143,18 @@ export function BrowserTabWebview(props: {
     navigate(tab.url);
   }, [navigate, tab.url]);
 
-  const clearAnnotationCanvas = useCallback(() => {
-    annotationPointerRef.current = null;
-    const canvas = annotationCanvasRef.current;
-    if (!canvas) {
-      setHasAnnotationStrokes(false);
-      return;
-    }
-    const context = canvas.getContext("2d");
-    if (!context) {
-      setHasAnnotationStrokes(false);
-      return;
-    }
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    setHasAnnotationStrokes(false);
-  }, []);
-
   const cancelDesignCapture = useCallback(() => {
     setSelectionRect(null);
     setHoveredElementCapture(null);
     dragSelectionRef.current = null;
-    designRequestPanelDragStateRef.current = null;
     designRequestPanelRequestIdRef.current = null;
     pendingElementHoverPointRef.current = null;
     setDesignDraft(null);
     setDesignInstructions("");
     setDesignRequestPanelPosition(null);
-    clearAnnotationCanvas();
     setIsSubmittingDesignRequest(false);
     cancelDesignCaptureEvent();
-  }, [clearAnnotationCanvas]);
+  }, [cancelDesignCaptureEvent]);
 
   useEffect(() => {
     if (!active) {
@@ -2372,6 +2216,9 @@ export function BrowserTabWebview(props: {
       if (elementHoverFrameRef.current !== null) {
         window.cancelAnimationFrame(elementHoverFrameRef.current);
       }
+      if (elementCommentWheelFrameRef.current !== null) {
+        window.cancelAnimationFrame(elementCommentWheelFrameRef.current);
+      }
     };
   }, []);
 
@@ -2427,6 +2274,15 @@ export function BrowserTabWebview(props: {
     },
     [],
   );
+  const flushElementCommentWheel = useCallback(() => {
+    elementCommentWheelFrameRef.current = null;
+    const pendingWheel = pendingElementCommentWheelRef.current;
+    if (!pendingWheel) {
+      return;
+    }
+    pendingElementCommentWheelRef.current = null;
+    forwardElementCommentWheelToWebview(pendingWheel);
+  }, [forwardElementCommentWheelToWebview]);
 
   const onCaptureOverlayWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement>) => {
@@ -2435,20 +2291,40 @@ export function BrowserTabWebview(props: {
       }
       event.preventDefault();
       event.stopPropagation();
+      lastElementCommentWheelAtRef.current = Date.now();
+      elementHoverRequestTokenRef.current += 1;
+      pendingElementHoverPointRef.current = null;
+      if (elementHoverFrameRef.current !== null) {
+        window.cancelAnimationFrame(elementHoverFrameRef.current);
+        elementHoverFrameRef.current = null;
+      }
       const deltaMultiplier =
         event.deltaMode === 1
           ? 16
           : event.deltaMode === 2
             ? (overlayRef.current?.clientHeight ?? 1)
             : 1;
-      forwardElementCommentWheelToWebview({
-        clientX: event.clientX,
-        clientY: event.clientY,
-        deltaX: event.deltaX * deltaMultiplier,
-        deltaY: event.deltaY * deltaMultiplier,
-      });
+      const deltaX = event.deltaX * deltaMultiplier;
+      const deltaY = event.deltaY * deltaMultiplier;
+      pendingElementCommentWheelRef.current = pendingElementCommentWheelRef.current
+        ? {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            deltaX: pendingElementCommentWheelRef.current.deltaX + deltaX,
+            deltaY: pendingElementCommentWheelRef.current.deltaY + deltaY,
+          }
+        : {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            deltaX,
+            deltaY,
+          };
+      if (elementCommentWheelFrameRef.current === null) {
+        elementCommentWheelFrameRef.current =
+          window.requestAnimationFrame(flushElementCommentWheel);
+      }
     },
-    [active, designDraft, designerModeActive, designerTool, forwardElementCommentWheelToWebview],
+    [active, designDraft, designerModeActive, designerTool, flushElementCommentWheel],
   );
 
   const startCapturedDraft = useCallback(
@@ -2469,7 +2345,6 @@ export function BrowserTabWebview(props: {
             return;
           }
           setDesignInstructions("");
-          clearAnnotationCanvas();
           setDesignDraft({
             capture,
             tool: designerTool,
@@ -2486,28 +2361,9 @@ export function BrowserTabWebview(props: {
           cancelDesignCapture();
         });
     },
-    [cancelDesignCapture, captureDesignSelection, clearAnnotationCanvas, designerTool],
+    [cancelDesignCapture, captureDesignSelection, designerTool],
   );
 
-  const startViewportDraft = useCallback(
-    (failureMessage = "Could not capture the current page.") => {
-      const host = overlayRef.current;
-      if (!host) {
-        return;
-      }
-      startCapturedDraft(
-        {
-          x: 0,
-          y: 0,
-          width: Math.max(1, Math.round(host.clientWidth)),
-          height: Math.max(1, Math.round(host.clientHeight)),
-        },
-        null,
-        failureMessage,
-      );
-    },
-    [startCapturedDraft],
-  );
   const flushHoveredElementInspection = useCallback(() => {
     if (elementHoverFrameRef.current !== null) {
       window.cancelAnimationFrame(elementHoverFrameRef.current);
@@ -2574,12 +2430,6 @@ export function BrowserTabWebview(props: {
       const bounds = host.getBoundingClientRect();
       const startX = event.clientX - bounds.left;
       const startY = event.clientY - bounds.top;
-      if (designerTool === "draw-comment") {
-        event.preventDefault();
-        event.stopPropagation();
-        startViewportDraft();
-        return;
-      }
       if (designerTool === "element-comment") {
         latestElementHoverPointRef.current = { x: startX, y: startY };
         pendingElementHoverPointRef.current = { x: startX, y: startY };
@@ -2608,14 +2458,7 @@ export function BrowserTabWebview(props: {
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [
-      active,
-      designDraft,
-      designerModeActive,
-      designerTool,
-      flushHoveredElementInspection,
-      startViewportDraft,
-    ],
+    [active, designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
   );
 
   const onCaptureOverlayPointerMove = useCallback(
@@ -2642,6 +2485,14 @@ export function BrowserTabWebview(props: {
         return;
       }
       if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
+        return;
+      }
+      if (
+        Date.now() - lastElementCommentWheelAtRef.current <
+        ELEMENT_HOVER_INSPECTION_SCROLL_PAUSE_MS
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
       const host = overlayRef.current;
@@ -2742,86 +2593,18 @@ export function BrowserTabWebview(props: {
     ],
   );
 
-  const buildAnnotatedPreviewCapture = useCallback(async () => {
-    if (!designDraft) {
-      return null;
-    }
-    if (!hasAnnotationStrokes) {
-      return {
-        imageDataUrl: designDraft.capture.imageDataUrl,
-        imageMimeType: designDraft.capture.imageMimeType,
-        imageSizeBytes: designDraft.capture.imageSizeBytes,
-      };
-    }
-    const canvas = annotationCanvasRef.current;
-    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-      return {
-        imageDataUrl: designDraft.capture.imageDataUrl,
-        imageMimeType: designDraft.capture.imageMimeType,
-        imageSizeBytes: designDraft.capture.imageSizeBytes,
-      };
-    }
-    const image = new Image();
-    const baseImageLoaded = new Promise<void>((resolve, reject) => {
-      image.addEventListener("load", () => resolve(), { once: true });
-      image.addEventListener(
-        "error",
-        () => reject(new Error("Unable to prepare the comment capture.")),
-        { once: true },
-      );
-    });
-    image.src = designDraft.capture.imageDataUrl;
-    await baseImageLoaded;
-    const composedCanvas = document.createElement("canvas");
-    composedCanvas.width = canvas.width;
-    composedCanvas.height = canvas.height;
-    const context = composedCanvas.getContext("2d");
-    if (!context) {
-      return {
-        imageDataUrl: designDraft.capture.imageDataUrl,
-        imageMimeType: designDraft.capture.imageMimeType,
-        imageSizeBytes: designDraft.capture.imageSizeBytes,
-      };
-    }
-    const selection = designDraft.capture.selection;
-    composedCanvas.width = selection.width;
-    composedCanvas.height = selection.height;
-    context.drawImage(image, 0, 0, composedCanvas.width, composedCanvas.height);
-    context.drawImage(
-      canvas,
-      selection.x,
-      selection.y,
-      selection.width,
-      selection.height,
-      0,
-      0,
-      composedCanvas.width,
-      composedCanvas.height,
-    );
-    const imageDataUrl = composedCanvas.toDataURL("image/png");
-    return {
-      imageDataUrl,
-      imageMimeType: "image/png",
-      imageSizeBytes: estimateDataUrlBytes(imageDataUrl),
-    };
-  }, [designDraft, hasAnnotationStrokes]);
-
   const submitDesignDraft = useCallback(async () => {
     if (!designDraft || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
       return;
     }
     const trimmedInstructions = normalizeDesignCommentToSingleLine(designInstructions).trim();
-    const allowsEmptyComment = designDraft.tool === "draw-comment" && hasAnnotationStrokes;
-    if (trimmedInstructions.length === 0 && !allowsEmptyComment) {
+    if (trimmedInstructions.length === 0) {
       return;
     }
     setIsSubmittingDesignRequest(true);
     try {
-      const annotatedPreview = await buildAnnotatedPreviewCapture();
-      const capturePayload = annotatedPreview ?? designDraft.capture;
       await onDesignCaptureSubmit({
         ...designDraft.capture,
-        ...capturePayload,
         instructions: trimmedInstructions,
       });
       cancelDesignCapture();
@@ -2832,50 +2615,13 @@ export function BrowserTabWebview(props: {
       setIsSubmittingDesignRequest(false);
     }
   }, [
-    buildAnnotatedPreviewCapture,
     cancelDesignCapture,
     designDraft,
     designInstructions,
-    hasAnnotationStrokes,
     isSubmittingDesignRequest,
     onDesignCaptureSubmit,
   ]);
 
-  useEffect(() => {
-    if (!designDraft) {
-      clearAnnotationCanvas();
-      return;
-    }
-    const syncCanvas = () => {
-      const overlay = overlayRef.current;
-      const canvas = annotationCanvasRef.current;
-      if (!overlay || !canvas) {
-        return;
-      }
-      const nextWidth = Math.max(1, Math.round(overlay.clientWidth));
-      const nextHeight = Math.max(1, Math.round(overlay.clientHeight));
-      if (canvas.width === nextWidth && canvas.height === nextHeight) {
-        return;
-      }
-      canvas.width = nextWidth;
-      canvas.height = nextHeight;
-      clearAnnotationCanvas();
-    };
-    syncCanvas();
-    const overlay = overlayRef.current;
-    const observer =
-      overlay && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncCanvas();
-          })
-        : null;
-    if (observer && overlay) {
-      observer.observe(overlay);
-    }
-    return () => {
-      observer?.disconnect();
-    };
-  }, [clearAnnotationCanvas, designDraft]);
   useEffect(() => {
     if (!designDraft) {
       setOverlayViewportSize(null);
@@ -2943,216 +2689,6 @@ export function BrowserTabWebview(props: {
       observer?.disconnect();
     };
   }, [designDraft]);
-
-  const drawAnnotationStroke = useCallback(
-    (
-      context: CanvasRenderingContext2D,
-      from: { x: number; y: number },
-      to: { x: number; y: number },
-      options: { color: string; tool: AnnotationTool },
-    ) => {
-      context.save();
-      context.globalCompositeOperation =
-        options.tool === "eraser" ? "destination-out" : "source-over";
-      context.lineCap = "round";
-      context.lineJoin = "round";
-      context.lineWidth = options.tool === "eraser" ? 18 : 3.5;
-      context.strokeStyle = options.color;
-      context.beginPath();
-      context.moveTo(from.x, from.y);
-      context.lineTo(to.x, to.y);
-      context.stroke();
-      context.restore();
-      setHasAnnotationStrokes(true);
-    },
-    [],
-  );
-
-  const drawAnnotationShape = useCallback(
-    (
-      context: CanvasRenderingContext2D,
-      start: { x: number; y: number },
-      end: { x: number; y: number },
-      options: {
-        color: string;
-        preview?: boolean;
-        tool: Extract<AnnotationTool, "ellipse" | "line" | "rectangle">;
-      },
-    ) => {
-      context.save();
-      context.globalCompositeOperation = "source-over";
-      context.lineCap = "round";
-      context.lineJoin = "round";
-      context.lineWidth = 3;
-      context.strokeStyle = options.color;
-      if (options.tool === "line") {
-        context.beginPath();
-        context.moveTo(start.x, start.y);
-        context.lineTo(end.x, end.y);
-        context.stroke();
-      } else if (options.tool === "rectangle") {
-        context.strokeRect(
-          Math.min(start.x, end.x),
-          Math.min(start.y, end.y),
-          Math.abs(end.x - start.x),
-          Math.abs(end.y - start.y),
-        );
-      } else {
-        context.beginPath();
-        context.ellipse(
-          (start.x + end.x) / 2,
-          (start.y + end.y) / 2,
-          Math.abs(end.x - start.x) / 2,
-          Math.abs(end.y - start.y) / 2,
-          0,
-          0,
-          Math.PI * 2,
-        );
-        context.stroke();
-      }
-      context.restore();
-      if (!options.preview) {
-        setHasAnnotationStrokes(true);
-      }
-    },
-    [],
-  );
-
-  const resolveAnnotationPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const canvas = annotationCanvasRef.current;
-    if (!canvas) {
-      return null;
-    }
-    const bounds = canvas.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) {
-      return null;
-    }
-    return {
-      x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
-      y: ((event.clientY - bounds.top) / bounds.height) * canvas.height,
-    };
-  }, []);
-
-  const handleAnnotationPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (event.button !== 0 || !designDraft) {
-        return;
-      }
-      const canvas = annotationCanvasRef.current;
-      const context = canvas?.getContext("2d");
-      const point = resolveAnnotationPoint(event);
-      const bounds = resolveAnnotationBounds(designDraft, canvas);
-      if (!point || !context || !isPointInsideSelectionRect(point, bounds)) {
-        return;
-      }
-      const clampedPoint = {
-        x: clampPoint(point.x, bounds.x, bounds.x + bounds.width),
-        y: clampPoint(point.y, bounds.y, bounds.y + bounds.height),
-      };
-      const snapshot =
-        annotationTool === "pencil" || annotationTool === "eraser"
-          ? null
-          : context.getImageData(0, 0, canvas?.width ?? 0, canvas?.height ?? 0);
-      annotationPointerRef.current = {
-        color: annotationColor,
-        pointerId: event.pointerId,
-        lastX: clampedPoint.x,
-        lastY: clampedPoint.y,
-        snapshot,
-        startX: clampedPoint.x,
-        startY: clampedPoint.y,
-        tool: annotationTool,
-      };
-      if (annotationTool === "pencil" || annotationTool === "eraser") {
-        drawAnnotationStroke(context, clampedPoint, clampedPoint, {
-          color: annotationColor,
-          tool: annotationTool,
-        });
-      }
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [annotationColor, annotationTool, designDraft, drawAnnotationStroke, resolveAnnotationPoint],
-  );
-
-  const handleAnnotationPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      const drawingState = annotationPointerRef.current;
-      if (!drawingState || drawingState.pointerId !== event.pointerId || !designDraft) {
-        return;
-      }
-      const canvas = annotationCanvasRef.current;
-      const context = canvas?.getContext("2d");
-      const point = resolveAnnotationPoint(event);
-      if (!point || !canvas || !context) {
-        return;
-      }
-      const bounds = resolveAnnotationBounds(designDraft, canvas);
-      const nextPoint = {
-        x: clampPoint(point.x, bounds.x, bounds.x + bounds.width),
-        y: clampPoint(point.y, bounds.y, bounds.y + bounds.height),
-      };
-      if (drawingState.tool === "pencil" || drawingState.tool === "eraser") {
-        drawAnnotationStroke(context, { x: drawingState.lastX, y: drawingState.lastY }, nextPoint, {
-          color: drawingState.color,
-          tool: drawingState.tool,
-        });
-      } else if (drawingState.snapshot) {
-        context.putImageData(drawingState.snapshot, 0, 0);
-        drawAnnotationShape(
-          context,
-          { x: drawingState.startX, y: drawingState.startY },
-          nextPoint,
-          {
-            color: drawingState.color,
-            preview: true,
-            tool: drawingState.tool,
-          },
-        );
-      }
-      annotationPointerRef.current = {
-        ...drawingState,
-        lastX: nextPoint.x,
-        lastY: nextPoint.y,
-      };
-      event.preventDefault();
-    },
-    [designDraft, drawAnnotationShape, drawAnnotationStroke, resolveAnnotationPoint],
-  );
-
-  const handleAnnotationPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      const drawingState = annotationPointerRef.current;
-      if (!drawingState || drawingState.pointerId !== event.pointerId) {
-        return;
-      }
-      const canvas = annotationCanvasRef.current;
-      const context = canvas?.getContext("2d");
-      if (
-        canvas &&
-        context &&
-        drawingState.snapshot &&
-        drawingState.tool !== "pencil" &&
-        drawingState.tool !== "eraser"
-      ) {
-        context.putImageData(drawingState.snapshot, 0, 0);
-        drawAnnotationShape(
-          context,
-          { x: drawingState.startX, y: drawingState.startY },
-          { x: drawingState.lastX, y: drawingState.lastY },
-          {
-            color: drawingState.color,
-            tool: drawingState.tool,
-          },
-        );
-      }
-      annotationPointerRef.current = null;
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    [drawAnnotationShape],
-  );
 
   const designRequestPanelViewport = useMemo<OverlayViewportSize | null>(() => {
     if (!designDraft) {
@@ -3224,64 +2760,6 @@ export function BrowserTabWebview(props: {
     }
     setDesignRequestPanelPosition(clampedPosition);
   }, [designRequestPanelPosition, designRequestPanelSize, designRequestPanelViewport]);
-  const handleDesignRequestPanelPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        return;
-      }
-      const currentPosition = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
-      if (!currentPosition) {
-        return;
-      }
-      designRequestPanelDragStateRef.current = {
-        originLeft: currentPosition.left,
-        originTop: currentPosition.top,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-      };
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [defaultDesignRequestPanelPosition, designRequestPanelPosition],
-  );
-  const handleDesignRequestPanelPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = designRequestPanelDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId || !designRequestPanelViewport) {
-        return;
-      }
-      setDesignRequestPanelPosition(
-        clampDesignRequestPanelPosition(
-          {
-            left: dragState.originLeft + (event.clientX - dragState.startX),
-            top: dragState.originTop + (event.clientY - dragState.startY),
-          },
-          designRequestPanelViewport,
-          designRequestPanelSize,
-        ),
-      );
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    [designRequestPanelSize, designRequestPanelViewport],
-  );
-  const handleDesignRequestPanelPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = designRequestPanelDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) {
-        return;
-      }
-      designRequestPanelDragStateRef.current = null;
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    [],
-  );
   useEffect(() => {
     const resetPointerInteractions = () => {
       const overlay = overlayRef.current;
@@ -3291,28 +2769,6 @@ export function BrowserTabWebview(props: {
       }
       dragSelectionRef.current = null;
       setSelectionRect(null);
-
-      const annotationCanvas = annotationCanvasRef.current;
-      const annotationState = annotationPointerRef.current;
-      if (
-        annotationCanvas &&
-        annotationState &&
-        annotationCanvas.hasPointerCapture(annotationState.pointerId)
-      ) {
-        annotationCanvas.releasePointerCapture(annotationState.pointerId);
-      }
-      annotationPointerRef.current = null;
-
-      const designRequestPanel = designRequestPanelRef.current;
-      const panelDragState = designRequestPanelDragStateRef.current;
-      if (
-        designRequestPanel &&
-        panelDragState &&
-        designRequestPanel.hasPointerCapture(panelDragState.pointerId)
-      ) {
-        designRequestPanel.releasePointerCapture(panelDragState.pointerId);
-      }
-      designRequestPanelDragStateRef.current = null;
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -3337,10 +2793,8 @@ export function BrowserTabWebview(props: {
     };
   }, [defaultDesignRequestPanelPosition, designRequestPanelPosition, designRequestPanelViewport]);
   const activeOverlaySelection =
-    designerTool === "draw-comment" || designDraft?.tool === "draw-comment"
-      ? null
-      : (selectionRect ??
-        (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null));
+    selectionRect ??
+    (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null);
   const agentPointerScrollAxis =
     agentPointer && Math.abs(agentPointer.scrollX) > Math.abs(agentPointer.scrollY) ? "x" : "y";
   const agentPointerScrollDirection =
@@ -3359,10 +2813,7 @@ export function BrowserTabWebview(props: {
       : agentPointerScrollDirection >= 0
         ? 0
         : 180;
-  const canSubmitDesignDraft = designDraft
-    ? designInstructions.trim().length > 0 ||
-      (designDraft.tool === "draw-comment" && hasAnnotationStrokes)
-    : false;
+  const canSubmitDesignDraft = designDraft ? designInstructions.trim().length > 0 : false;
 
   return (
     <div
@@ -3412,9 +2863,7 @@ export function BrowserTabWebview(props: {
             !designDraft && designerModeActive
               ? designerTool === "element-comment"
                 ? "cursor-cell"
-                : designerTool === "draw-comment"
-                  ? "cursor-crosshair"
-                  : "cursor-crosshair"
+                : "cursor-crosshair"
               : null,
           )}
           onPointerDown={onCaptureOverlayPointerDown}
@@ -3423,16 +2872,6 @@ export function BrowserTabWebview(props: {
           onPointerCancel={onCaptureOverlayPointerEnd}
           onWheel={onCaptureOverlayWheel}
         >
-          {designDraft ? (
-            <canvas
-              ref={annotationCanvasRef}
-              className="absolute inset-0 z-10 size-full touch-none"
-              onPointerDown={handleAnnotationPointerDown}
-              onPointerMove={handleAnnotationPointerMove}
-              onPointerUp={handleAnnotationPointerEnd}
-              onPointerCancel={handleAnnotationPointerEnd}
-            />
-          ) : null}
           {activeOverlaySelection && (
             <div
               className="pointer-events-none absolute"
@@ -3443,107 +2882,37 @@ export function BrowserTabWebview(props: {
                 height: `${activeOverlaySelection.height}px`,
               }}
             >
-              <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] " />
+              <div className="absolute inset-0 rounded-[3px] border-2 border-sky-500 bg-sky-500/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_0_5px_rgba(14,165,233,0.22)]" />
             </div>
           )}
           {designDraft && designRequestPanelStyle && (
             <form
               ref={designRequestPanelRef}
-              className="absolute z-30 w-[272px] max-w-[calc(100%-16px)] rounded-2xl border border-border/60 bg-background/95 p-2.5  backdrop-blur-xl"
+              className="absolute z-30 flex h-12 w-[360px] max-w-[calc(100%-16px)] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl"
               style={designRequestPanelStyle}
               onSubmit={(event) => {
                 event.preventDefault();
                 void submitDesignDraft();
               }}
             >
-              <div
-                className="mb-2 flex h-5 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
-                onPointerDown={handleDesignRequestPanelPointerDown}
-                onPointerMove={handleDesignRequestPanelPointerMove}
-                onPointerUp={handleDesignRequestPanelPointerEnd}
-                onPointerCancel={handleDesignRequestPanelPointerEnd}
+              <input
+                value={designInstructions}
+                onChange={(event) =>
+                  setDesignInstructions(normalizeDesignCommentToSingleLine(event.target.value))
+                }
+                placeholder="Comment for the agent"
+                className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
+                autoFocus
+              />
+              <button
+                type="submit"
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
+                disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
+                aria-label="Submit comment"
+                title="Submit comment"
               >
-                <div className="h-1 w-10 rounded-full bg-border/70" />
-              </div>
-              {designDraft.tool === "draw-comment" ? (
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-background/88 p-1">
-                    {DRAW_TOOL_OPTIONS.map(({ label, tool }) => (
-                      <button
-                        key={tool}
-                        type="button"
-                        onClick={() => {
-                          setAnnotationTool(tool);
-                        }}
-                        className={cn(
-                          "inline-flex size-7 items-center justify-center rounded-lg transition-colors",
-                          annotationTool === tool
-                            ? "bg-primary/14 text-primary"
-                            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                        )}
-                        aria-label={label}
-                        title={label}
-                      >
-                        <DrawingToolIcon tool={tool} className="size-3.5" />
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-background/88 p-1">
-                    {DRAW_COLOR_SWATCHES.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => {
-                          setAnnotationColor(color);
-                        }}
-                        className={cn(
-                          "inline-flex size-6 items-center justify-center rounded-full border transition-transform",
-                          annotationColor === color
-                            ? "scale-105 border-white/60"
-                            : "border-transparent hover:scale-105",
-                        )}
-                        aria-label={`Select ${color} drawing color`}
-                        title="Select drawing color"
-                      >
-                        <span
-                          className="size-3 rounded-full border border-black/15"
-                          style={{ backgroundColor: color }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              <div className="mt-2 flex h-10 items-center rounded-[var(--control-radius)] border border-border/60 bg-background/92">
-                <button
-                  type="button"
-                  onClick={cancelDesignCapture}
-                  className="inline-flex h-full w-10 shrink-0 items-center justify-center border-r border-border/60 text-muted-foreground transition-colors hover:text-foreground"
-                  disabled={isSubmittingDesignRequest}
-                  aria-label="Cancel comment"
-                  title="Cancel comment"
-                >
-                  <XIcon className="size-3.5" />
-                </button>
-                <input
-                  value={designInstructions}
-                  onChange={(event) =>
-                    setDesignInstructions(normalizeDesignCommentToSingleLine(event.target.value))
-                  }
-                  placeholder="Comment for the agent"
-                  className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] outline-none placeholder:text-muted-foreground/55"
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  className="inline-flex h-full w-10 shrink-0 items-center justify-center border-l border-border/60 text-primary transition-colors hover:text-primary/85 disabled:opacity-40"
-                  disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
-                  aria-label="Submit comment"
-                  title="Submit comment"
-                >
-                  <ArrowUpRightIcon className="size-3.5" />
-                </button>
-              </div>
+                <ArrowUpRightIcon className="size-4" />
+              </button>
             </form>
           )}
         </div>

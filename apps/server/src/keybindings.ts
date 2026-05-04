@@ -76,19 +76,13 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+i", command: "browser.devtools", when: "browserOpen && !terminalFocus" },
   { key: "mod+shift+[", command: "browser.previousTab", when: "browserOpen && !terminalFocus" },
   { key: "mod+shift+]", command: "browser.nextTab", when: "browserOpen && !terminalFocus" },
-  { key: "mod+alt+1", command: "browser.designer.cursor", when: "browserOpen && !terminalFocus" },
   {
-    key: "mod+alt+2",
+    key: "mod+alt+1",
     command: "browser.designer.areaComment",
     when: "browserOpen && !terminalFocus",
   },
   {
-    key: "mod+alt+3",
-    command: "browser.designer.drawComment",
-    when: "browserOpen && !terminalFocus",
-  },
-  {
-    key: "mod+alt+4",
+    key: "mod+alt+2",
     command: "browser.designer.elementComment",
     when: "browserOpen && !terminalFocus",
   },
@@ -470,10 +464,20 @@ const KeybindingsConfigPrettyJson = KeybindingsConfigJson.pipe(
 const OBSOLETE_KEYBINDING_COMMANDS = new Set([
   "browser.toggle",
   "browser.duplicateTab",
+  "browser.designer.cursor",
+  "browser.designer.drawComment",
   "browser.moveTabLeft",
   "browser.moveTabRight",
   "diff.toggle",
   "rightPanel.editor.toggle",
+]);
+
+const LEGACY_DEFAULT_KEYBINDING_REPLACEMENTS = new Map<string, string>([
+  ["browser.designer.areaComment\u0000mod+alt+2\u0000browserOpen && !terminalFocus", "mod+alt+1"],
+  [
+    "browser.designer.elementComment\u0000mod+alt+4\u0000browserOpen && !terminalFocus",
+    "mod+alt+2",
+  ],
 ]);
 
 const isObsoleteKeybindingEntry = (entry: unknown) => {
@@ -483,6 +487,25 @@ const isObsoleteKeybindingEntry = (entry: unknown) => {
   const command = (entry as { readonly command?: unknown }).command;
   return typeof command === "string" && OBSOLETE_KEYBINDING_COMMANDS.has(command);
 };
+
+function normalizeLegacyDefaultKeybinding(rule: KeybindingRule): {
+  readonly migrated: boolean;
+  readonly rule: KeybindingRule;
+} {
+  const replacementKey = LEGACY_DEFAULT_KEYBINDING_REPLACEMENTS.get(
+    `${rule.command}\u0000${rule.key}\u0000${rule.when ?? ""}`,
+  );
+  if (!replacementKey) {
+    return { migrated: false, rule };
+  }
+  return {
+    migrated: true,
+    rule: {
+      ...rule,
+      key: replacementKey,
+    },
+  };
+}
 
 export interface KeybindingsConfigState {
   readonly keybindings: ResolvedKeybindingsConfig;
@@ -675,7 +698,7 @@ const makeKeybindings = Effect.gen(function* () {
           });
           return null;
         }
-        return decodedRule.value;
+        return normalizeLegacyDefaultKeybinding(decodedRule.value).rule;
       }),
     ).pipe(Effect.map(Array.filter(Predicate.isNotNull)));
   });
@@ -684,12 +707,13 @@ const makeKeybindings = Effect.gen(function* () {
     {
       readonly keybindings: readonly KeybindingRule[];
       readonly issues: readonly ServerConfigIssue[];
+      readonly migratedEntryCount: number;
       readonly obsoleteEntryCount: number;
     },
     KeybindingsConfigError
   > {
     if (!(yield* readConfigExists)) {
-      return { keybindings: [], issues: [], obsoleteEntryCount: 0 };
+      return { keybindings: [], issues: [], migratedEntryCount: 0, obsoleteEntryCount: 0 };
     }
 
     const rawConfig = yield* readRawConfig;
@@ -699,12 +723,14 @@ const makeKeybindings = Effect.gen(function* () {
       return {
         keybindings: [],
         issues: [malformedConfigIssue(detail)],
+        migratedEntryCount: 0,
         obsoleteEntryCount: 0,
       };
     }
 
     const keybindings: KeybindingRule[] = [];
     const issues: ServerConfigIssue[] = [];
+    let migratedEntryCount = 0;
     let obsoleteEntryCount = 0;
     for (const [index, entry] of decodedEntries.value.entries()) {
       if (isObsoleteKeybindingEntry(entry)) {
@@ -742,10 +768,20 @@ const makeKeybindings = Effect.gen(function* () {
         });
         continue;
       }
-      keybindings.push(decodedRule.value);
+      const normalizedRule = normalizeLegacyDefaultKeybinding(decodedRule.value);
+      if (normalizedRule.migrated) {
+        migratedEntryCount += 1;
+        yield* Effect.logWarning("migrating legacy default keybinding entry", {
+          path: keybindingsConfigPath,
+          index,
+          from: decodedRule.value,
+          to: normalizedRule.rule,
+        });
+      }
+      keybindings.push(normalizedRule.rule);
     }
 
-    return { keybindings, issues, obsoleteEntryCount };
+    return { keybindings, issues, migratedEntryCount, obsoleteEntryCount };
   });
 
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
@@ -852,7 +888,11 @@ const makeKeybindings = Effect.gen(function* () {
           reason: "shortcut context already used by existing rule",
         });
       }
-      if (missingDefaults.length === 0 && runtimeConfig.obsoleteEntryCount === 0) {
+      if (
+        missingDefaults.length === 0 &&
+        runtimeConfig.obsoleteEntryCount === 0 &&
+        runtimeConfig.migratedEntryCount === 0
+      ) {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }

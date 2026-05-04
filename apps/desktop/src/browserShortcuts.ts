@@ -21,10 +21,8 @@ export function resolveBrowserShortcutAction(
   if (input.alt === true) {
     if (key === "[") return "move-tab-left";
     if (key === "]") return "move-tab-right";
-    if (key === "1") return "designer-cursor";
-    if (key === "2") return "designer-area-comment";
-    if (key === "3") return "designer-draw-comment";
-    if (key === "4") return "designer-element-comment";
+    if (key === "1") return "designer-area-comment";
+    if (key === "2") return "designer-element-comment";
     return null;
   }
 
