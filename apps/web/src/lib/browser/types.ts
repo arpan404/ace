@@ -18,6 +18,12 @@ export type BrowserWebviewMouseWheelInputEvent = {
   canScroll?: boolean;
 };
 
+export type BrowserWebviewKeyboardInputEvent = {
+  type: "keyDown" | "keyUp";
+  keyCode: string;
+  modifiers?: Array<"shift" | "control" | "alt" | "meta">;
+};
+
 export const BROWSER_SEARCH_ENGINE_OPTIONS: Array<{
   label: string;
   value: BrowserSearchEngine;
@@ -43,7 +49,9 @@ export type BrowserWebview = HTMLElement & {
   loadURL: (url: string) => Promise<void>;
   openDevTools: (options?: { mode?: "detach" | "left" | "right" | "bottom" | "undocked" }) => void;
   reload: () => void;
-  sendInputEvent?: (event: BrowserWebviewMouseWheelInputEvent) => void;
+  sendInputEvent?: (
+    event: BrowserWebviewMouseWheelInputEvent | BrowserWebviewKeyboardInputEvent,
+  ) => void;
   getZoomFactor?: () => number;
   setZoomFactor?: (factor: number) => void;
   stop: () => void;
@@ -145,6 +153,7 @@ export type BrowserTabHandle = {
     limit?: number;
   }) => BrowserConsoleLogEntry[];
   reload: () => void;
+  pressKeys: (keys: ReadonlyArray<string>) => Promise<void>;
   setZoomFactor: (factor: number) => void;
   stop: () => void;
   zoomIn: () => void;

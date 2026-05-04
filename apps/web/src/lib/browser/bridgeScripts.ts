@@ -401,28 +401,99 @@ function buildBrowserBridgeRuntimeScript(): string {
   };
   const dispatchKey = (key) => {
     const keyText = String(key);
-    const normalizedKey = keyText.split("+").pop();
+    const parts = keyText.split("+").map((part) => part.trim()).filter(Boolean);
+    const keyPart = parts.pop() || keyText;
+    const modifiers = new Set(parts.map((part) => part.toLowerCase()));
+    const isModified = (name) => modifiers.has(name);
+    const keyAliases = {
+      arrowdown: "ArrowDown",
+      down: "ArrowDown",
+      arrowleft: "ArrowLeft",
+      left: "ArrowLeft",
+      arrowright: "ArrowRight",
+      right: "ArrowRight",
+      arrowup: "ArrowUp",
+      up: "ArrowUp",
+      del: "Delete",
+      esc: "Escape",
+      return: "Enter",
+      spacebar: " ",
+      space: " ",
+    };
+    const normalizedKey = keyAliases[keyPart.toLowerCase()] || keyPart;
     const target = document.activeElement || document.body;
-    target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: keyText }));
+    const keyboardEventInit = {
+      altKey: isModified("alt") || isModified("option"),
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: isModified("ctrl") || isModified("control"),
+      key: normalizedKey,
+      metaKey: isModified("cmd") || isModified("command") || isModified("meta") || isModified("super"),
+      shiftKey: isModified("shift"),
+    };
+    const keydown = new KeyboardEvent("keydown", keyboardEventInit);
+    const keydownAllowed = target.dispatchEvent(keydown);
     const scrollingTarget = nearestScrollable(target);
     const pageY = Math.max(1, Math.round(window.innerHeight * 0.85));
     const lineY = 80;
-    if (normalizedKey === "End") {
+    const isTextInput =
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLInputElement &&
+        !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(
+          target.type,
+        ));
+    if (keydownAllowed && isTextInput && typeof target.selectionStart === "number") {
+      const value = String(target.value || "");
+      const start = target.selectionStart ?? value.length;
+      const end = target.selectionEnd ?? start;
+      const setRange = (nextStart, nextEnd = nextStart) => {
+        target.setSelectionRange(nextStart, nextEnd);
+        target.dispatchEvent(new Event("select", { bubbles: true }));
+      };
+      const replaceRange = (nextValue, nextStart) => {
+        target.value = nextValue;
+        setRange(nextStart);
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      if (normalizedKey === "End") {
+        setRange(value.length);
+      } else if (normalizedKey === "Home") {
+        setRange(0);
+      } else if (normalizedKey === "ArrowLeft") {
+        setRange(Math.max(0, start - 1));
+      } else if (normalizedKey === "ArrowRight") {
+        setRange(Math.min(value.length, end + 1));
+      } else if (normalizedKey === "Backspace" && start !== end) {
+        replaceRange(value.slice(0, start) + value.slice(end), start);
+      } else if (normalizedKey === "Backspace" && start > 0) {
+        replaceRange(value.slice(0, start - 1) + value.slice(end), start - 1);
+      } else if (normalizedKey === "Delete" && start !== end) {
+        replaceRange(value.slice(0, start) + value.slice(end), start);
+      } else if (normalizedKey === "Delete" && end < value.length) {
+        replaceRange(value.slice(0, start) + value.slice(end + 1), start);
+      } else if (normalizedKey === "Enter" && target instanceof HTMLTextAreaElement) {
+        replaceRange(value.slice(0, start) + "\\n" + value.slice(end), start + 1);
+      }
+    } else if (keydownAllowed && normalizedKey === "Enter") {
+      if (target instanceof HTMLElement && typeof target.click === "function") {
+        target.click();
+      }
+    } else if (keydownAllowed && normalizedKey === "End") {
       scrollToTarget(scrollingTarget, scrollingTarget.scrollLeft ?? window.scrollX, scrollingTarget.scrollHeight ?? document.documentElement.scrollHeight);
-    } else if (normalizedKey === "Home") {
+    } else if (keydownAllowed && normalizedKey === "Home") {
       scrollToTarget(scrollingTarget, scrollingTarget.scrollLeft ?? window.scrollX, 0);
-    } else if (normalizedKey === "PageDown") {
+    } else if (keydownAllowed && normalizedKey === "PageDown") {
       scrollByTarget(scrollingTarget, 0, pageY);
-    } else if (normalizedKey === "PageUp") {
+    } else if (keydownAllowed && normalizedKey === "PageUp") {
       scrollByTarget(scrollingTarget, 0, -pageY);
-    } else if (normalizedKey === "ArrowDown") {
+    } else if (keydownAllowed && normalizedKey === "ArrowDown") {
       scrollByTarget(scrollingTarget, 0, lineY);
-    } else if (normalizedKey === "ArrowUp") {
+    } else if (keydownAllowed && normalizedKey === "ArrowUp") {
       scrollByTarget(scrollingTarget, 0, -lineY);
-    } else if (normalizedKey === " " || normalizedKey === "Space" || normalizedKey === "Spacebar") {
-      scrollByTarget(scrollingTarget, 0, keyText.includes("Shift") ? -pageY : pageY);
+    } else if (keydownAllowed && normalizedKey === " ") {
+      scrollByTarget(scrollingTarget, 0, keyboardEventInit.shiftKey ? -pageY : pageY);
     }
-    target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: keyText }));
+    target.dispatchEvent(new KeyboardEvent("keyup", keyboardEventInit));
   };
   const waitFor = async (predicate, timeoutMs) => {
     const timeout = Math.max(0, Math.min(Number(timeoutMs) || 5000, 30000));
