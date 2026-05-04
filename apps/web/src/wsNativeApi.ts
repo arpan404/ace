@@ -71,6 +71,10 @@ export function createWsNativeApi(): NativeApi {
         }
         return window.desktopBridge.repairBrowserStorage();
       },
+      resolveBridgeRequest: (input) =>
+        resolveRpcClientForActiveRoute().browserBridge.resolve(input),
+      onBridgeRequest: (callback) =>
+        resolveRpcClientForActiveRoute().browserBridge.onRequest(callback),
     },
     terminal: {
       open: (input) => resolveRpcClientForInput(input).terminal.open(input as never),

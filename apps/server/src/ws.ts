@@ -24,6 +24,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  type BrowserBridgeRequest,
   ServerLspToolsError,
   ServerProviderCliUpgradeError,
   WorkspaceEditorCloseBufferError,
@@ -44,6 +45,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
+import { browserBridge } from "./browserBridge";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
@@ -111,6 +113,13 @@ function normalizeStreamIdentity(input: {
     clientSessionId: input.clientSessionId,
     connectionId: input.connectionId,
   };
+}
+
+function offerBrowserBridgeRequest<TError>(
+  queue: Queue.Queue<BrowserBridgeRequest, TError>,
+  request: BrowserBridgeRequest,
+): void {
+  void Effect.runPromise(Queue.offer(queue, request).pipe(Effect.asVoid));
 }
 
 function resolveWsRateLimitKey(headers: Record<string, string | undefined>): string {
@@ -645,6 +654,11 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           disconnectWsClientSession(input.clientSessionId, input.connectionId);
           return {};
         }),
+      [WS_METHODS.browserBridgeResolve]: (input) =>
+        Effect.sync(() => {
+          browserBridge.resolve(input);
+          return {};
+        }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         workspaceEntries.search(input).pipe(
           Effect.mapError(
@@ -865,6 +879,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           Stream.callback<TerminalEvent>((queue) =>
             Effect.acquireRelease(
               terminalManager.subscribe((event) => Queue.offer(queue, event)),
+              (unsubscribe) => Effect.sync(unsubscribe),
+            ),
+          ),
+        ),
+      [WS_METHODS.subscribeBrowserBridgeRequests]: (input) =>
+        filterCurrentClientStream(
+          normalizeStreamIdentity(input),
+          Stream.callback<BrowserBridgeRequest>((queue) =>
+            Effect.acquireRelease(
+              Effect.sync(() =>
+                browserBridge.subscribe((request) => {
+                  offerBrowserBridgeRequest(queue, request);
+                }),
+              ),
               (unsubscribe) => Effect.sync(unsubscribe),
             ),
           ),

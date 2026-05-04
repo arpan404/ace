@@ -17,9 +17,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "ace (Dev)" : "ace";
-const APP_BUNDLE_ID = "com.ace.ace";
-const LAUNCHER_VERSION = 1;
+const APP_DISPLAY_NAME = isDevelopment ? "ace (Dev)" : "ace (Local)";
+const APP_BUNDLE_ID = "com.ace.ace.local";
+const LAUNCHER_VERSION = 3;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const desktopDir = resolve(__dirname, "..");
