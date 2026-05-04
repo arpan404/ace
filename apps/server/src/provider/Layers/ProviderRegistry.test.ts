@@ -400,17 +400,17 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         }).pipe(Effect.provide(failingSpawnerLayer("spawn codex ENOENT"))),
       );
 
-      it.effect("returns unavailable when codex is below the minimum supported version", () =>
+      it.effect("returns warning when codex is below the minimum supported version", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome();
           const status = yield* checkCodexProviderStatus();
           assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "error");
+          assert.strictEqual(status.status, "warning");
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "unknown");
           assert.strictEqual(
             status.message,
-            "Codex CLI v0.36.0 is too old for ace. Upgrade to v0.37.0 or newer and restart ace.",
+            "Upgrade needed: Codex CLI v0.36.0 is below ace's minimum supported version v0.37.0. Upgrade Codex CLI and restart ace.",
           );
         }).pipe(
           Effect.provide(

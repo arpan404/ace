@@ -28,6 +28,7 @@ describe("editorStateStore actions", () => {
     );
     expect(editorState).toEqual({
       activePaneId: "pane-1",
+      codeComments: [],
       draftsByFilePath: {},
       expandedDirectoryPaths: [],
       explorerOpen: true,
@@ -433,6 +434,82 @@ describe("editorStateStore actions", () => {
         savedContents: "export const value = 1;\n",
       },
     });
+  });
+
+  it("tracks code comments by file range and updates their status", () => {
+    const store = useEditorStateStore.getState();
+    store.addCodeComment(THREAD_ID, {
+      body: "Check this branch.",
+      code: "if (ready) return;",
+      createdAt: "2026-05-04T12:00:00.000Z",
+      cwd: "/repo",
+      id: "comment-1",
+      range: {
+        relativePath: "src/main.ts",
+        startLine: 4,
+        startColumn: 0,
+        endLine: 4,
+        endColumn: 18,
+      },
+      relativePath: "src/main.ts",
+      source: "user",
+      status: "open",
+    });
+
+    store.updateCodeCommentStatus(THREAD_ID, "comment-1", "queued");
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(editorState.codeComments).toEqual([
+      expect.objectContaining({
+        code: "if (ready) return;",
+        relativePath: "src/main.ts",
+        status: "queued",
+      }),
+    ]);
+  });
+
+  it("renames and removes code comments with their files", () => {
+    const store = useEditorStateStore.getState();
+    store.addCodeComment(THREAD_ID, {
+      body: "Keep this anchored.",
+      code: "export const value = 1;",
+      createdAt: "2026-05-04T12:00:00.000Z",
+      cwd: "/repo",
+      id: "comment-1",
+      range: {
+        relativePath: "src/main.ts",
+        startLine: 0,
+        startColumn: 0,
+        endLine: 0,
+        endColumn: 21,
+      },
+      relativePath: "src/main.ts",
+      source: "user",
+      status: "open",
+    });
+
+    store.renameEntry(THREAD_ID, "src/main.ts", "src/app.ts");
+
+    let editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+    expect(editorState.codeComments[0]?.relativePath).toBe("src/app.ts");
+    expect(editorState.codeComments[0]?.range.relativePath).toBe("src/app.ts");
+
+    store.removeEntry(THREAD_ID, "src");
+    editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+    expect(editorState.codeComments).toEqual([]);
   });
 
   it("removes deleted directory references from panes and drafts", () => {
