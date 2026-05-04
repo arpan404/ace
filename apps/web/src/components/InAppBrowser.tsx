@@ -28,6 +28,8 @@ import { motion, type MotionStyle } from "motion/react";
 import {
   useInAppBrowserState,
   type ActiveBrowserRuntimeState,
+  type BrowserViewportResizeRequest,
+  type BrowserViewportResizeResult,
   type InAppBrowserController,
   type InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
@@ -54,6 +56,8 @@ import { toastManager } from "./ui/toast";
 
 export type {
   ActiveBrowserRuntimeState,
+  BrowserViewportResizeRequest,
+  BrowserViewportResizeResult,
   InAppBrowserController,
   InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
@@ -69,6 +73,7 @@ interface InAppBrowserProps {
   onBrowserSessionChange?: (session: BrowserSessionStorage) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
+  onResizeViewport?: (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult;
   backShortcutLabel?: string | null;
   designerCursorShortcutLabel?: string | null;
   designerAreaCommentShortcutLabel?: string | null;
@@ -194,6 +199,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     onBrowserSessionChange,
     onControllerChange,
     onActiveRuntimeStateChange,
+    onResizeViewport,
     backShortcutLabel,
     designerCursorShortcutLabel,
     designerAreaCommentShortcutLabel,
@@ -247,6 +253,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
+    ...(onResizeViewport ? { onResizeViewport } : {}),
   });
   useEffect(() => {
     onBrowserSessionChange?.(browserSession);

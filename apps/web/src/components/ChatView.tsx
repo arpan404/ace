@@ -204,6 +204,8 @@ import {
 import {
   InAppBrowser,
   type ActiveBrowserRuntimeState,
+  type BrowserViewportResizeRequest,
+  type BrowserViewportResizeResult,
   type InAppBrowserController,
   type InAppBrowserMode,
 } from "./InAppBrowser";
@@ -244,6 +246,15 @@ import {
   DEFAULT_BROWSER_SPLIT_WIDTH,
   clampBrowserSplitWidth,
 } from "~/lib/chat/browserSplit";
+import {
+  DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
+  MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+  MIN_RIGHT_SIDE_PANEL_WIDTH,
+  RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH,
+  clampRightSidePanelWidth,
+  constrainedPanelWidth,
+  resolveBrowserOpenRightSidePanelWidth,
+} from "~/lib/chat/rightSidePanelWidth";
 import {
   DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
   MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
@@ -347,9 +358,6 @@ const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
-const DEFAULT_RIGHT_SIDE_PANEL_WIDTH = 512;
-const MIN_RIGHT_SIDE_PANEL_WIDTH = 416;
-
 type ThreadTerminalDrawerProps = ComponentProps<typeof ThreadTerminalDrawer>;
 
 interface RetainedThreadTerminalDrawerEntry {
@@ -520,7 +528,6 @@ function ConnectedRetainedThreadTerminalDrawers({
     />
   );
 }
-const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
 const MAX_CACHED_BROWSER_INSTANCES = 3;
 const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
 const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
@@ -529,30 +536,6 @@ function waitForBrowserBridgePoll(): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, BROWSER_BRIDGE_CONTROLLER_POLL_MS);
   });
-}
-
-function clampRightSidePanelWidth(width: number, viewportWidth: number): number {
-  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
-  const maxWidth = Math.max(
-    MIN_RIGHT_SIDE_PANEL_WIDTH,
-    safeViewportWidth - MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-  );
-  const normalizedWidth = Number.isFinite(width)
-    ? Math.round(width)
-    : DEFAULT_RIGHT_SIDE_PANEL_WIDTH;
-  return Math.min(maxWidth, Math.max(MIN_RIGHT_SIDE_PANEL_WIDTH, normalizedWidth));
-}
-
-function constrainedPanelWidth(
-  width: number,
-  minimumRemainingWidth: number,
-  minimumPanelWidth = 0,
-): string {
-  const roundedWidth = Math.round(width);
-  if (minimumPanelWidth > 0) {
-    return `min(100vw, clamp(${minimumPanelWidth}px, ${roundedWidth}px, calc(100vw - ${minimumRemainingWidth}px)))`;
-  }
-  return `min(${roundedWidth}px, calc(100vw - ${minimumRemainingWidth}px))`;
 }
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
@@ -3465,12 +3448,43 @@ export default function ChatView({
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
+
+  const syncRightSidePanelWidth = useCallback(
+    (nextWidth: number) => {
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const clampedWidth = clampRightSidePanelWidth(nextWidth, viewportWidth);
+      rightSidePanelWidthRef.current = clampedWidth;
+      setRightSidePanelWidth(clampedWidth);
+      if (lastSyncedRightSidePanelWidthRef.current === clampedWidth) {
+        return;
+      }
+      lastSyncedRightSidePanelWidthRef.current = clampedWidth;
+      setStoredRightSidePanelWidth(clampedWidth);
+    },
+    [setStoredRightSidePanelWidth],
+  );
+
+  const ensureBrowserRightSidePanelOpenWidth = useCallback(() => {
+    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+    const nextWidth = resolveBrowserOpenRightSidePanelWidth({
+      currentWidth: rightSidePanelWidthRef.current,
+      viewportWidth,
+    });
+    syncRightSidePanelWidth(nextWidth);
+  }, [syncRightSidePanelWidth]);
+
   const openBrowser = useCallback(() => {
     if (!isElectron) return;
+    ensureBrowserRightSidePanelOpenWidth();
     setRightSidePanelMode("browser");
     setBrowserMode("split");
     setRightSidePanelVisible(true);
-  }, [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
+  }, [
+    ensureBrowserRightSidePanelOpenWidth,
+    setBrowserMode,
+    setRightSidePanelMode,
+    setRightSidePanelVisible,
+  ]);
   const ensureBrowserBridgeController = useCallback(
     async (requestThreadId: ThreadId): Promise<InAppBrowserController> => {
       const existingController = browserControllerByThreadRef.current.get(requestThreadId);
@@ -3736,6 +3750,7 @@ export default function ChatView({
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
       if (!isElectron || typeof url !== "string" || url.length === 0) return;
+      ensureBrowserRightSidePanelOpenWidth();
       setRightSidePanelMode("browser");
       setBrowserMode("split");
       setRightSidePanelVisible(true);
@@ -3746,7 +3761,12 @@ export default function ChatView({
       }
       controller.openUrl(url, options);
     },
-    [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
+    [
+      ensureBrowserRightSidePanelOpenWidth,
+      setBrowserMode,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+    ],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -4185,19 +4205,52 @@ export default function ChatView({
     };
   }, [editorHostedInRightPanel, syncWorkspaceEditorSplitWidth, workspaceMode]);
 
-  const syncRightSidePanelWidth = useCallback(
-    (nextWidth: number) => {
+  const resizeBrowserViewportForBridge = useCallback(
+    (request: BrowserViewportResizeRequest): BrowserViewportResizeResult => {
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
-      const clampedWidth = clampRightSidePanelWidth(nextWidth, viewportWidth);
-      rightSidePanelWidthRef.current = clampedWidth;
-      setRightSidePanelWidth(clampedWidth);
-      if (lastSyncedRightSidePanelWidthRef.current === clampedWidth) {
-        return;
+      const requestedPanelWidth =
+        request.panelWidth ??
+        (request.width !== undefined
+          ? request.width + RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH
+          : undefined);
+      const currentPanelWidth = clampRightSidePanelWidth(
+        rightSidePanelWidthRef.current,
+        viewportWidth,
+      );
+      const nextPanelWidth =
+        requestedPanelWidth !== undefined
+          ? clampRightSidePanelWidth(requestedPanelWidth, viewportWidth)
+          : currentPanelWidth;
+
+      setRightSidePanelMode("browser");
+      setBrowserMode("split");
+      setRightSidePanelVisible(true);
+      setRightSidePanelFullscreen(false);
+      syncRightSidePanelWidth(nextPanelWidth);
+
+      const result: BrowserViewportResizeResult = {
+        heightControlledByAppWindow: true,
+        panelWidth: nextPanelWidth,
+        viewportWidth: Math.max(0, nextPanelWidth - RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH),
+      };
+      if (request.height !== undefined) {
+        result.requestedHeight = request.height;
       }
-      lastSyncedRightSidePanelWidthRef.current = clampedWidth;
-      setStoredRightSidePanelWidth(clampedWidth);
+      if (requestedPanelWidth !== undefined) {
+        result.requestedPanelWidth = requestedPanelWidth;
+      }
+      if (request.width !== undefined) {
+        result.requestedWidth = request.width;
+      }
+      return result;
     },
-    [setStoredRightSidePanelWidth],
+    [
+      setBrowserMode,
+      setRightSidePanelFullscreen,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+      syncRightSidePanelWidth,
+    ],
   );
 
   const handleRightSidePanelResizePointerMove = useCallback((event: PointerEvent) => {
@@ -6935,6 +6988,7 @@ export default function ChatView({
                   },
                   onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
                   onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
+                  onResizeViewport: resizeBrowserViewportForBridge,
                   backShortcutLabel: browserBackShortcutLabel,
                   designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
                   designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,
