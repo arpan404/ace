@@ -232,6 +232,13 @@ const CODEX_BROWSER_BRIDGE_OPERATIONS: readonly BrowserBridgeOperation[] = [
   "list_tabs",
   "selected_tab",
   "get_tab",
+  "select_tab",
+  "switch_tab",
+  "activate_tab",
+  "next_tab",
+  "previous_tab",
+  "select_next_tab",
+  "select_previous_tab",
   "create_tab",
   "new_tab",
   "close_tab",
@@ -296,7 +303,7 @@ When you need browser automation, use the \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\` 
 
 If the user selected or refers to Browser Use, browser-use, or an in-app browser skill/plugin, fulfill those browser actions through \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\`. Do not bootstrap a separate browser-client runtime or use Codex's native browser for Ace browser tasks.
 
-Use the official Browser Use operation names when possible: navigate_tab_url, create_tab, selected_tab, list_tabs, close_tab, playwright_dom_snapshot, playwright_screenshot, playwright_locator_*, dom_cua_*, cua_*, tab_clipboard_*, tab_dev_logs, and wait operations. Use set_viewport_size or resize_browser with a width when testing responsive layouts; Ace will resize the right browser panel and report the resulting viewport. Use get_browser_zoom, set_browser_zoom, reset_browser_zoom, or zoom_browser when zoom matters. You may also use the shorter compatibility names open_url, dom_snapshot, screenshot, click, fill, back, forward, and reload.
+Use the official Browser Use operation names when possible: navigate_tab_url, create_tab, selected_tab, list_tabs, close_tab, playwright_dom_snapshot, playwright_screenshot, playwright_locator_*, dom_cua_*, cua_*, tab_clipboard_*, tab_dev_logs, and wait operations. Use select_tab/switch_tab/activate_tab with tabId or index when you need to move between existing tabs, or next_tab/previous_tab for adjacent tab selection. When opening the first URL, use navigate_tab_url or open_url on the selected tab; Ace reuses the initial blank tab instead of leaving an extra "New tab" behind. Use set_viewport_size or resize_browser with a width when testing responsive layouts; Ace will resize the right browser panel and report the resulting viewport. Use get_browser_zoom, set_browser_zoom, reset_browser_zoom, or zoom_browser when zoom matters. You may also use the shorter compatibility names open_url, dom_snapshot, screenshot, click, fill, back, forward, and reload.
 
 Use playwright_dom_snapshot for readable page content and locator ground truth. Use dom_cua_get_visible_dom when you need node ids for DOM CUA actions. For page scrolling, prefer dom_cua_scroll with x/y deltas or cua_scroll with scrollX/scrollY and viewport coordinates; do not use cua_keypress or dom_cua_keypress for page scrolling unless a focused control explicitly needs a keypress.
 
@@ -332,6 +339,23 @@ const CODEX_BROWSER_BRIDGE_TOOL: CodexDynamicToolSpec = {
       tab_id: {
         type: "string",
         description: "Browser Use-style tab id alias.",
+      },
+      index: {
+        type: "number",
+        description: "Zero-based tab index for select_tab/switch_tab/activate_tab.",
+      },
+      tabIndex: {
+        type: "number",
+        description: "Zero-based tab index alias.",
+      },
+      tabNumber: {
+        type: "number",
+        description: "One-based tab number alias.",
+      },
+      forceNewTab: {
+        type: "boolean",
+        description:
+          "Force create_tab/open_url to create a new tab even when the initial blank tab can be reused.",
       },
       selector: {
         type: "string",
