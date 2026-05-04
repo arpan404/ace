@@ -12,25 +12,25 @@ import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  BoxIcon,
+  CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CircleDotIcon,
   ClipboardListIcon,
-  FilesIcon,
+  Code2Icon,
   ExternalLinkIcon,
   FilePlus2Icon,
+  FolderTreeIcon,
   FolderPlusIcon,
+  GitBranchIcon,
   GitForkIcon,
-  GitPullRequestIcon,
+  HashIcon,
   ListTreeIcon,
   MessageSquareTextIcon,
-  PanelTopIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
-  SearchCodeIcon,
   SearchIcon,
-  SparklesIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import {
   memo,
@@ -545,6 +545,29 @@ function symbolKindClass(kind: string): string {
   }
 }
 
+function symbolKindIcon(kind: string): ReactNode {
+  const className = "size-3.5 shrink-0";
+  switch (kind) {
+    case "function":
+      return <Code2Icon className={`${className} text-sky-600`} />;
+    case "class":
+    case "struct":
+      return <BoxIcon className={`${className} text-violet-600`} />;
+    case "interface":
+    case "trait":
+      return <ListTreeIcon className={`${className} text-emerald-600`} />;
+    case "type":
+    case "enum":
+      return <HashIcon className={`${className} text-amber-600`} />;
+    case "impl":
+      return <GitBranchIcon className={`${className} text-primary`} />;
+    case "variable":
+      return <CircleDotIcon className={`${className} text-muted-foreground/70`} />;
+    default:
+      return <CircleDotIcon className={`${className} text-muted-foreground/62`} />;
+  }
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -771,22 +794,14 @@ function WorkspaceActivityButton(props: {
       aria-label={props.label}
       title={props.label}
       className={cn(
-        "group relative my-0.5 flex size-9 items-center justify-center rounded-xl transition-[background-color,color,box-shadow]",
+        "relative my-0.5 flex size-8 items-center justify-center rounded-lg transition-colors",
         props.active
-          ? "bg-accent text-foreground shadow-sm"
-          : "text-muted-foreground/70 hover:bg-accent/70 hover:text-foreground",
+          ? "bg-accent text-foreground"
+          : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
       )}
       onClick={props.onClick}
     >
       {props.icon}
-      <span
-        className={cn(
-          "pointer-events-none absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full transition-opacity",
-          props.active
-            ? "bg-primary/70 opacity-100"
-            : "bg-muted-foreground/35 opacity-0 group-hover:opacity-100",
-        )}
-      />
       {props.badge && props.badge > 0 ? (
         <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-card bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground shadow-sm">
           {props.badge > 9 ? "9+" : props.badge}
@@ -2689,48 +2704,6 @@ function ThreadWorkspaceEditor(inputProps: {
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border bg-card/80 px-3.5">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <div className="inline-flex h-9 min-w-max shrink-0 items-center gap-2 rounded-xl bg-accent px-3.5 text-sm font-medium text-foreground">
-            <PanelTopIcon className="size-4.5 text-muted-foreground" />
-            <span>Editor</span>
-          </div>
-          {props.branch ? (
-            <span className="max-w-40 truncate rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              {props.branch}
-            </span>
-          ) : null}
-          {activePane?.activeFilePath ? (
-            <span className="min-w-0 truncate px-1 text-xs text-muted-foreground/82">
-              {activePane.activeFilePath}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="inline-flex h-9 items-center gap-2 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() => openCommandPalette("files")}
-          >
-            <SearchIcon className="size-4" />
-            <span>Quick Open</span>
-            <span className="rounded-md border border-border/60 bg-background/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75">
-              ⌘P
-            </span>
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-9 items-center gap-2 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() => {
-              setSidebarMode("notes");
-              setExplorerOpen(props.threadId, true);
-            }}
-          >
-            <SparklesIcon className="size-4 text-primary" />
-            <span>{openCodeCommentCount + queuedWorkspaceContexts.length} agent notes</span>
-          </button>
-        </div>
-      </header>
       <div
         className="grid min-h-0 min-w-0 flex-1 bg-background"
         style={{
@@ -2742,7 +2715,7 @@ function ThreadWorkspaceEditor(inputProps: {
         <nav className="flex min-h-0 flex-col items-center border-r border-border bg-card/80 py-2">
           <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "explorer"}
-            icon={<FilesIcon className="size-4.5" />}
+            icon={<FolderTreeIcon className="size-4" />}
             label="Explorer"
             onClick={() => {
               setSidebarMode("explorer");
@@ -2751,7 +2724,7 @@ function ThreadWorkspaceEditor(inputProps: {
           />
           <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "search"}
-            icon={<SearchCodeIcon className="size-4.5" />}
+            icon={<SearchIcon className="size-4" />}
             label="Search"
             onClick={() => {
               setSidebarMode("search");
@@ -2762,7 +2735,7 @@ function ThreadWorkspaceEditor(inputProps: {
           <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "source-control"}
             badge={changedFiles.length}
-            icon={<GitPullRequestIcon className="size-4.5" />}
+            icon={<GitBranchIcon className="size-4" />}
             label="Source Control"
             onClick={() => {
               setSidebarMode("source-control");
@@ -2771,7 +2744,7 @@ function ThreadWorkspaceEditor(inputProps: {
           />
           <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "outline"}
-            icon={<ListTreeIcon className="size-4.5" />}
+            icon={<ListTreeIcon className="size-4" />}
             label="Outline"
             onClick={() => {
               setSidebarMode("outline");
@@ -2781,7 +2754,7 @@ function ThreadWorkspaceEditor(inputProps: {
           <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "problems"}
             badge={workspaceProblems.length}
-            icon={<TriangleAlertIcon className="size-4.5" />}
+            icon={<CircleAlertIcon className="size-4" />}
             label="Problems"
             onClick={() => {
               setSidebarMode("problems");
@@ -2791,7 +2764,7 @@ function ThreadWorkspaceEditor(inputProps: {
           <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "notes"}
             badge={openCodeCommentCount + queuedWorkspaceContexts.length}
-            icon={<MessageSquareTextIcon className="size-4.5" />}
+            icon={<MessageSquareTextIcon className="size-4" />}
             label="Agent Notes"
             onClick={() => {
               setSidebarMode("notes");
@@ -3038,7 +3011,7 @@ function ThreadWorkspaceEditor(inputProps: {
               ) : sidebarMode === "source-control" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
-                    <GitPullRequestIcon className="size-3.5 text-muted-foreground/74" />
+                    <GitBranchIcon className="size-3.5 text-muted-foreground/74" />
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
                       Source Control
                     </span>
@@ -3048,7 +3021,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   </div>
                   {changedFiles.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      <GitPullRequestIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      <GitBranchIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
                       No working tree changes.
                     </div>
                   ) : (
@@ -3192,7 +3165,7 @@ function ThreadWorkspaceEditor(inputProps: {
                     {sidebarMode === "outline" ? (
                       <ListTreeIcon className="size-3.5 text-muted-foreground/74" />
                     ) : (
-                      <TriangleAlertIcon className="size-3.5 text-muted-foreground/74" />
+                      <CircleAlertIcon className="size-3.5 text-muted-foreground/74" />
                     )}
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
                       {sidebarMode === "outline" ? "Outline" : "Problems"}
@@ -3225,7 +3198,7 @@ function ThreadWorkspaceEditor(inputProps: {
                             className="flex min-w-0 flex-1 items-center gap-1.5"
                             style={{ paddingLeft: `${Math.min(42, report.symbol.depth * 10)}px` }}
                           >
-                            <CircleDotIcon className="size-3 shrink-0 text-muted-foreground/58 group-hover:text-primary" />
+                            {symbolKindIcon(report.symbol.kind)}
                             <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                               {report.symbol.name}
                             </span>
@@ -3246,7 +3219,7 @@ function ThreadWorkspaceEditor(inputProps: {
                     </div>
                   ) : workspaceProblems.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      <TriangleAlertIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      <CircleAlertIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
                       No problems detected in open editor files.
                     </div>
                   ) : (

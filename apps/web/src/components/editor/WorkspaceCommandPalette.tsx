@@ -5,7 +5,6 @@ import {
   FileSearchIcon,
   GitBranchIcon,
   MessageSquarePlusIcon,
-  SearchIcon,
   WrenchIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -20,7 +19,6 @@ import {
   CommandDialog,
   CommandDialogPopup,
   CommandEmpty,
-  CommandFooter,
   CommandGroup,
   CommandGroupLabel,
   CommandInput,
@@ -98,9 +96,10 @@ export function WorkspaceCommandPalette(props: {
 
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
-      <CommandDialogPopup className="max-w-2xl overflow-hidden border-primary/20 bg-popover/98 shadow-2xl shadow-black/18 backdrop-blur">
+      <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border/50 bg-popover/98 p-0">
         <Command value={query} onValueChange={setQuery}>
           <CommandInput
+            className="h-9 border-border/50 bg-background/60 text-sm font-medium has-focus-visible:border-primary/45 has-focus-visible:ring-1 has-focus-visible:ring-primary/25"
             placeholder={showFiles ? "Open file by name or path" : "Run editor command"}
             onKeyDown={(event) => {
               if (event.key === ">") {
@@ -108,12 +107,14 @@ export function WorkspaceCommandPalette(props: {
               }
             }}
           />
-          <CommandPanel>
-            <CommandList>
+          <CommandPanel className="rounded-none border-0 bg-transparent [clip-path:none]">
+            <CommandList className="max-h-[min(24rem,calc(100dvh-14rem))] px-2 pb-2">
               <CommandEmpty>No results.</CommandEmpty>
               {showFiles ? (
                 <CommandGroup>
-                  <CommandGroupLabel>Files</CommandGroupLabel>
+                  <CommandGroupLabel className="px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/65">
+                    Files
+                  </CommandGroupLabel>
                   {fileResults.map((entry) => (
                     <CommandItem
                       key={entry.path}
@@ -122,7 +123,7 @@ export function WorkspaceCommandPalette(props: {
                         props.onOpenFile(entry.path);
                         props.onOpenChange(false);
                       }}
-                      className="gap-2 rounded-sm data-[selected=true]:bg-primary/9"
+                      className="gap-2 rounded-lg px-2.5 py-2 data-[selected=true]:bg-accent"
                     >
                       <VscodeEntryIcon
                         pathValue={entry.path}
@@ -141,7 +142,9 @@ export function WorkspaceCommandPalette(props: {
                 </CommandGroup>
               ) : (
                 <CommandGroup>
-                  <CommandGroupLabel>Editor Commands</CommandGroupLabel>
+                  <CommandGroupLabel className="px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/65">
+                    Editor Commands
+                  </CommandGroupLabel>
                   {commandResults.map((action) => (
                     <CommandItem
                       key={action.id}
@@ -155,7 +158,7 @@ export function WorkspaceCommandPalette(props: {
                         props.onOpenChange(false);
                       }}
                       className={cn(
-                        "gap-2 rounded-sm data-[selected=true]:bg-primary/9",
+                        "gap-2 rounded-lg px-2.5 py-2 data-[selected=true]:bg-accent",
                         action.disabled && "opacity-45",
                       )}
                     >
@@ -177,13 +180,6 @@ export function WorkspaceCommandPalette(props: {
               )}
             </CommandList>
           </CommandPanel>
-          <CommandFooter>
-            <span className="inline-flex items-center gap-1.5">
-              <SearchIcon className="size-3.5" />
-              {showFiles ? "File quick open" : "Command palette"}
-            </span>
-            <span>{showFiles ? "Cmd+P" : "Cmd+Shift+P"}</span>
-          </CommandFooter>
         </Command>
       </CommandDialogPopup>
     </CommandDialog>
