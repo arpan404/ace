@@ -16,15 +16,19 @@ describe("buildWebContentsContextMenuTemplate", () => {
         misspelledWord: "",
       },
       {
+        devToolsAccelerator: "CmdOrCtrl+Shift+I",
+        devToolsOpen: false,
         onCopyLink: vi.fn(),
         onOpenLink: vi.fn(),
         onReplaceMisspelling: vi.fn(),
+        onToggleDevTools: vi.fn(),
       },
     );
 
     expect(template).toMatchObject([
       { label: "Open Link Externally" },
       { label: "Copy Link Address" },
+      { label: "Open Chrome DevTools", accelerator: "CmdOrCtrl+Shift+I" },
       { type: "separator" },
       { role: "cut", enabled: false },
       { role: "copy", enabled: true },
@@ -72,5 +76,27 @@ describe("buildWebContentsContextMenuTemplate", () => {
 
     expect(withoutSuggestions[0]).toMatchObject({ label: "No suggestions", enabled: false });
     expect(withoutSuggestions[1]).toMatchObject({ type: "separator" });
+  });
+
+  it("labels devtools action as close when devtools is open", () => {
+    const template = buildWebContentsContextMenuTemplate(
+      {
+        dictionarySuggestions: [],
+        editFlags: {
+          canCopy: true,
+          canCut: true,
+          canPaste: true,
+          canSelectAll: true,
+        },
+        misspelledWord: "",
+      },
+      {
+        devToolsOpen: true,
+        onReplaceMisspelling: vi.fn(),
+        onToggleDevTools: vi.fn(),
+      },
+    );
+
+    expect(template[0]).toMatchObject({ label: "Close Chrome DevTools" });
   });
 });

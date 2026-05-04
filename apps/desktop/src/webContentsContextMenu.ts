@@ -12,9 +12,12 @@ type EditableContextMenuParams = {
 };
 
 interface BuildWebContentsContextMenuOptions {
+  devToolsAccelerator?: string;
+  devToolsOpen?: boolean;
   onCopyLink?: () => void;
   onOpenLink?: () => void;
   onReplaceMisspelling: (suggestion: string) => void;
+  onToggleDevTools?: () => void;
 }
 
 export function buildWebContentsContextMenuTemplate(
@@ -33,6 +36,13 @@ export function buildWebContentsContextMenuTemplate(
     template.push({
       label: "Copy Link Address",
       click: options.onCopyLink,
+    });
+  }
+  if (options.onToggleDevTools) {
+    template.push({
+      label: options.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools",
+      click: options.onToggleDevTools,
+      ...(options.devToolsAccelerator ? { accelerator: options.devToolsAccelerator } : {}),
     });
   }
   if (template.length > 0) {
