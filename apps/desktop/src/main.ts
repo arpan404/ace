@@ -2599,12 +2599,7 @@ function attachWebContentsContextMenu(input: {
         ...(input.includeDevToolsAction
           ? {
               devToolsAccelerator: BROWSER_DEVTOOLS_ACCELERATOR,
-              devToolsOpen: input.targetContents.isDevToolsOpened(),
-              onToggleDevTools: () => {
-                if (input.targetContents.isDevToolsOpened()) {
-                  input.targetContents.closeDevTools();
-                  return;
-                }
+              onOpenDevTools: () => {
                 input.targetContents.openDevTools();
               },
             }

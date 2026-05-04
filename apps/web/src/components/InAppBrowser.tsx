@@ -1,16 +1,15 @@
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  BoxSelectIcon,
   ChevronDownIcon,
-  CircleDotIcon,
-  CropIcon,
   ExternalLinkIcon,
   LockIcon,
   LockOpenIcon,
+  type LucideIcon,
   LoaderCircleIcon,
-  MousePointer2Icon,
+  MousePointerSquareDashedIcon,
   RefreshCwIcon,
-  SquarePenIcon,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -150,39 +149,23 @@ const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   description: string;
   tool: BrowserDesignerTool;
   label: string;
-  Icon: typeof MousePointer2Icon;
+  Icon: LucideIcon;
 }> = [
-  {
-    accent: "from-zinc-500/16 via-zinc-500/8 to-transparent",
-    collapsedLabel: "Cursor",
-    description: "Browse normally without leaving comment mode active.",
-    tool: "cursor",
-    label: "Normal cursor",
-    Icon: MousePointer2Icon,
-  },
   {
     accent: "from-sky-500/18 via-sky-500/10 to-transparent",
     collapsedLabel: "Area",
-    description: "Capture a rectangular region and leave focused layout feedback.",
+    description: "Drag over a page region, then comment for the agent.",
     tool: "area-comment",
-    label: "Area comment",
-    Icon: CropIcon,
-  },
-  {
-    accent: "from-amber-500/18 via-amber-500/10 to-transparent",
-    collapsedLabel: "Draw",
-    description: "Sketch directly on the page to call out visual changes.",
-    tool: "draw-comment",
-    label: "Draw comment",
-    Icon: SquarePenIcon,
+    label: "Annotate area",
+    Icon: BoxSelectIcon,
   },
   {
     accent: "from-emerald-500/18 via-emerald-500/10 to-transparent",
     collapsedLabel: "Element",
-    description: "Target a specific element and attach precise implementation notes.",
+    description: "Click an element, then comment for the agent.",
     tool: "element-comment",
-    label: "Element comment",
-    Icon: CircleDotIcon,
+    label: "Comment on element",
+    Icon: MousePointerSquareDashedIcon,
   },
 ];
 const FALLBACK_DESIGNER_TOOL_BUTTON = DESIGNER_TOOL_BUTTONS[0]!;
@@ -201,13 +184,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     onActiveRuntimeStateChange,
     onResizeViewport,
     backShortcutLabel,
-    designerCursorShortcutLabel,
     designerAreaCommentShortcutLabel,
-    designerDrawCommentShortcutLabel,
     designerElementCommentShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
-    detachEnabled = true,
     onQueueDesignRequest,
   } = props;
   const {
@@ -295,8 +275,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       FALLBACK_DESIGNER_TOOL_BUTTON,
     [designerState.tool],
   );
-  const collapsedDesignerSelectorActive =
-    designerState.active && activeDesignerToolButton.tool !== "cursor";
+  const collapsedDesignerSelectorActive = designerState.active;
 
   useEffect(() => {
     if (!open) {
@@ -378,17 +357,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }, [designerModeAvailable, updateDesignerToolShortcutHintsVisibility, visible]);
   const designerShortcutLabelByTool = useMemo<Record<BrowserDesignerTool, string | null>>(
     () => ({
-      cursor: designerCursorShortcutLabel ?? null,
       "area-comment": designerAreaCommentShortcutLabel ?? null,
-      "draw-comment": designerDrawCommentShortcutLabel ?? null,
       "element-comment": designerElementCommentShortcutLabel ?? null,
     }),
-    [
-      designerAreaCommentShortcutLabel,
-      designerCursorShortcutLabel,
-      designerDrawCommentShortcutLabel,
-      designerElementCommentShortcutLabel,
-    ],
+    [designerAreaCommentShortcutLabel, designerElementCommentShortcutLabel],
   );
   const setDesignerToolButtonRef = useCallback(
     (tool: BrowserDesignerTool, node: HTMLButtonElement | null) => {
@@ -401,13 +373,23 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [],
   );
+  const toggleOrSelectDesignerTool = useCallback(
+    (tool: BrowserDesignerTool) => {
+      if (designerState.active && designerState.tool === tool) {
+        setDesignerModeActive(false);
+        return;
+      }
+      selectDesignerTool(tool);
+    },
+    [designerState.active, designerState.tool, selectDesignerTool, setDesignerModeActive],
+  );
   const handleDesignerToolPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
       event.preventDefault();
       event.stopPropagation();
-      selectDesignerTool(tool);
+      toggleOrSelectDesignerTool(tool);
     },
-    [selectDesignerTool],
+    [toggleOrSelectDesignerTool],
   );
   const handleDesignerToolKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
@@ -587,21 +569,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [activeTab, activeTabIsInternal, onQueueDesignRequest],
   );
-  const detachBrowser = useCallback(async () => {
-    const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
-    if (!openDetachedBrowser) {
-      return;
-    }
-    const detached = await openDetachedBrowser({
-      ...(scopeId ? { scopeId } : {}),
-      ...(activeTab && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
-    });
-    if (detached) {
-      onClose();
-    }
-  }, [activeTab, activeTabIsInternal, onClose, scopeId]);
-  const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
-
   if (!open) {
     return null;
   }
@@ -715,7 +682,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               </Tooltip>
             </div>
             <form
-              className="relative mx-auto flex w-full min-w-[16rem] max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
+              className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
                 openUrl(draftUrl);
@@ -824,27 +791,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 />
               ) : null}
             </form>
-            {canDetachBrowser ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      type="button"
-                      className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                      onClick={() => {
-                        void detachBrowser();
-                      }}
-                      aria-label="Detach browser"
-                    >
-                      <ExternalLinkIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Detach browser</TooltipPopup>
-              </Tooltip>
-            ) : null}
             {designerModeAvailable ? (
               <div
                 ref={designerToolSlotRef}
@@ -871,7 +817,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         render={
                           <MenuTrigger
                             className={cn(
-                              "group inline-flex h-9 max-w-[11.5rem] shrink-0 items-center gap-2 rounded-xl border px-2.5 text-left transition-[border-color,background-color,color,box-shadow] duration-150",
+                              "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
                               "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
                               collapsedDesignerSelectorActive
                                 ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
@@ -880,7 +826,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                           >
                             <span
                               className={cn(
-                                "relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
                                 collapsedDesignerSelectorActive
                                   ? "border-primary/28 bg-primary/[0.12] text-primary"
                                   : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
@@ -894,22 +840,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               />
                               <activeDesignerToolButton.Icon className="relative size-3.5" />
                             </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[11px] font-medium leading-none text-foreground/92">
-                                {activeDesignerToolButton.label}
-                              </span>
-                              <span className="mt-0.5 block truncate text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/72">
-                                {collapsedDesignerSelectorActive ? "Comment tool" : "Browse mode"}
-                              </span>
-                            </span>
-                            {designerShortcutLabelByTool[activeDesignerToolButton.tool] ? (
-                              <span className="hidden shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-muted-foreground/85 sm:inline-flex">
-                                {resolveDesignerShortcutHintLabel(
-                                  designerShortcutLabelByTool[activeDesignerToolButton.tool] ?? "",
-                                )}
-                              </span>
-                            ) : null}
-                            <ChevronDownIcon className="size-3.5 shrink-0 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
+                            <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
                           </MenuTrigger>
                         }
                       />
@@ -925,7 +856,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
                           <div className="min-w-0">
                             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
-                              Designer tools
+                              Annotation mode
                             </p>
                             <p className="mt-1 truncate text-sm font-medium text-foreground/92">
                               {activeDesignerToolButton.label}
@@ -939,14 +870,14 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                                 : "border-border/60 bg-background/70 text-muted-foreground/82",
                             )}
                           >
-                            {collapsedDesignerSelectorActive ? "Commenting" : "Idle"}
+                            {collapsedDesignerSelectorActive ? "Annotating" : "Off"}
                           </span>
                         </div>
                       </div>
                       <MenuRadioGroup
                         value={designerState.tool}
                         onValueChange={(value) => {
-                          selectDesignerTool(value as BrowserDesignerTool);
+                          toggleOrSelectDesignerTool(value as BrowserDesignerTool);
                         }}
                       >
                         {DESIGNER_TOOL_BUTTONS.map(
@@ -954,6 +885,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                             <MenuRadioItem
                               key={tool}
                               value={tool}
+                              onClick={() => {
+                                toggleOrSelectDesignerTool(tool);
+                              }}
                               className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
                             >
                               <div className="flex min-w-0 items-start gap-3">
@@ -968,7 +902,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                                       accent,
                                     )}
                                   />
-                                  <Icon className="relative size-4" />
+                                  <Icon className="relative size-[18px] stroke-[2.25]" />
                                 </span>
                                 <span className="min-w-0 flex-1">
                                   <span className="flex items-center gap-2">
@@ -994,7 +928,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         )}
                       </MenuRadioGroup>
                       <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
-                        Switch tools without leaving the embedded browser context.
+                        Select what to comment on in the embedded browser.
                       </div>
                     </MenuPopup>
                   </Menu>
@@ -1004,14 +938,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     className="relative flex shrink-0 items-center gap-1"
                   >
                     <div
-                      className="pointer-events-none absolute z-0 rounded-md bg-primary/14 transition-[top,left,width,height,opacity] duration-200 ease-out"
+                      className="pointer-events-none absolute z-0 h-0.5 rounded-full bg-foreground/72 transition-[top,left,width,opacity] duration-200 ease-out"
                       style={
                         designerToolHighlightFrame
                           ? {
-                              height: `${designerToolHighlightFrame.height}px`,
-                              left: `${designerToolHighlightFrame.left}px`,
-                              top: `${designerToolHighlightFrame.top}px`,
-                              width: `${designerToolHighlightFrame.width}px`,
+                              left: `${designerToolHighlightFrame.left + 6}px`,
+                              top: `${designerToolHighlightFrame.top + designerToolHighlightFrame.height + 2}px`,
+                              width: `${Math.max(10, designerToolHighlightFrame.width - 12)}px`,
                             }
                           : { opacity: 0 }
                       }
@@ -1026,10 +959,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               }}
                               type="button"
                               className={cn(
-                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color] duration-150",
+                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
                                 designerState.tool === tool
-                                  ? "border-primary/40 text-primary"
-                                  : "border-border/60 bg-background/90 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                                  ? "border-foreground/18 bg-background text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.62)]"
+                                  : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
                               )}
                               onPointerDown={(event) => {
                                 handleDesignerToolPointerDown(event, tool);
@@ -1039,7 +972,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               }}
                               aria-label={label}
                             >
-                              <Icon className="size-3.5" />
+                              <Icon className="size-4 stroke-[2.25]" />
                               {showDesignerToolShortcutHints &&
                               designerShortcutLabelByTool[tool] ? (
                                 <span

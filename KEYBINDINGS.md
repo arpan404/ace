@@ -37,7 +37,7 @@ Current default coverage includes:
 - Sidebar: `search.open`, `sidebar.toggle`, `navigation.back`, `navigation.forward`, `project.add`
 - Terminal: `terminal.toggle`, `terminal.split`, `terminal.new`, `terminal.close`
 - Right panel: `rightPanel.toggle`, `rightPanel.review.open`, `rightPanel.browser.open`, `rightPanel.editor.open`
-- Browser: `browser.back`, `browser.forward`, `browser.newTab`, `browser.closeTab`, `browser.focusAddressBar`, `browser.reload`, `browser.devtools`, `browser.previousTab`, `browser.nextTab`, `browser.designer.cursor`, `browser.designer.areaComment`, `browser.designer.drawComment`, `browser.designer.elementComment`
+- Browser: `browser.back`, `browser.forward`, `browser.newTab`, `browser.closeTab`, `browser.focusAddressBar`, `browser.reload`, `browser.devtools`, `browser.previousTab`, `browser.nextTab`, `browser.designer.areaComment`, `browser.designer.elementComment`
 - Chat: `chat.new`, `chat.newLocal`, `chat.togglePlanMode`, `chat.toggleHeader`
 - Editor: `editor.openFavorite`, `editor.newFile`, `editor.newFolder`, `editor.rename`, `editor.split`, `editor.splitDown`, `editor.toggleWordWrap`, `editor.closeTab`, `editor.closeOtherTabs`, `editor.closeTabsToRight`, `editor.reopenClosedTab`, `editor.closeWindow`, `editor.focusNextWindow`, `editor.focusPreviousWindow`, `editor.nextTab`, `editor.previousTab`, `editor.moveTabLeft`, `editor.moveTabRight`
 - Threads: `thread.previous`, `thread.next`, `thread.jump.1` through `thread.jump.9`
@@ -55,6 +55,16 @@ Selected defaults:
   { "key": "mod+shift+h", "command": "chat.toggleHeader", "when": "!terminalFocus" },
   { "key": "mod+[", "command": "browser.back", "when": "browserOpen && !terminalFocus" },
   { "key": "mod+]", "command": "browser.forward", "when": "browserOpen && !terminalFocus" },
+  {
+    "key": "mod+alt+1",
+    "command": "browser.designer.areaComment",
+    "when": "browserOpen && !terminalFocus"
+  },
+  {
+    "key": "mod+alt+2",
+    "command": "browser.designer.elementComment",
+    "when": "browserOpen && !terminalFocus"
+  },
   { "key": "mod+shift+[", "command": "thread.previous", "when": "!browserOpen" },
   { "key": "mod+shift+]", "command": "thread.next", "when": "!browserOpen" },
   { "key": "mod+1", "command": "thread.jump.1" }
@@ -100,9 +110,7 @@ individually and reported as config issues.
 - `browser.devtools`: toggle browser DevTools
 - `browser.previousTab`: focus the previous Browser tab
 - `browser.nextTab`: focus the next Browser tab
-- `browser.designer.cursor`: toggle the designer cursor tool
 - `browser.designer.areaComment`: toggle the area comment tool
-- `browser.designer.drawComment`: toggle the draw comment tool
 - `browser.designer.elementComment`: toggle the element comment tool
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
