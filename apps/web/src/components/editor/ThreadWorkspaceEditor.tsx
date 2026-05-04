@@ -142,6 +142,19 @@ interface WorkspaceSymbolReport {
   readonly symbol: WorkspaceEditorPaneSymbol;
 }
 
+interface WorkspaceOutlineSymbolNode {
+  readonly depth: number;
+  readonly hasChildren: boolean;
+  readonly id: string;
+  readonly report: WorkspaceSymbolReport;
+}
+
+interface WorkspaceOutlineFileGroup {
+  readonly id: string;
+  readonly relativePath: string;
+  readonly symbols: readonly WorkspaceOutlineSymbolNode[];
+}
+
 function readConflictField(error: unknown, key: string): unknown {
   if (typeof error !== "object" || error === null) {
     return undefined;
@@ -512,12 +525,39 @@ function problemSeverityClass(severity: number): string {
   }
 }
 
+function workspaceSymbolNodeId(report: WorkspaceSymbolReport): string {
+  return [
+    report.paneId,
+    report.relativePath,
+    report.symbol.kind,
+    report.symbol.name,
+    report.symbol.startLineNumber,
+    report.symbol.startColumn,
+    report.symbol.endLineNumber,
+    report.symbol.endColumn,
+  ].join(":");
+}
+
 function symbolKindLabel(kind: string): string {
   switch (kind) {
     case "function":
       return "fn";
+    case "method":
+      return "method";
     case "interface":
       return "iface";
+    case "class":
+      return "class";
+    case "struct":
+      return "struct";
+    case "property":
+      return "prop";
+    case "field":
+      return "field";
+    case "enum":
+      return "enum";
+    case "type":
+      return "type";
     case "variable":
       return "var";
     default:
@@ -550,12 +590,17 @@ function symbolKindIcon(kind: string): ReactNode {
   switch (kind) {
     case "function":
       return <Code2Icon className={`${className} text-sky-600`} />;
+    case "method":
+      return <Code2Icon className={`${className} text-indigo-600`} />;
     case "class":
     case "struct":
       return <BoxIcon className={`${className} text-violet-600`} />;
     case "interface":
     case "trait":
       return <ListTreeIcon className={`${className} text-emerald-600`} />;
+    case "property":
+    case "field":
+      return <CircleDotIcon className={`${className} text-cyan-600`} />;
     case "type":
     case "enum":
       return <HashIcon className={`${className} text-amber-600`} />;
@@ -948,6 +993,10 @@ function ThreadWorkspaceEditor(inputProps: {
     useState<WorkspaceEditorProblemNavigationTarget | null>(null);
   const [symbolNavigationTarget, setSymbolNavigationTarget] =
     useState<WorkspaceEditorSymbolNavigationTarget | null>(null);
+  const [collapsedOutlineIds, setCollapsedOutlineIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [activeOutlineSymbolId, setActiveOutlineSymbolId] = useState<string | null>(null);
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -1035,6 +1084,118 @@ function ThreadWorkspaceEditor(inputProps: {
         }),
     [symbolReportsByPaneId],
   );
+  const outlineFileGroups = useMemo<readonly WorkspaceOutlineFileGroup[]>(() => {
+    const symbolsByPath = new Map<string, WorkspaceSymbolReport[]>();
+    for (const report of workspaceSymbols) {
+      const existing = symbolsByPath.get(report.relativePath);
+      if (existing) {
+        existing.push(report);
+      } else {
+        symbolsByPath.set(report.relativePath, [report]);
+      }
+    }
+
+    return Array.from(symbolsByPath.entries()).map(([relativePath, reports]) => {
+      const baseDepth = reports.reduce(
+        (minimum, report) => Math.min(minimum, report.symbol.depth),
+        Number.POSITIVE_INFINITY,
+      );
+      const normalizedBaseDepth = Number.isFinite(baseDepth) ? baseDepth : 0;
+      const stack: number[] = [];
+      const nodes = reports.map<WorkspaceOutlineSymbolNode>((report, index) => {
+        const depth = Math.max(0, report.symbol.depth - normalizedBaseDepth);
+        while (stack.length > depth) {
+          stack.pop();
+        }
+        const parentIndex = depth > 0 ? stack[depth - 1] : undefined;
+        stack[depth] = index;
+        stack.length = depth + 1;
+        return {
+          depth,
+          hasChildren: parentIndex === undefined ? false : false,
+          id: workspaceSymbolNodeId(report),
+          report,
+        };
+      });
+
+      const mutableNodes = nodes.map((node) => ({ ...node }));
+      stack.length = 0;
+      for (let index = 0; index < reports.length; index += 1) {
+        const report = reports[index];
+        if (!report) {
+          continue;
+        }
+        const depth = Math.max(0, report.symbol.depth - normalizedBaseDepth);
+        while (stack.length > depth) {
+          stack.pop();
+        }
+        const parentIndex = depth > 0 ? stack[depth - 1] : undefined;
+        if (parentIndex !== undefined) {
+          const parent = mutableNodes[parentIndex];
+          if (parent) {
+            mutableNodes[parentIndex] = { ...parent, hasChildren: true };
+          }
+        }
+        stack[depth] = index;
+        stack.length = depth + 1;
+      }
+
+      return {
+        id: `file:${relativePath}`,
+        relativePath,
+        symbols: mutableNodes,
+      };
+    });
+  }, [workspaceSymbols]);
+  const visibleOutlineGroups = useMemo<readonly WorkspaceOutlineFileGroup[]>(() => {
+    return outlineFileGroups.map((group) => {
+      if (collapsedOutlineIds.has(group.id)) {
+        return { ...group, symbols: [] };
+      }
+      const visibleSymbols: WorkspaceOutlineSymbolNode[] = [];
+      let hiddenDepth: number | null = null;
+      for (const node of group.symbols) {
+        if (hiddenDepth !== null) {
+          if (node.depth > hiddenDepth) {
+            continue;
+          }
+          hiddenDepth = null;
+        }
+        visibleSymbols.push(node);
+        if (node.hasChildren && collapsedOutlineIds.has(node.id)) {
+          hiddenDepth = node.depth;
+        }
+      }
+      return { ...group, symbols: visibleSymbols };
+    });
+  }, [collapsedOutlineIds, outlineFileGroups]);
+  useEffect(() => {
+    const validIds = new Set<string>();
+    for (const group of outlineFileGroups) {
+      validIds.add(group.id);
+      for (const node of group.symbols) {
+        validIds.add(node.id);
+      }
+    }
+    setCollapsedOutlineIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of current) {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+    setActiveOutlineSymbolId((current) => {
+      if (!current || validIds.has(current)) {
+        return current;
+      }
+      return null;
+    });
+  }, [outlineFileGroups]);
   useEffect(() => {
     const paneIds = new Set(panes.map((pane) => pane.id));
     setProblemReportsByPaneId((current) => {
@@ -1538,6 +1699,7 @@ function ThreadWorkspaceEditor(inputProps: {
   );
   const handleOpenSymbol = useCallback(
     (report: WorkspaceSymbolReport) => {
+      setActiveOutlineSymbolId(workspaceSymbolNodeId(report));
       const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
       if (!targetPaneId) {
         return;
@@ -1558,6 +1720,17 @@ function ThreadWorkspaceEditor(inputProps: {
     },
     [activePane?.id, openFile, panesById, props.threadId, setActivePane],
   );
+  const toggleOutlineId = useCallback((id: string) => {
+    setCollapsedOutlineIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
   const handleAddCodeComment = useCallback(
     (comment: WorkspaceCodeComment) => {
       addCodeComment(props.threadId, comment);
