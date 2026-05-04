@@ -182,10 +182,8 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("browser.devtools"), "mod+shift+i");
       assert.equal(defaultsByCommand.get("browser.previousTab"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("browser.nextTab"), "mod+shift+]");
-      assert.equal(defaultsByCommand.get("browser.designer.cursor"), "mod+alt+1");
-      assert.equal(defaultsByCommand.get("browser.designer.areaComment"), "mod+alt+2");
-      assert.equal(defaultsByCommand.get("browser.designer.drawComment"), "mod+alt+3");
-      assert.equal(defaultsByCommand.get("browser.designer.elementComment"), "mod+alt+4");
+      assert.equal(defaultsByCommand.get("browser.designer.areaComment"), "mod+alt+1");
+      assert.equal(defaultsByCommand.get("browser.designer.elementComment"), "mod+alt+2");
       assert.equal(defaultsByCommand.get("rightPanel.review.open"), "mod+d");
       assert.equal(defaultsByCommand.get("rightPanel.editor.open"), "mod+e");
       assert.equal(defaultsByCommand.get("chat.toggleHeader"), "mod+shift+h");
@@ -194,6 +192,36 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("thread.jump.9"), "mod+9");
     }),
+  );
+
+  it.effect("migrates legacy browser designer shortcut defaults to consecutive numbers", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        {
+          key: "mod+alt+2",
+          command: "browser.designer.areaComment",
+          when: "browserOpen && !terminalFocus",
+        },
+        {
+          key: "mod+alt+4",
+          command: "browser.designer.elementComment",
+          when: "browserOpen && !terminalFocus",
+        },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const persistedByCommand = new Map(
+        persisted.map((binding) => [binding.command, binding.key] as const),
+      );
+      assert.equal(persistedByCommand.get("browser.designer.areaComment"), "mod+alt+1");
+      assert.equal(persistedByCommand.get("browser.designer.elementComment"), "mod+alt+2");
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>

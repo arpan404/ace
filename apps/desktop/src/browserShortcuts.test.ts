@@ -33,7 +33,7 @@ describe("resolveBrowserShortcutAction", () => {
     ).toBe("reload");
   });
 
-  it("keeps forwarding tab movement and designer shortcuts with option-modified input", () => {
+  it("keeps forwarding tab movement and annotation shortcuts with option-modified input", () => {
     expect(
       resolveBrowserShortcutAction(
         input({
@@ -48,12 +48,32 @@ describe("resolveBrowserShortcutAction", () => {
       resolveBrowserShortcutAction(
         input({
           alt: true,
-          key: "3",
+          key: "1",
           meta: true,
         }),
         "darwin",
       ),
-    ).toBe("designer-draw-comment");
+    ).toBe("designer-area-comment");
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          alt: true,
+          key: "2",
+          meta: true,
+        }),
+        "darwin",
+      ),
+    ).toBe("designer-element-comment");
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          alt: true,
+          key: "4",
+          meta: true,
+        }),
+        "darwin",
+      ),
+    ).toBeNull();
   });
 
   it("ignores unmodified keys", () => {

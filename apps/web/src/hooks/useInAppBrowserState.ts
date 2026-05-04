@@ -86,6 +86,7 @@ export interface InAppBrowserController {
   reload: () => void;
   runBridgeRequest: (request: BrowserBridgeRequest) => Promise<Record<string, unknown>>;
   setActiveTabByIndex: (index: number) => void;
+  setDesignerModeActive: (active: boolean) => void;
   toggleDesignerTool: (tool: BrowserDesignerTool) => void;
   toggleDevTools: () => void;
   zoomIn: () => void;
@@ -1513,11 +1514,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const selectDesignerTool = useCallback(
     (tool: BrowserDesignerTool) => {
       setDesignerState((current) =>
-        current.tool === tool && current.active === (tool !== "cursor")
+        current.tool === tool && current.active
           ? current
           : {
               ...current,
-              active: tool !== "cursor",
+              active: true,
               tool,
             },
       );
@@ -1527,14 +1528,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const setDesignerModeActive = useCallback(
     (active: boolean) => {
       setDesignerState((current) =>
-        current.active === active &&
-        (active || current.tool === "cursor") &&
-        (!active || current.tool !== "cursor")
+        current.active === active
           ? current
           : {
               ...current,
               active,
-              tool: active ? (current.tool === "cursor" ? "area-comment" : current.tool) : "cursor",
             },
       );
     },
@@ -1546,15 +1544,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         return;
       }
       setDesignerState((current) => {
-        const shouldDeactivate = tool === "cursor" || (current.active && current.tool === tool);
+        const shouldDeactivate = current.active && current.tool === tool;
         if (shouldDeactivate) {
-          if (!current.active && current.tool === "cursor") {
-            return current;
-          }
           return {
             ...current,
             active: false,
-            tool: "cursor",
           };
         }
         return {
@@ -1596,6 +1590,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const reloadEvent = useEffectEvent(reload);
   const runBridgeRequestEvent = useEffectEvent(runBridgeRequest);
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
+  const setDesignerModeActiveEvent = useEffectEvent(setDesignerModeActive);
   const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
   const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
   const zoomInEvent = useEffectEvent(zoomIn);
@@ -1618,6 +1613,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       reload: () => reloadEvent(),
       runBridgeRequest: (request) => runBridgeRequestEvent(request),
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
+      setDesignerModeActive: (active) => setDesignerModeActiveEvent(active),
       toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
       toggleDevTools: () => toggleDevToolsEvent(),
       zoomIn: () => zoomInEvent(),
@@ -1946,12 +1942,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "designer-area-comment":
           toggleDesignerTool("area-comment");
           return;
-        case "designer-cursor":
-          toggleDesignerTool("cursor");
-          return;
-        case "designer-draw-comment":
-          toggleDesignerTool("draw-comment");
-          return;
         case "designer-element-comment":
           toggleDesignerTool("element-comment");
           return;
@@ -2044,7 +2034,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         ? {
             ...current,
             active: false,
-            tool: "cursor",
           }
         : current,
     );
