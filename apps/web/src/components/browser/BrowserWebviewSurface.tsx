@@ -1251,6 +1251,35 @@ function generateDesignRequestId(): string {
   return `DR-${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
 }
 
+function BrowserDesignSelectionBox(props: { rect: BrowserDesignSelectionRect }) {
+  const { rect } = props;
+  return (
+    <div
+      className="pointer-events-none absolute"
+      style={{
+        left: `${rect.x}px`,
+        top: `${rect.y}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+      }}
+    >
+      <div
+        className={cn(
+          "absolute -inset-0.5 rounded-[5px] bg-primary/[0.055]",
+          "shadow-[0_0_0_1px_color-mix(in_srgb,var(--primary)_14%,transparent)]",
+        )}
+      />
+      <div
+        className={cn(
+          "absolute inset-0 rounded-[4px]",
+          "outline outline-2 -outline-offset-1 outline-primary/95",
+          "drop-shadow-[0_1px_1px_color-mix(in_srgb,var(--background)_54%,transparent)]",
+        )}
+      />
+    </div>
+  );
+}
+
 function stopWebviewBeforeRemoval(webview: BrowserWebview): void {
   try {
     if (webview.isDevToolsOpened()) {
@@ -1904,7 +1933,7 @@ export function BrowserTabWebview(props: {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
       },
-      executeJavaScript: async <T = unknown,>(code: string): Promise<T> => {
+      executeJavaScript: async <T = unknown>(code: string): Promise<T> => {
         const webview = webviewRef.current;
         if (!readyRef.current || !webview?.executeJavaScript) {
           throw new Error("The browser tab cannot execute JavaScript yet.");
@@ -2872,27 +2901,9 @@ export function BrowserTabWebview(props: {
           onPointerCancel={onCaptureOverlayPointerEnd}
           onWheel={onCaptureOverlayWheel}
         >
-          {activeOverlaySelection && (
-            <div
-              className="pointer-events-none absolute"
-              style={{
-                left: `${activeOverlaySelection.x}px`,
-                top: `${activeOverlaySelection.y}px`,
-                width: `${activeOverlaySelection.width}px`,
-                height: `${activeOverlaySelection.height}px`,
-              }}
-            >
-              <div className="absolute inset-0 rounded-[2px] outline outline-1 -outline-offset-1 outline-black/28" />
-              <span className="absolute -left-0.5 -top-0.5 size-4 border-l-2 border-t-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
-              <span className="absolute -left-0.5 -top-0.5 size-4 border-l border-t border-black/82" />
-              <span className="absolute -right-0.5 -top-0.5 size-4 border-r-2 border-t-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
-              <span className="absolute -right-0.5 -top-0.5 size-4 border-r border-t border-black/82" />
-              <span className="absolute -bottom-0.5 -left-0.5 size-4 border-b-2 border-l-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
-              <span className="absolute -bottom-0.5 -left-0.5 size-4 border-b border-l border-black/82" />
-              <span className="absolute -bottom-0.5 -right-0.5 size-4 border-b-2 border-r-2 border-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" />
-              <span className="absolute -bottom-0.5 -right-0.5 size-4 border-b border-r border-black/82" />
-            </div>
-          )}
+          {activeOverlaySelection ? (
+            <BrowserDesignSelectionBox rect={activeOverlaySelection} />
+          ) : null}
           {designDraft && designRequestPanelStyle && (
             <form
               ref={designRequestPanelRef}
