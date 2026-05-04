@@ -71,6 +71,12 @@ function makeFakeOpenCodeClient(sessionId: string) {
         },
       })),
     },
+    command: {
+      list: vi.fn(async () => ({
+        error: undefined,
+        data: [],
+      })),
+    },
     session: {
       create: vi.fn(async (_input?: unknown) => ({
         error: undefined,

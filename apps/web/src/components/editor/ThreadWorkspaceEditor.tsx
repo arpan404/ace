@@ -6,6 +6,7 @@ import type {
   ProjectReadFileResult,
   ResolvedKeybindingsConfig,
   ThreadId,
+  WorkspaceEditorLocation,
 } from "@ace/contracts";
 import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,15 +14,28 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  CircleDotIcon,
+  ClipboardListIcon,
+  FilesIcon,
   ExternalLinkIcon,
   FilePlus2Icon,
   FolderPlusIcon,
   GitForkIcon,
+  GitPullRequestIcon,
+  ListTreeIcon,
+  MessageSquareTextIcon,
+  PanelTopIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  SearchCodeIcon,
   SearchIcon,
+  SparklesIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import {
   memo,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -51,6 +65,13 @@ import {
   searchWorkspaceEntriesLocally,
   shouldRunWorkspaceRemoteSearch,
 } from "~/lib/editor/workspaceEntrySearch";
+import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
+import {
+  countOpenWorkspaceCodeComments,
+  formatWorkspaceCodeCommentTitle,
+  type WorkspaceCodeComment,
+  type WorkspaceSelectionContext,
+} from "~/lib/editor/workspaceDesigner";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
 import {
@@ -84,7 +105,17 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
 import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
-import WorkspaceEditorPane from "./WorkspaceEditorPane";
+import WorkspaceEditorPane, {
+  type WorkspaceEditorPaneProblem,
+  type WorkspaceEditorPaneSymbol,
+  type WorkspaceEditorProblemNavigationTarget,
+  type WorkspaceEditorSymbolNavigationTarget,
+} from "./WorkspaceEditorPane";
+import {
+  WorkspaceCommandPalette,
+  type WorkspaceCommandAction,
+  type WorkspaceCommandPaletteMode,
+} from "./WorkspaceCommandPalette";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
@@ -97,6 +128,18 @@ interface SaveConflictState {
   readonly expectedVersion?: string;
   readonly localContents: string;
   readonly relativePath: string;
+}
+
+interface WorkspaceProblemReport {
+  readonly paneId: string;
+  readonly relativePath: string;
+  readonly problem: WorkspaceEditorPaneProblem;
+}
+
+interface WorkspaceSymbolReport {
+  readonly paneId: string;
+  readonly relativePath: string;
+  readonly symbol: WorkspaceEditorPaneSymbol;
 }
 
 function readConflictField(error: unknown, key: string): unknown {
@@ -278,6 +321,21 @@ type ExplorerRenderRow =
       state: ExplorerInlineEntryState;
     };
 
+type WorkspaceSidebarMode =
+  | "explorer"
+  | "search"
+  | "source-control"
+  | "outline"
+  | "problems"
+  | "notes";
+
+interface QueuedWorkspaceContext {
+  readonly context: WorkspaceSelectionContext;
+  readonly createdAt: string;
+  readonly id: string;
+  readonly prompt: string;
+}
+
 function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number {
   if (left.kind !== right.kind) {
     return left.kind === "directory" ? -1 : 1;
@@ -423,6 +481,70 @@ function gitDecorationClass(status: GitWorkingTreeFileStatus): string {
   }
 }
 
+function problemSeverityRank(severity: number): number {
+  return severity;
+}
+
+function problemSeverityLabel(severity: number): string {
+  if (severity >= 8) {
+    return "error";
+  }
+  if (severity >= 4) {
+    return "warning";
+  }
+  if (severity >= 2) {
+    return "info";
+  }
+  return "hint";
+}
+
+function problemSeverityClass(severity: number): string {
+  const label = problemSeverityLabel(severity);
+  switch (label) {
+    case "error":
+      return "bg-destructive/15 text-destructive";
+    case "warning":
+      return "bg-amber-500/15 text-amber-600";
+    case "info":
+      return "bg-sky-500/15 text-sky-600";
+    default:
+      return "bg-foreground/10 text-muted-foreground";
+  }
+}
+
+function symbolKindLabel(kind: string): string {
+  switch (kind) {
+    case "function":
+      return "fn";
+    case "interface":
+      return "iface";
+    case "variable":
+      return "var";
+    default:
+      return kind;
+  }
+}
+
+function symbolKindClass(kind: string): string {
+  switch (kind) {
+    case "function":
+      return "bg-sky-500/12 text-sky-600";
+    case "class":
+    case "struct":
+      return "bg-violet-500/12 text-violet-600";
+    case "interface":
+    case "trait":
+      return "bg-emerald-500/12 text-emerald-600";
+    case "type":
+    case "enum":
+      return "bg-amber-500/12 text-amber-600";
+    case "variable":
+      return "bg-foreground/10 text-muted-foreground";
+    default:
+      return "bg-primary/12 text-primary";
+  }
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -466,14 +588,14 @@ const FileTreeRow = memo(function FileTreeRow(props: {
     <button
       type="button"
       className={cn(
-        "group flex h-[22px] w-full items-center gap-1.5 px-2 text-left text-[12px] transition-colors",
+        "group flex h-[23px] w-full items-center gap-1.5 border-l-2 px-2 text-left text-[12px] transition-colors",
         isFocused
-          ? "bg-foreground/10 text-foreground"
+          ? "border-primary bg-primary/10 text-foreground"
           : isSelected
-            ? "bg-foreground/7 text-foreground"
+            ? "border-transparent bg-foreground/7 text-foreground"
             : isDropTarget
-              ? "bg-foreground/9 text-foreground"
-              : "text-muted-foreground/90 hover:bg-foreground/5 hover:text-foreground",
+              ? "border-primary/70 bg-primary/8 text-foreground"
+              : "border-transparent text-muted-foreground/90 hover:bg-foreground/5 hover:text-foreground",
       )}
       data-explorer-path={props.row.entry.path}
       style={{
@@ -555,9 +677,9 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         pathValue={props.row.entry.path}
         kind={props.row.entry.kind}
         theme={props.resolvedTheme}
-        className="size-[15px]"
+        className="size-[15px] shrink-0"
       />
-      <span className="min-w-0 flex-1 truncate">{props.row.name}</span>
+      <span className="min-w-0 flex-1 truncate font-medium">{props.row.name}</span>
       {props.searchMode && props.row.entry.parentPath ? (
         <span className="min-w-0 max-w-[34%] truncate text-[10px] text-muted-foreground/65">
           {props.row.entry.parentPath}
@@ -589,7 +711,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 }) {
   return (
     <div
-      className="flex h-[22px] w-full items-center gap-1.5 bg-foreground/6 px-2"
+      className="flex h-[23px] w-full items-center gap-1.5 border-l-2 border-primary/60 bg-primary/8 px-2"
       style={{
         paddingLeft: `${props.searchMode ? 8 : 8 + props.depth * 10}px`,
       }}
@@ -635,6 +757,44 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
     </div>
   );
 });
+
+function WorkspaceActivityButton(props: {
+  active: boolean;
+  badge?: number;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      title={props.label}
+      className={cn(
+        "group relative flex size-10 items-center justify-center transition-colors",
+        props.active
+          ? "bg-background text-foreground shadow-[inset_3px_0_0_hsl(var(--primary))]"
+          : "text-muted-foreground/68 hover:bg-foreground/6 hover:text-foreground",
+      )}
+      onClick={props.onClick}
+    >
+      {props.icon}
+      <span
+        className={cn(
+          "pointer-events-none absolute right-1.5 bottom-1.5 left-1.5 h-px rounded-full transition-opacity",
+          props.active
+            ? "bg-primary/50 opacity-100"
+            : "bg-foreground/20 opacity-0 group-hover:opacity-100",
+        )}
+      />
+      {props.badge && props.badge > 0 ? (
+        <span className="absolute top-1 right-1 min-w-3.5 rounded-full border border-background bg-primary px-1 text-[9px] font-semibold leading-3.5 text-primary-foreground shadow-sm">
+          {props.badge > 9 ? "9+" : props.badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
@@ -711,6 +871,13 @@ function ThreadWorkspaceEditor(inputProps: {
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [treeSearch, setTreeSearch] = useState("");
+  const [sidebarMode, setSidebarMode] = useState<WorkspaceSidebarMode>("explorer");
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteMode, setCommandPaletteMode] =
+    useState<WorkspaceCommandPaletteMode>("commands");
+  const [queuedWorkspaceContexts, setQueuedWorkspaceContexts] = useState<
+    readonly QueuedWorkspaceContext[]
+  >([]);
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -740,6 +907,9 @@ function ThreadWorkspaceEditor(inputProps: {
   const syncTree = useEditorStateStore((state) => state.syncTree);
   const toggleDirectory = useEditorStateStore((state) => state.toggleDirectory);
   const updateDraft = useEditorStateStore((state) => state.updateDraft);
+  const addCodeComment = useEditorStateStore((state) => state.addCodeComment);
+  const removeCodeComment = useEditorStateStore((state) => state.removeCodeComment);
+  const updateCodeCommentStatus = useEditorStateStore((state) => state.updateCodeCommentStatus);
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
   const inlineEntryFocusKey =
@@ -750,6 +920,19 @@ function ThreadWorkspaceEditor(inputProps: {
         : null;
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
+  const [problemReportsByPaneId, setProblemReportsByPaneId] = useState<
+    Record<
+      string,
+      { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+    >
+  >({});
+  const [symbolReportsByPaneId, setSymbolReportsByPaneId] = useState<
+    Record<string, { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }>
+  >({});
+  const [problemNavigationTarget, setProblemNavigationTarget] =
+    useState<WorkspaceEditorProblemNavigationTarget | null>(null);
+  const [symbolNavigationTarget, setSymbolNavigationTarget] =
+    useState<WorkspaceEditorSymbolNavigationTarget | null>(null);
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -770,6 +953,7 @@ function ThreadWorkspaceEditor(inputProps: {
   );
   const {
     activePaneId,
+    codeComments,
     draftsByFilePath,
     expandedDirectoryPaths,
     explorerOpen,
@@ -782,6 +966,77 @@ function ThreadWorkspaceEditor(inputProps: {
     () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
     [activePaneId, panes],
   );
+  const workspaceProblems = useMemo<readonly WorkspaceProblemReport[]>(
+    () =>
+      Object.entries(problemReportsByPaneId)
+        .flatMap(([paneId, report]) =>
+          report.activeFilePath
+            ? report.problems.map((problem) => ({
+                paneId,
+                problem,
+                relativePath: report.activeFilePath!,
+              }))
+            : [],
+        )
+        .toSorted((left, right) => {
+          const severityDelta =
+            problemSeverityRank(right.problem.severity) -
+            problemSeverityRank(left.problem.severity);
+          if (severityDelta !== 0) {
+            return severityDelta;
+          }
+          const pathDelta = left.relativePath.localeCompare(right.relativePath);
+          if (pathDelta !== 0) {
+            return pathDelta;
+          }
+          if (left.problem.startLineNumber !== right.problem.startLineNumber) {
+            return left.problem.startLineNumber - right.problem.startLineNumber;
+          }
+          return left.problem.startColumn - right.problem.startColumn;
+        }),
+    [problemReportsByPaneId],
+  );
+  const workspaceSymbols = useMemo<readonly WorkspaceSymbolReport[]>(
+    () =>
+      Object.entries(symbolReportsByPaneId)
+        .flatMap(([paneId, report]) =>
+          report.activeFilePath
+            ? report.symbols.map((symbol) => ({
+                paneId,
+                relativePath: report.activeFilePath!,
+                symbol,
+              }))
+            : [],
+        )
+        .toSorted((left, right) => {
+          const pathDelta = left.relativePath.localeCompare(right.relativePath);
+          if (pathDelta !== 0) {
+            return pathDelta;
+          }
+          if (left.symbol.startLineNumber !== right.symbol.startLineNumber) {
+            return left.symbol.startLineNumber - right.symbol.startLineNumber;
+          }
+          return left.symbol.startColumn - right.symbol.startColumn;
+        }),
+    [symbolReportsByPaneId],
+  );
+  useEffect(() => {
+    const paneIds = new Set(panes.map((pane) => pane.id));
+    setProblemReportsByPaneId((current) => {
+      const nextEntries = Object.entries(current).filter(([paneId]) => paneIds.has(paneId));
+      if (nextEntries.length === Object.keys(current).length) {
+        return current;
+      }
+      return Object.fromEntries(nextEntries);
+    });
+    setSymbolReportsByPaneId((current) => {
+      const nextEntries = Object.entries(current).filter(([paneId]) => paneIds.has(paneId));
+      if (nextEntries.length === Object.keys(current).length) {
+        return current;
+      }
+      return Object.fromEntries(nextEntries);
+    });
+  }, [panes]);
   const revealEntryLabel = useMemo(() => revealInFileManagerLabel(), []);
   const revealWorkspaceLabel = useMemo(() => {
     if (revealEntryLabel === "Reveal in Finder") {
@@ -1145,6 +1400,162 @@ function ThreadWorkspaceEditor(inputProps: {
         .map((file) => [file.path, file.status] as const),
     );
   }, [gitStatusQuery.data?.workingTree.files]);
+  const changedFiles = gitStatusQuery.data?.workingTree.files ?? [];
+  const openCodeCommentCount = useMemo(
+    () => countOpenWorkspaceCodeComments(codeComments),
+    [codeComments],
+  );
+  const queueWorkspaceSelectionContext = useCallback(
+    (context: WorkspaceSelectionContext, prompt: string) => {
+      const id =
+        typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `selection-${Date.now().toString(36)}`;
+      setQueuedWorkspaceContexts((current) => [
+        ...current,
+        {
+          context,
+          createdAt: new Date().toISOString(),
+          id,
+          prompt,
+        },
+      ]);
+      setSidebarMode("notes");
+      setExplorerOpen(props.threadId, true);
+      toastManager.add({
+        description: `${context.relativePath}:${context.range.startLine + 1}-${context.range.endLine + 1}`,
+        title: "Editor context queued",
+        type: "success",
+      });
+    },
+    [props.threadId, setExplorerOpen],
+  );
+  const handlePaneProblemsChange = useCallback(
+    (
+      paneId: string,
+      activeFilePath: string | null,
+      problems: readonly WorkspaceEditorPaneProblem[],
+    ) => {
+      setProblemReportsByPaneId((current) => {
+        const previous = current[paneId];
+        if (
+          previous?.activeFilePath === activeFilePath &&
+          previous.problems.length === problems.length &&
+          previous.problems.every((problem, index) => {
+            const next = problems[index];
+            return (
+              next &&
+              problem.message === next.message &&
+              problem.severity === next.severity &&
+              problem.startLineNumber === next.startLineNumber &&
+              problem.startColumn === next.startColumn &&
+              problem.endLineNumber === next.endLineNumber &&
+              problem.endColumn === next.endColumn
+            );
+          })
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [paneId]: { activeFilePath, problems },
+        };
+      });
+    },
+    [],
+  );
+  const handlePaneSymbolsChange = useCallback(
+    (
+      paneId: string,
+      activeFilePath: string | null,
+      symbols: readonly WorkspaceEditorPaneSymbol[],
+    ) => {
+      setSymbolReportsByPaneId((current) => {
+        const previous = current[paneId];
+        if (
+          previous?.activeFilePath === activeFilePath &&
+          previous.symbols.length === symbols.length &&
+          previous.symbols.every((symbol, index) => {
+            const next = symbols[index];
+            return (
+              next &&
+              symbol.name === next.name &&
+              symbol.kind === next.kind &&
+              symbol.startLineNumber === next.startLineNumber &&
+              symbol.startColumn === next.startColumn &&
+              symbol.endLineNumber === next.endLineNumber &&
+              symbol.endColumn === next.endColumn &&
+              symbol.depth === next.depth
+            );
+          })
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [paneId]: { activeFilePath, symbols },
+        };
+      });
+    },
+    [],
+  );
+  const handleOpenProblem = useCallback(
+    (report: WorkspaceProblemReport) => {
+      const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+      if (!targetPaneId) {
+        return;
+      }
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, report.relativePath, targetPaneId);
+      const location: WorkspaceEditorLocation = {
+        relativePath: report.relativePath,
+        startLine: Math.max(0, report.problem.startLineNumber - 1),
+        startColumn: Math.max(0, report.problem.startColumn - 1),
+        endLine: Math.max(0, report.problem.endLineNumber - 1),
+        endColumn: Math.max(0, report.problem.endColumn - 1),
+      };
+      setProblemNavigationTarget({
+        id: Date.now(),
+        location,
+      });
+    },
+    [activePane?.id, openFile, panesById, props.threadId, setActivePane],
+  );
+  const handleOpenSymbol = useCallback(
+    (report: WorkspaceSymbolReport) => {
+      const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+      if (!targetPaneId) {
+        return;
+      }
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, report.relativePath, targetPaneId);
+      const location: WorkspaceEditorLocation = {
+        relativePath: report.relativePath,
+        startLine: Math.max(0, report.symbol.startLineNumber - 1),
+        startColumn: Math.max(0, report.symbol.startColumn - 1),
+        endLine: Math.max(0, report.symbol.endLineNumber - 1),
+        endColumn: Math.max(0, report.symbol.endColumn - 1),
+      };
+      setSymbolNavigationTarget({
+        id: Date.now(),
+        location,
+      });
+    },
+    [activePane?.id, openFile, panesById, props.threadId, setActivePane],
+  );
+  const handleAddCodeComment = useCallback(
+    (comment: WorkspaceCodeComment) => {
+      addCodeComment(props.threadId, comment);
+      setSidebarMode("notes");
+      setExplorerOpen(props.threadId, true);
+      toastManager.add({
+        description: formatWorkspaceCodeCommentTitle(comment),
+        title: "Code comment added",
+        type: "success",
+      });
+    },
+    [addCodeComment, props.threadId, setExplorerOpen],
+  );
 
   useEffect(() => {
     if (!activePane?.activeFilePath) {
@@ -1399,6 +1810,114 @@ function ThreadWorkspaceEditor(inputProps: {
       openFile(props.threadId, filePath, activePane?.id);
     },
     [activePane?.id, handleSplitPane, openFile, panes.length, props.threadId],
+  );
+  const openCommandPalette = useCallback((mode: WorkspaceCommandPaletteMode) => {
+    setCommandPaletteMode(mode);
+    setCommandPaletteOpen(true);
+  }, []);
+  const workspaceCommandActions = useMemo<readonly WorkspaceCommandAction[]>(
+    () => [
+      {
+        id: "open-file",
+        icon: "search",
+        label: "Open File",
+        shortcut: "⌘P",
+        run: () => openCommandPalette("files"),
+      },
+      {
+        id: "search-text",
+        description: "Switch to workspace search.",
+        icon: "search",
+        label: "Search Text",
+        shortcut: "⌘⇧F",
+        run: () => {
+          setSidebarMode("search");
+          setExplorerOpen(props.threadId, true);
+          treeSearchInputRef.current?.focus();
+        },
+      },
+      {
+        id: "source-control",
+        description: `${changedFiles.length} changed files.`,
+        icon: "git",
+        label: "Open Source Control",
+        run: () => {
+          setSidebarMode("source-control");
+          setExplorerOpen(props.threadId, true);
+        },
+      },
+      {
+        id: "review-active-file",
+        disabled: !activePane?.activeFilePath,
+        icon: "agent",
+        label: "Review Active File",
+        run: () => {
+          if (!activePane?.activeFilePath || !props.gitCwd) {
+            return;
+          }
+          queueWorkspaceSelectionContext(
+            {
+              cwd: props.gitCwd,
+              diagnostics: [],
+              kind: "workspace-selection",
+              languageId: resolveMonacoLanguageFromFilePath(activePane.activeFilePath) ?? null,
+              range: {
+                relativePath: activePane.activeFilePath,
+                startLine: 0,
+                startColumn: 0,
+                endLine: 0,
+                endColumn: 0,
+              },
+              relativePath: activePane.activeFilePath,
+              text: "",
+            },
+            `Review ${activePane.activeFilePath}.`,
+          );
+        },
+      },
+      {
+        id: "agent-notes",
+        description: `${openCodeCommentCount} open code comments, ${queuedWorkspaceContexts.length} queued contexts.`,
+        icon: "comment",
+        label: "Open Agent Notes",
+        run: () => {
+          setSidebarMode("notes");
+          setExplorerOpen(props.threadId, true);
+        },
+      },
+      {
+        id: "split-right",
+        icon: "code",
+        label: "Split Editor Right",
+        run: () => handleSplitPane(activePane?.id, undefined, "right"),
+      },
+      {
+        id: "install-language-server",
+        description: "Open settings for language tooling.",
+        icon: "fix",
+        label: "Install Language Server",
+        run: () => {
+          toastManager.add({
+            description: "Language server management is available from settings.",
+            title: "Language tooling",
+            type: "info",
+          });
+        },
+      },
+    ],
+    [
+      activePane?.activeFilePath,
+      activePane?.id,
+      changedFiles.length,
+      handleSplitPane,
+      openCodeCommentCount,
+      openCommandPalette,
+      props.gitCwd,
+      props.threadId,
+      queuedWorkspaceContexts.length,
+      queueWorkspaceSelectionContext,
+      setExplorerOpen,
+    ],
   );
   const handleOpenFileInPane = useCallback(
     (paneId: string, filePath: string, targetIndex?: number) => {
@@ -1907,6 +2426,26 @@ function ThreadWorkspaceEditor(inputProps: {
       if (shouldIgnoreEditorShortcutTarget(event.target)) {
         return;
       }
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette("files");
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette("commands");
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSidebarMode("search");
+        setExplorerOpen(props.threadId, true);
+        window.setTimeout(() => treeSearchInputRef.current?.focus(), 0);
+        return;
+      }
       const terminalFocus = isTerminalFocused();
       const command = resolveShortcutCommand(event, props.keybindings, {
         context: {
@@ -2133,6 +2672,7 @@ function ThreadWorkspaceEditor(inputProps: {
     handleReopenClosedTab,
     inlineEntryState,
     moveFile,
+    openCommandPalette,
     orderedPaneIds,
     panes,
     panesById,
@@ -2142,24 +2682,143 @@ function ThreadWorkspaceEditor(inputProps: {
     props.threadId,
     setActiveFile,
     setActivePane,
+    setExplorerOpen,
     startInlineEntry,
     updateSettings,
   ]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--card)/0.88),hsl(var(--background))_42px)] text-foreground">
+      <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 bg-card/80 px-2.5 shadow-[0_1px_0_hsl(var(--background)/0.82)] backdrop-blur">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="flex size-5 shrink-0 items-center justify-center rounded-sm bg-primary/12 text-primary">
+            <PanelTopIcon className="size-3.5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[12px] font-semibold text-foreground">Editor Workbench</span>
+              {props.branch ? (
+                <span className="max-w-36 truncate rounded-sm border border-border/60 bg-background/62 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                  {props.branch}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          {activePane?.activeFilePath ? (
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground/82">
+              {activePane.activeFilePath}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-border/60 bg-background/68 px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+            onClick={() => openCommandPalette("files")}
+          >
+            <SearchIcon className="size-3.5" />
+            <span>Quick Open</span>
+            <span className="ml-1 text-[10px] text-muted-foreground/65">⌘P</span>
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-primary/25 bg-primary/10 px-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/14"
+            onClick={() => {
+              setSidebarMode("notes");
+              setExplorerOpen(props.threadId, true);
+            }}
+          >
+            <SparklesIcon className="size-3.5" />
+            <span>{openCodeCommentCount + queuedWorkspaceContexts.length} agent notes</span>
+          </button>
+        </div>
+      </header>
       <div
-        className="grid min-h-0 min-w-0 flex-1 bg-background"
+        className="grid min-h-0 min-w-0 flex-1 bg-background/96"
         style={{
           gridTemplateColumns: explorerOpen
-            ? `minmax(220px, ${treeWidth}px) 4px minmax(0, 1fr)`
-            : "minmax(0, 1fr)",
+            ? `40px minmax(220px, ${treeWidth}px) 4px minmax(0, 1fr)`
+            : "40px minmax(0, 1fr)",
         }}
       >
+        <nav className="flex min-h-0 flex-col items-center border-r border-border/70 bg-card/88 py-1 shadow-[inset_-1px_0_0_hsl(var(--background)/0.72)]">
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "explorer"}
+            icon={<FilesIcon className="size-4.5" />}
+            label="Explorer"
+            onClick={() => {
+              setSidebarMode("explorer");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "search"}
+            icon={<SearchCodeIcon className="size-4.5" />}
+            label="Search"
+            onClick={() => {
+              setSidebarMode("search");
+              setExplorerOpen(props.threadId, true);
+              window.setTimeout(() => treeSearchInputRef.current?.focus(), 0);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "source-control"}
+            badge={changedFiles.length}
+            icon={<GitPullRequestIcon className="size-4.5" />}
+            label="Source Control"
+            onClick={() => {
+              setSidebarMode("source-control");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "outline"}
+            icon={<ListTreeIcon className="size-4.5" />}
+            label="Outline"
+            onClick={() => {
+              setSidebarMode("outline");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "problems"}
+            badge={workspaceProblems.length}
+            icon={<TriangleAlertIcon className="size-4.5" />}
+            label="Problems"
+            onClick={() => {
+              setSidebarMode("problems");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "notes"}
+            badge={openCodeCommentCount + queuedWorkspaceContexts.length}
+            icon={<MessageSquareTextIcon className="size-4.5" />}
+            label="Agent Notes"
+            onClick={() => {
+              setSidebarMode("notes");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <div className="mt-auto">
+            <WorkspaceActivityButton
+              active={false}
+              icon={
+                explorerOpen ? (
+                  <PanelLeftCloseIcon className="size-4.5" />
+                ) : (
+                  <PanelLeftOpenIcon className="size-4.5" />
+                )
+              }
+              label={explorerOpen ? "Collapse sidebar" : "Open sidebar"}
+              onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
+            />
+          </div>
+        </nav>
         {explorerOpen ? (
           <>
-            <aside className="flex min-h-0 min-w-0 flex-col bg-card/72 text-foreground">
-              <div className="flex h-10 items-center gap-2 border-b border-border/60 px-3">
+            <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/55 bg-card/74 text-foreground shadow-[inset_-1px_0_0_hsl(var(--background)/0.55)]">
+              <div className="flex h-10 items-center gap-2 border-b border-border/70 bg-card/86 px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   <ExternalEditorOpenMenu
                     availableEditors={props.availableEditors}
@@ -2169,7 +2828,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   />
                   {activeWorktreePath ? (
                     <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-[var(--control-radius)] border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76 shadow-sm"
                       title={activeWorktreePath}
                     >
                       <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
@@ -2234,147 +2893,361 @@ function ThreadWorkspaceEditor(inputProps: {
                   </Button>
                 </div>
               </div>
-              <div className="border-b border-border/60 px-2.5 py-2">
-                <div className="relative">
-                  <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
-                  <Input
-                    ref={treeSearchInputRef}
-                    nativeInput
-                    value={treeSearch}
-                    onChange={(event) => setTreeSearch(event.target.value)}
-                    placeholder="Search files or content"
-                    className="h-7 border-border/60 bg-background/88 pl-7 text-[12px] shadow-none focus-within:bg-background"
-                    size="sm"
-                    type="search"
-                  />
-                </div>
-              </div>
-              <div className="flex h-7 items-center gap-1.5 border-b border-border/60 px-2.5 text-[11px]">
-                <ChevronDownIcon
-                  className="size-3.5 shrink-0 text-muted-foreground/74"
-                  strokeWidth={2}
-                />
-                <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                  {searchMode ? "Search results" : "Files"}
-                </span>
-                {workspaceTreeQuery.data?.truncated ? (
-                  <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
-                    Partial index
-                  </span>
-                ) : null}
-                <span className="shrink-0 text-[10px] font-medium text-muted-foreground/76">
-                  {searchMode ? explorerRows.length : workspaceFileCount}
-                </span>
-              </div>
-              <div
-                ref={treeScrollRef}
-                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-0 py-1"
-                tabIndex={0}
-                onKeyDown={handleExplorerKeyDown}
-                onDragOver={(event) => {
-                  if (!readExplorerEntryTransferPath(event.dataTransfer)) {
-                    return;
-                  }
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  setDragTargetParentPath(null);
-                }}
-                onDrop={(event) => {
-                  const path = readExplorerEntryTransferPath(event.dataTransfer);
-                  if (!path) {
-                    return;
-                  }
-                  event.preventDefault();
-                  moveExplorerEntry(path, null);
-                }}
-                onContextMenu={(event) => {
-                  if (event.target !== event.currentTarget) {
-                    return;
-                  }
-                  event.preventDefault();
-                  setSelectedEntryPath(null);
-                  void openExplorerContextMenu(null, {
-                    x: event.clientX,
-                    y: event.clientY,
-                  });
-                }}
-              >
-                {explorerPending ? (
-                  <div className="space-y-1 px-2 py-2">
-                    {Array.from({ length: 10 }, (_, index) => (
-                      <div
-                        key={index}
-                        className="h-[22px] bg-foreground/5"
-                        style={{ opacity: 1 - index * 0.06 }}
+              {sidebarMode === "explorer" || sidebarMode === "search" ? (
+                <>
+                  <div className="border-b border-border/70 bg-background/22 px-2.5 py-2">
+                    <div className="relative">
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                      <Input
+                        ref={treeSearchInputRef}
+                        nativeInput
+                        value={treeSearch}
+                        onChange={(event) => setTreeSearch(event.target.value)}
+                        placeholder="Search files or content"
+                        className="h-7 rounded-sm border-border/70 bg-background/82 pl-7 text-[12px] shadow-inner focus-within:bg-background"
+                        size="sm"
+                        type="search"
                       />
-                    ))}
+                    </div>
                   </div>
-                ) : explorerRows.length === 0 ? (
-                  <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-                    {searchMode ? "No files match this search." : "No files found."}
+                  <div className="flex h-7 items-center gap-1.5 border-b border-border/70 bg-card/58 px-2.5 text-[11px]">
+                    <ChevronDownIcon
+                      className="size-3.5 shrink-0 text-muted-foreground/74"
+                      strokeWidth={2}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      {searchMode ? "Search results" : "Files"}
+                    </span>
+                    {workspaceTreeQuery.data?.truncated ? (
+                      <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
+                        Partial index
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground/76">
+                      {searchMode ? explorerRows.length : workspaceFileCount}
+                    </span>
                   </div>
-                ) : (
                   <div
-                    className="relative"
-                    style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-                  >
-                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                      const row = explorerRows[virtualRow.index];
-                      if (!row) {
-                        return null;
+                    ref={treeScrollRef}
+                    className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-0 py-1.5"
+                    tabIndex={0}
+                    onKeyDown={handleExplorerKeyDown}
+                    onDragOver={(event) => {
+                      if (!readExplorerEntryTransferPath(event.dataTransfer)) {
+                        return;
                       }
-                      return (
-                        <div
-                          key={row.key}
-                          className="absolute top-0 left-0 w-full"
-                          style={{ transform: `translateY(${virtualRow.start}px)` }}
-                        >
-                          {row.kind === "entry" ? (
-                            <FileTreeRow
-                              dragTargetPath={dragTargetParentPath}
-                              expandedDirectoryPaths={expandedDirectoryPathSet}
-                              focusedFilePath={activePane?.activeFilePath ?? null}
-                              gitStatus={gitStatusByPath.get(row.row.entry.path) ?? null}
-                              onDropEntry={(sourcePath, targetParentPath) => {
-                                moveExplorerEntry(sourcePath, targetParentPath);
-                              }}
-                              onFocusEntry={setSelectedEntryPath}
-                              onHoverDropTarget={setDragTargetParentPath}
-                              onOpenFile={handleOpenFile}
-                              onOpenRowContextMenu={(entry, position) => {
-                                void openExplorerContextMenu(entry, position);
-                              }}
-                              onSelectEntry={setSelectedEntryPath}
-                              onToggleDirectory={(directoryPath) =>
-                                toggleDirectory(props.threadId, directoryPath)
-                              }
-                              resolvedTheme={resolvedTheme}
-                              row={row.row}
-                              searchMode={searchMode}
-                              selectedEntryPath={selectedEntryPath}
-                            />
-                          ) : (
-                            <InlineExplorerRow
-                              depth={row.depth}
-                              inputRef={entryDialogInputRef}
-                              onCancel={cancelInlineEntry}
-                              onChangeValue={(value) =>
-                                setInlineEntryState((current) =>
-                                  current ? { ...current, value } : current,
-                                )
-                              }
-                              onCommit={submitInlineEntry}
-                              resolvedTheme={resolvedTheme}
-                              searchMode={searchMode}
-                              state={row.state}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDragTargetParentPath(null);
+                    }}
+                    onDrop={(event) => {
+                      const path = readExplorerEntryTransferPath(event.dataTransfer);
+                      if (!path) {
+                        return;
+                      }
+                      event.preventDefault();
+                      moveExplorerEntry(path, null);
+                    }}
+                    onContextMenu={(event) => {
+                      if (event.target !== event.currentTarget) {
+                        return;
+                      }
+                      event.preventDefault();
+                      setSelectedEntryPath(null);
+                      void openExplorerContextMenu(null, {
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
+                    }}
+                  >
+                    {explorerPending ? (
+                      <div className="space-y-1 px-2 py-2">
+                        {Array.from({ length: 10 }, (_, index) => (
+                          <div
+                            key={index}
+                            className="h-[22px] bg-foreground/5"
+                            style={{ opacity: 1 - index * 0.06 }}
+                          />
+                        ))}
+                      </div>
+                    ) : explorerRows.length === 0 ? (
+                      <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+                        {searchMode ? "No files match this search." : "No files found."}
+                      </div>
+                    ) : (
+                      <div
+                        className="relative"
+                        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                      >
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const row = explorerRows[virtualRow.index];
+                          if (!row) {
+                            return null;
+                          }
+                          return (
+                            <div
+                              key={row.key}
+                              className="absolute top-0 left-0 w-full"
+                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                            >
+                              {row.kind === "entry" ? (
+                                <FileTreeRow
+                                  dragTargetPath={dragTargetParentPath}
+                                  expandedDirectoryPaths={expandedDirectoryPathSet}
+                                  focusedFilePath={activePane?.activeFilePath ?? null}
+                                  gitStatus={gitStatusByPath.get(row.row.entry.path) ?? null}
+                                  onDropEntry={(sourcePath, targetParentPath) => {
+                                    moveExplorerEntry(sourcePath, targetParentPath);
+                                  }}
+                                  onFocusEntry={setSelectedEntryPath}
+                                  onHoverDropTarget={setDragTargetParentPath}
+                                  onOpenFile={handleOpenFile}
+                                  onOpenRowContextMenu={(entry, position) => {
+                                    void openExplorerContextMenu(entry, position);
+                                  }}
+                                  onSelectEntry={setSelectedEntryPath}
+                                  onToggleDirectory={(directoryPath) =>
+                                    toggleDirectory(props.threadId, directoryPath)
+                                  }
+                                  resolvedTheme={resolvedTheme}
+                                  row={row.row}
+                                  searchMode={searchMode}
+                                  selectedEntryPath={selectedEntryPath}
+                                />
+                              ) : (
+                                <InlineExplorerRow
+                                  depth={row.depth}
+                                  inputRef={entryDialogInputRef}
+                                  onCancel={cancelInlineEntry}
+                                  onChangeValue={(value) =>
+                                    setInlineEntryState((current) =>
+                                      current ? { ...current, value } : current,
+                                    )
+                                  }
+                                  onCommit={submitInlineEntry}
+                                  resolvedTheme={resolvedTheme}
+                                  searchMode={searchMode}
+                                  state={row.state}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              ) : sidebarMode === "source-control" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex h-7 items-center gap-1.5 border-b border-border/70 bg-card/58 px-2.5 text-[11px]">
+                    <GitPullRequestIcon className="size-3.5 text-muted-foreground/74" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      Source Control
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/76">
+                      {changedFiles.length}
+                    </span>
+                  </div>
+                  {changedFiles.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <GitPullRequestIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      No working tree changes.
+                    </div>
+                  ) : (
+                    <div className="py-1.5">
+                      {changedFiles.map((file) => (
+                        <button
+                          key={file.path}
+                          type="button"
+                          className="group flex w-full items-center gap-2 border-l-2 border-transparent px-2.5 py-1.5 text-left text-[12px] text-muted-foreground/90 transition-colors hover:border-primary/55 hover:bg-primary/7 hover:text-foreground"
+                          onClick={() => handleOpenFile(file.path, false)}
+                        >
+                          <VscodeEntryIcon
+                            pathValue={file.path}
+                            kind="file"
+                            theme={resolvedTheme}
+                            className="size-4"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium">{file.path}</span>
+                          {file.status ? (
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold",
+                                gitDecorationClass(file.status),
+                              )}
+                            >
+                              {file.status}
+                            </span>
+                          ) : null}
+                          <span className="rounded-sm bg-success/10 px-1 text-[10px] font-medium text-success">
+                            +{file.insertions}
+                          </span>
+                          <span className="rounded-sm bg-destructive/10 px-1 text-[10px] font-medium text-destructive">
+                            -{file.deletions}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : sidebarMode === "notes" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex h-7 items-center gap-1.5 border-b border-border/70 bg-card/58 px-2.5 text-[11px]">
+                    <MessageSquareTextIcon className="size-3.5 text-muted-foreground/74" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      Agent Notes
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/76">
+                      {openCodeCommentCount + queuedWorkspaceContexts.length}
+                    </span>
+                  </div>
+                  {queuedWorkspaceContexts.length === 0 && openCodeCommentCount === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <MessageSquareTextIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      Select code to queue context or add a file/range comment.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 p-2">
+                      {queuedWorkspaceContexts.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="overflow-hidden rounded-md border border-primary/20 bg-primary/6 shadow-sm"
+                        >
+                          <div className="flex items-start gap-2 p-2">
+                            <CircleDotIcon className="mt-0.5 size-3.5 text-primary" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[11px] font-semibold text-foreground">
+                                {entry.context.relativePath}:{entry.context.range.startLine + 1}-
+                                {entry.context.range.endLine + 1}
+                              </p>
+                              <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[10px] text-muted-foreground">
+                                {entry.prompt}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {codeComments
+                        .filter((comment) => comment.status !== "resolved")
+                        .map((comment) => (
+                          <div
+                            key={comment.id}
+                            className="overflow-hidden rounded-md border border-border/70 bg-background/80 shadow-sm"
+                          >
+                            <div className="flex items-start gap-2 border-l-2 border-primary/60 p-2">
+                              <ClipboardListIcon className="mt-0.5 size-3.5 text-primary/80" />
+                              <div className="min-w-0 flex-1">
+                                <button
+                                  type="button"
+                                  className="block max-w-full truncate text-left text-[11px] font-semibold text-foreground hover:underline"
+                                  onClick={() => handleOpenFile(comment.relativePath, false)}
+                                >
+                                  {formatWorkspaceCodeCommentTitle(comment)}
+                                </button>
+                                <pre className="mt-1 max-h-20 overflow-hidden rounded-sm border border-border/55 bg-foreground/4 p-1.5 font-mono text-[10px] leading-4 text-muted-foreground">
+                                  {comment.code}
+                                </pre>
+                                <p className="mt-1 text-[11px] text-foreground/84">
+                                  {comment.body}
+                                </p>
+                                <div className="mt-2 flex gap-1">
+                                  <button
+                                    type="button"
+                                    className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/15"
+                                    onClick={() =>
+                                      updateCodeCommentStatus(props.threadId, comment.id, "queued")
+                                    }
+                                  >
+                                    Queue
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-sm bg-foreground/8 px-1.5 py-0.5 text-[10px] hover:bg-foreground/12"
+                                    onClick={() =>
+                                      updateCodeCommentStatus(
+                                        props.threadId,
+                                        comment.id,
+                                        "resolved",
+                                      )
+                                    }
+                                  >
+                                    Resolve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-foreground/8"
+                                    onClick={() => removeCodeComment(props.threadId, comment.id)}
+                                  >
+                                    Dismiss
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex h-7 items-center gap-1.5 border-b border-border/70 bg-card/58 px-2.5 text-[11px]">
+                    {sidebarMode === "outline" ? (
+                      <ListTreeIcon className="size-3.5 text-muted-foreground/74" />
+                    ) : (
+                      <TriangleAlertIcon className="size-3.5 text-muted-foreground/74" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      {sidebarMode === "outline" ? "Outline" : "Problems"}
+                    </span>
+                    {sidebarMode === "problems" ? (
+                      <span className="text-[10px] text-muted-foreground/76">
+                        {workspaceProblems.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  {sidebarMode === "outline" ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <ListTreeIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      Document symbols will appear here as the LSP surface expands.
+                    </div>
+                  ) : workspaceProblems.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <TriangleAlertIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      No problems detected in open editor files.
+                    </div>
+                  ) : (
+                    <div className="py-1.5">
+                      {workspaceProblems.map((report) => (
+                        <button
+                          key={`${report.paneId}:${report.relativePath}:${report.problem.owner}:${report.problem.startLineNumber}:${report.problem.startColumn}:${report.problem.message}`}
+                          type="button"
+                          className="group flex w-full items-start gap-2 border-l-2 border-transparent px-2.5 py-1.5 text-left text-[11px] transition-colors hover:border-primary/55 hover:bg-primary/7"
+                          onClick={() => handleOpenProblem(report)}
+                        >
+                          <span
+                            className={cn(
+                              "mt-0.5 inline-flex min-w-[3.7rem] justify-center rounded px-1 py-px text-[9px] font-semibold uppercase",
+                              problemSeverityClass(report.problem.severity),
+                            )}
+                          >
+                            {problemSeverityLabel(report.problem.severity)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-foreground">
+                              {report.problem.message}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground/78">
+                              {report.relativePath}:{report.problem.startLineNumber}:
+                              {report.problem.startColumn}
+                              {report.problem.source ? ` · ${report.problem.source}` : ""}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </aside>
 
             <div
@@ -2451,11 +3324,13 @@ function ThreadWorkspaceEditor(inputProps: {
                               ) : undefined
                             }
                             connectionUrl={inputProps.connectionUrl}
+                            codeComments={codeComments}
                             diagnosticsCwd={diagnosticsCwd}
                             dirtyFilePaths={activeDirtyPaths}
                             draftsByFilePath={draftsByFilePath}
                             editorOptions={editorOptions}
                             gitCwd={props.gitCwd}
+                            onAddCodeComment={handleAddCodeComment}
                             onCloseFile={(paneId, filePath) =>
                               closeFile(props.threadId, filePath, paneId)
                             }
@@ -2472,6 +3347,8 @@ function ThreadWorkspaceEditor(inputProps: {
                             onMoveFile={(input) => moveFile(props.threadId, input)}
                             onOpenFileInPane={handleOpenFileInPane}
                             onOpenFileToSide={handleOpenFileToSide}
+                            onProblemsChange={handlePaneProblemsChange}
+                            onQueueSelectionContext={queueWorkspaceSelectionContext}
                             onReopenClosedTab={handleReopenClosedTab}
                             onRetryActiveFile={handleRetryActiveFile}
                             onSaveFile={handleSaveFile}
@@ -2486,6 +3363,7 @@ function ThreadWorkspaceEditor(inputProps: {
                             monacoTheme={monacoTheme}
                             pane={pane}
                             paneIndex={paneIndex}
+                            problemNavigationTarget={problemNavigationTarget}
                             resolvedTheme={resolvedTheme}
                             savingFilePath={
                               saveMutation.isPending
@@ -2535,6 +3413,16 @@ function ThreadWorkspaceEditor(inputProps: {
           </div>
         </section>
       </div>
+      <WorkspaceCommandPalette
+        entries={treeEntries}
+        mode={commandPaletteMode}
+        onModeChange={setCommandPaletteMode}
+        onOpenChange={setCommandPaletteOpen}
+        onOpenFile={(path) => handleOpenFile(path, false)}
+        open={commandPaletteOpen}
+        resolvedTheme={resolvedTheme}
+        workspaceActions={workspaceCommandActions}
+      />
       <Dialog
         open={saveConflict !== null}
         onOpenChange={(open) => (!open ? setSaveConflict(null) : null)}
