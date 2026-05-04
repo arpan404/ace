@@ -1,129 +1,44 @@
 # ace
 
-ace is a fast, minimal GUI for coding agents.
+ace is a minimal web GUI for coding agents.
 
-> **Attribution:** ace is a fork of **T3 Code** by **T3 Tools Inc.** and is released under the MIT License, copyright (c) 2026 **arpan404**.
+It is currently optimized around Codex, with provider sessions managed by the server and streamed to the web app over WebSocket.
 
-## Quick start
+## Development
 
-### 1. Install one provider CLI and sign in
+Requirements:
 
-- Codex: [Codex CLI](https://github.com/openai/codex) + `codex login`
-- Claude: Claude Code + `claude auth login`
-- GitHub Copilot: [GitHub Copilot CLI](https://docs.github.com/copilot)
-- Cursor: [Cursor](https://cursor.com) + installed `cursor-agent`
-- Gemini: [Gemini CLI](https://github.com/google-gemini/gemini-cli)
-- OpenCode: [OpenCode](https://opencode.ai/docs)
+- `bun`
+- `node`
+- at least one supported agent CLI installed locally
 
-### 2. Run ace
-
-```bash
-ace serve
-```
-
-## Local development
+Run locally:
 
 ```bash
 bun install
-bun dev
+bun dev:web
 ```
 
 Useful commands:
 
-- `bun dev` – web app + mobile app + local backend + contracts
-- `bun dev:web` – web app + local backend (paired dev flow)
-- `bun dev:server` – server only
-- `bun dev:marketing` – Astro marketing site
-- `bun dev:desktop` – desktop app
-- `bun dev:mobile` – mobile app (Expo) + server + contracts
-- `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
+- `bun dev` - full dev runner
+- `bun dev:web` - web app + server
+- `bun dev:server` - server only
+- `bun fmt`
+- `bun lint`
+- `bun typecheck`
 
-Dev runner modes default to `~/.ace/dev` for local development data isolation. `bun dev:web` uses `~/.ace/dev/web`, and desktop development uses `~/.ace/dev/desktop`.
+## Repo
 
-Before considering a change complete, run:
+- `apps/web` - React/Vite UI
+- `apps/server` - WebSocket server and provider/session orchestration
+- `packages/contracts` - shared schemas and protocol types
+- `packages/shared` - shared runtime utilities
 
-```bash
-bun fmt
-bun lint
-bun typecheck
-```
+## Notes
 
-OpenCode model behavior:
+- This repo is early and still changing quickly.
+- Before considering a change complete, run `bun fmt`, `bun lint`, and `bun typecheck`.
+- For contribution details, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-- Provider status/model selection uses provider-grouped OpenCode catalog data.
-- You can select from fetched OpenCode models and add custom OpenCode model slugs in Settings.
-
-## Desktop app
-
-Download the latest desktop build from [GitHub Releases](https://github.com/arpan404/ace/releases).
-Packaged desktop builds auto-install the `ace` CLI in the background and register daemon autostart at login.
-
-## Remote control modes
-
-- **Desktop app**: manages local agents and multiple remote hosts.
-- **URL/web mode**: manages a single remote host at a time.
-- **Mobile app**: manages multiple hosts with host switching.
-- **Initial authentication**: host-managed direct pairing links (QR or connection string) from **Settings → Devices**.
-
-## Pairing and direct network access
-
-ace remote access uses direct host networking plus one-time pairing sessions.
-
-- Host creates one-time pairing links that include a claim endpoint and short-lived secret.
-- Remote clients claim that pairing link, then wait for host approval.
-- Approved devices receive authenticated session credentials for future reconnects.
-
-Development defaults:
-
-- Server default URL: `ws://127.0.0.1:3773/ws`
-- For LAN/tailnet access, run the host with `ace serve --host <private-ip>`
-- See [REMOTE.md](./REMOTE.md) for end-to-end remote setup details and security notes.
-
-## Mobile app (Expo)
-
-The mobile app lives in `apps/mobile` and connects to the same ace server over WebSocket RPC.
-
-```bash
-bun dev:mobile
-```
-
-or run separately:
-
-```bash
-bun dev:server
-bun --cwd apps/mobile run dev
-```
-
-Mobile app highlights:
-
-- Bottom tabs: **Projects**, **Threads**, **Browser**, **Editor**, **Terminal**
-- Multi-host instances (manual + pairing QR/connection string import) with active-host switching
-- Project dashboard with working/completed/pending agent counts
-
-Default host behavior:
-
-- The app infers your desktop host from Expo runtime and targets `ws://<desktop-host>:3773/ws`
-- Override defaults with:
-  - `EXPO_PUBLIC_ACE_HOST` (host/IP only)
-  - `EXPO_PUBLIC_ACE_PORT` (port)
-  - or full `EXPO_PUBLIC_ACE_WS_URL`
-
-## Repo structure
-
-- `apps/web` – React/Vite frontend
-- `apps/mobile` – React Native/Expo mobile app
-- `apps/server` – WebSocket server and provider/session orchestration
-- `apps/desktop` – Electron shell
-- `apps/marketing` – Astro marketing site
-- `packages/contracts` – shared schemas and protocol types
-- `packages/shared` – shared runtime utilities
-
-## Keybindings
-
-Keybinding commands, parsing, defaults, and UI metadata are documented in [KEYBINDINGS.md](./KEYBINDINGS.md).
-
-## Project status
-
-ace is still early-stage and changing quickly. Expect rough edges.
-
-If you want to contribute, read [CONTRIBUTING.md](./CONTRIBUTING.md) first.
+> Attribution: ace is a fork of T3 Code by T3 Tools Inc. and is released under the MIT License, copyright (c) 2026 arpan404.
