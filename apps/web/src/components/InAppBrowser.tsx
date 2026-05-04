@@ -207,7 +207,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     designerElementCommentShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
-    detachEnabled = true,
     onQueueDesignRequest,
   } = props;
   const {
@@ -587,21 +586,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [activeTab, activeTabIsInternal, onQueueDesignRequest],
   );
-  const detachBrowser = useCallback(async () => {
-    const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
-    if (!openDetachedBrowser) {
-      return;
-    }
-    const detached = await openDetachedBrowser({
-      ...(scopeId ? { scopeId } : {}),
-      ...(activeTab && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
-    });
-    if (detached) {
-      onClose();
-    }
-  }, [activeTab, activeTabIsInternal, onClose, scopeId]);
-  const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
-
   if (!open) {
     return null;
   }
@@ -715,7 +699,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               </Tooltip>
             </div>
             <form
-              className="relative mx-auto flex w-full min-w-[16rem] max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
+              className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
                 openUrl(draftUrl);
@@ -824,27 +808,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 />
               ) : null}
             </form>
-            {canDetachBrowser ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      type="button"
-                      className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                      onClick={() => {
-                        void detachBrowser();
-                      }}
-                      aria-label="Detach browser"
-                    >
-                      <ExternalLinkIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Detach browser</TooltipPopup>
-              </Tooltip>
-            ) : null}
             {designerModeAvailable ? (
               <div
                 ref={designerToolSlotRef}
@@ -871,7 +834,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         render={
                           <MenuTrigger
                             className={cn(
-                              "group inline-flex h-9 max-w-[11.5rem] shrink-0 items-center gap-2 rounded-xl border px-2.5 text-left transition-[border-color,background-color,color,box-shadow] duration-150",
+                              "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
                               "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
                               collapsedDesignerSelectorActive
                                 ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
@@ -880,7 +843,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                           >
                             <span
                               className={cn(
-                                "relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
                                 collapsedDesignerSelectorActive
                                   ? "border-primary/28 bg-primary/[0.12] text-primary"
                                   : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
@@ -894,22 +857,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               />
                               <activeDesignerToolButton.Icon className="relative size-3.5" />
                             </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[11px] font-medium leading-none text-foreground/92">
-                                {activeDesignerToolButton.label}
-                              </span>
-                              <span className="mt-0.5 block truncate text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/72">
-                                {collapsedDesignerSelectorActive ? "Comment tool" : "Browse mode"}
-                              </span>
-                            </span>
-                            {designerShortcutLabelByTool[activeDesignerToolButton.tool] ? (
-                              <span className="hidden shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-muted-foreground/85 sm:inline-flex">
-                                {resolveDesignerShortcutHintLabel(
-                                  designerShortcutLabelByTool[activeDesignerToolButton.tool] ?? "",
-                                )}
-                              </span>
-                            ) : null}
-                            <ChevronDownIcon className="size-3.5 shrink-0 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
+                            <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
                           </MenuTrigger>
                         }
                       />
