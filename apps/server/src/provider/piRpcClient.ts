@@ -66,6 +66,9 @@ export interface StartPiRpcClientOptions {
 }
 
 function writeJsonLine(child: ChildProcessWithoutNullStreams, payload: unknown): void {
+  if (child.stdin.destroyed || !child.stdin.writable) {
+    throw new Error("Pi RPC stdin is not writable.");
+  }
   child.stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
@@ -245,18 +248,38 @@ export function startPiRpcClient(options: StartPiRpcClientOptions): PiRpcClient 
           reject,
           ...(timeout ? { timeout } : {}),
         });
-        writeJsonLine(child, {
-          id,
-          type: command,
-          ...payload,
-        });
+        try {
+          writeJsonLine(child, {
+            id,
+            type: command,
+            ...payload,
+          });
+        } catch (error) {
+          pending.delete(id);
+          if (timeout) {
+            clearTimeout(timeout);
+          }
+          reject(
+            error instanceof Error
+              ? error
+              : new Error(`Failed to write Pi RPC request: ${String(error)}`),
+          );
+        }
       });
     },
     notify(command, payload) {
-      writeJsonLine(child, {
-        type: command,
-        ...payload,
-      });
+      try {
+        writeJsonLine(child, {
+          type: command,
+          ...payload,
+        });
+      } catch (error) {
+        protocolErrorHandler?.(
+          error instanceof Error
+            ? error
+            : new Error(`Failed to write Pi RPC notification: ${String(error)}`),
+        );
+      }
     },
     setEventHandler(handler) {
       eventHandler = handler;
