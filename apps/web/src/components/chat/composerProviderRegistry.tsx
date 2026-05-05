@@ -72,13 +72,26 @@ function getProviderStateFromCapabilities(
   const providerOptions = modelOptions?.[provider];
 
   // Resolve effort
-  const rawEffort = providerOptions
-    ? "effort" in providerOptions
-      ? providerOptions.effort
-      : "reasoningEffort" in providerOptions
-        ? providerOptions.reasoningEffort
+  const rawEffort =
+    provider === "claudeAgent"
+      ? providerOptions && "effort" in providerOptions
+        ? providerOptions.effort
         : null
-    : null;
+      : provider === "pi"
+        ? providerOptions && typeof providerOptions === "object"
+          ? "thoughtLevel" in providerOptions &&
+            typeof providerOptions.thoughtLevel === "string" &&
+            providerOptions.thoughtLevel.trim().length > 0
+            ? providerOptions.thoughtLevel
+            : "reasoningEffort" in providerOptions &&
+                typeof providerOptions.reasoningEffort === "string" &&
+                providerOptions.reasoningEffort.trim().length > 0
+              ? providerOptions.reasoningEffort
+              : null
+          : null
+        : providerOptions && "reasoningEffort" in providerOptions
+          ? providerOptions.reasoningEffort
+          : null;
 
   const promptEffort = resolveEffort(caps, rawEffort) ?? null;
 
@@ -262,11 +275,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   pi: {
-    getState: (input) => ({
-      ...getProviderStateFromCapabilities(input),
-      promptEffort: null,
-      modelOptionsForDispatch: input.modelOptions?.pi,
-    }),
+    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,

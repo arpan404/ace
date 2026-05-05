@@ -4,11 +4,13 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import type {
+  PiThoughtLevel,
   PiSettings,
   ServerProvider,
   ServerProviderModel,
   ServerProviderRuntime,
 } from "@ace/contracts";
+import { PI_THOUGHT_LEVEL_OPTIONS } from "@ace/contracts";
 import { ServerSettingsError } from "@ace/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -40,6 +42,8 @@ type PiRpcModel = {
   readonly id: string;
   readonly name: string;
   readonly provider?: string;
+  readonly reasoning?: boolean;
+  readonly supportedThinkingLevels?: ReadonlyArray<PiThoughtLevel>;
 };
 
 class PiRpcDiscoveryError extends Schema.TaggedErrorClass<PiRpcDiscoveryError>()(
@@ -54,6 +58,27 @@ function resolvePiAgentDir(): string {
   const fromEnv = process.env.PI_CODING_AGENT_DIR?.trim();
   return fromEnv && fromEnv.length > 0 ? fromEnv : path.join(homedir(), ".pi", "agent");
 }
+
+const PI_THINKING_LEVEL_SET = new Set<string>(PI_THOUGHT_LEVEL_OPTIONS);
+const PI_THINKING_LEVEL_LABELS: Record<PiThoughtLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+};
+
+type PiDefaults = {
+  readonly defaultModel: string | null;
+  readonly defaultThinkingLevel: PiThoughtLevel | null;
+};
+
+type PiSettingsFile = {
+  readonly defaultProvider?: unknown;
+  readonly defaultModel?: unknown;
+  readonly defaultThinkingLevel?: unknown;
+};
 
 function parsePiVersion(result: CommandResult): string | null {
   return (
@@ -73,27 +98,97 @@ function buildPiRuntime(
   };
 }
 
-function readConfiguredPiDefaultModel(): string | null {
+function normalizePiThinkingLevel(value: unknown): PiThoughtLevel | null {
+  return typeof value === "string" && PI_THINKING_LEVEL_SET.has(value.trim())
+    ? (value.trim() as PiThoughtLevel)
+    : null;
+}
+
+function readPiSettingsFile(settingsPath: string): PiSettingsFile | null {
   try {
-    const settingsPath = path.join(resolvePiAgentDir(), "settings.json");
     const raw = readFileSync(settingsPath, "utf8");
-    const parsed = JSON.parse(raw) as {
-      readonly defaultProvider?: unknown;
-      readonly defaultModel?: unknown;
-    };
-    const defaultProvider =
-      typeof parsed.defaultProvider === "string" ? parsed.defaultProvider.trim() : "";
-    const defaultModel = typeof parsed.defaultModel === "string" ? parsed.defaultModel.trim() : "";
-    if (!defaultModel) {
-      return null;
-    }
-    if (defaultProvider && !defaultModel.includes("/")) {
-      return `${defaultProvider}/${defaultModel}`;
-    }
-    return defaultModel;
+    return JSON.parse(raw) as PiSettingsFile;
   } catch {
     return null;
   }
+}
+
+function resolveConfiguredPiDefaults(): PiDefaults {
+  const globalSettings = readPiSettingsFile(path.join(resolvePiAgentDir(), "settings.json"));
+  const projectSettings = readPiSettingsFile(path.join(process.cwd(), ".pi", "settings.json"));
+  const defaultProvider = [projectSettings, globalSettings]
+    .map((settings) =>
+      typeof settings?.defaultProvider === "string" ? settings.defaultProvider.trim() : "",
+    )
+    .find((value) => value.length > 0);
+  const defaultModelValue = [projectSettings, globalSettings]
+    .map((settings) =>
+      typeof settings?.defaultModel === "string" ? settings.defaultModel.trim() : "",
+    )
+    .find((value) => value.length > 0);
+  const defaultThinkingLevel =
+    normalizePiThinkingLevel(projectSettings?.defaultThinkingLevel) ??
+    normalizePiThinkingLevel(globalSettings?.defaultThinkingLevel);
+
+  if (!defaultModelValue) {
+    return {
+      defaultModel: null,
+      defaultThinkingLevel,
+    };
+  }
+
+  return {
+    defaultModel:
+      defaultProvider && !defaultModelValue.includes("/")
+        ? `${defaultProvider}/${defaultModelValue}`
+        : defaultModelValue,
+    defaultThinkingLevel,
+  };
+}
+
+function normalizeSupportedThinkingLevels(value: unknown): ReadonlyArray<PiThoughtLevel> {
+  const normalizedFromArray = Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const level = normalizePiThinkingLevel(entry);
+        return level ? [level] : [];
+      })
+    : [];
+  if (normalizedFromArray.length > 0) {
+    return [...new Set(normalizedFromArray)];
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const normalizedFromMap = Object.keys(value)
+      .map((entry) => normalizePiThinkingLevel(entry))
+      .flatMap((level) => (level ? [level] : []));
+    if (normalizedFromMap.length > 0) {
+      return [...new Set(normalizedFromMap)];
+    }
+  }
+  return [];
+}
+
+function buildPiReasoningCapabilities(
+  defaultThinkingLevel: PiThoughtLevel | null,
+  supportedThinkingLevels?: ReadonlyArray<PiThoughtLevel>,
+) {
+  const levels =
+    supportedThinkingLevels && supportedThinkingLevels.length > 0
+      ? supportedThinkingLevels
+      : [...PI_THOUGHT_LEVEL_OPTIONS];
+  const resolvedDefault =
+    (defaultThinkingLevel && levels.includes(defaultThinkingLevel) ? defaultThinkingLevel : null) ??
+    (levels.includes("medium") ? "medium" : (levels[0] ?? null));
+  return {
+    reasoningEffortLevels: levels.map((level) => ({
+      value: level,
+      label: PI_THINKING_LEVEL_LABELS[level],
+      ...(resolvedDefault === level ? { isDefault: true } : {}),
+    })),
+    supportsFastMode: false,
+    supportsThinkingToggle: false,
+    contextWindowOptions: [],
+    promptInjectedEffortLevels: [],
+  } as const;
 }
 
 async function runPiRpcGetModels(binaryPath: string): Promise<ReadonlyArray<PiRpcModel>> {
@@ -165,7 +260,25 @@ async function runPiRpcGetModels(binaryPath: string): Promise<ReadonlyArray<PiRp
                 const provider = nonEmptyTrimmed(
                   typeof record.provider === "string" ? record.provider : undefined,
                 );
-                return id && name ? [{ id, name, ...(provider ? { provider } : {}) }] : [];
+                const reasoning =
+                  typeof record.reasoning === "boolean" ? record.reasoning : undefined;
+                const supportedThinkingLevels = normalizeSupportedThinkingLevels(
+                  record.supportedThinkingLevels ??
+                    record.thinkingLevels ??
+                    record.thinkingLevelMap ??
+                    record.thinkingBudgets,
+                );
+                return id && name
+                  ? [
+                      {
+                        id,
+                        name,
+                        ...(provider ? { provider } : {}),
+                        ...(reasoning !== undefined ? { reasoning } : {}),
+                        ...(supportedThinkingLevels.length > 0 ? { supportedThinkingLevels } : {}),
+                      },
+                    ]
+                  : [];
               }),
             ),
           );
@@ -212,6 +325,7 @@ function normalizePiRpcModels(
   models: ReadonlyArray<PiRpcModel>,
   customModels: ReadonlyArray<string>,
 ): ReadonlyArray<ServerProviderModel> {
+  const defaults = resolveConfiguredPiDefaults();
   const builtInModels: ServerProviderModel[] = [];
   const seen = new Set<string>();
   for (const model of models) {
@@ -227,7 +341,13 @@ function normalizePiRpcModels(
       slug,
       name: model.name,
       isCustom: false,
-      capabilities: null,
+      capabilities:
+        model.reasoning === true
+          ? buildPiReasoningCapabilities(
+              defaults.defaultThinkingLevel,
+              model.supportedThinkingLevels,
+            )
+          : null,
     });
   }
   return providerModelsFromSettings(builtInModels, PROVIDER, customModels);
@@ -246,13 +366,16 @@ const runProviderCommand = Effect.fn("runProviderCommand")(function* (
 
 function fallbackPiModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
   const builtInModels: ServerProviderModel[] = [];
-  const configuredDefaultModel = readConfiguredPiDefaultModel();
+  const defaults = resolveConfiguredPiDefaults();
+  const configuredDefaultModel = defaults.defaultModel;
   if (configuredDefaultModel) {
     builtInModels.push({
       slug: configuredDefaultModel,
       name: configuredDefaultModel,
       isCustom: false,
-      capabilities: null,
+      capabilities: defaults.defaultThinkingLevel
+        ? buildPiReasoningCapabilities(defaults.defaultThinkingLevel)
+        : null,
     });
   }
   return providerModelsFromSettings(builtInModels, PROVIDER, settings.customModels);

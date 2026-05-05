@@ -46,6 +46,7 @@ export type PiThoughtLevel = (typeof PI_THOUGHT_LEVEL_OPTIONS)[number];
 
 export const PiModelOptions = Schema.Struct({
   thoughtLevel: Schema.optional(Schema.Literals(PI_THOUGHT_LEVEL_OPTIONS)),
+  reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
 });
 export type PiModelOptions = typeof PiModelOptions.Type;
 

@@ -1128,6 +1128,32 @@ describe("composerDraftStore provider-scoped option updates", () => {
     expect(draft?.activeProvider).toBe("codex");
   });
 
+  it("stores Pi thought-level and reasoning effort without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "pi", {
+      thoughtLevel: "high",
+      reasoningEffort: "high",
+    });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "openai/gpt-5.4-mini", {
+        thoughtLevel: "high",
+        reasoningEffort: "high",
+      }),
+    );
+    expect(draft?.activeProvider).toBe("codex");
+  });
+
   it("stores OpenCode variant options without changing the active selection", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(

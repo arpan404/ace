@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -165,13 +165,30 @@ describe("checkPiProviderStatus", () => {
           command: "get_available_models",
           success: true,
           data: {
-            models: [{ id: "gpt-5.5", provider: "openai", name: "GPT-5.5" }],
+            models: [
+              {
+                id: "gpt-5.5",
+                provider: "openai",
+                name: "GPT-5.5",
+                reasoning: true,
+                supportedThinkingLevels: ["minimal", "medium", "high"],
+              },
+            ],
           },
         },
       }),
     );
 
-    await withControlledPiAgentDir(async () => {
+    await withControlledPiAgentDir(async (dir) => {
+      await writeFile(
+        path.join(dir, "settings.json"),
+        JSON.stringify({
+          defaultProvider: "openai",
+          defaultModel: "gpt-5.5",
+          defaultThinkingLevel: "high",
+        }),
+      );
+
       const provider = await runStatusCheck(
         {
           providers: {
@@ -208,7 +225,17 @@ describe("checkPiProviderStatus", () => {
           slug: "openai/gpt-5.5",
           name: "GPT-5.5",
           isCustom: false,
-          capabilities: null,
+          capabilities: {
+            reasoningEffortLevels: [
+              { value: "minimal", label: "Minimal" },
+              { value: "medium", label: "Medium" },
+              { value: "high", label: "High", isDefault: true },
+            ],
+            supportsFastMode: false,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
         },
         {
           slug: "openai/custom-preview",
@@ -260,7 +287,15 @@ describe("checkPiProviderStatus", () => {
       }),
     );
 
-    await withControlledPiAgentDir(async () => {
+    await withControlledPiAgentDir(async (dir) => {
+      await writeFile(
+        path.join(dir, "settings.json"),
+        JSON.stringify({
+          defaultProvider: "openai",
+          defaultModel: "gpt-5.4",
+          defaultThinkingLevel: "minimal",
+        }),
+      );
       const provider = await runStatusCheck(
         {
           providers: {
@@ -280,6 +315,25 @@ describe("checkPiProviderStatus", () => {
       expect(provider.installed).toBe(true);
       expect(provider.models).toEqual([
         {
+          slug: "openai/gpt-5.4",
+          name: "openai/gpt-5.4",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [
+              { value: "off", label: "Off" },
+              { value: "minimal", label: "Minimal", isDefault: true },
+              { value: "low", label: "Low" },
+              { value: "medium", label: "Medium" },
+              { value: "high", label: "High" },
+              { value: "xhigh", label: "Extra High" },
+            ],
+            supportsFastMode: false,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        },
+        {
           slug: "openai/custom-preview",
           name: "openai/custom-preview",
           isCustom: true,
@@ -289,6 +343,82 @@ describe("checkPiProviderStatus", () => {
       expect(provider.message).toBe(
         "Pi detected. Falling back to local model settings because RPC discovery failed.",
       );
+    });
+  });
+
+  it("prefers project Pi settings over global settings when resolving defaults", async () => {
+    mockedSpawn.mockReturnValue(
+      makeRpcDiscoveryChild({
+        responseLine: {
+          type: "response",
+          command: "get_available_models",
+          success: true,
+          data: {
+            models: [{ id: "gpt-5.5", provider: "openai", name: "GPT-5.5", reasoning: true }],
+          },
+        },
+      }),
+    );
+
+    await withControlledPiAgentDir(async (dir) => {
+      await writeFile(
+        path.join(dir, "settings.json"),
+        JSON.stringify({
+          defaultProvider: "openai",
+          defaultModel: "gpt-5.4",
+          defaultThinkingLevel: "low",
+        }),
+      );
+
+      const cwdRoot = await mkdtemp(path.join(tmpdir(), "ace-pi-provider-cwd-"));
+      const originalCwd = process.cwd();
+      try {
+        await mkdir(path.join(cwdRoot, ".pi"), { recursive: true });
+        await writeFile(
+          path.join(cwdRoot, ".pi", "settings.json"),
+          JSON.stringify({
+            defaultThinkingLevel: "high",
+          }),
+        );
+        process.chdir(cwdRoot);
+
+        const provider = await runStatusCheck(
+          {
+            providers: {
+              pi: {
+                customModels: [],
+              },
+            },
+          },
+          mockCommandSpawnerLayer(() => ({
+            stdout: "pi 1.2.3\n",
+            stderr: "",
+            code: 0,
+          })),
+        );
+
+        expect(provider.models[0]).toEqual({
+          slug: "openai/gpt-5.5",
+          name: "GPT-5.5",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [
+              { value: "off", label: "Off" },
+              { value: "minimal", label: "Minimal" },
+              { value: "low", label: "Low" },
+              { value: "medium", label: "Medium" },
+              { value: "high", label: "High", isDefault: true },
+              { value: "xhigh", label: "Extra High" },
+            ],
+            supportsFastMode: false,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        });
+      } finally {
+        process.chdir(originalCwd);
+      }
     });
   });
 });
