@@ -6,6 +6,7 @@ import {
   ChevronRightIcon,
   EllipsisIcon,
   LoaderIcon,
+  RotateCwIcon,
 } from "lucide-react";
 
 import {
@@ -31,6 +32,7 @@ import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const diffCountFormatter = new Intl.NumberFormat();
 
@@ -63,6 +65,7 @@ interface PlanSummaryPanelProps {
   activeProvider?: ProviderKind | null;
   markdownCwd: string | undefined;
   onOpenDiffPanel?: (() => void) | null;
+  onRegenerateSummary?: (() => Promise<void> | void) | null;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
@@ -109,6 +112,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   activeProvider = null,
   markdownCwd,
   onOpenDiffPanel = null,
+  onRegenerateSummary = null,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
   enableLocalFileLinks = true,
@@ -119,6 +123,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const [planDetailsExpanded, setPlanDetailsExpanded] = useState(true);
   const [todoDetailsExpanded, setTodoDetailsExpanded] = useState(true);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
+  const [isRegeneratingSummary, setIsRegeneratingSummary] = useState(false);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
   const effectivePlan = activePlan;
@@ -227,11 +232,61 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
       );
   }, [effectivePlanMarkdown, workspaceRoot]);
 
+  const handleRegenerateSummary = useCallback(() => {
+    if (!onRegenerateSummary || isRegeneratingSummary) {
+      return;
+    }
+
+    setIsRegeneratingSummary(true);
+    void Promise.resolve(onRegenerateSummary())
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not regenerate summary",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      })
+      .finally(() => {
+        setIsRegeneratingSummary(false);
+      });
+  }, [isRegeneratingSummary, onRegenerateSummary]);
+
   const hasTodoSection = Boolean(effectivePlan && effectivePlan.steps.length > 0);
   const todoPlan = hasTodoSection ? effectivePlan : null;
   const hasAnyContent = Boolean(
-    generatedWorkspaceSummary || workspaceDiffSummary || effectivePlanMarkdown || hasTodoSection,
+    generatedWorkspaceSummary ||
+    workspaceDiffSummary ||
+    effectivePlanMarkdown ||
+    hasTodoSection ||
+    onRegenerateSummary,
   );
+  const regenerateSummaryLabel = generatedWorkspaceSummary
+    ? "Regenerate summary"
+    : "Generate summary";
+  const regenerateSummaryButton = onRegenerateSummary ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            onClick={handleRegenerateSummary}
+            disabled={isRegeneratingSummary}
+            aria-busy={isRegeneratingSummary}
+            aria-label={regenerateSummaryLabel}
+          />
+        }
+      >
+        {isRegeneratingSummary ? (
+          <LoaderIcon className="size-3 animate-spin" />
+        ) : (
+          <RotateCwIcon className="size-3" />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{regenerateSummaryLabel}</TooltipPopup>
+    </Tooltip>
+  ) : null;
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden p-4">
@@ -260,16 +315,19 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                                 Diff summary
                               </p>
                             </div>
-                            {onOpenDiffPanel ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={onOpenDiffPanel}
-                              >
-                                Open review
-                              </Button>
-                            ) : null}
+                            <div className="flex items-center gap-2">
+                              {regenerateSummaryButton}
+                              {onOpenDiffPanel ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={onOpenDiffPanel}
+                                >
+                                  Open review
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                           <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
                             <span className="mr-2">Current diff:</span>
@@ -282,32 +340,35 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           </p>
                         </div>
                       ) : null}
-                      <button
-                        type="button"
-                        className="group inline-flex items-center gap-2 rounded-sm"
-                        onClick={() => setSummaryDetailsExpanded((value) => !value)}
-                        aria-expanded={summaryDetailsExpanded}
-                        aria-label={
-                          summaryDetailsExpanded
-                            ? "Collapse summary details"
-                            : "Expand summary details"
-                        }
-                      >
-                        {summaryDetailsExpanded ? (
-                          <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                        ) : (
-                          <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                        )}
-                        <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                          Summary
-                        </span>
-                        <Badge
-                          variant="secondary"
-                          className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          className="group inline-flex items-center gap-2 rounded-sm"
+                          onClick={() => setSummaryDetailsExpanded((value) => !value)}
+                          aria-expanded={summaryDetailsExpanded}
+                          aria-label={
+                            summaryDetailsExpanded
+                              ? "Collapse summary details"
+                              : "Expand summary details"
+                          }
                         >
-                          AI
-                        </Badge>
-                      </button>
+                          {summaryDetailsExpanded ? (
+                            <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                          ) : (
+                            <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                          )}
+                          <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                            Summary
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                          >
+                            AI
+                          </Badge>
+                        </button>
+                        {!workspaceDiffSummary ? regenerateSummaryButton : null}
+                      </div>
                     </div>
                     {summaryDetailsExpanded ? (
                       <div className="mt-4 pb-1 pt-1">
@@ -352,17 +413,52 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           </span>
                         </p>
                       </div>
-                      {onOpenDiffPanel ? (
-                        <Button type="button" size="sm" variant="outline" onClick={onOpenDiffPanel}>
-                          Open review
-                        </Button>
+                      <div className="flex items-center gap-2">
+                        {regenerateSummaryButton}
+                        {onOpenDiffPanel ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={onOpenDiffPanel}
+                          >
+                            Open review
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!generatedWorkspaceSummary && !workspaceDiffSummary ? (
+                  <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-2">
+                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Changes
+                        </p>
+                        <p className="text-sm font-medium tracking-tight text-foreground">
+                          No changes
+                        </p>
+                        <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                          There are no uncommitted code changes.
+                        </p>
+                      </div>
+                      {regenerateSummaryButton ? (
+                        <div className="flex items-center gap-2">{regenerateSummaryButton}</div>
                       ) : null}
                     </div>
                   </div>
                 ) : null}
 
                 {effectivePlanMarkdown ? (
-                  <div>
+                  <div
+                    className={
+                      generatedWorkspaceSummary || workspaceDiffSummary
+                        ? "border-t border-border/60 pt-6"
+                        : undefined
+                    }
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-2">
                         <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">

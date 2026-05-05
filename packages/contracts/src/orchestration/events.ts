@@ -62,6 +62,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.checkpoint-revert-requested",
   "thread.reverted",
   "thread.session-stop-requested",
+  "thread.workspace-summary-regenerate-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
@@ -222,6 +223,11 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadWorkspaceSummaryRegenerateRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
@@ -354,6 +360,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.session-stop-requested"),
     payload: ThreadSessionStopRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.workspace-summary-regenerate-requested"),
+    payload: ThreadWorkspaceSummaryRegenerateRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

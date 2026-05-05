@@ -271,6 +271,7 @@ describe("CheckpointReactor", () => {
     readonly threadWorktreePath?: string | null;
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderKind;
+    readonly serverSettingsOverrides?: Parameters<typeof ServerSettingsService.layerTest>[0];
   }) {
     const cwd = createGitRepository();
     tempDirs.push(cwd);
@@ -302,7 +303,7 @@ describe("CheckpointReactor", () => {
       Layer.provideMerge(WorkspacePathsLive),
       Layer.provideMerge(GitCoreLive),
       Layer.provideMerge(Layer.succeed(TextGeneration, textGeneration.service)),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(ServerSettingsService.layerTest(options?.serverSettingsOverrides)),
       Layer.provideMerge(ServerConfigLayer),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -457,7 +458,7 @@ describe("CheckpointReactor", () => {
     ).toBe("v2\n");
   });
 
-  it("appends an AI-generated workspace summary after checkpoint capture", async () => {
+  it("does not auto-generate a workspace summary after checkpoint capture", async () => {
     const harness = await createHarness({ seedFilesystemCheckpoints: false });
     const createdAt = new Date().toISOString();
 
@@ -512,21 +513,167 @@ describe("CheckpointReactor", () => {
     });
 
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some((activity) => activity.kind === "workspace.summary.generated"),
+      entry.checkpoints.some((checkpoint) => checkpoint.checkpointTurnCount >= 1),
     );
-    const summaryActivity = thread.activities.find(
-      (activity) => activity.kind === "workspace.summary.generated",
+
+    expect(harness.textGeneration.generateWorkspaceSummary).not.toHaveBeenCalled();
+    expect(
+      thread.activities.some((activity) => activity.kind === "workspace.summary.generated"),
+    ).toBe(false);
+  });
+
+  it("auto-generates a workspace summary after checkpoint capture when enabled", async () => {
+    const harness = await createHarness({
+      seedFilesystemCheckpoints: false,
+      serverSettingsOverrides: {
+        workspaceSummaryGenerationMode: "auto",
+      },
+    });
+    const createdAt = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-summary-auto"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.assistant.delta",
+        commandId: CommandId.makeUnsafe("cmd-assistant-message-summary-auto-delta"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: MessageId.makeUnsafe("assistant-summary-auto"),
+        delta: "Updated the summary generation mode settings UI.",
+        turnId: asTurnId("turn-1"),
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.assistant.complete",
+        commandId: CommandId.makeUnsafe("cmd-assistant-message-summary-auto"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: MessageId.makeUnsafe("assistant-summary-auto"),
+        turnId: asTurnId("turn-1"),
+        createdAt,
+      }),
+    );
+
+    fs.writeFileSync(path.join(harness.cwd, "README.md"), "v2\n", "utf8");
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.makeUnsafe("evt-turn-completed-summary-auto"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      turnId: asTurnId("turn-1"),
+      payload: { state: "completed" },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.activities.filter((activity) => activity.kind === "workspace.summary.generated")
+          .length === 1,
     );
 
     expect(harness.textGeneration.generateWorkspaceSummary).toHaveBeenCalledTimes(1);
-    expect(harness.textGeneration.generateWorkspaceSummary.mock.calls[0]?.[0]).toMatchObject({
-      cwd: harness.cwd,
-      turnState: "completed",
-      userRequests: "",
-      assistantWork: "Updated the workspace summary panel to show an AI-generated turn recap.",
+    expect(
+      thread.activities.filter((activity) => activity.kind === "workspace.summary.generated")
+        .length,
+    ).toBe(1);
+  });
+
+  it("regenerates the workspace summary on request", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const createdAt = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-summary-regenerate"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.assistant.delta",
+        commandId: CommandId.makeUnsafe("cmd-assistant-message-summary-regenerate-delta"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: MessageId.makeUnsafe("assistant-summary-regenerate"),
+        delta: "Updated the summary panel copy and layout.",
+        turnId: asTurnId("turn-1"),
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.assistant.complete",
+        commandId: CommandId.makeUnsafe("cmd-assistant-message-summary-regenerate"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: MessageId.makeUnsafe("assistant-summary-regenerate"),
+        turnId: asTurnId("turn-1"),
+        createdAt,
+      }),
+    );
+
+    fs.writeFileSync(path.join(harness.cwd, "README.md"), "v2\n", "utf8");
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.makeUnsafe("evt-turn-completed-summary-regenerate"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      turnId: asTurnId("turn-1"),
+      payload: { state: "completed" },
     });
-    expect(summaryActivity?.summary).toBe("Updated summary panel");
-    expect(summaryActivity?.turnId).toBe("turn-1");
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.checkpoints.some((checkpoint) => checkpoint.checkpointTurnCount >= 1),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.workspace-summary.regenerate",
+        commandId: CommandId.makeUnsafe("cmd-workspace-summary-regenerate"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.activities.filter((activity) => activity.kind === "workspace.summary.generated")
+          .length === 1,
+    );
+
+    expect(harness.textGeneration.generateWorkspaceSummary).toHaveBeenCalledTimes(1);
+    expect(
+      thread.activities.filter((activity) => activity.kind === "workspace.summary.generated")
+        .length,
+    ).toBe(1);
   });
 
   it("ignores auxiliary thread turn completion while primary turn is active", async () => {

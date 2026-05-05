@@ -58,6 +58,7 @@ describe("PlanSummaryPanel", () => {
         }}
         activeProvider="codex"
         markdownCwd={undefined}
+        onRegenerateSummary={() => undefined}
         workspaceDiffSummary={{ additions: 15, deletions: 19, fileCount: 2 }}
         workspaceRoot={undefined}
       />,
@@ -65,6 +66,7 @@ describe("PlanSummaryPanel", () => {
 
     expect(html).toContain("Diff summary");
     expect(html).toContain("Current diff:");
+    expect(html).toContain('aria-label="Regenerate summary"');
     expect(html).not.toContain(">Changes<");
   });
 
@@ -82,8 +84,28 @@ describe("PlanSummaryPanel", () => {
     );
 
     expect(html).not.toContain("No current workspace diff is available.");
-    expect(html).not.toContain("Summary");
     expect(html).not.toContain("Diff summary");
+    expect(html).not.toContain("No changes");
+  });
+
+  it("renders a no changes state when summary generation is available but there is no diff", () => {
+    const html = renderToStaticMarkup(
+      <PlanSummaryPanel
+        activePlan={null}
+        activeProposedPlan={null}
+        generatedWorkspaceSummary={null}
+        activeProvider="codex"
+        markdownCwd={undefined}
+        onRegenerateSummary={() => undefined}
+        workspaceDiffSummary={null}
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(html).toContain(">Changes<");
+    expect(html).toContain("No changes");
+    expect(html).toContain("There are no uncommitted code changes.");
+    expect(html).toContain('aria-label="Generate summary"');
   });
 
   it("renders only one active in-progress todo when multiple rows are marked in progress", () => {
