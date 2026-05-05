@@ -3,9 +3,9 @@ import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/co
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
+  ArrowUpRightIcon,
   Columns2Icon,
   FolderIcon,
-  MessageSquarePlusIcon,
   RefreshCwIcon,
   Rows2Icon,
   SparklesIcon,
@@ -24,7 +24,6 @@ import {
   useState,
 } from "react";
 
-import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
@@ -51,9 +50,7 @@ import {
 } from "./dragTransfer";
 import {
   buildWorkspacePreviewUrl,
-  canOpenFileExternallyFromReadError,
   detectWorkspacePreviewKind,
-  joinWorkspaceAbsolutePath,
   type WorkspacePreviewKind,
 } from "./workspaceFileUtils";
 
@@ -112,6 +109,7 @@ interface WorkspaceEditorPaneProps {
   savingFilePath: string | null;
   problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null;
   symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null;
+  findRequestToken?: number;
 }
 
 export interface WorkspaceEditorPaneProblem {
@@ -1208,6 +1206,15 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   }, [editorMountVersion, pane.activeFilePath, props.symbolNavigationTarget]);
 
   useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !props.active || !props.findRequestToken) {
+      return;
+    }
+    editor.focus();
+    void runEditorAction(editor, "actions.find");
+  }, [editorMountVersion, props.active, props.findRequestToken]);
+
+  useEffect(() => {
     syncRequestIdRef.current += 1;
     const requestId = syncRequestIdRef.current;
 
@@ -1711,41 +1718,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     });
   }, []);
 
-  const handleOpenInExternalEditor = useCallback(async () => {
-    if (!api || !props.gitCwd || !pane.activeFilePath) {
-      return;
-    }
-    try {
-      setActionError(null);
-      await openInPreferredEditor(
-        api,
-        joinWorkspaceAbsolutePath(props.gitCwd, pane.activeFilePath),
-      );
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to open file in editor.");
-    }
-  }, [api, pane.activeFilePath, props.gitCwd]);
-
-  const handleAddSelectionComment = useCallback(() => {
-    if (!activeSelection || !workspaceCwd || commentDraft.trim().length === 0) {
-      return;
-    }
-    props.onAddCodeComment(
-      createWorkspaceCodeComment({
-        body: commentDraft,
-        code: activeSelection.context.text,
-        createdAt: new Date().toISOString(),
-        cwd: workspaceCwd,
-        id:
-          typeof crypto.randomUUID === "function"
-            ? crypto.randomUUID()
-            : `comment-${Date.now().toString(36)}`,
-        range: activeSelection.context.range,
-      }),
-    );
-    setCommentDraft("");
-    setSelectionActionsExpanded(false);
-  }, [activeSelection, commentDraft, props, workspaceCwd]);
   const handleAddAndSendSelectionComment = useCallback(async () => {
     if (
       !activeSelection ||
@@ -1794,8 +1766,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     activeFileQuery.error instanceof Error
       ? activeFileQuery.error.message
       : "An unexpected error occurred.";
-  const canOpenAnyway =
-    activeFileQuery.isError && canOpenFileExternallyFromReadError(activeFileErrorMessage);
   return (
     <section
       data-pane-active={props.active ? "true" : "false"}
@@ -1808,7 +1778,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5 scrollbar-none",
+          "flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1821,7 +1791,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden scrollbar-none"
+          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1995,14 +1965,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
             <div
               className={cn(
-                "flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
+                "flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
                 "border-border/60",
               )}
             >
               <span className="truncate">{previewModeLabel}</span>
-              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
-                Open in Editor
-              </Button>
             </div>
           </div>
         ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
@@ -2026,14 +1993,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
             <div
               className={cn(
-                "flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
+                "flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
                 "border-border/60",
               )}
             >
               <span className="truncate">{previewModeLabel}</span>
-              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
-                Open in Editor
-              </Button>
             </div>
           </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
@@ -2061,22 +2025,12 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   <RefreshCwIcon className="size-3.5" />
                   Retry
                 </Button>
-                {canOpenAnyway ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleOpenInExternalEditor()}
-                  >
-                    Open Anyway
-                  </Button>
-                ) : null}
               </div>
             </div>
           </div>
         ) : (
           <div className="relative h-full min-h-0 min-w-0 overflow-hidden">
             <Editor
-              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.monacoTheme}`}
               height="100%"
               value={activeFileContents}
               theme={props.monacoTheme}
@@ -2102,58 +2056,46 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 {!selectionActionsExpanded ? (
                   <button
                     type="button"
-                    className="inline-flex size-6 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground/75 hover:bg-accent hover:text-foreground"
-                    onClick={() => setSelectionActionsExpanded(true)}
+                    className="inline-flex size-7 items-center justify-center rounded-full border border-border/70 bg-background/92 text-muted-foreground/75 shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
+                    onClick={() => setSelectionActionsExpanded((current) => !current)}
                     aria-label="Open selection actions"
                     title="Selection actions"
                   >
                     <SparklesIcon className="size-3 text-primary/85" />
                   </button>
                 ) : (
-                  <div className="w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border/65 bg-card/96 shadow-md">
-                    <div className="flex items-center gap-1.5 border-b border-border/60 bg-background/35 p-1.5">
-                      <MessageSquarePlusIcon className="size-3 text-primary" />
-                      <span className="min-w-0 flex-1 text-[10px] font-medium text-muted-foreground">
-                        Comment
-                      </span>
+                  <form
+                    className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleAddAndSendSelectionComment();
+                    }}
+                  >
+                    <input
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setSelectionActionsExpanded(false);
+                        }
+                      }}
+                      placeholder="Comment for the agent"
+                      className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
+                      autoFocus
+                    />
+                    {props.onAddCodeCommentAndSend ? (
                       <button
-                        type="button"
-                        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                        onClick={() => setSelectionActionsExpanded(false)}
-                        aria-label="Close comment editor"
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-1.5 p-1.5">
-                      <input
-                        value={commentDraft}
-                        onChange={(event) => setCommentDraft(event.target.value)}
-                        placeholder="Comment on selection"
-                        className="h-7 min-w-0 flex-1 rounded-md border border-border/65 bg-background/92 px-2 font-mono text-[11px] outline-none focus:border-primary/50"
-                      />
-                      <button
-                        type="button"
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background px-2 text-[10px] font-medium text-foreground hover:bg-accent disabled:opacity-45"
+                        type="submit"
+                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
                         disabled={commentDraft.trim().length === 0 || selectionCommentSubmitting}
-                        onClick={handleAddSelectionComment}
+                        aria-label="Submit comment"
+                        title="Submit comment"
                       >
-                        Save
+                        <ArrowUpRightIcon className="size-4" />
                       </button>
-                      {props.onAddCodeCommentAndSend ? (
-                        <button
-                          type="button"
-                          className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2 text-[10px] font-medium text-primary-foreground disabled:opacity-45"
-                          disabled={commentDraft.trim().length === 0 || selectionCommentSubmitting}
-                          onClick={() => {
-                            void handleAddAndSendSelectionComment();
-                          }}
-                        >
-                          Send
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
+                    ) : null}
+                  </form>
                 )}
               </div>
             ) : null}

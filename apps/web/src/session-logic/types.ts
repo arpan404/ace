@@ -89,6 +89,16 @@ export interface LatestProposedPlanState {
   implementationThreadId: ThreadId | null;
 }
 
+export interface GeneratedWorkspaceSummary {
+  createdAt: string;
+  turnId: TurnId | null;
+  headline: string;
+  summary: string;
+  keyChanges: ReadonlyArray<string>;
+  risks: ReadonlyArray<string>;
+  markdown: string;
+}
+
 export type TimelineEntry =
   | {
       id: string;

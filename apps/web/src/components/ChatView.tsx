@@ -79,6 +79,7 @@ import {
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
   deriveActivePlanState,
+  deriveLatestGeneratedWorkspaceSummary,
   findSidebarProposedPlan,
   findLatestProposedPlan,
   hasLiveTurn,
@@ -1805,6 +1806,10 @@ export default function ChatView({
   const activePlan = useMemo(
     () => deriveActivePlanState(threadActivities, activeWorkTurnId),
     [activeWorkTurnId, threadActivities],
+  );
+  const activeGeneratedWorkspaceSummary = useMemo(
+    () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
+    [threadActivities],
   );
   const activePlanProgress = useMemo(() => summarizeActivePlan(activePlan), [activePlan]);
   const showPlanFollowUpPrompt =
@@ -7665,6 +7670,7 @@ export default function ChatView({
                           <PlanSummaryPanel
                             activePlan={activePlan}
                             activeProposedPlan={sidebarProposedPlan}
+                            generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
                             activeProvider={activeThread?.session?.provider ?? null}
                             markdownCwd={gitCwd ?? undefined}
                             onOpenDiffPanel={isGitRepo ? () => setRightSidePanelMode("diff") : null}
