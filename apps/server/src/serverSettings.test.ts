@@ -47,6 +47,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           remoteRelay: {
             enabled: false,
           },
+          workspaceSummaryGenerationMode: "auto",
           textGenerationModelSelection: {
             options: {
               fastMode: false,
@@ -57,6 +58,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           remoteRelay: {
             enabled: false,
           },
+          workspaceSummaryGenerationMode: "auto",
           textGenerationModelSelection: {
             options: {
               fastMode: false,
@@ -99,6 +101,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
         providerCliMaxOpen: 7,
+        workspaceSummaryGenerationMode: "auto",
         textGenerationModelSelection: {
           options: {
             fastMode: false,
@@ -132,6 +135,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
       assert.equal(next.providerCliMaxOpen, 7);
+      assert.equal(next.workspaceSummaryGenerationMode, "auto");
       assert.equal(
         next.providerCliIdleTtlSeconds,
         DEFAULT_SERVER_SETTINGS.providerCliIdleTtlSeconds,

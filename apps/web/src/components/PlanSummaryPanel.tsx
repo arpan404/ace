@@ -254,7 +254,11 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const hasTodoSection = Boolean(effectivePlan && effectivePlan.steps.length > 0);
   const todoPlan = hasTodoSection ? effectivePlan : null;
   const hasAnyContent = Boolean(
-    generatedWorkspaceSummary || workspaceDiffSummary || effectivePlanMarkdown || hasTodoSection,
+    generatedWorkspaceSummary ||
+    workspaceDiffSummary ||
+    effectivePlanMarkdown ||
+    hasTodoSection ||
+    onRegenerateSummary,
   );
   const regenerateSummaryLabel = generatedWorkspaceSummary
     ? "Regenerate summary"
@@ -422,6 +426,27 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           </Button>
                         ) : null}
                       </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!generatedWorkspaceSummary && !workspaceDiffSummary ? (
+                  <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-2">
+                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Changes
+                        </p>
+                        <p className="text-sm font-medium tracking-tight text-foreground">
+                          No changes
+                        </p>
+                        <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                          There are no uncommitted code changes.
+                        </p>
+                      </div>
+                      {regenerateSummaryButton ? (
+                        <div className="flex items-center gap-2">{regenerateSummaryButton}</div>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
