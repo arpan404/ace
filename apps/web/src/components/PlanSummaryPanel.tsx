@@ -226,6 +226,12 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
       );
   }, [effectivePlanMarkdown, workspaceRoot]);
 
+  const hasTodoSection = Boolean(effectivePlan && effectivePlan.steps.length > 0);
+  const todoPlan = hasTodoSection ? effectivePlan : null;
+  const hasAnyContent = Boolean(
+    generatedWorkspaceSummary || workspaceDiffSummary || effectivePlanMarkdown || hasTodoSection,
+  );
+
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden p-4">
       <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
@@ -234,354 +240,355 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
           data-plan-summary-scroll-container="true"
         >
           <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
-            {generatedWorkspaceSummary ? (
-              <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Workspace summary
-                    </p>
-                    <Badge
-                      variant="secondary"
-                      className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                    >
-                      AI
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    <h3 className="text-[15px] font-medium tracking-tight text-foreground">
-                      {generatedWorkspaceSummary.headline}
-                    </h3>
-                    <p className="max-w-[64ch] text-sm leading-relaxed text-muted-foreground">
-                      {generatedWorkspaceSummary.summary}
-                    </p>
-                  </div>
-                  {generatedWorkspaceSummary.keyChanges.length > 0 ? (
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                        Key changes
-                      </p>
-                      <ul className="space-y-1.5">
-                        {generatedWorkspaceSummary.keyChanges.map((item) => (
-                          <li
-                            key={item}
-                            className="flex items-start gap-2 text-sm leading-relaxed text-foreground"
-                          >
-                            <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                            <span>{item}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {generatedWorkspaceSummary.risks.length > 0 ? (
-                    <div className="space-y-2 border-t border-border/50 pt-3">
-                      <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                        Watchouts
-                      </p>
-                      <ul className="space-y-1.5">
-                        {generatedWorkspaceSummary.risks.map((item) => (
-                          <li
-                            key={item}
-                            className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground"
-                          >
-                            <span className="mt-2 size-1 shrink-0 rounded-full bg-amber-500/70" />
-                            <span>{item}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            <div
-              className={generatedWorkspaceSummary ? "border-t border-border/50 pt-6" : undefined}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 space-y-2">
-                  <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                    Changes
-                  </p>
-                  {workspaceDiffSummary ? (
-                    <>
+            {!hasAnyContent ? null : (
+              <>
+                {generatedWorkspaceSummary ? (
+                  <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+                    <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Workspace summary
+                        </p>
                         <Badge
                           variant="secondary"
                           className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
                         >
-                          {formatDiffCount(workspaceDiffSummary.fileCount)} files
+                          AI
                         </Badge>
-                        <p className="text-sm font-medium tracking-tight text-foreground">
-                          Workspace diff summary
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-[15px] font-medium tracking-tight text-foreground">
+                          {generatedWorkspaceSummary.headline}
+                        </h3>
+                        <p className="max-w-[64ch] text-sm leading-relaxed text-muted-foreground">
+                          {generatedWorkspaceSummary.summary}
                         </p>
                       </div>
-                      <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                        <span className="mr-2">Current working tree:</span>
-                        <span className="font-medium text-foreground">
-                          <DiffStatLabel
-                            additions={workspaceDiffSummary.additions}
-                            deletions={workspaceDiffSummary.deletions}
-                          />
-                        </span>
-                      </p>
-                    </>
-                  ) : (
-                    <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                      No current workspace diff is available.
-                    </p>
-                  )}
-                </div>
-                {workspaceDiffSummary && onOpenDiffPanel ? (
-                  <Button type="button" size="sm" variant="outline" onClick={onOpenDiffPanel}>
-                    Open review
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            {effectivePlanMarkdown ? (
-              <div>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-2">
-                    <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Plan
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {planMeta ? (
-                        <Badge
-                          variant="secondary"
-                          className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                        >
-                          {planMeta.badge}
-                        </Badge>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
-                        onClick={() => setPlanDetailsExpanded((value) => !value)}
-                        aria-expanded={planDetailsExpanded}
-                        aria-label={
-                          planDetailsExpanded ? "Collapse plan details" : "Expand plan details"
-                        }
-                      >
-                        {planDetailsExpanded ? (
-                          <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                        ) : (
-                          <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                        )}
-                        <span>{planTitle ?? "Proposed plan"}</span>
-                      </button>
-                    </div>
-                    {planMeta?.detail ? (
-                      <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
-                        {planMeta.detail}
-                      </p>
-                    ) : null}
-                  </div>
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="text-muted-foreground hover:text-foreground"
-                          aria-label="Plan actions"
-                        />
-                      }
-                    >
-                      <EllipsisIcon className="size-3.5" />
-                    </MenuTrigger>
-                    <MenuPopup align="end">
-                      <MenuItem onClick={handleCopyPlan}>
-                        {isCopied ? "Copied!" : "Copy to clipboard"}
-                      </MenuItem>
-                      <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
-                      <MenuItem
-                        onClick={handleSaveToWorkspace}
-                        disabled={!workspaceRoot || isSavingToWorkspace}
-                      >
-                        Save to workspace
-                      </MenuItem>
-                    </MenuPopup>
-                  </Menu>
-                </div>
-                {planDetailsExpanded ? (
-                  <div className="mt-4 overflow-hidden rounded-none bg-transparent">
-                    <div className="pb-4 pt-3.5">
-                      <ChatMarkdown
-                        text={displayedPlanMarkdown ?? ""}
-                        cwd={markdownCwd}
-                        isStreaming={false}
-                        onOpenBrowserUrl={onOpenBrowserUrl}
-                        onOpenFilePath={onOpenFilePath}
-                        enableLocalFileLinks={enableLocalFileLinks}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {effectivePlan && effectivePlan.steps.length > 0 ? (
-              <div className="border-t border-border/50 pt-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-2">
-                    <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Todos
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {todoMeta ? (
-                        <Badge
-                          variant="secondary"
-                          className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                        >
-                          {todoMeta.badge}
-                        </Badge>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
-                        onClick={() => setTodoDetailsExpanded((value) => !value)}
-                        aria-expanded={todoDetailsExpanded}
-                        aria-label={
-                          todoDetailsExpanded ? "Collapse todo details" : "Expand todo details"
-                        }
-                      >
-                        {todoDetailsExpanded ? (
-                          <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                        ) : (
-                          <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                        )}
-                        <span>{todoMeta?.label ?? "Current plan"}</span>
-                      </button>
-                    </div>
-                    {todoDetailsExpanded && todoMeta?.detail ? (
-                      <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
-                        {todoMeta.detail}
-                      </p>
-                    ) : null}
-                    {todoDetailsExpanded && effectivePlan.explanation ? (
-                      <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                        {effectivePlan.explanation}
-                      </p>
-                    ) : null}
-                  </div>
-                  {planProgress ? (
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                      {hasActionableTodo ? (
-                        <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/25 bg-blue-500/8 px-2.5 py-1 text-[11px] font-medium text-blue-300">
-                          <Spinner className="size-3.5" />
-                          <span className="tabular-nums">
-                            {formatPlanProgressValue(
-                              planProgress.currentIndex ?? 1,
-                              progressDigits,
-                            )}
-                            /{formatPlanProgressValue(planProgress.total, progressDigits)}
-                          </span>
+                      {generatedWorkspaceSummary.keyChanges.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+                            Key changes
+                          </p>
+                          <ul className="space-y-1.5">
+                            {generatedWorkspaceSummary.keyChanges.map((item) => (
+                              <li
+                                key={item}
+                                className="flex items-start gap-2 text-sm leading-relaxed text-foreground"
+                              >
+                                <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                      ) : (
-                        <p className="rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                          {planProgress.completed}/{planProgress.total} done
-                        </p>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-
-                {todoDetailsExpanded && planProgress ? (
-                  <div className="mt-4 p-0">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                          Execution
-                        </p>
-                        <p className="text-sm font-medium tracking-tight text-foreground">
-                          {hasActionableTodo && planProgress.currentStep
-                            ? planProgress.currentStep
-                            : "Waiting for the next actionable todo"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                          {completedPercent}% complete
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted/60">
-                      <div
-                        className="h-full rounded-full bg-[linear-gradient(90deg,rgba(96,165,250,0.95),rgba(59,130,246,0.58))] transition-[width] duration-300 ease-out"
-                        style={{ width: `${completedPercent}%` }}
-                      />
+                      ) : null}
+                      {generatedWorkspaceSummary.risks.length > 0 ? (
+                        <div className="space-y-2 border-t border-border/50 pt-3">
+                          <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+                            Watchouts
+                          </p>
+                          <ul className="space-y-1.5">
+                            {generatedWorkspaceSummary.risks.map((item) => (
+                              <li
+                                key={item}
+                                className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground"
+                              >
+                                <span className="mt-2 size-1 shrink-0 rounded-full bg-amber-500/70" />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
 
-                {todoDetailsExpanded && displaySteps.length > 0 ? (
-                  <div className="mt-4 space-y-2.5">
-                    {(() => {
-                      const stepOccurrenceByText = new Map<string, number>();
-                      return displaySteps.map((step, index) => {
-                        const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
-                        stepOccurrenceByText.set(step.step, seenCount + 1);
-                        const stepKey = seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
-                        const isCurrentActionableStep =
-                          planProgress?.currentIndex != null &&
-                          index + 1 === planProgress.currentIndex;
-                        return (
-                          <div
-                            key={stepKey}
-                            className={cn(
-                              "flex items-start gap-3 px-0 py-2.5 transition-colors duration-200",
-                              step.status === "inProgress" && "bg-transparent",
-                              step.status === "completed" && "bg-transparent",
-                              isCurrentActionableStep &&
-                                step.status === "pending" &&
-                                "bg-transparent",
-                            )}
+                {workspaceDiffSummary ? (
+                  <div
+                    className={
+                      generatedWorkspaceSummary ? "border-t border-border/50 pt-6" : undefined
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-2">
+                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Changes
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant="secondary"
+                            className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
                           >
-                            <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                                  {formatPlanProgressValue(index + 1, progressDigits)}
-                                </span>
-                                {isCurrentActionableStep ? (
-                                  <Badge
-                                    variant="secondary"
-                                    className="rounded-md border border-blue-500/25 bg-blue-500/8 px-1.5 py-0 text-[10px] font-medium text-blue-300"
-                                  >
-                                    {step.status === "inProgress" ? "In progress" : "Ready"}
-                                  </Badge>
-                                ) : null}
-                                {step.status === "completed" ? (
-                                  <span className="text-[10px] font-medium tracking-wide text-emerald-400/90 uppercase">
-                                    Done
-                                  </span>
-                                ) : null}
-                              </div>
-                              <p
+                            {formatDiffCount(workspaceDiffSummary.fileCount)} files
+                          </Badge>
+                          <p className="text-sm font-medium tracking-tight text-foreground">
+                            Workspace diff summary
+                          </p>
+                        </div>
+                        <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                          <span className="mr-2">Current working tree:</span>
+                          <span className="font-medium text-foreground">
+                            <DiffStatLabel
+                              additions={workspaceDiffSummary.additions}
+                              deletions={workspaceDiffSummary.deletions}
+                            />
+                          </span>
+                        </p>
+                      </div>
+                      {onOpenDiffPanel ? (
+                        <Button type="button" size="sm" variant="outline" onClick={onOpenDiffPanel}>
+                          Open review
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {effectivePlanMarkdown ? (
+                  <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-2">
+                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Plan
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {planMeta ? (
+                            <Badge
+                              variant="secondary"
+                              className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                            >
+                              {planMeta.badge}
+                            </Badge>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
+                            onClick={() => setPlanDetailsExpanded((value) => !value)}
+                            aria-expanded={planDetailsExpanded}
+                            aria-label={
+                              planDetailsExpanded ? "Collapse plan details" : "Expand plan details"
+                            }
+                          >
+                            {planDetailsExpanded ? (
+                              <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                            ) : (
+                              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                            )}
+                            <span>{planTitle ?? "Proposed plan"}</span>
+                          </button>
+                        </div>
+                        {planMeta?.detail ? (
+                          <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
+                            {planMeta.detail}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Menu>
+                        <MenuTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              className="text-muted-foreground hover:text-foreground"
+                              aria-label="Plan actions"
+                            />
+                          }
+                        >
+                          <EllipsisIcon className="size-3.5" />
+                        </MenuTrigger>
+                        <MenuPopup align="end">
+                          <MenuItem onClick={handleCopyPlan}>
+                            {isCopied ? "Copied!" : "Copy to clipboard"}
+                          </MenuItem>
+                          <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
+                          <MenuItem
+                            onClick={handleSaveToWorkspace}
+                            disabled={!workspaceRoot || isSavingToWorkspace}
+                          >
+                            Save to workspace
+                          </MenuItem>
+                        </MenuPopup>
+                      </Menu>
+                    </div>
+                    {planDetailsExpanded ? (
+                      <div className="mt-4 overflow-hidden rounded-none bg-transparent">
+                        <div className="pb-4 pt-3.5">
+                          <ChatMarkdown
+                            text={displayedPlanMarkdown ?? ""}
+                            cwd={markdownCwd}
+                            isStreaming={false}
+                            onOpenBrowserUrl={onOpenBrowserUrl}
+                            onOpenFilePath={onOpenFilePath}
+                            enableLocalFileLinks={enableLocalFileLinks}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {todoPlan ? (
+                  <div className="border-t border-border/50 pt-6">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-2">
+                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Todos
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {todoMeta ? (
+                            <Badge
+                              variant="secondary"
+                              className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                            >
+                              {todoMeta.badge}
+                            </Badge>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
+                            onClick={() => setTodoDetailsExpanded((value) => !value)}
+                            aria-expanded={todoDetailsExpanded}
+                            aria-label={
+                              todoDetailsExpanded ? "Collapse todo details" : "Expand todo details"
+                            }
+                          >
+                            {todoDetailsExpanded ? (
+                              <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                            ) : (
+                              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                            )}
+                            <span>{todoMeta?.label ?? "Current plan"}</span>
+                          </button>
+                        </div>
+                        {todoDetailsExpanded && todoMeta?.detail ? (
+                          <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
+                            {todoMeta.detail}
+                          </p>
+                        ) : null}
+                        {todoDetailsExpanded && todoPlan.explanation ? (
+                          <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                            {todoPlan.explanation}
+                          </p>
+                        ) : null}
+                      </div>
+                      {planProgress ? (
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                          {hasActionableTodo ? (
+                            <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/25 bg-blue-500/8 px-2.5 py-1 text-[11px] font-medium text-blue-300">
+                              <Spinner className="size-3.5" />
+                              <span className="tabular-nums">
+                                {formatPlanProgressValue(
+                                  planProgress.currentIndex ?? 1,
+                                  progressDigits,
+                                )}
+                                /{formatPlanProgressValue(planProgress.total, progressDigits)}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
+                              {planProgress.completed}/{planProgress.total} done
+                            </p>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {todoDetailsExpanded && planProgress ? (
+                      <div className="mt-4 p-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+                              Execution
+                            </p>
+                            <p className="text-sm font-medium tracking-tight text-foreground">
+                              {hasActionableTodo && planProgress.currentStep
+                                ? planProgress.currentStep
+                                : "Waiting for the next actionable todo"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                              {completedPercent}% complete
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted/60">
+                          <div
+                            className="h-full rounded-full bg-[linear-gradient(90deg,rgba(96,165,250,0.95),rgba(59,130,246,0.58))] transition-[width] duration-300 ease-out"
+                            style={{ width: `${completedPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {todoDetailsExpanded && displaySteps.length > 0 ? (
+                      <div className="mt-4 space-y-2.5">
+                        {(() => {
+                          const stepOccurrenceByText = new Map<string, number>();
+                          return displaySteps.map((step, index) => {
+                            const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
+                            stepOccurrenceByText.set(step.step, seenCount + 1);
+                            const stepKey =
+                              seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
+                            const isCurrentActionableStep =
+                              planProgress?.currentIndex != null &&
+                              index + 1 === planProgress.currentIndex;
+                            return (
+                              <div
+                                key={stepKey}
                                 className={cn(
-                                  "text-[13px] leading-snug",
-                                  step.status === "completed"
-                                    ? "text-muted-foreground line-through decoration-muted-foreground"
-                                    : step.status === "inProgress"
-                                      ? "text-foreground"
-                                      : "text-muted-foreground",
+                                  "flex items-start gap-3 px-0 py-2.5 transition-colors duration-200",
+                                  step.status === "inProgress" && "bg-transparent",
+                                  step.status === "completed" && "bg-transparent",
+                                  isCurrentActionableStep &&
+                                    step.status === "pending" &&
+                                    "bg-transparent",
                                 )}
                               >
-                                {step.step}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
+                                <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                                      {formatPlanProgressValue(index + 1, progressDigits)}
+                                    </span>
+                                    {isCurrentActionableStep ? (
+                                      <Badge
+                                        variant="secondary"
+                                        className="rounded-md border border-blue-500/25 bg-blue-500/8 px-1.5 py-0 text-[10px] font-medium text-blue-300"
+                                      >
+                                        {step.status === "inProgress" ? "In progress" : "Ready"}
+                                      </Badge>
+                                    ) : null}
+                                    {step.status === "completed" ? (
+                                      <span className="text-[10px] font-medium tracking-wide text-emerald-400/90 uppercase">
+                                        Done
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p
+                                    className={cn(
+                                      "text-[13px] leading-snug",
+                                      step.status === "completed"
+                                        ? "text-muted-foreground line-through decoration-muted-foreground"
+                                        : step.status === "inProgress"
+                                          ? "text-foreground"
+                                          : "text-muted-foreground",
+                                    )}
+                                  >
+                                    {step.step}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-              </div>
-            ) : null}
+              </>
+            )}
           </div>
         </div>
       </section>
