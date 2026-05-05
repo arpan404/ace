@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -17,10 +16,15 @@ import { newCommandId, newProjectId } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {
+  ChoiceChip,
   EmptyState,
+  FormField,
   IconButton,
+  ListSkeleton,
   MetricCard,
+  NoticeBanner,
   Panel,
+  SearchField,
   ScreenBackdrop,
   ScreenHeader,
   SectionTitle,
@@ -53,6 +57,7 @@ export default function ProjectsScreen() {
   );
   const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
   const [reconnectingHostId, setReconnectingHostId] = useState<string | null>(null);
+  const [composerStep, setComposerStep] = useState<"path" | "details">("path");
 
   useEffect(() => {
     const hasActiveHost = activeHostId ? hosts.some((host) => host.id === activeHostId) : false;
@@ -143,6 +148,7 @@ export default function ProjectsScreen() {
       });
       setNewProjectTitle("");
       setNewProjectPath("");
+      setComposerStep("path");
       setShowComposer(false);
       await refresh();
     } catch (cause) {
@@ -204,31 +210,26 @@ export default function ProjectsScreen() {
               <IconButton
                 icon={Plus}
                 label="New"
-                onPress={() => setShowComposer((current) => !current)}
+                onPress={() =>
+                  setShowComposer((current) => {
+                    const next = !current;
+                    if (next) {
+                      setComposerStep("path");
+                    }
+                    return next;
+                  })
+                }
               />
             </View>
           }
         />
 
-        <View
-          style={[
-            styles.searchShell,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.elevatedBorder,
-              shadowColor: colors.shadow,
-            },
-          ]}
-        >
-          <Search size={17} color={colors.tertiaryLabel} strokeWidth={2.2} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search projects, hosts, or paths"
-            placeholderTextColor={colors.muted}
-            style={[styles.searchInput, { color: colors.foreground }]}
-          />
-        </View>
+        <SearchField
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search projects, hosts, or paths"
+          icon={Search}
+        />
 
         {hosts.length > 0 ? (
           <ScrollView
@@ -238,44 +239,13 @@ export default function ProjectsScreen() {
           >
             {hosts.map((host) => {
               const isActive = host.id === activeHostId;
-              const isConnected = connections.some(
-                (connection) =>
-                  connection.host.id === host.id && connection.status.kind === "connected",
-              );
-
               return (
-                <Pressable
+                <ChoiceChip
                   key={host.id}
+                  label={host.name}
+                  selected={isActive}
                   onPress={() => setActiveHostId(host.id)}
-                  style={[
-                    styles.hostChip,
-                    {
-                      backgroundColor: isActive ? colors.surface : colors.surfaceSecondary,
-                      borderColor: isActive
-                        ? withAlpha(colors.primary, 0.5)
-                        : colors.elevatedBorder,
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.hostDot,
-                      {
-                        backgroundColor: isConnected ? colors.green : colors.muted,
-                      },
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.hostChipLabel,
-                      {
-                        color: isActive ? colors.foreground : colors.secondaryLabel,
-                      },
-                    ]}
-                  >
-                    {host.name}
-                  </Text>
-                </Pressable>
+                />
               );
             })}
           </ScrollView>
@@ -304,6 +274,9 @@ export default function ProjectsScreen() {
                 <StatusBadge label={`on ${activeHost.name}`} tone="warning" />
               ) : null}
             </View>
+            <Text style={[styles.composerStepText, { color: colors.tertiaryLabel }]}>
+              {composerStep === "path" ? "Step 1 of 2 - Choose workspace path" : "Step 2 of 2 - Confirm details"}
+            </Text>
             {activeHostOffline ? (
               <View
                 style={[
@@ -344,7 +317,7 @@ export default function ProjectsScreen() {
               </View>
             ) : null}
             <View style={styles.pathInputRow}>
-              <TextInput
+              <FormField
                 value={newProjectPath}
                 onChangeText={(value) => {
                   setNewProjectPath(value);
@@ -352,18 +325,9 @@ export default function ProjectsScreen() {
                   setProjectBrowseLoadedPath(null);
                 }}
                 placeholder="/absolute/path/to/project"
-                placeholderTextColor={colors.muted}
                 autoCapitalize="none"
                 autoCorrect={false}
-                style={[
-                  styles.textField,
-                  styles.pathTextField,
-                  {
-                    color: colors.foreground,
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.elevatedBorder,
-                  },
-                ]}
+                style={[styles.textField, styles.pathTextField]}
               />
               <Pressable
                 disabled={browsingProjectPath || !activeConnection}
@@ -384,7 +348,7 @@ export default function ProjectsScreen() {
                 )}
               </Pressable>
             </View>
-            {projectBrowseResult ? (
+            {projectBrowseResult && composerStep === "path" ? (
               <View
                 style={[
                   styles.browsePanel,
@@ -447,38 +411,64 @@ export default function ProjectsScreen() {
                 )}
               </View>
             ) : null}
-            <TextInput
-              value={newProjectTitle}
-              onChangeText={setNewProjectTitle}
-              placeholder="Project name"
-              placeholderTextColor={colors.muted}
-              style={[
-                styles.textField,
-                {
-                  color: colors.foreground,
-                  backgroundColor: colors.surfaceSecondary,
-                  borderColor: colors.elevatedBorder,
-                },
-              ]}
-            />
+            {composerStep === "path" ? (
+              <Pressable
+                onPress={() => setComposerStep("details")}
+                disabled={newProjectPath.trim().length === 0}
+                style={[
+                  styles.createButton,
+                  {
+                    backgroundColor: colors.primary,
+                  },
+                  newProjectPath.trim().length === 0 && styles.disabled,
+                ]}
+              >
+                <Text style={[styles.createButtonLabel, { color: colors.primaryForeground }]}>
+                  Continue
+                </Text>
+              </Pressable>
+            ) : (
+              <>
+                <FormField
+                  value={newProjectTitle}
+                  onChangeText={setNewProjectTitle}
+                  placeholder="Project name (optional)"
+                  style={styles.textField}
+                />
+                <View style={styles.stepActionRow}>
+                  <Pressable
+                    onPress={() => setComposerStep("path")}
+                    style={[
+                      styles.secondaryButton,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: colors.elevatedBorder,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.secondaryButtonLabel, { color: colors.foreground }]}>Back</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void createProject()}
+                    disabled={creatingProject}
+                    style={[
+                      styles.primaryActionButton,
+                      {
+                        backgroundColor: colors.primary,
+                      },
+                      creatingProject && styles.disabled,
+                    ]}
+                  >
+                    <Text style={[styles.createButtonLabel, { color: colors.primaryForeground }]}>
+                      {creatingProject ? "Creating project…" : "Create project"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
             {composerError ? (
-              <Text style={[styles.errorText, { color: colors.red }]}>{composerError}</Text>
+              <NoticeBanner tone="danger" title="Could not create project" body={composerError} />
             ) : null}
-            <Pressable
-              onPress={() => void createProject()}
-              disabled={creatingProject}
-              style={[
-                styles.createButton,
-                {
-                  backgroundColor: colors.primary,
-                },
-                creatingProject && styles.disabled,
-              ]}
-            >
-              <Text style={[styles.createButtonLabel, { color: colors.primaryForeground }]}>
-                {creatingProject ? "Creating project…" : "Create project"}
-              </Text>
-            </Pressable>
           </Panel>
         ) : null}
 
@@ -499,6 +489,8 @@ export default function ProjectsScreen() {
               <IconButton icon={Plus} label="Pair host" onPress={() => router.push("/pairing")} />
             }
           />
+        ) : loading ? (
+          <ListSkeleton rows={5} />
         ) : filteredProjects.length === 0 ? (
           <EmptyState
             title={query.trim().length > 0 ? "No matching projects" : "No synced projects"}
@@ -526,6 +518,7 @@ export default function ProjectsScreen() {
                   styles.projectRow,
                   {
                     backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+                    transform: [{ scale: pressed ? 0.995 : 1 }],
                   },
                 ]}
               >
@@ -577,7 +570,13 @@ export default function ProjectsScreen() {
           </Panel>
         )}
 
-        {error ? <Text style={[styles.footerError, { color: colors.red }]}>{error}</Text> : null}
+        {error ? (
+          <NoticeBanner
+            tone="danger"
+            title="Unable to refresh projects"
+            body={error}
+          />
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -592,48 +591,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  searchShell: {
-    marginTop: 24,
-    minHeight: 60,
-    borderWidth: 1,
-    borderRadius: Radius.card,
-    paddingHorizontal: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.12,
-    shadowRadius: 30,
-    elevation: 0,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "500",
-  },
   hostStrip: {
     gap: 10,
     paddingTop: 16,
-  },
-  hostChip: {
-    minHeight: 42,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-  },
-  hostDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-  },
-  hostChipLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: -0.1,
   },
   metricRow: {
     marginTop: 18,
@@ -645,6 +605,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+  },
+  composerStepText: {
+    marginTop: 10,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
   },
   hostRecoveryBanner: {
     marginTop: 14,
@@ -772,10 +738,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  errorText: {
-    marginTop: 12,
-    fontSize: 13,
-    lineHeight: 18,
+  stepActionRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    gap: 10,
+  },
+  secondaryButton: {
+    minHeight: 54,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryButtonLabel: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  primaryActionButton: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: Radius.card,
+    alignItems: "center",
+    justifyContent: "center",
   },
   createButton: {
     marginTop: 16,
@@ -833,10 +819,10 @@ const styles = StyleSheet.create({
   },
   projectTitle: {
     flex: 1,
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 18,
+    lineHeight: 22,
     fontWeight: "800",
-    letterSpacing: -0.6,
+    letterSpacing: -0.36,
   },
   projectMeta: {
     marginTop: 8,
@@ -855,10 +841,5 @@ const styles = StyleSheet.create({
     right: 18,
     bottom: 0,
     height: StyleSheet.hairlineWidth,
-  },
-  footerError: {
-    marginTop: 14,
-    fontSize: 12,
-    lineHeight: 18,
   },
 });

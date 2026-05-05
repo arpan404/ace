@@ -14,6 +14,7 @@ import { useTheme } from "../../src/design/ThemeContext";
 import {
   EmptyState,
   MetricCard,
+  NoticeBanner,
   Panel,
   RowLink,
   ScreenBackdrop,
@@ -150,7 +151,9 @@ export default function NotificationsScreen() {
           })
         )}
 
-        {error ? <Text style={[styles.footerError, { color: colors.red }]}>{error}</Text> : null}
+        {error ? (
+          <NoticeBanner tone="danger" title="Unable to refresh attention feed" body={error} />
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -249,10 +252,5 @@ const styles = StyleSheet.create({
     marginLeft: 18,
     marginRight: 18,
     height: StyleSheet.hairlineWidth,
-  },
-  footerError: {
-    marginTop: 14,
-    fontSize: 12,
-    lineHeight: 18,
   },
 });

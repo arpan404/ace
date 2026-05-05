@@ -15,7 +15,7 @@ import { createDefaultHostInstance, createHostInstance } from "./hostInstances";
 
 describe("createHostInstance", () => {
   beforeEach(() => {
-    reactNativeMock.NativeModules.SourceCode = undefined;
+    delete reactNativeMock.NativeModules.SourceCode;
     reactNativeMock.Platform.OS = "ios";
     delete process.env.EXPO_PUBLIC_ACE_HOST;
     delete process.env.EXPO_PUBLIC_ACE_PORT;

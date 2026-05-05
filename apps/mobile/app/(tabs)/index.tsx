@@ -4,11 +4,14 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LoaderCircle, Search } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { Layout, withAlpha } from "../../src/design/system";
 import {
+  ChoiceChip,
   EmptyState,
   IconButton,
+  ListSkeleton,
   MetricCard,
+  NoticeBanner,
   Panel,
   ScreenBackdrop,
   ScreenHeader,
@@ -90,28 +93,13 @@ export default function ThreadsScreen() {
           contentContainerStyle={styles.filterStrip}
         >
           {FILTERS.map((filter) => {
-            const selected = filter.key === activeFilter;
             return (
-              <Pressable
+              <ChoiceChip
                 key={filter.key}
+                label={filter.label}
+                selected={filter.key === activeFilter}
                 onPress={() => setActiveFilter(filter.key)}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: selected ? colors.surface : colors.surfaceSecondary,
-                    borderColor: selected ? withAlpha(colors.primary, 0.44) : colors.elevatedBorder,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.filterLabel,
-                    { color: selected ? colors.foreground : colors.secondaryLabel },
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-              </Pressable>
+              />
             );
           })}
         </ScrollView>
@@ -123,7 +111,9 @@ export default function ThreadsScreen() {
           </Text>
         </View>
 
-        {filteredThreads.length === 0 ? (
+        {loading ? (
+          <ListSkeleton rows={5} />
+        ) : filteredThreads.length === 0 ? (
           <EmptyState
             title="No active threads"
             body="Threads from connected hosts will appear here once projects sync or agent runs start."
@@ -147,7 +137,13 @@ export default function ThreadsScreen() {
           </Panel>
         )}
 
-        {error ? <Text style={[styles.footerError, { color: colors.red }]}>{error}</Text> : null}
+        {error ? (
+          <NoticeBanner
+            tone="danger"
+            title="Unable to refresh threads"
+            body={error}
+          />
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -173,6 +169,7 @@ function ThreadRow({
         styles.threadRow,
         {
           backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+          transform: [{ scale: pressed ? 0.995 : 1 }],
         },
       ]}
     >
@@ -262,19 +259,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 18,
   },
-  filterChip: {
-    minHeight: 40,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: -0.1,
-  },
   sectionHeader: {
     marginTop: 22,
     marginBottom: 10,
@@ -316,10 +300,10 @@ const styles = StyleSheet.create({
   },
   threadTitle: {
     flex: 1,
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 18,
+    lineHeight: 22,
     fontWeight: "800",
-    letterSpacing: -0.55,
+    letterSpacing: -0.35,
   },
   threadMeta: {
     marginTop: 8,
@@ -353,10 +337,5 @@ const styles = StyleSheet.create({
     left: 18,
     right: 18,
     height: StyleSheet.hairlineWidth,
-  },
-  footerError: {
-    marginTop: 14,
-    fontSize: 12,
-    lineHeight: 18,
   },
 });
