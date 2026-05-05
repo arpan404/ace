@@ -224,6 +224,11 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const shouldAutoGenerateWorkspaceSummary = Effect.fnUntraced(function* () {
+    const serverSettings = yield* serverSettingsService.getSettings;
+    return serverSettings.workspaceSummaryGenerationMode === "auto";
+  });
+
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
     readonly turnCount: number;
@@ -444,17 +449,6 @@ const make = Effect.gen(function* () {
           }).pipe(Effect.as([])),
         ),
       );
-    const workingTreeSummary = yield* gitCore.statusDetails(input.cwd).pipe(
-      Effect.map((details) => formatWorkingTreeSummary(details.workingTree)),
-      Effect.catch(() =>
-        Effect.succeed("Current working tree summary is unavailable for this workspace."),
-      ),
-    );
-    const workingTreeDiff = yield* gitCore.readWorkingTreeDiff({ cwd: input.cwd }).pipe(
-      Effect.map((result) => result.diff),
-      Effect.catch(() => Effect.succeed("")),
-    );
-
     const assistantMessageId =
       input.assistantMessageId ??
       input.thread.messages
@@ -512,27 +506,39 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
 
-    yield* appendWorkspaceSummaryActivity({
-      threadId: input.threadId,
-      turnId: input.turnId,
-      cwd: input.cwd,
-      thread: input.thread,
-      turnState: input.turnState,
-      workingTreeSummary,
-      workingTreeDiff,
-      assistantMessageId,
-      checkpointTurnCount: input.turnCount,
-      createdAt: input.createdAt,
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("failed to generate workspace summary", {
-          threadId: input.threadId,
-          turnId: input.turnId,
-          turnCount: input.turnCount,
-          detail: error.message,
-        }),
-      ),
-    );
+    if (yield* shouldAutoGenerateWorkspaceSummary()) {
+      const workingTreeSummary = yield* gitCore.statusDetails(input.cwd).pipe(
+        Effect.map((details) => formatWorkingTreeSummary(details.workingTree)),
+        Effect.catch(() =>
+          Effect.succeed("Current working tree summary is unavailable for this workspace."),
+        ),
+      );
+      const workingTreeDiff = yield* gitCore.readWorkingTreeDiff({ cwd: input.cwd }).pipe(
+        Effect.map((result) => result.diff),
+        Effect.catch(() => Effect.succeed("")),
+      );
+
+      yield* appendWorkspaceSummaryActivity({
+        threadId: input.threadId,
+        turnId: input.turnId,
+        cwd: input.cwd,
+        thread: input.thread,
+        turnState: input.turnState,
+        workingTreeSummary,
+        workingTreeDiff,
+        assistantMessageId,
+        checkpointTurnCount: input.turnCount,
+        createdAt: input.createdAt,
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to auto-generate workspace summary", {
+            threadId: input.threadId,
+            turnId: input.turnId,
+            detail: error.message,
+          }),
+        ),
+      );
+    }
   });
 
   // Captures a real git checkpoint when a turn completes via a runtime event.
@@ -573,52 +579,6 @@ const make = Effect.gen(function* () {
       preferSessionRuntime: true,
     });
     if (!checkpointCwd) {
-      const summaryCwd = yield* resolveSummaryCwd({
-        threadId: thread.id,
-        thread,
-        projects: readModel.projects,
-      });
-      if (!summaryCwd) {
-        return;
-      }
-      const assistantMessageId =
-        thread.messages
-          .toReversed()
-          .find((entry) => entry.role === "assistant" && entry.turnId === turnId)?.id ??
-        MessageId.makeUnsafe(`assistant:${turnId}`);
-      const workingTreeSummary = isGitWorkspace(summaryCwd)
-        ? yield* gitCore.statusDetails(summaryCwd).pipe(
-            Effect.map((details) => formatWorkingTreeSummary(details.workingTree)),
-            Effect.catch(() =>
-              Effect.succeed("Current working tree summary is unavailable for this workspace."),
-            ),
-          )
-        : "Current working tree summary is unavailable for this workspace.";
-      const workingTreeDiff = isGitWorkspace(summaryCwd)
-        ? yield* gitCore.readWorkingTreeDiff({ cwd: summaryCwd }).pipe(
-            Effect.map((result) => result.diff),
-            Effect.catch(() => Effect.succeed("")),
-          )
-        : "";
-      yield* appendWorkspaceSummaryActivity({
-        threadId: thread.id,
-        turnId,
-        cwd: summaryCwd,
-        thread,
-        turnState: turnSummaryStateFromRuntime(event.payload.state),
-        workingTreeSummary,
-        workingTreeDiff,
-        assistantMessageId,
-        createdAt: event.createdAt,
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("failed to generate workspace summary without checkpoint diff", {
-            threadId: thread.id,
-            turnId,
-            detail: error.message,
-          }),
-        ),
-      );
       return;
     }
 

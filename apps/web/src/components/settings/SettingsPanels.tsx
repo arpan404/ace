@@ -145,6 +145,19 @@ const UI_LETTER_SPACING_OPTIONS: { value: UiLetterSpacing; label: string }[] = [
   { value: "relaxed", label: "Relaxed" },
 ];
 
+const WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS = [
+  {
+    value: "manual",
+    label: "Manual",
+    description: "Only generate when you click the summary action.",
+  },
+  {
+    value: "auto",
+    label: "Automatic",
+    description: "Refresh after each completed diff capture.",
+  },
+] as const;
+
 const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.value));
 const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
 const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value));
@@ -2838,6 +2851,45 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               </div>
             }
           />
+
+          <SettingsRow
+            title="Summary generation"
+            description="Choose whether code summaries refresh automatically after each completed diff or only when requested manually."
+            resetAction={
+              settings.workspaceSummaryGenerationMode !==
+              DEFAULT_UNIFIED_SETTINGS.workspaceSummaryGenerationMode ? (
+                <SettingResetButton
+                  label="summary generation"
+                  onClick={() =>
+                    updateSettings({
+                      workspaceSummaryGenerationMode:
+                        DEFAULT_UNIFIED_SETTINGS.workspaceSummaryGenerationMode,
+                    })
+                  }
+                />
+              ) : null
+            }
+          >
+            <div className="mt-3 flex flex-wrap gap-2">
+              {WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  size="sm"
+                  variant={
+                    settings.workspaceSummaryGenerationMode === option.value ? "default" : "outline"
+                  }
+                  onClick={() =>
+                    updateSettings({
+                      workspaceSummaryGenerationMode: option.value,
+                    })
+                  }
+                  title={option.description}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </SettingsRow>
         </SettingsSection>
       ) : null}
 
