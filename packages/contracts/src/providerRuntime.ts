@@ -28,6 +28,8 @@ const RuntimeEventRawSource = Schema.Literals([
   "github-copilot.sdk.permission",
   "cursor.acp.notification",
   "cursor.acp.request",
+  "pi.rpc.event",
+  "pi.rpc.command",
   "opencode.sdk.event",
 ]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;

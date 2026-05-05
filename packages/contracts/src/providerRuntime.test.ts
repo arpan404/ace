@@ -190,4 +190,44 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.type).toBe("runtime.warning");
     expect(parsed.raw?.source).toBe("opencode.sdk.event");
   });
+
+  it("accepts Pi RPC raw event source payloads", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "session.configured",
+      eventId: "event-pi-raw-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:06.000Z",
+      threadId: "thread-pi-1",
+      payload: {
+        config: {
+          configOptions: [
+            {
+              id: "thought_level",
+              name: "Thinking Level",
+              type: "select",
+              currentValue: "medium",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+              ],
+            },
+          ],
+        },
+      },
+      raw: {
+        source: "pi.rpc.event",
+        messageType: "message_update",
+        payload: {
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "thinking_delta",
+            delta: "considering next step",
+          },
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("session.configured");
+    expect(parsed.raw?.source).toBe("pi.rpc.event");
+  });
 });

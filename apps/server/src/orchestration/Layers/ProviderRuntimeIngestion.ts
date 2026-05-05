@@ -16,6 +16,7 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
+  type ProviderSessionConfigOption,
   type ProviderSlashCommand,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@ace/contracts";
@@ -145,6 +146,96 @@ function providerSlashCommandsFromSessionConfigured(
   return mergeProviderSlashCommands(
     providerCommands,
     providerFallbackSlashCommands(event.provider),
+  );
+}
+
+function normalizeProviderSessionConfigOptionValues(
+  value: unknown,
+): ReadonlyArray<ProviderSessionConfigOption["options"][number]> {
+  const optionEntries = asArray(value);
+  if (!optionEntries) {
+    return [];
+  }
+
+  const options: ProviderSessionConfigOption["options"][number][] = [];
+  for (const optionEntry of optionEntries) {
+    const optionRecord = asRecord(optionEntry);
+    const optionValue =
+      asNonEmptyString(optionRecord?.value) ??
+      asNonEmptyString(optionRecord?.id) ??
+      asNonEmptyString(optionEntry);
+    const optionName =
+      asNonEmptyString(optionRecord?.name) ?? asNonEmptyString(optionRecord?.label) ?? optionValue;
+    if (!optionValue || !optionName) {
+      continue;
+    }
+    options.push({
+      value: optionValue,
+      name: optionName,
+      ...(asNonEmptyString(optionRecord?.description)
+        ? { description: asNonEmptyString(optionRecord?.description)! }
+        : {}),
+    });
+  }
+
+  return options;
+}
+
+function normalizeProviderSessionConfigOptions(
+  value: unknown,
+): ReadonlyArray<ProviderSessionConfigOption> | null {
+  const optionEntries = asArray(value);
+  if (!optionEntries) {
+    return null;
+  }
+
+  const options: ProviderSessionConfigOption[] = [];
+  for (const optionEntry of optionEntries) {
+    const optionRecord = asRecord(optionEntry);
+    const id = asNonEmptyString(optionRecord?.id);
+    const name = asNonEmptyString(optionRecord?.name) ?? id;
+    const currentValue =
+      asNonEmptyString(optionRecord?.currentValue) ??
+      asNonEmptyString(optionRecord?.current_value) ??
+      asNonEmptyString(optionRecord?.value);
+    const normalizedValues = normalizeProviderSessionConfigOptionValues(optionRecord?.options);
+    if (!id || !name || !currentValue || normalizedValues.length === 0) {
+      continue;
+    }
+
+    options.push({
+      id,
+      name,
+      ...(asNonEmptyString(optionRecord?.description)
+        ? { description: asNonEmptyString(optionRecord?.description)! }
+        : {}),
+      ...(asNonEmptyString(optionRecord?.category)
+        ? { category: asNonEmptyString(optionRecord?.category)! }
+        : {}),
+      type: "select",
+      currentValue,
+      options: normalizedValues,
+    });
+  }
+
+  return options;
+}
+
+function providerConfigOptionsFromSessionConfigured(
+  event: ProviderRuntimeEvent,
+): ReadonlyArray<ProviderSessionConfigOption> | null {
+  if (event.type !== "session.configured") {
+    return null;
+  }
+  const config = asRecord(event.payload.config);
+  if (!config) {
+    return null;
+  }
+
+  return (
+    normalizeProviderSessionConfigOptions(config.configOptions) ??
+    normalizeProviderSessionConfigOptions(config.config_options) ??
+    normalizeProviderSessionConfigOptions(config.options)
   );
 }
 
@@ -2738,6 +2829,7 @@ const make = Effect.fn("make")(function* () {
               status,
               providerName: event.provider,
               capabilities: yield* resolveSessionCapabilities(event.provider),
+              configOptions: thread.session?.configOptions ?? [],
               commands: thread.session?.commands ?? [],
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
@@ -2750,6 +2842,27 @@ const make = Effect.fn("make")(function* () {
       }
 
       const providerCommands = providerSlashCommandsFromSessionConfigured(event);
+      const providerConfigOptions = providerConfigOptionsFromSessionConfigured(event);
+      if (providerConfigOptions !== null) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.session.set",
+          commandId: providerCommandId(event, "thread-session-config-options-set"),
+          threadId: thread.id,
+          session: {
+            threadId: thread.id,
+            status: thread.session?.status ?? "ready",
+            providerName: event.provider,
+            capabilities: yield* resolveSessionCapabilities(event.provider),
+            configOptions: providerConfigOptions,
+            commands: thread.session?.commands ?? [],
+            runtimeMode: thread.session?.runtimeMode ?? "full-access",
+            activeTurnId: thread.session?.activeTurnId ?? null,
+            lastError: thread.session?.lastError ?? null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
+      }
       if (providerCommands !== null) {
         yield* orchestrationEngine.dispatch({
           type: "thread.session.set",
@@ -2760,6 +2873,7 @@ const make = Effect.fn("make")(function* () {
             status: thread.session?.status ?? "ready",
             providerName: event.provider,
             capabilities: yield* resolveSessionCapabilities(event.provider),
+            configOptions: thread.session?.configOptions ?? [],
             commands: providerCommands,
             runtimeMode: thread.session?.runtimeMode ?? "full-access",
             activeTurnId: thread.session?.activeTurnId ?? null,
@@ -3055,6 +3169,7 @@ const make = Effect.fn("make")(function* () {
               status: isUnscopedActiveTurnError ? "running" : "error",
               providerName: event.provider,
               capabilities: yield* resolveSessionCapabilities(event.provider),
+              configOptions: thread.session?.configOptions ?? [],
               commands: thread.session?.commands ?? [],
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? activeTurnId,

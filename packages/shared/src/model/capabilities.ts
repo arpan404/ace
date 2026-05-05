@@ -5,6 +5,7 @@ import {
   type GitHubCopilotModelOptions,
   type ModelCapabilities,
   type OpenCodeModelOptions,
+  type PiModelOptions,
 } from "@ace/contracts";
 
 /** Check whether a capabilities object includes a given effort value. */
@@ -108,6 +109,17 @@ export function normalizeCursorModelOptionsWithCapabilities(
       ? { reasoningEffort: reasoningEffort as CursorModelOptions["reasoningEffort"] }
       : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
+  };
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizePiModelOptionsWithCapabilities(
+  caps: ModelCapabilities,
+  modelOptions: PiModelOptions | null | undefined,
+): PiModelOptions | undefined {
+  const thoughtLevel = resolveEffort(caps, modelOptions?.thoughtLevel);
+  const nextOptions: PiModelOptions = {
+    ...(thoughtLevel ? { thoughtLevel: thoughtLevel as PiModelOptions["thoughtLevel"] } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }

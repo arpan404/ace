@@ -13,6 +13,7 @@ import {
   type GitHubCopilotAdapterShape,
 } from "../Services/GitHubCopilotAdapter.ts";
 import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
+import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
 import { ProviderUnsupportedError } from "../Errors.ts";
@@ -103,6 +104,23 @@ const fakeGeminiAdapter: GeminiAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const fakePiAdapter: PiAdapterShape = {
+  provider: "pi",
+  capabilities: { sessionModelSwitch: "in-session" },
+  startSession: vi.fn(),
+  sendTurn: vi.fn(),
+  interruptTurn: vi.fn(),
+  respondToRequest: vi.fn(),
+  respondToUserInput: vi.fn(),
+  stopSession: vi.fn(),
+  listSessions: vi.fn(),
+  hasSession: vi.fn(),
+  readThread: vi.fn(),
+  rollbackThread: vi.fn(),
+  stopAll: vi.fn(),
+  streamEvents: Stream.empty,
+};
+
 const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
   provider: "opencode",
   capabilities: { sessionModelSwitch: "in-session" },
@@ -129,6 +147,7 @@ const layer = it.layer(
         Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
         Layer.succeed(GitHubCopilotAdapter, fakeGitHubCopilotAdapter),
         Layer.succeed(CursorAdapter, fakeCursorAdapter),
+        Layer.succeed(PiAdapter, fakePiAdapter),
         Layer.succeed(GeminiAdapter, fakeGeminiAdapter),
         Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
       ),
@@ -152,6 +171,7 @@ layer("ProviderAdapterRegistryLive", (it) => {
         "claudeAgent",
         "githubCopilot",
         "cursor",
+        "pi",
         "gemini",
         "opencode",
       ]);

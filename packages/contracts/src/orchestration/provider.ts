@@ -6,6 +6,7 @@ import {
   GeminiModelOptions,
   GitHubCopilotModelOptions,
   OpenCodeModelOptions,
+  PiModelOptions,
 } from "../model";
 import {
   ApprovalRequestId,
@@ -31,6 +32,7 @@ export const ProviderKind = Schema.Literals([
   "claudeAgent",
   "githubCopilot",
   "cursor",
+  "pi",
   "gemini",
   "opencode",
 ]);
@@ -157,6 +159,13 @@ export const CursorModelSelection = Schema.Struct({
 });
 export type CursorModelSelection = typeof CursorModelSelection.Type;
 
+export const PiModelSelection = Schema.Struct({
+  provider: Schema.Literal("pi"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(PiModelOptions),
+});
+export type PiModelSelection = typeof PiModelSelection.Type;
+
 export const GeminiModelSelection = Schema.Struct({
   provider: Schema.Literal("gemini"),
   model: TrimmedNonEmptyString,
@@ -176,10 +185,29 @@ export const ModelSelection = Schema.Union([
   ClaudeModelSelection,
   GitHubCopilotModelSelection,
   CursorModelSelection,
+  PiModelSelection,
   GeminiModelSelection,
   OpenCodeModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
+
+export const ProviderSessionConfigOptionValue = Schema.Struct({
+  value: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderSessionConfigOptionValue = typeof ProviderSessionConfigOptionValue.Type;
+
+export const ProviderSessionConfigOption = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+  category: Schema.optional(TrimmedNonEmptyString),
+  type: Schema.Literal("select"),
+  currentValue: TrimmedNonEmptyString,
+  options: Schema.Array(ProviderSessionConfigOptionValue),
+});
+export type ProviderSessionConfigOption = typeof ProviderSessionConfigOption.Type;
 
 export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
