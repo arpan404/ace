@@ -5,7 +5,9 @@ import {
   AlertCircleIcon,
   ArrowUpRightIcon,
   Columns2Icon,
+  EyeIcon,
   FolderIcon,
+  PencilIcon,
   RefreshCwIcon,
   Rows2Icon,
   SparklesIcon,
@@ -43,6 +45,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import MermaidDiagram from "../MermaidDiagram";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   EDITOR_TAB_TRANSFER_TYPE,
   readEditorTabTransfer,
@@ -628,6 +631,9 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const [selectionCommentSubmitting, setSelectionCommentSubmitting] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [editorMountVersion, setEditorMountVersion] = useState(0);
+  const [textPreviewFilePaths, setTextPreviewFilePaths] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -638,7 +644,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     [pane.activeFilePath],
   );
   const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
-  const isTextPreviewMode = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
+  const textPreviewAvailable = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
+  const isTextPreviewMode =
+    textPreviewAvailable &&
+    pane.activeFilePath !== null &&
+    textPreviewFilePaths.has(pane.activeFilePath);
   const isPreviewMode =
     (isBinaryPreviewMode || isTextPreviewMode) &&
     pane.activeFilePath !== null &&
@@ -726,6 +736,43 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   useEffect(() => {
     draftsByFilePathRef.current = props.draftsByFilePath;
   }, [props.draftsByFilePath]);
+
+  useEffect(() => {
+    setTextPreviewFilePaths((current) => {
+      if (current.size === 0) {
+        return current;
+      }
+      const next = new Set(
+        Array.from(current).filter((filePath) => props.pane.openFilePaths.includes(filePath)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [props.pane.openFilePaths]);
+
+  const setActiveTextPreviewOpen = useCallback(
+    (open: boolean) => {
+      const activeFilePath = pane.activeFilePath;
+      if (!activeFilePath || !textPreviewAvailable) {
+        return;
+      }
+      setTextPreviewFilePaths((current) => {
+        const next = new Set(current);
+        if (open) {
+          next.add(activeFilePath);
+        } else {
+          next.delete(activeFilePath);
+        }
+        if (
+          next.size === current.size &&
+          next.has(activeFilePath) === current.has(activeFilePath)
+        ) {
+          return current;
+        }
+        return next;
+      });
+    },
+    [pane.activeFilePath, textPreviewAvailable],
+  );
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -1882,6 +1929,34 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         <div className={cn("flex shrink-0 items-center gap-0.5 border-l px-1", "border-border/70")}>
           {props.chromeActions ? (
             <div className="mr-1 flex shrink-0 items-center gap-0.5">{props.chromeActions}</div>
+          ) : null}
+          {textPreviewAvailable && props.gitCwd !== null ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className={cn(
+                      "size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+                      isTextPreviewMode && "bg-accent text-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setActiveTextPreviewOpen(!isTextPreviewMode)}
+                    aria-pressed={isTextPreviewMode}
+                    aria-label={isTextPreviewMode ? "Open editor" : "Open preview"}
+                  >
+                    {isTextPreviewMode ? (
+                      <PencilIcon className="size-3.5" />
+                    ) : (
+                      <EyeIcon className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">
+                {isTextPreviewMode ? "Open editor" : previewModeLabel}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           <Button
             variant="ghost"
