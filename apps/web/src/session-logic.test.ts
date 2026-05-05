@@ -2441,7 +2441,14 @@ describe("deriveLatestGeneratedWorkspaceSummary", () => {
       }),
     ];
 
-    expect(deriveLatestGeneratedWorkspaceSummary(activities)?.headline).toBe("Turn two summary");
+    const summary = deriveLatestGeneratedWorkspaceSummary(activities);
+
+    expect(summary?.headline).toBe("Turn two summary");
+    expect(summary?.markdown).toContain("### Turn two summary");
+    expect(summary?.markdown).toContain("#### Key changes");
+    expect(summary?.markdown).toContain("- Updated two files");
+    expect(summary?.markdown).toContain("#### Watchouts");
+    expect(summary?.markdown).toContain("- Tests not run");
   });
 });
 

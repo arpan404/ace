@@ -115,6 +115,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   workspaceDiffSummary,
   workspaceRoot,
 }: PlanSummaryPanelProps) {
+  const [summaryDetailsExpanded, setSummaryDetailsExpanded] = useState(true);
   const [planDetailsExpanded, setPlanDetailsExpanded] = useState(true);
   const [todoDetailsExpanded, setTodoDetailsExpanded] = useState(true);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
@@ -243,73 +244,88 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
             {!hasAnyContent ? null : (
               <>
                 {generatedWorkspaceSummary ? (
-                  <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                          Workspace summary
-                        </p>
+                  <div>
+                    <div className="min-w-0 space-y-3">
+                      {workspaceDiffSummary ? (
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <Badge
+                                variant="secondary"
+                                className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                              >
+                                {formatDiffCount(workspaceDiffSummary.fileCount)} files
+                              </Badge>
+                              <p className="text-sm font-medium tracking-tight text-foreground">
+                                Diff summary
+                              </p>
+                            </div>
+                            {onOpenDiffPanel ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={onOpenDiffPanel}
+                              >
+                                Open review
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                            <span className="mr-2">Current diff:</span>
+                            <span className="font-medium text-foreground">
+                              <DiffStatLabel
+                                additions={workspaceDiffSummary.additions}
+                                deletions={workspaceDiffSummary.deletions}
+                              />
+                            </span>
+                          </p>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="group inline-flex items-center gap-2 rounded-sm"
+                        onClick={() => setSummaryDetailsExpanded((value) => !value)}
+                        aria-expanded={summaryDetailsExpanded}
+                        aria-label={
+                          summaryDetailsExpanded
+                            ? "Collapse summary details"
+                            : "Expand summary details"
+                        }
+                      >
+                        {summaryDetailsExpanded ? (
+                          <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                        ) : (
+                          <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                        )}
+                        <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                          Summary
+                        </span>
                         <Badge
                           variant="secondary"
                           className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
                         >
                           AI
                         </Badge>
-                      </div>
-                      <div className="space-y-2">
-                        <h3 className="text-[15px] font-medium tracking-tight text-foreground">
-                          {generatedWorkspaceSummary.headline}
-                        </h3>
-                        <p className="max-w-[64ch] text-sm leading-relaxed text-muted-foreground">
-                          {generatedWorkspaceSummary.summary}
-                        </p>
-                      </div>
-                      {generatedWorkspaceSummary.keyChanges.length > 0 ? (
-                        <div className="space-y-2">
-                          <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                            Key changes
-                          </p>
-                          <ul className="space-y-1.5">
-                            {generatedWorkspaceSummary.keyChanges.map((item) => (
-                              <li
-                                key={item}
-                                className="flex items-start gap-2 text-sm leading-relaxed text-foreground"
-                              >
-                                <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                                <span>{item}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {generatedWorkspaceSummary.risks.length > 0 ? (
-                        <div className="space-y-2 border-t border-border/50 pt-3">
-                          <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                            Watchouts
-                          </p>
-                          <ul className="space-y-1.5">
-                            {generatedWorkspaceSummary.risks.map((item) => (
-                              <li
-                                key={item}
-                                className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground"
-                              >
-                                <span className="mt-2 size-1 shrink-0 rounded-full bg-amber-500/70" />
-                                <span>{item}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
+                      </button>
                     </div>
+                    {summaryDetailsExpanded ? (
+                      <div className="mt-4 pb-1 pt-1">
+                        <ChatMarkdown
+                          text={generatedWorkspaceSummary.markdown}
+                          cwd={markdownCwd}
+                          isStreaming={false}
+                          onOpenBrowserUrl={onOpenBrowserUrl}
+                          onOpenFilePath={onOpenFilePath}
+                          enableLocalFileLinks={enableLocalFileLinks}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
-                {workspaceDiffSummary ? (
-                  <div
-                    className={
-                      generatedWorkspaceSummary ? "border-t border-border/50 pt-6" : undefined
-                    }
-                  >
+                {workspaceDiffSummary && !generatedWorkspaceSummary ? (
+                  <div>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-2">
                         <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -323,11 +339,11 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                             {formatDiffCount(workspaceDiffSummary.fileCount)} files
                           </Badge>
                           <p className="text-sm font-medium tracking-tight text-foreground">
-                            Workspace diff summary
+                            Diff summary
                           </p>
                         </div>
                         <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                          <span className="mr-2">Current working tree:</span>
+                          <span className="mr-2">Current diff:</span>
                           <span className="font-medium text-foreground">
                             <DiffStatLabel
                               additions={workspaceDiffSummary.additions}

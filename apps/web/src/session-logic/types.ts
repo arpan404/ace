@@ -96,6 +96,7 @@ export interface GeneratedWorkspaceSummary {
   summary: string;
   keyChanges: ReadonlyArray<string>;
   risks: ReadonlyArray<string>;
+  markdown: string;
 }
 
 export type TimelineEntry =
