@@ -127,6 +127,8 @@ export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientS
 
 export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
+export const WorkspaceSummaryGenerationMode = Schema.Literals(["manual", "auto"]);
+export type WorkspaceSummaryGenerationMode = typeof WorkspaceSummaryGenerationMode.Type;
 export const DEFAULT_PROVIDER_CLI_MAX_OPEN = 5;
 export const DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS = 300;
 export const DEFAULT_ADD_PROJECT_BASE_DIRECTORY = "";
@@ -221,6 +223,9 @@ export const ServerSettings = Schema.Struct({
       provider: "codex" as const,
       model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
     })),
+  ),
+  workspaceSummaryGenerationMode: WorkspaceSummaryGenerationMode.pipe(
+    Schema.withDecodingDefault(() => "manual" as const satisfies WorkspaceSummaryGenerationMode),
   ),
 
   // Provider specific settings
@@ -375,6 +380,7 @@ export const ServerSettingsPatch = Schema.Struct({
   providerCliIdleTtlSeconds: Schema.optionalKey(PositiveInt),
   remoteRelay: Schema.optionalKey(RemoteRelaySettingsPatch),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  workspaceSummaryGenerationMode: Schema.optionalKey(WorkspaceSummaryGenerationMode),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
