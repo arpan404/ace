@@ -52,6 +52,17 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+export const ServerProviderRuntime = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  binaryPath: TrimmedNonEmptyString,
+  installed: Schema.Boolean,
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  packageName: Schema.optional(TrimmedNonEmptyString),
+  upgradeable: Schema.Boolean,
+});
+export type ServerProviderRuntime = typeof ServerProviderRuntime.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -74,6 +85,7 @@ export const ServerProvider = Schema.Struct({
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
   commands: Schema.optional(Schema.Array(ProviderSlashCommand)),
+  runtimes: Schema.optional(Schema.Array(ServerProviderRuntime)),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 
@@ -216,6 +228,7 @@ export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.T
 
 export const ServerUpgradeProviderCliInput = Schema.Struct({
   provider: ProviderKind,
+  runtimeId: TrimmedNonEmptyString,
 });
 export type ServerUpgradeProviderCliInput = typeof ServerUpgradeProviderCliInput.Type;
 

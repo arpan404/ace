@@ -334,14 +334,34 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       yield* providerRegistry.refresh(providerToRefresh);
     });
 
-    const getProviderBinaryPath = (provider: ProviderKind) =>
+    const getProviderBinaryPath = (provider: ProviderKind, runtimeId: string) =>
       serverSettings.getSettings.pipe(
         Effect.flatMap((settings) => {
           switch (provider) {
             case "codex":
-              return Effect.succeed(settings.providers.codex.binaryPath);
+              return runtimeId === "codex"
+                ? Effect.succeed(settings.providers.codex.binaryPath)
+                : Effect.fail(
+                    new ServerProviderCliUpgradeError({
+                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
+                    }),
+                  );
+            case "pi":
+              return runtimeId === "pi"
+                ? Effect.succeed(settings.providers.pi.binaryPath)
+                : Effect.fail(
+                    new ServerProviderCliUpgradeError({
+                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
+                    }),
+                  );
             case "gemini":
-              return Effect.succeed(settings.providers.gemini.binaryPath);
+              return runtimeId === "gemini"
+                ? Effect.succeed(settings.providers.gemini.binaryPath)
+                : Effect.fail(
+                    new ServerProviderCliUpgradeError({
+                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
+                    }),
+                  );
             default:
               return Effect.fail(
                 new ServerProviderCliUpgradeError({
@@ -566,8 +586,12 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
       [WS_METHODS.serverUpgradeProviderCli]: (input) =>
         Effect.gen(function* () {
-          const binaryPath = yield* getProviderBinaryPath(input.provider);
-          yield* upgradeProviderCli({ provider: input.provider, binaryPath });
+          const binaryPath = yield* getProviderBinaryPath(input.provider, input.runtimeId);
+          yield* upgradeProviderCli({
+            provider: input.provider,
+            runtimeId: input.runtimeId,
+            binaryPath,
+          });
           const providers = yield* providerRegistry
             .refresh(input.provider)
             .pipe(Effect.flatMap(withCurrentProviderCommands));

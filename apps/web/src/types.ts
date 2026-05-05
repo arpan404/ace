@@ -13,6 +13,7 @@ import type {
   TurnId,
   MessageId,
   ProviderKind,
+  ProviderSessionConfigOption,
   ProviderSlashCommand,
   CheckpointRef,
   ProviderInteractionMode,
@@ -196,6 +197,7 @@ export interface ThreadSession {
   provider: ProviderKind;
   status: SessionPhase | "error" | "closed";
   capabilities?: ProviderIntegrationCapabilities | undefined;
+  configOptions?: ProviderSessionConfigOption[] | undefined;
   commands?: ProviderSlashCommand[] | undefined;
   activeTurnId?: TurnId | undefined;
   createdAt: string;

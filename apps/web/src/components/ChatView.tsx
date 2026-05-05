@@ -7472,6 +7472,7 @@ export default function ChatView({
                     selectedModel={selectedModel}
                     selectedProviderModels={selectedProviderModels}
                     selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                    sessionConfigOptions={activeThread.session?.configOptions}
                     providerCommands={composerProviderCommands}
                     selectedModelForPickerWithCustomFallback={
                       selectedModelForPickerWithCustomFallback

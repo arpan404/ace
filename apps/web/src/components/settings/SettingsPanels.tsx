@@ -273,6 +273,12 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     binaryDescription: "Path to the Cursor Agent binary",
   },
   {
+    provider: "pi",
+    title: "Pi",
+    binaryPlaceholder: "Pi binary path",
+    binaryDescription: "Path to the Pi binary",
+  },
+  {
     provider: "gemini",
     title: "Gemini",
     binaryPlaceholder: "Gemini binary path",
@@ -801,6 +807,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         DEFAULT_UNIFIED_SETTINGS.providers.cursor.binaryPath ||
       settings.providers.cursor.customModels.length > 0,
     ),
+    pi: Boolean(
+      settings.providers.pi.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.pi.binaryPath ||
+      settings.providers.pi.customModels.length > 0,
+    ),
     gemini: Boolean(
       settings.providers.gemini.binaryPath !==
         DEFAULT_UNIFIED_SETTINGS.providers.gemini.binaryPath ||
@@ -819,6 +829,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     claudeAgent: "",
     githubCopilot: "",
     cursor: "",
+    pi: "",
     gemini: "",
     opencode: "",
   });
@@ -826,7 +837,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  const [upgradingProvider, setUpgradingProvider] = useState<ProviderKind | null>(null);
+  const [upgradingRuntimeKey, setUpgradingRuntimeKey] = useState<string | null>(null);
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
@@ -873,9 +884,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
   }, []);
   const upgradeProviderCli = useCallback(
-    (provider: ProviderKind) => {
-      if (upgradingProvider !== null) return;
-      setUpgradingProvider(provider);
+    (provider: ProviderKind, runtimeId: string) => {
+      if (upgradingRuntimeKey !== null) return;
+      const runtimeKey = `${provider}:${runtimeId}`;
+      setUpgradingRuntimeKey(runtimeKey);
       const providerLabel =
         PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
       const toastId = toastManager.add({
@@ -884,7 +896,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         description: "Installing the latest CLI version.",
       });
       void ensureNativeApi()
-        .server.upgradeProviderCli({ provider })
+        .server.upgradeProviderCli({ provider, runtimeId })
         .then((payload) => {
           applyProvidersUpdated(payload);
           toastManager.update(toastId, {
@@ -901,10 +913,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           });
         })
         .finally(() => {
-          setUpgradingProvider(null);
+          setUpgradingRuntimeKey(null);
         });
     },
-    [upgradingProvider],
+    [upgradingRuntimeKey],
+  );
+  const isUpgradingProvider = useCallback(
+    (provider: ProviderKind) =>
+      upgradingRuntimeKey !== null && upgradingRuntimeKey.startsWith(`${provider}:`),
+    [upgradingRuntimeKey],
+  );
+  const isUpgradingRuntime = useCallback(
+    (provider: ProviderKind, runtimeId: string) =>
+      upgradingRuntimeKey === `${provider}:${runtimeId}`,
+    [upgradingRuntimeKey],
   );
   const canOpenNotificationSystemSettings = useMemo(
     () => isElectron && resolveNotificationSettingsUrl() !== null,
@@ -1310,6 +1332,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       isDirty: !Equal.equals(providerConfig, defaultProviderConfig),
       models,
       providerConfig,
+      runtimes: liveProvider?.runtimes,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
@@ -2983,7 +3006,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             customModelErrorByProvider={customModelErrorByProvider}
             customModelInputByProvider={customModelInputByProvider}
             isRefreshingProviders={isRefreshingProviders}
-            isUpgradingProvider={(provider) => upgradingProvider === provider}
+            isUpgradingProvider={isUpgradingProvider}
+            isUpgradingRuntime={isUpgradingRuntime}
             lastCheckedAt={lastCheckedAt}
             modelListRefs={modelListRefs}
             openProviderDetails={openProviderDetails}

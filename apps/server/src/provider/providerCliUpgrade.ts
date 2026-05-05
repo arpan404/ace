@@ -12,30 +12,40 @@ type PackageManager = "bun" | "npm" | "pnpm" | "yarn";
 
 interface UpgradePackage {
   readonly provider: ProviderKind;
+  readonly runtimeId: string;
   readonly label: string;
   readonly packageName: string;
 }
 
 export interface CliUpgradePlan {
   readonly provider: ProviderKind;
+  readonly runtimeId: string;
   readonly label: string;
   readonly packageManager: PackageManager;
   readonly command: string;
   readonly args: ReadonlyArray<string>;
 }
 
-const UPGRADE_PACKAGES: Partial<Record<ProviderKind, UpgradePackage>> = {
-  codex: {
+const UPGRADE_PACKAGES: ReadonlyArray<UpgradePackage> = [
+  {
     provider: "codex",
+    runtimeId: "codex",
     label: "Codex",
     packageName: "@openai/codex",
   },
-  gemini: {
+  {
     provider: "gemini",
+    runtimeId: "gemini",
     label: "Gemini",
     packageName: "@google/gemini-cli",
   },
-};
+  {
+    provider: "pi",
+    runtimeId: "pi",
+    label: "Pi",
+    packageName: "@mariozechner/pi-coding-agent",
+  },
+] as const;
 
 function truncateOutput(value: string): string {
   const trimmed = value.trim();
@@ -133,9 +143,12 @@ function runCommand(command: string, args: ReadonlyArray<string>, timeoutMs: num
 
 export function buildProviderCliUpgradePlan(input: {
   readonly provider: ProviderKind;
+  readonly runtimeId: string;
   readonly resolvedBinaryPath: string | null;
 }): CliUpgradePlan {
-  const upgradePackage = UPGRADE_PACKAGES[input.provider];
+  const upgradePackage = UPGRADE_PACKAGES.find(
+    (candidate) => candidate.provider === input.provider && candidate.runtimeId === input.runtimeId,
+  );
   if (!upgradePackage) {
     throw new ServerProviderCliUpgradeError({
       message: "One-click upgrade is not supported for this provider.",
@@ -145,6 +158,7 @@ export function buildProviderCliUpgradePlan(input: {
   const packageManager = detectPackageManager(input.resolvedBinaryPath);
   return {
     provider: upgradePackage.provider,
+    runtimeId: upgradePackage.runtimeId,
     label: upgradePackage.label,
     packageManager,
     command: resolvePackageManagerCommand(packageManager, input.resolvedBinaryPath),
@@ -181,11 +195,13 @@ export const resolveProviderBinaryPath = Effect.fn("resolveProviderBinaryPath")(
 
 export const upgradeProviderCli = Effect.fn("upgradeProviderCli")(function* (input: {
   readonly provider: ProviderKind;
+  readonly runtimeId: string;
   readonly binaryPath: string;
 }) {
   const resolvedBinaryPath = yield* resolveProviderBinaryPath(input.binaryPath);
   const plan = buildProviderCliUpgradePlan({
     provider: input.provider,
+    runtimeId: input.runtimeId,
     resolvedBinaryPath,
   });
   const result = yield* Effect.tryPromise({
@@ -208,6 +224,7 @@ export const upgradeProviderCli = Effect.fn("upgradeProviderCli")(function* (inp
 
   return {
     provider: plan.provider,
+    runtimeId: plan.runtimeId,
     command: [plan.command, ...plan.args].join(" "),
   };
 });

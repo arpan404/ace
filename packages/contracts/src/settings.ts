@@ -9,6 +9,7 @@ import {
   GeminiModelOptions,
   GitHubCopilotModelOptions,
   OpenCodeModelOptions,
+  PiModelOptions,
 } from "./model";
 import { ModelSelection } from "./orchestration";
 
@@ -176,6 +177,13 @@ export const CursorSettings = Schema.Struct({
 });
 export type CursorSettings = typeof CursorSettings.Type;
 
+export const PiSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("pi"),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+});
+export type PiSettings = typeof PiSettings.Type;
+
 export const GeminiSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("gemini"),
@@ -234,6 +242,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     githubCopilot: GitHubCopilotSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+    pi: PiSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     gemini: GeminiSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
@@ -311,6 +320,15 @@ const ModelSelectionPatch = Schema.Union([
     model: Schema.optionalKey(TrimmedNonEmptyString),
   }),
   Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("pi")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(
+      Schema.Struct({
+        thoughtLevel: Schema.optionalKey(PiModelOptions.fields.thoughtLevel),
+      }),
+    ),
+  }),
+  Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("gemini")),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(GeminiModelOptionsPatch),
@@ -343,6 +361,12 @@ const GitHubCopilotSettingsPatch = Schema.Struct({
 });
 
 const CursorSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+const PiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -387,6 +411,7 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       githubCopilot: Schema.optionalKey(GitHubCopilotSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
+      pi: Schema.optionalKey(PiSettingsPatch),
       gemini: Schema.optionalKey(GeminiSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),

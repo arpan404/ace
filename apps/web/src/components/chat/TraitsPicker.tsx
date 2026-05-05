@@ -6,6 +6,8 @@ import {
   type OpenCodeModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
+  type ProviderSessionConfigOption,
+  type PiModelOptions,
   type ServerProviderModel,
   type ThreadId,
 } from "@ace/contracts";
@@ -82,6 +84,8 @@ function getRawEffort(
       );
     case "claudeAgent":
       return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
+    case "pi":
+      return trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel);
     case "gemini":
     case "opencode":
       return null;
@@ -127,6 +131,11 @@ function buildNextOptions(
         ...(modelOptions as ClaudeModelOptions | undefined),
         ...patch,
       } as ClaudeModelOptions;
+    case "pi":
+      return {
+        ...(modelOptions as PiModelOptions | undefined),
+        ...patch,
+      } as PiModelOptions;
     case "gemini":
       return {} as ProviderModelOptions["gemini"];
     case "opencode":
@@ -274,10 +283,18 @@ export function shouldRenderTraitsPicker(input: {
   model: string | null | undefined;
   prompt: string;
   modelOptions?: ProviderOptions | null | undefined;
+  sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   allowPromptInjectedEffort?: boolean;
 }): boolean {
   if (input.provider === "cursor") {
     return hasVisibleCursorTraits(input.models, input.model);
+  }
+  if (input.provider === "pi") {
+    return (
+      (input.sessionConfigOptions ?? []).some(
+        (option) => option.category === "thought_level" || option.id === "thought_level",
+      ) || false
+    );
   }
 
   const { caps, effortLevels, thinkingEnabled, contextWindowOptions } = getSelectedTraits(
@@ -496,6 +513,7 @@ export interface TraitsMenuContentProps {
   showFastInTriggerLabel?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
+  sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -506,6 +524,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
+  sessionConfigOptions,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -521,6 +540,42 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     },
     [persistence, provider, setProviderModelOptions],
   );
+  const piThoughtOption =
+    provider === "pi"
+      ? (sessionConfigOptions ?? []).find(
+          (option) => option.category === "thought_level" || option.id === "thought_level",
+        )
+      : undefined;
+  if (provider === "pi") {
+    if (!piThoughtOption || piThoughtOption.options.length === 0) {
+      return null;
+    }
+    const selectedThoughtLevel =
+      trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
+      piThoughtOption.currentValue;
+    return (
+      <MenuGroup>
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking Level</div>
+        <MenuRadioGroup
+          value={selectedThoughtLevel}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                thoughtLevel: value,
+              }),
+            );
+          }}
+        >
+          {piThoughtOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === piThoughtOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>
+    );
+  }
   const {
     caps,
     effort,
@@ -701,9 +756,64 @@ export const TraitsPicker = memo(function TraitsPicker({
   showFastInTriggerLabel = true,
   triggerVariant,
   triggerClassName,
+  sessionConfigOptions,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const piThoughtOption =
+    provider === "pi"
+      ? (sessionConfigOptions ?? []).find(
+          (option) => option.category === "thought_level" || option.id === "thought_level",
+        )
+      : undefined;
+  if (provider === "pi") {
+    if (!piThoughtOption || piThoughtOption.options.length === 0) {
+      return null;
+    }
+    const selectedThoughtLevel =
+      trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
+      piThoughtOption.currentValue;
+    const triggerLabel =
+      piThoughtOption.options.find((option) => option.value === selectedThoughtLevel)?.name ??
+      "Thinking";
+    return (
+      <Menu
+        open={isMenuOpen}
+        onOpenChange={(open) => {
+          setIsMenuOpen(open);
+        }}
+      >
+        <MenuTrigger
+          render={
+            <Button
+              size="sm"
+              variant={triggerVariant ?? "ghost"}
+              className={cn(
+                "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5",
+                triggerClassName,
+              )}
+            />
+          }
+        >
+          <span>{triggerLabel}</span>
+          <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
+        </MenuTrigger>
+        <MenuPopup align="start">
+          <TraitsMenuContent
+            provider={provider}
+            models={models}
+            model={model}
+            prompt={prompt}
+            onPromptChange={onPromptChange}
+            modelOptions={modelOptions}
+            allowPromptInjectedEffort={allowPromptInjectedEffort}
+            sessionConfigOptions={sessionConfigOptions}
+            {...persistence}
+          />
+        </MenuPopup>
+      </Menu>
+    );
+  }
   const {
     caps,
     effort,
@@ -799,6 +909,7 @@ export const TraitsPicker = memo(function TraitsPicker({
           onPromptChange={onPromptChange}
           modelOptions={modelOptions}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
+          sessionConfigOptions={sessionConfigOptions}
           {...persistence}
         />
       </MenuPopup>

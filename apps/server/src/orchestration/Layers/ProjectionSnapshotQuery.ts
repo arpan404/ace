@@ -22,6 +22,7 @@ import {
   type OrchestrationThreadActivity,
   ModelSelection,
   ProviderIntegrationCapabilities,
+  ProviderSessionConfigOption,
   ProviderKind,
   ProviderSlashCommand,
   ProjectIcon,
@@ -99,6 +100,7 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession.mapFields(
   Struct.assign({
     capabilities: Schema.NullOr(Schema.fromJsonString(ProviderIntegrationCapabilities)),
+    configOptions: Schema.fromJsonString(Schema.Array(ProviderSessionConfigOption)),
     commands: Schema.fromJsonString(Schema.Array(ProviderSlashCommand)),
   }),
 );
@@ -282,6 +284,7 @@ function toOrchestrationSession(
           capabilities: row.capabilities ?? defaultProviderIntegrationCapabilities(providerName),
         }
       : {}),
+    ...(row.configOptions.length > 0 ? { configOptions: row.configOptions } : {}),
     commands: row.commands,
     runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
@@ -779,6 +782,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           status,
           provider_name AS "providerName",
           capabilities_json AS "capabilities",
+          COALESCE(config_options_json, '[]') AS "configOptions",
           COALESCE(commands_json, '[]') AS "commands",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
@@ -801,6 +805,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           status,
           provider_name AS "providerName",
           capabilities_json AS "capabilities",
+          COALESCE(config_options_json, '[]') AS "configOptions",
           COALESCE(commands_json, '[]') AS "commands",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",

@@ -19,7 +19,16 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
-import { ClaudeAI, CursorIcon, Gemini, GitHubIcon, Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import {
+  ClaudeAI,
+  CursorIcon,
+  Gemini,
+  GitHubIcon,
+  Icon,
+  OpenAI,
+  OpenCodeIcon,
+  PiIcon,
+} from "../Icons";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -43,6 +52,7 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   claudeAgent: ClaudeAI,
   githubCopilot: GitHubIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
   gemini: Gemini,
   opencode: OpenCodeIcon,
 };

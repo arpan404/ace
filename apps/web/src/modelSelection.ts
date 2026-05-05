@@ -65,6 +65,13 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     placeholder: "your-cursor-model-slug",
     example: "claude-4-sonnet",
   },
+  pi: {
+    provider: "pi",
+    title: "Pi",
+    description: "Save additional Pi model slugs for the picker and `/model` command.",
+    placeholder: "your-pi-model-slug",
+    example: "openai/gpt-5.4-mini",
+  },
   gemini: {
     provider: "gemini",
     title: "Gemini",
@@ -216,6 +223,12 @@ export function getCustomModelOptionsByProvider(
       providers,
       "cursor",
       selectedProvider === "cursor" ? selectedModel : undefined,
+    ),
+    pi: getAppModelOptions(
+      settings,
+      providers,
+      "pi",
+      selectedProvider === "pi" ? selectedModel : undefined,
     ),
     gemini: getAppModelOptions(
       settings,

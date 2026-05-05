@@ -20,6 +20,16 @@ export const CursorIcon: Icon = (props) => (
   </svg>
 );
 
+export const PiIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none">
+    <rect x="2" y="2" width="20" height="20" rx="6" fill="currentColor" />
+    <path
+      d="M8 7.5h4.75c2.35 0 4.25 1.85 4.25 4.13 0 2.27-1.9 4.12-4.25 4.12H10.5V19H8V7.5Zm2.5 2.2v3.82h2.14c1.02 0 1.86-.85 1.86-1.91 0-1.07-.84-1.91-1.86-1.91H10.5Z"
+      fill="var(--background, white)"
+    />
+  </svg>
+);
+
 export const TraeIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="currentColor">
     {/* Back rectangle: left strip + bottom strip drawn separately — empty bottom-left corner is the gap between them */}
