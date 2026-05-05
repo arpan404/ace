@@ -54,6 +54,7 @@ describe("PlanSummaryPanel", () => {
             implementedAt: null,
             implementationThreadId: null,
           }}
+          generatedWorkspaceSummary={null}
           activeProvider="codex"
           markdownCwd={undefined}
           workspaceDiffSummary={null}
@@ -63,8 +64,8 @@ describe("PlanSummaryPanel", () => {
     );
 
     try {
-      const expandButton = Array.from(document.querySelectorAll("button")).find(
-        (button) => button.textContent?.trim() === "Open plan preview",
+      const expandButton = Array.from(document.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Long summary plan"),
       ) as HTMLButtonElement | undefined;
       expect(expandButton).toBeTruthy();
       expandButton?.click();
