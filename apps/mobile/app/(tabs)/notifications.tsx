@@ -89,10 +89,8 @@ export default function NotificationsScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
         <ScreenHeader
-          eyebrow="ace"
           title="Attention"
-          subtitle="Everything that needs review, approval, recovery, or a quick response."
-          action={<StatusBadge label={`${attentionThreads.length} items`} tone="warning" />}
+          action={<StatusBadge label={`${attentionThreads.length}`} tone="warning" />}
         />
 
         <View style={styles.metricRow}>

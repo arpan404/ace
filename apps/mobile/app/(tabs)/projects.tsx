@@ -201,12 +201,10 @@ export default function ProjectsScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
         <ScreenHeader
-          eyebrow="ace"
           title="Projects"
-          subtitle="Browse active workspaces, switch control targets, and launch new project roots."
           action={
             <View style={styles.headerActions}>
-              <IconButton icon={Search} label="Find" onPress={() => router.push("/search")} />
+              <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
               <IconButton
                 icon={Plus}
                 label="New"
@@ -275,7 +273,9 @@ export default function ProjectsScreen() {
               ) : null}
             </View>
             <Text style={[styles.composerStepText, { color: colors.tertiaryLabel }]}>
-              {composerStep === "path" ? "Step 1 of 2 - Choose workspace path" : "Step 2 of 2 - Confirm details"}
+              {composerStep === "path"
+                ? "Step 1 of 2 - Choose workspace path"
+                : "Step 2 of 2 - Confirm details"}
             </Text>
             {activeHostOffline ? (
               <View
@@ -446,7 +446,9 @@ export default function ProjectsScreen() {
                       },
                     ]}
                   >
-                    <Text style={[styles.secondaryButtonLabel, { color: colors.foreground }]}>Back</Text>
+                    <Text style={[styles.secondaryButtonLabel, { color: colors.foreground }]}>
+                      Back
+                    </Text>
                   </Pressable>
                   <Pressable
                     onPress={() => void createProject()}
@@ -571,11 +573,7 @@ export default function ProjectsScreen() {
         )}
 
         {error ? (
-          <NoticeBanner
-            tone="danger"
-            title="Unable to refresh projects"
-            body={error}
-          />
+          <NoticeBanner tone="danger" title="Unable to refresh projects" body={error} />
         ) : null}
       </ScrollView>
     </View>
