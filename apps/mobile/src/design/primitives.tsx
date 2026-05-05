@@ -1,5 +1,13 @@
 import React, { type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type TextInputProps,
+  type ViewStyle,
+} from "react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { ChevronRight } from "lucide-react-native";
 import { Radius, withAlpha } from "./system";
@@ -24,30 +32,7 @@ function resolveToneColor(colors: ThemeColors, tone: Tone): string {
 }
 
 export function ScreenBackdrop() {
-  const { colors } = useTheme();
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View
-        style={[
-          styles.orb,
-          styles.orbTop,
-          {
-            backgroundColor: withAlpha(colors.primary, 0.12),
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.orb,
-          styles.orbBottom,
-          {
-            backgroundColor: withAlpha(colors.surfaceTertiary, 0.5),
-          },
-        ]}
-      />
-    </View>
-  );
+  return null;
 }
 
 export function ScreenHeader({
@@ -148,7 +133,6 @@ export function MetricCard({
   tone?: Tone;
 }) {
   const { colors } = useTheme();
-  const toneColor = resolveToneColor(colors, tone);
 
   return (
     <View
@@ -162,14 +146,6 @@ export function MetricCard({
     >
       <Text style={[styles.metricLabel, { color: colors.secondaryLabel }]}>{label}</Text>
       <Text style={[styles.metricValue, { color: colors.foreground }]}>{value}</Text>
-      <View
-        style={[
-          styles.metricAccent,
-          {
-            backgroundColor: withAlpha(toneColor, 0.18),
-          },
-        ]}
-      />
     </View>
   );
 }
@@ -192,7 +168,8 @@ export function IconButton({
         {
           backgroundColor: colors.surface,
           borderColor: colors.elevatedBorder,
-          opacity: pressed ? 0.86 : 1,
+          opacity: pressed ? 0.88 : 1,
+          transform: [{ scale: pressed ? 0.98 : 1 }],
         },
       ]}
     >
@@ -225,6 +202,7 @@ export function RowLink({
         styles.rowLink,
         {
           backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+          transform: [{ scale: pressed ? 0.995 : 1 }],
         },
       ]}
     >
@@ -273,23 +251,158 @@ export function EmptyState({
   );
 }
 
+export function SearchField({
+  value,
+  onChangeText,
+  placeholder,
+  icon: Icon,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  icon: LucideIcon;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.searchShell,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.elevatedBorder,
+          shadowColor: colors.shadow,
+        },
+      ]}
+    >
+      <Icon size={17} color={colors.tertiaryLabel} strokeWidth={2.2} />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.muted}
+        style={[styles.searchInput, { color: colors.foreground }]}
+      />
+    </View>
+  );
+}
+
+export function FormField(props: TextInputProps) {
+  const { colors } = useTheme();
+  return (
+    <TextInput
+      placeholderTextColor={colors.muted}
+      {...props}
+      style={[
+        styles.formField,
+        {
+          color: colors.foreground,
+          backgroundColor: colors.surfaceSecondary,
+          borderColor: colors.elevatedBorder,
+        },
+        props.style,
+      ]}
+    />
+  );
+}
+
+export function ChoiceChip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.choiceChip,
+        {
+          backgroundColor: selected ? colors.surface : colors.surfaceSecondary,
+          borderColor: selected ? withAlpha(colors.primary, 0.44) : colors.elevatedBorder,
+          opacity: pressed ? 0.92 : 1,
+          transform: [{ scale: pressed ? 0.98 : 1 }],
+        },
+      ]}
+    >
+      <Text
+        style={[styles.choiceChipLabel, { color: selected ? colors.foreground : colors.secondaryLabel }]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+export function ListSkeleton({ rows = 4 }: { rows?: number }) {
+  const { colors } = useTheme();
+  return (
+    <Panel padded={false} style={styles.skeletonShell}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <View key={index} style={styles.skeletonRow}>
+          <View
+            style={[
+              styles.skeletonLead,
+              { backgroundColor: withAlpha(colors.foreground, 0.08) },
+            ]}
+          />
+          <View style={styles.skeletonCopy}>
+            <View
+              style={[
+                styles.skeletonLinePrimary,
+                { backgroundColor: withAlpha(colors.foreground, 0.1) },
+              ]}
+            />
+            <View
+              style={[
+                styles.skeletonLineSecondary,
+                { backgroundColor: withAlpha(colors.foreground, 0.07) },
+              ]}
+            />
+          </View>
+          {index < rows - 1 ? (
+            <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+          ) : null}
+        </View>
+      ))}
+    </Panel>
+  );
+}
+
+export function NoticeBanner({
+  tone = "muted",
+  title,
+  body,
+}: {
+  tone?: Tone;
+  title: string;
+  body?: string;
+}) {
+  const { colors } = useTheme();
+  const toneColor = resolveToneColor(colors, tone);
+
+  return (
+    <View
+      style={[
+        styles.noticeBanner,
+        {
+          backgroundColor: withAlpha(toneColor, 0.12),
+          borderColor: withAlpha(toneColor, 0.24),
+        },
+      ]}
+    >
+      <Text style={[styles.noticeTitle, { color: toneColor }]}>{title}</Text>
+      {body ? <Text style={[styles.noticeBody, { color: colors.secondaryLabel }]}>{body}</Text> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  orb: {
-    position: "absolute",
-    borderRadius: 999,
-  },
-  orbTop: {
-    top: -120,
-    right: -80,
-    width: 280,
-    height: 280,
-  },
-  orbBottom: {
-    bottom: -180,
-    left: -120,
-    width: 320,
-    height: 320,
-  },
   headerRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -307,29 +420,29 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontWeight: "800",
+    letterSpacing: 0.7,
     textTransform: "uppercase",
   },
   title: {
     marginTop: 8,
-    fontSize: 40,
-    lineHeight: 42,
+    fontSize: 34,
+    lineHeight: 38,
     fontWeight: "800",
-    letterSpacing: -1.6,
+    letterSpacing: -1.2,
   },
   subtitle: {
     marginTop: 10,
     fontSize: 15,
-    lineHeight: 22,
-    maxWidth: 320,
+    lineHeight: 21,
+    maxWidth: 420,
   },
   panel: {
     borderWidth: 1,
     borderRadius: Radius.panel,
-    shadowOffset: { width: 0, height: 22 },
-    shadowOpacity: 0.18,
-    shadowRadius: 38,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.2,
+    shadowRadius: 28,
     elevation: 0,
   },
   panelPadded: {
@@ -381,16 +494,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -1.1,
   },
-  metricAccent: {
-    position: "absolute",
-    right: -18,
-    top: -18,
-    width: 74,
-    height: 74,
-    borderRadius: 999,
-  },
   iconButton: {
-    minHeight: 46,
+    minHeight: 48,
     paddingHorizontal: 16,
     borderRadius: Radius.pill,
     borderWidth: 1,
@@ -404,7 +509,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   rowLink: {
-    minHeight: 76,
+    minHeight: 80,
     paddingHorizontal: 18,
     paddingVertical: 14,
     flexDirection: "row",
@@ -445,5 +550,101 @@ const styles = StyleSheet.create({
   },
   emptyAction: {
     marginTop: 18,
+  },
+  searchShell: {
+    marginTop: 24,
+    minHeight: 60,
+    borderWidth: 1,
+    borderRadius: Radius.card,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.12,
+    shadowRadius: 30,
+    elevation: 0,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  formField: {
+    minHeight: 56,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  choiceChip: {
+    minHeight: 42,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  choiceChipLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  skeletonShell: {
+    overflow: "hidden",
+  },
+  skeletonRow: {
+    minHeight: 82,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  skeletonLead: {
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+  },
+  skeletonCopy: {
+    flex: 1,
+    gap: 8,
+  },
+  skeletonLinePrimary: {
+    width: "62%",
+    height: 14,
+    borderRadius: 7,
+  },
+  skeletonLineSecondary: {
+    width: "86%",
+    height: 12,
+    borderRadius: 6,
+  },
+  separator: {
+    position: "absolute",
+    bottom: 0,
+    left: 18,
+    right: 18,
+    height: StyleSheet.hairlineWidth,
+  },
+  noticeBanner: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  noticeTitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  noticeBody: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
   },
 });

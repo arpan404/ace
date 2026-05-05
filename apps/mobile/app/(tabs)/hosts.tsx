@@ -8,6 +8,7 @@ import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {
   EmptyState,
   IconButton,
+  NoticeBanner,
   MetricCard,
   Panel,
   ScreenBackdrop,
@@ -137,6 +138,7 @@ export default function HostsScreen() {
                           backgroundColor: pressed
                             ? withAlpha(colors.foreground, 0.04)
                             : "transparent",
+                          transform: [{ scale: pressed ? 0.995 : 1 }],
                         },
                       ]}
                     >
@@ -171,7 +173,7 @@ export default function HostsScreen() {
                         </View>
                         <Text
                           style={[styles.hostStatus, { color: colors.secondaryLabel }]}
-                          numberOfLines={2}
+                          numberOfLines={3}
                         >
                           {connectionError ? connectionError : host.wsUrl}
                         </Text>
@@ -225,6 +227,13 @@ export default function HostsScreen() {
             </Panel>
           </View>
         )}
+        {Object.keys(reconnectErrors).length > 0 ? (
+          <NoticeBanner
+            tone="danger"
+            title="Some hosts failed to reconnect"
+            body="Open the host details to inspect errors and retry."
+          />
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -292,10 +301,10 @@ const styles = StyleSheet.create({
   },
   hostName: {
     flex: 1,
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: "800",
-    letterSpacing: -0.25,
+    letterSpacing: -0.2,
   },
   hostStatus: {
     marginTop: 7,
