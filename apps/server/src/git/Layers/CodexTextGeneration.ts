@@ -12,6 +12,7 @@ import { TextGenerationError } from "@ace/contracts";
 import {
   type BranchNameGenerationInput,
   type ThreadTitleGenerationResult,
+  type WorkspaceSummaryGenerationResult,
   type TextGenerationShape,
   TextGeneration,
 } from "../Services/TextGeneration.ts";
@@ -20,12 +21,17 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  sanitizeWorkspaceSummaryHeadline,
+  sanitizeWorkspaceSummaryKeyChanges,
+  sanitizeWorkspaceSummaryParagraph,
+  sanitizeWorkspaceSummaryRisks,
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
@@ -90,7 +96,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary",
     attachments: BranchNameGenerationInput["attachments"],
   ): Effect.fn.Return<MaterializedImageAttachments, TextGenerationError> {
     if (!attachments || attachments.length === 0) {
@@ -134,7 +141,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -405,11 +413,46 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     } satisfies ThreadTitleGenerationResult;
   });
 
+  const generateWorkspaceSummary: TextGenerationShape["generateWorkspaceSummary"] = Effect.fn(
+    "CodexTextGeneration.generateWorkspaceSummary",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildWorkspaceSummaryPrompt({
+      turnState: input.turnState,
+      userRequests: input.userRequests,
+      assistantWork: input.assistantWork,
+      workingTreeSummary: input.workingTreeSummary,
+      workingTreeDiff: input.workingTreeDiff,
+    });
+
+    if (input.modelSelection.provider !== "codex") {
+      return yield* new TextGenerationError({
+        operation: "generateWorkspaceSummary",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runCodexJson({
+      operation: "generateWorkspaceSummary",
+      cwd: input.cwd,
+      prompt,
+      outputSchemaJson: outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return {
+      headline: sanitizeWorkspaceSummaryHeadline(generated.headline),
+      summary: sanitizeWorkspaceSummaryParagraph(generated.summary),
+      keyChanges: sanitizeWorkspaceSummaryKeyChanges(generated.keyChanges),
+      risks: sanitizeWorkspaceSummaryRisks(generated.risks),
+    } satisfies WorkspaceSummaryGenerationResult;
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateWorkspaceSummary,
   } satisfies TextGenerationShape;
 });
 

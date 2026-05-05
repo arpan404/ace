@@ -22,12 +22,17 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  sanitizeWorkspaceSummaryHeadline,
+  sanitizeWorkspaceSummaryKeyChanges,
+  sanitizeWorkspaceSummaryParagraph,
+  sanitizeWorkspaceSummaryRisks,
   toJsonSchemaObject,
 } from "../Utils.ts";
 
@@ -91,7 +96,8 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary";
     cwd: string;
     prompt: string;
     outputSchema: S;
@@ -313,11 +319,46 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateWorkspaceSummary: TextGenerationShape["generateWorkspaceSummary"] = Effect.fn(
+    "GitHubCopilotTextGeneration.generateWorkspaceSummary",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildWorkspaceSummaryPrompt({
+      turnState: input.turnState,
+      userRequests: input.userRequests,
+      assistantWork: input.assistantWork,
+      workingTreeSummary: input.workingTreeSummary,
+      workingTreeDiff: input.workingTreeDiff,
+    });
+
+    if (input.modelSelection.provider !== "githubCopilot") {
+      return yield* new TextGenerationError({
+        operation: "generateWorkspaceSummary",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runGitHubCopilotJson({
+      operation: "generateWorkspaceSummary",
+      cwd: input.cwd,
+      prompt,
+      outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return {
+      headline: sanitizeWorkspaceSummaryHeadline(generated.headline),
+      summary: sanitizeWorkspaceSummaryParagraph(generated.summary),
+      keyChanges: sanitizeWorkspaceSummaryKeyChanges(generated.keyChanges),
+      risks: sanitizeWorkspaceSummaryRisks(generated.risks),
+    };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateWorkspaceSummary,
   } satisfies TextGenerationShape;
 });
 

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import {
+  type GeneratedWorkspaceSummary,
   summarizeActivePlan,
   type ActivePlanState,
   type LatestProposedPlanState,
@@ -32,38 +33,6 @@ import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
 
 const diffCountFormatter = new Intl.NumberFormat();
-const DEMO_PLAN_MARKDOWN = `# Agent-Native Editor Rollout
-
-## Phase 1: Core UX polish
-- Align editor comment interaction with browser comment UX.
-- Remove noisy success toasts and stale sidebar affordances.
-- Tighten panel/tabs visual consistency for desktop and web.
-
-## Phase 2: Review + workflow
-- Wire editor comments into direct-send and send-all flows.
-- Keep structured code context hidden from visible chat copy.
-- Link review, file navigation, and diagnostics in one path.
-`;
-const DEMO_ACTIVE_PLAN: ActivePlanState = {
-  createdAt: "2026-05-04T00:00:00.000Z",
-  explanation: null,
-  source: "plan-update",
-  steps: [
-    {
-      step: "Polish comment interaction to match browser behavior",
-      status: "completed",
-    },
-    {
-      step: "Finalize quick-send + send-all editor note workflow",
-      status: "inProgress",
-    },
-    {
-      step: "Finish visual consistency pass for summary and editor sidebars",
-      status: "pending",
-    },
-  ],
-  turnId: null,
-};
 
 function stepStatusIcon(status: string) {
   if (status === "completed") {
@@ -90,6 +59,7 @@ function stepStatusIcon(status: string) {
 interface PlanSummaryPanelProps {
   activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
+  generatedWorkspaceSummary: GeneratedWorkspaceSummary | null;
   activeProvider?: ProviderKind | null;
   markdownCwd: string | undefined;
   onOpenDiffPanel?: (() => void) | null;
@@ -135,6 +105,7 @@ function getDisplaySteps(
 export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   activePlan,
   activeProposedPlan,
+  generatedWorkspaceSummary,
   activeProvider = null,
   markdownCwd,
   onOpenDiffPanel = null,
@@ -149,10 +120,8 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
-  const planMarkdown = activeProposedPlan?.planMarkdown ?? null;
-  const shouldShowDemoContent = !planMarkdown && (!activePlan || activePlan.steps.length === 0);
-  const effectivePlan = shouldShowDemoContent ? DEMO_ACTIVE_PLAN : activePlan;
-  const effectivePlanMarkdown = planMarkdown ?? (shouldShowDemoContent ? DEMO_PLAN_MARKDOWN : null);
+  const effectivePlan = activePlan;
+  const effectivePlanMarkdown = activeProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = effectivePlanMarkdown
     ? stripDisplayedPlanMarkdown(effectivePlanMarkdown)
     : null;
@@ -265,7 +234,71 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
           data-plan-summary-scroll-container="true"
         >
           <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
-            <div>
+            {generatedWorkspaceSummary ? (
+              <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                      Workspace summary
+                    </p>
+                    <Badge
+                      variant="secondary"
+                      className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                    >
+                      AI
+                    </Badge>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-[15px] font-medium tracking-tight text-foreground">
+                      {generatedWorkspaceSummary.headline}
+                    </h3>
+                    <p className="max-w-[64ch] text-sm leading-relaxed text-muted-foreground">
+                      {generatedWorkspaceSummary.summary}
+                    </p>
+                  </div>
+                  {generatedWorkspaceSummary.keyChanges.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+                        Key changes
+                      </p>
+                      <ul className="space-y-1.5">
+                        {generatedWorkspaceSummary.keyChanges.map((item) => (
+                          <li
+                            key={item}
+                            className="flex items-start gap-2 text-sm leading-relaxed text-foreground"
+                          >
+                            <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {generatedWorkspaceSummary.risks.length > 0 ? (
+                    <div className="space-y-2 border-t border-border/50 pt-3">
+                      <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+                        Watchouts
+                      </p>
+                      <ul className="space-y-1.5">
+                        {generatedWorkspaceSummary.risks.map((item) => (
+                          <li
+                            key={item}
+                            className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground"
+                          >
+                            <span className="mt-2 size-1 shrink-0 rounded-full bg-amber-500/70" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            <div
+              className={generatedWorkspaceSummary ? "border-t border-border/50 pt-6" : undefined}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-2">
                   <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -296,7 +329,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                     </>
                   ) : (
                     <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                      Working tree is clean.
+                      No current workspace diff is available.
                     </p>
                   )}
                 </div>

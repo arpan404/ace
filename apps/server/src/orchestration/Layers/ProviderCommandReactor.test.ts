@@ -214,6 +214,14 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
+    const generateWorkspaceSummary = vi.fn<TextGenerationShape["generateWorkspaceSummary"]>((_) =>
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateWorkspaceSummary",
+          detail: "disabled in test harness",
+        }),
+      ),
+    );
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
@@ -257,6 +265,7 @@ describe("ProviderCommandReactor", () => {
         Layer.mock(TextGeneration, {
           generateBranchName,
           generateThreadTitle,
+          generateWorkspaceSummary,
         }),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest(input?.serverSettings ?? {})),
@@ -311,6 +320,7 @@ describe("ProviderCommandReactor", () => {
       renameBranch,
       generateBranchName,
       generateThreadTitle,
+      generateWorkspaceSummary,
       stateDir,
       drain,
     };
