@@ -109,7 +109,7 @@ afterEach(() => {
 });
 
 describe("PiAdapterLive", () => {
-  it("syncs Pi model and thought-level selection and emits unsupported mode warnings", async () => {
+  it("syncs Pi model and thought-level selection and emits plan-shim and approval warnings", async () => {
     const client = makeFakePiClient({
       requestImpl: async (command) => {
         switch (command) {
@@ -237,9 +237,138 @@ describe("PiAdapterLive", () => {
             event.type === "config.warning" ? event.payload.summary : undefined,
           ),
         ).toEqual([
-          "Pi does not expose a native plan mode over RPC.",
+          "Pi plan mode is being emulated by Ace.",
           "Pi does not expose Codex-style approval mode over RPC.",
         ]);
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("wraps Pi plan turns and emits proposed plans from assistant output", async () => {
+    const client = makeFakePiClient({
+      requestImpl: async (command) => {
+        switch (command) {
+          case "get_state":
+            return {
+              sessionId: "pi-session-plan",
+              model: { id: "gpt-5.4", provider: "openai", name: "GPT-5.4", reasoning: true },
+              thinkingLevel: "medium",
+            };
+          case "get_available_models":
+            return {
+              models: [{ id: "gpt-5.4", provider: "openai", name: "GPT-5.4", reasoning: true }],
+            };
+          case "get_commands":
+            return { commands: [] };
+          case "prompt":
+            return {};
+          case "get_session_stats":
+            return {
+              tokens: {
+                input: 12,
+                output: 18,
+                total: 30,
+              },
+            };
+          default:
+            throw new Error(`Unexpected Pi RPC command: ${command}`);
+        }
+      },
+    });
+    mockedStartPiRpcClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "pi",
+            threadId: asThreadId("thread-pi-plan"),
+            cwd: "/repo/pi-plan",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const turnEventsPromise = collectEvents(
+          adapter,
+          5,
+          (event) =>
+            event.type === "turn.started" ||
+            event.type === "content.delta" ||
+            event.type === "turn.proposed.delta" ||
+            event.type === "turn.proposed.completed" ||
+            event.type === "turn.completed",
+        );
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId: asThreadId("thread-pi-plan"),
+            input: "Add robust plan mode support for Pi.",
+            interactionMode: "plan",
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "prompt",
+          {
+            message: expect.stringContaining(
+              "Ace is running Pi in provider-emulated planning mode.",
+            ),
+          },
+          { timeoutMs: 20_000 },
+        );
+        expect(client.request).toHaveBeenCalledWith(
+          "prompt",
+          {
+            message: expect.stringContaining("<!-- ACE_PROPOSED_PLAN_START -->"),
+          },
+          { timeoutMs: 20_000 },
+        );
+        expect(client.request).toHaveBeenCalledWith(
+          "prompt",
+          {
+            message: expect.stringContaining("Add robust plan mode support for Pi."),
+          },
+          { timeoutMs: 20_000 },
+        );
+
+        client.emitEvent({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            delta:
+              "Working it through.\n\n<!-- ACE_PROPOSED_PLAN_START -->\n# Pi plan mode\n\n- Add an Ace-owned prompt shim.\n- Emit proposed plan events from Pi output.\n<!-- ACE_PROPOSED_PLAN_END -->",
+          },
+        });
+        client.emitEvent({
+          type: "turn_end",
+          message: { stopReason: "end_turn" },
+        });
+        client.emitEvent({
+          type: "agent_end",
+          message: { stopReason: "end_turn" },
+        });
+
+        const events = await turnEventsPromise;
+        expect(events.map((event) => event.type)).toEqual([
+          "turn.started",
+          "content.delta",
+          "turn.proposed.delta",
+          "turn.proposed.completed",
+          "turn.completed",
+        ]);
+
+        const proposedCompletedEvent = events.find(
+          (event) => event.type === "turn.proposed.completed",
+        );
+        expect(proposedCompletedEvent?.type).toBe("turn.proposed.completed");
+        if (proposedCompletedEvent?.type !== "turn.proposed.completed") {
+          return;
+        }
+        expect(proposedCompletedEvent.payload.planMarkdown).toBe(
+          "# Pi plan mode\n\n- Add an Ace-owned prompt shim.\n- Emit proposed plan events from Pi output.",
+        );
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

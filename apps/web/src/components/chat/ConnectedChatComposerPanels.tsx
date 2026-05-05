@@ -845,16 +845,8 @@ export const ConnectedChatComposerPanels = memo(
       );
 
       const toggleInteractionMode = useCallback(() => {
-        if (props.selectedProvider === "pi" && interactionMode !== "plan") {
-          toastManager.add({
-            type: "warning",
-            title: "Plan mode unavailable",
-            description: "Pi does not expose a native plan mode over RPC.",
-          });
-          return;
-        }
         onInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
-      }, [interactionMode, onInteractionModeChange, props.selectedProvider]);
+      }, [interactionMode, onInteractionModeChange]);
 
       const onProviderModelSelect = useEffectEvent((provider: ProviderKind, model: string) => {
         if (props.lockedProvider !== null && provider !== props.lockedProvider) {

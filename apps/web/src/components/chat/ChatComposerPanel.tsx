@@ -259,10 +259,7 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
 });
 
 export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComposerPanelProps) {
-  const interactionModeDisabledReason =
-    props.selectedProvider === "pi" && props.interactionMode !== "plan"
-      ? "Pi does not expose a native plan mode over RPC."
-      : null;
+  const interactionModeDisabledReason = null;
   const providerTraitsMenuContent = useMemo(
     () =>
       renderProviderTraitsMenuContent({
