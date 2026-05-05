@@ -66,7 +66,7 @@ describe("PlanSummaryPanel", () => {
 
     expect(html).toContain("Diff summary");
     expect(html).toContain("Current diff:");
-    expect(html).toContain("Regenerate summary");
+    expect(html).toContain('aria-label="Regenerate summary"');
     expect(html).not.toContain(">Changes<");
   });
 

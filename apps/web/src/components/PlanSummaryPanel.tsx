@@ -6,6 +6,7 @@ import {
   ChevronRightIcon,
   EllipsisIcon,
   LoaderIcon,
+  RotateCwIcon,
 } from "lucide-react";
 
 import {
@@ -31,6 +32,7 @@ import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const diffCountFormatter = new Intl.NumberFormat();
 
@@ -258,17 +260,28 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
     ? "Regenerate summary"
     : "Generate summary";
   const regenerateSummaryButton = onRegenerateSummary ? (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onClick={handleRegenerateSummary}
-      disabled={isRegeneratingSummary}
-      aria-busy={isRegeneratingSummary}
-    >
-      {isRegeneratingSummary ? <LoaderIcon className="mr-1 size-3.5 animate-spin" /> : null}
-      {regenerateSummaryLabel}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            onClick={handleRegenerateSummary}
+            disabled={isRegeneratingSummary}
+            aria-busy={isRegeneratingSummary}
+            aria-label={regenerateSummaryLabel}
+          />
+        }
+      >
+        {isRegeneratingSummary ? (
+          <LoaderIcon className="size-3 animate-spin" />
+        ) : (
+          <RotateCwIcon className="size-3" />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{regenerateSummaryLabel}</TooltipPopup>
+    </Tooltip>
   ) : null;
 
   return (
