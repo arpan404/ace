@@ -8,9 +8,9 @@ export const Layout = {
 } as const;
 
 export const Radius = {
-  panel: 16,
-  card: 14,
-  row: 12,
+  panel: 20,
+  card: 16,
+  row: 14,
   pill: 999,
   input: 12,
 } as const;

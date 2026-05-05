@@ -8,17 +8,19 @@ import {
   FileDiff,
   MessageSquareMore,
   ShieldAlert,
+  Settings2,
+  ChevronRight,
 } from "lucide-react-native";
-import { Layout, withAlpha } from "../../src/design/system";
+import { Layout, Radius, withAlpha } from "../../src/design/system";
 import { useTheme } from "../../src/design/ThemeContext";
 import {
   EmptyState,
+  IconButton,
   MetricCard,
   NoticeBanner,
   Panel,
-  RowLink,
   ScreenBackdrop,
-  ScreenHeader,
+  GlassScreenHeader,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -76,23 +78,29 @@ export default function NotificationsScreen() {
     },
   ].filter((section) => section.items.length > 0);
 
+  const displayTitle = "Alerts";
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScreenBackdrop />
+      <GlassScreenHeader
+        title={displayTitle}
+        action={
+          <View style={styles.headerActions}>
+            <IconButton icon={Settings2} label="Settings" onPress={() => router.push("/profile")} />
+            <StatusBadge label={`${attentionThreads.length}`} tone="warning" />
+          </View>
+        }
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 12,
+          paddingTop: insets.top + 180,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        <ScreenHeader
-          title="Attention"
-          action={<StatusBadge label={`${attentionThreads.length}`} tone="warning" />}
-        />
-
         <View style={styles.metricRow}>
           <MetricCard
             label="Needs input"
@@ -127,7 +135,7 @@ export default function NotificationsScreen() {
                   <SectionTitle>{meta.title}</SectionTitle>
                   <StatusBadge label={`${section.items.length}`} tone={meta.tone} />
                 </View>
-                <Panel padded={false} style={styles.listShell}>
+                <View style={styles.listShell}>
                   {section.items.map((entry, index) => (
                     <AttentionRow
                       key={`${entry.hostId}-${entry.thread.id}`}
@@ -143,7 +151,7 @@ export default function NotificationsScreen() {
                       }
                     />
                   ))}
-                </Panel>
+                </View>
               </View>
             );
           })
@@ -173,34 +181,42 @@ function AttentionRow({
   const { colors } = useTheme();
 
   return (
-    <View>
-      <RowLink
-        icon={Icon}
-        title={entry.thread.title}
-        meta={`${entry.projectTitle} · ${entry.hostName}`}
-        tone={entry.status.tone}
-        onPress={onPress}
-      />
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.detailStrip,
-          {
-            backgroundColor: pressed ? withAlpha(colors.foreground, 0.03) : "transparent",
-          },
-        ]}
-      >
-        <Text style={[styles.detailBody, { color: colors.secondaryLabel }]} numberOfLines={2}>
-          {entry.attentionActivity?.summary ?? entry.preview}
-        </Text>
-        <Text style={[styles.detailTime, { color: colors.tertiaryLabel }]}>
-          {formatTimeAgo(entry.lastActivityAt)}
-        </Text>
-      </Pressable>
-      {index < total - 1 ? (
-        <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-      ) : null}
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.attentionRow,
+        {
+          backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+          borderColor: colors.elevatedBorder,
+        },
+      ]}
+    >
+      <View style={styles.attentionMain}>
+        <View
+          style={[
+            styles.attentionIcon,
+            { backgroundColor: withAlpha(colors.primary, 0.12) },
+          ]}
+        >
+          <Icon size={18} color={colors.primary} strokeWidth={2.2} />
+        </View>
+        <View style={styles.attentionCopy}>
+          <Text style={[styles.attentionTitle, { color: colors.foreground }]} numberOfLines={1}>
+            {entry.thread.title}
+          </Text>
+          <Text style={[styles.attentionMeta, { color: colors.secondaryLabel }]} numberOfLines={1}>
+            {entry.projectTitle} · {entry.hostName}
+          </Text>
+        </View>
+        <ChevronRight size={18} color={colors.tertiaryLabel} />
+      </View>
+      <Text style={[styles.attentionBody, { color: colors.secondaryLabel }]} numberOfLines={2}>
+        {entry.attentionActivity?.summary ?? entry.preview}
+      </Text>
+      <Text style={[styles.attentionTime, { color: colors.tertiaryLabel }]}>
+        {formatTimeAgo(entry.lastActivityAt)}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -208,47 +224,65 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  metricRow: {
-    marginTop: 22,
+  headerActions: {
     flexDirection: "row",
-    gap: 10,
+    alignItems: "center",
+    gap: 8,
+  },
+  metricRow: {
+    flexDirection: "row",
+    gap: 12,
   },
   emptyWrap: {
     marginTop: 22,
   },
   section: {
-    marginTop: 22,
+    marginTop: 24,
   },
   sectionHeader: {
-    marginBottom: 10,
+    marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   listShell: {
-    overflow: "hidden",
-  },
-  detailStrip: {
-    marginTop: -8,
-    paddingHorizontal: 70,
-    paddingBottom: 16,
-    paddingRight: 18,
-    flexDirection: "row",
-    alignItems: "flex-start",
     gap: 12,
   },
-  detailBody: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19,
+  attentionRow: {
+    padding: 16,
+    borderRadius: Radius.card,
+    borderWidth: 1.5,
+    gap: 12,
   },
-  detailTime: {
-    fontSize: 12,
+  attentionMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  attentionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  attentionCopy: {
+    flex: 1,
+  },
+  attentionTitle: {
+    fontSize: 15,
     fontWeight: "700",
   },
-  separator: {
-    marginLeft: 18,
-    marginRight: 18,
-    height: StyleSheet.hairlineWidth,
+  attentionMeta: {
+    marginTop: 2,
+    fontSize: 13,
+  },
+  attentionBody: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  attentionTime: {
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

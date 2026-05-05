@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronRight, FolderGit2, FolderOpen, Plus, RefreshCw, Search } from "lucide-react-native";
+import { ChevronRight, FolderGit2, FolderOpen, Plus, RefreshCw, Search, Settings2 } from "lucide-react-native";
 import { DEFAULT_MODEL_BY_PROVIDER, type FilesystemBrowseResult } from "@ace/contracts";
 import { newCommandId, newProjectId } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
@@ -26,7 +26,7 @@ import {
   Panel,
   SearchField,
   ScreenBackdrop,
-  ScreenHeader,
+  GlassScreenHeader,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -191,49 +191,43 @@ export default function ProjectsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScreenBackdrop />
+      <GlassScreenHeader
+        title="Projects"
+        action={
+          <View style={styles.headerActions}>
+            <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
+            <IconButton
+              icon={Plus}
+              label="New"
+              onPress={() =>
+                setShowComposer((current) => {
+                  const next = !current;
+                  if (next) {
+                    setComposerStep("path");
+                  }
+                  return next;
+                })
+              }
+            />
+            <IconButton icon={Settings2} label="Settings" onPress={() => router.push("/profile")} />
+          </View>
+        }
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 12,
+          paddingTop: insets.top + 80,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        <ScreenHeader
-          title="Projects"
-          action={
-            <View style={styles.headerActions}>
-              <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
-              <IconButton
-                icon={Plus}
-                label="New"
-                onPress={() =>
-                  setShowComposer((current) => {
-                    const next = !current;
-                    if (next) {
-                      setComposerStep("path");
-                    }
-                    return next;
-                  })
-                }
-              />
-            </View>
-          }
-        />
-
-        <SearchField
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search projects, hosts, or paths"
-          icon={Search}
-        />
-
         {hosts.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.hostStrip}
+            style={styles.hostStripScroll}
           >
             {hosts.map((host) => {
               const isActive = host.id === activeHostId;
@@ -251,228 +245,13 @@ export default function ProjectsScreen() {
 
         <View style={styles.metricRow}>
           <MetricCard label="Projects" value={projects.length} tone="accent" />
-          <MetricCard label="Connected hosts" value={connectedHostCount} tone="success" />
+          <MetricCard label="Online" value={connectedHostCount} tone="success" />
           <MetricCard
             label="Live target"
             value={activeConnection?.host.name ?? "None"}
             tone={activeConnection ? "muted" : "warning"}
           />
         </View>
-
-        {showComposer ? (
-          <Panel>
-            <View style={styles.composerHeader}>
-              <SectionTitle>Create Project</SectionTitle>
-              {activeConnection ? (
-                <StatusBadge
-                  label={`on ${activeConnection.host.name}`}
-                  tone={activeConnection.status.kind === "connected" ? "success" : "warning"}
-                />
-              ) : activeHost ? (
-                <StatusBadge label={`on ${activeHost.name}`} tone="warning" />
-              ) : null}
-            </View>
-            <Text style={[styles.composerStepText, { color: colors.tertiaryLabel }]}>
-              {composerStep === "path"
-                ? "Step 1 of 2 - Choose workspace path"
-                : "Step 2 of 2 - Confirm details"}
-            </Text>
-            {activeHostOffline ? (
-              <View
-                style={[
-                  styles.hostRecoveryBanner,
-                  {
-                    backgroundColor: withAlpha(colors.orange, 0.12),
-                    borderColor: withAlpha(colors.orange, 0.22),
-                  },
-                ]}
-              >
-                <View style={styles.hostRecoveryCopy}>
-                  <Text style={[styles.hostRecoveryTitle, { color: colors.foreground }]}>
-                    Selected host is offline
-                  </Text>
-                  <Text style={[styles.hostRecoveryBody, { color: colors.secondaryLabel }]}>
-                    Reconnect {activeHost?.name ?? "this host"} before creating a project.
-                  </Text>
-                </View>
-                <Pressable
-                  disabled={reconnectingHostId !== null}
-                  onPress={() => void reconnectActiveHost()}
-                  style={[
-                    styles.reconnectButton,
-                    {
-                      backgroundColor: colors.background,
-                      borderColor: colors.elevatedBorder,
-                    },
-                    reconnectingHostId !== null && styles.disabled,
-                  ]}
-                >
-                  {reconnectingHostId === activeHost?.id ? (
-                    <ActivityIndicator color={colors.primary} />
-                  ) : (
-                    <RefreshCw size={16} color={colors.primary} strokeWidth={2.3} />
-                  )}
-                  <Text style={[styles.reconnectLabel, { color: colors.primary }]}>Reconnect</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            <View style={styles.pathInputRow}>
-              <FormField
-                value={newProjectPath}
-                onChangeText={(value) => {
-                  setNewProjectPath(value);
-                  setProjectBrowseResult(null);
-                  setProjectBrowseLoadedPath(null);
-                }}
-                placeholder="/absolute/path/to/project"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={[styles.textField, styles.pathTextField]}
-              />
-              <Pressable
-                disabled={browsingProjectPath || !activeConnection}
-                onPress={() => void browseProjectPath()}
-                style={[
-                  styles.browseButton,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.elevatedBorder,
-                  },
-                  (browsingProjectPath || !activeConnection) && styles.disabled,
-                ]}
-              >
-                {browsingProjectPath ? (
-                  <ActivityIndicator color={colors.primary} />
-                ) : (
-                  <FolderOpen size={17} color={colors.primary} strokeWidth={2.2} />
-                )}
-              </Pressable>
-            </View>
-            {projectBrowseResult && composerStep === "path" ? (
-              <View
-                style={[
-                  styles.browsePanel,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.elevatedBorder,
-                  },
-                ]}
-              >
-                <View style={styles.browseHeader}>
-                  <Text
-                    style={[styles.browseTitle, { color: colors.foreground }]}
-                    numberOfLines={1}
-                  >
-                    {projectBrowseResult.parentPath}
-                  </Text>
-                  <Text style={[styles.browseMeta, { color: colors.tertiaryLabel }]}>
-                    {projectBrowseResult.entries.length} folders
-                  </Text>
-                </View>
-                {projectBrowseResult.entries.length === 0 ? (
-                  <Text style={[styles.browseEmptyText, { color: colors.secondaryLabel }]}>
-                    No matching folders for {projectBrowseLoadedPath ?? "this path"}.
-                  </Text>
-                ) : (
-                  projectBrowseResult.entries.slice(0, 8).map((entry) => (
-                    <View key={entry.fullPath} style={styles.browseRow}>
-                      <Pressable
-                        onPress={() => {
-                          setNewProjectPath(entry.fullPath);
-                        }}
-                        style={styles.browseRowCopy}
-                      >
-                        <Text
-                          style={[styles.browseEntryName, { color: colors.foreground }]}
-                          numberOfLines={1}
-                        >
-                          {entry.name}
-                        </Text>
-                        <Text
-                          style={[styles.browseEntryPath, { color: colors.secondaryLabel }]}
-                          numberOfLines={1}
-                        >
-                          {entry.fullPath}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        disabled={browsingProjectPath}
-                        onPress={() => void browseProjectPath(`${entry.fullPath}/`)}
-                        style={[
-                          styles.browseDrillButton,
-                          { backgroundColor: colors.background },
-                          browsingProjectPath && styles.disabled,
-                        ]}
-                      >
-                        <ChevronRight size={17} color={colors.primary} strokeWidth={2.4} />
-                      </Pressable>
-                    </View>
-                  ))
-                )}
-              </View>
-            ) : null}
-            {composerStep === "path" ? (
-              <Pressable
-                onPress={() => setComposerStep("details")}
-                disabled={newProjectPath.trim().length === 0}
-                style={[
-                  styles.createButton,
-                  {
-                    backgroundColor: colors.primary,
-                  },
-                  newProjectPath.trim().length === 0 && styles.disabled,
-                ]}
-              >
-                <Text style={[styles.createButtonLabel, { color: colors.primaryForeground }]}>
-                  Continue
-                </Text>
-              </Pressable>
-            ) : (
-              <>
-                <FormField
-                  value={newProjectTitle}
-                  onChangeText={setNewProjectTitle}
-                  placeholder="Project name (optional)"
-                  style={styles.textField}
-                />
-                <View style={styles.stepActionRow}>
-                  <Pressable
-                    onPress={() => setComposerStep("path")}
-                    style={[
-                      styles.secondaryButton,
-                      {
-                        backgroundColor: colors.surfaceSecondary,
-                        borderColor: colors.elevatedBorder,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.secondaryButtonLabel, { color: colors.foreground }]}>
-                      Back
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => void createProject()}
-                    disabled={creatingProject}
-                    style={[
-                      styles.primaryActionButton,
-                      {
-                        backgroundColor: colors.primary,
-                      },
-                      creatingProject && styles.disabled,
-                    ]}
-                  >
-                    <Text style={[styles.createButtonLabel, { color: colors.primaryForeground }]}>
-                      {creatingProject ? "Creating project…" : "Create project"}
-                    </Text>
-                  </Pressable>
-                </View>
-              </>
-            )}
-            {composerError ? (
-              <NoticeBanner tone="danger" title="Could not create project" body={composerError} />
-            ) : null}
-          </Panel>
-        ) : null}
 
         <View style={styles.sectionHeader}>
           <SectionTitle>Workspace Index</SectionTitle>
@@ -589,195 +368,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  hostStripScroll: {
+    marginTop: 12,
+    marginBottom: 12,
+  },
   hostStrip: {
     gap: 10,
-    paddingTop: 16,
   },
   metricRow: {
-    marginTop: 18,
     flexDirection: "row",
     gap: 10,
-  },
-  composerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  composerStepText: {
-    marginTop: 10,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "700",
-  },
-  hostRecoveryBanner: {
-    marginTop: 14,
-    minHeight: 72,
-    borderWidth: 1,
-    borderRadius: Radius.input,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  hostRecoveryCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  hostRecoveryTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-  },
-  hostRecoveryBody: {
-    marginTop: 4,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-  },
-  reconnectButton: {
-    minHeight: 44,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  reconnectLabel: {
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  textField: {
-    marginTop: 14,
-    minHeight: 56,
-    borderWidth: 1,
-    borderRadius: Radius.input,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  pathInputRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: 10,
-  },
-  pathTextField: {
-    flex: 1,
-    marginTop: 0,
-  },
-  browseButton: {
-    width: 56,
-    minHeight: 56,
-    borderRadius: Radius.input,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  browsePanel: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderRadius: Radius.input,
-    padding: 12,
-    gap: 8,
-  },
-  browseHeader: {
-    minHeight: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  browseTitle: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
-  },
-  browseMeta: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  browseEmptyText: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-  },
-  browseRow: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  browseRowCopy: {
-    flex: 1,
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  browseEntryName: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-  },
-  browseEntryPath: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-  },
-  browseDrillButton: {
-    width: 42,
-    height: 42,
-    borderRadius: Radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepActionRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    gap: 10,
-  },
-  secondaryButton: {
-    minHeight: 54,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryButtonLabel: {
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: -0.2,
-  },
-  primaryActionButton: {
-    flex: 1,
-    minHeight: 54,
-    borderRadius: Radius.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  createButton: {
-    marginTop: 16,
-    minHeight: 54,
-    borderRadius: Radius.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  createButtonLabel: {
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: -0.2,
-  },
-  disabled: {
-    opacity: 0.7,
+    marginBottom: 20,
   },
   sectionHeader: {
-    marginTop: 22,
+    marginTop: 12,
     marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
@@ -786,7 +390,6 @@ const styles = StyleSheet.create({
   sectionMeta: {
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.2,
   },
   projectShell: {
     overflow: "hidden",

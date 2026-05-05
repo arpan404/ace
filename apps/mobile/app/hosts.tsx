@@ -3,8 +3,8 @@ import { ActivityIndicator, View, ScrollView, StyleSheet, Pressable, Text } from
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Server, Plus, ChevronRight, RefreshCw } from "lucide-react-native";
-import { useTheme } from "../../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { useTheme } from "../src/design/ThemeContext";
+import { Layout, Radius, withAlpha } from "../src/design/system";
 import {
   EmptyState,
   IconButton,
@@ -15,10 +15,10 @@ import {
   ScreenHeader,
   SectionTitle,
   StatusBadge,
-} from "../../src/design/primitives";
-import { useHostStore } from "../../src/store/HostStore";
-import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
-import { formatErrorMessage } from "../../src/errors";
+} from "../src/design/primitives";
+import { useHostStore } from "../src/store/HostStore";
+import { connectionManager, type ManagedConnection } from "../src/rpc/ConnectionManager";
+import { formatErrorMessage } from "../src/errors";
 
 export default function HostsScreen() {
   const router = useRouter();

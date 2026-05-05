@@ -2,9 +2,9 @@ import React, { useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LoaderCircle, Search } from "lucide-react-native";
+import { LoaderCircle, Search, Settings2 } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
-import { Layout, withAlpha } from "../../src/design/system";
+import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {
   ChoiceChip,
   EmptyState,
@@ -14,7 +14,7 @@ import {
   NoticeBanner,
   Panel,
   ScreenBackdrop,
-  ScreenHeader,
+  GlassScreenHeader,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -60,25 +60,25 @@ export default function ThreadsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScreenBackdrop />
+      <GlassScreenHeader
+        title="Threads"
+        action={
+          <View style={styles.headerActions}>
+            <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
+            <IconButton icon={Settings2} label="Settings" onPress={() => router.push("/profile")} />
+            <StatusBadge label={`${threads.length}`} tone="success" />
+          </View>
+        }
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 12,
+          paddingTop: insets.top + 80,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        <ScreenHeader
-          title="Threads"
-          action={
-            <View style={styles.headerActions}>
-              <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
-              <StatusBadge label={`${threads.length}`} tone="success" />
-            </View>
-          }
-        />
-
         <View style={styles.metricRow}>
           <MetricCard label="Streaming" value={streamingCount} tone="success" />
           <MetricCard label="Queued" value={queueCount} tone="warning" />
@@ -89,6 +89,7 @@ export default function ThreadsScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterStrip}
+          style={styles.filterStripScroll}
         >
           {FILTERS.map((filter) => {
             return (
@@ -103,9 +104,9 @@ export default function ThreadsScreen() {
         </ScrollView>
 
         <View style={styles.sectionHeader}>
-          <SectionTitle>Threads</SectionTitle>
+          <SectionTitle>Recent Activity</SectionTitle>
           <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
-            {filteredThreads.length} visible
+            {filteredThreads.length} threads
           </Text>
         </View>
 
@@ -117,7 +118,7 @@ export default function ThreadsScreen() {
             body="Threads from connected hosts will appear here once projects sync or agent runs start."
           />
         ) : (
-          <Panel padded={false} style={styles.listShell}>
+          <View style={styles.listShell}>
             {filteredThreads.map((entry, index) => (
               <ThreadRow
                 key={`${entry.hostId}-${entry.thread.id}`}
@@ -132,7 +133,7 @@ export default function ThreadsScreen() {
                 }
               />
             ))}
-          </Panel>
+          </View>
         )}
 
         {error ? (
@@ -241,40 +242,44 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerActions: {
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 8,
     flexDirection: "row",
   },
   metricRow: {
-    marginTop: 18,
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
+    marginBottom: 20,
+  },
+  filterStripScroll: {
+    marginBottom: 4,
   },
   filterStrip: {
-    gap: 8,
-    paddingTop: 14,
+    gap: 10,
   },
   sectionHeader: {
-    marginTop: 18,
-    marginBottom: 8,
+    marginTop: 20,
+    marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   sectionMeta: {
     fontSize: 12,
-    fontWeight: "500",
+    fontWeight: "700",
   },
   listShell: {
-    overflow: "hidden",
+    gap: 12,
   },
   threadRow: {
-    minHeight: 96,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    minHeight: 110,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 12,
+    gap: 14,
+    borderRadius: Radius.card,
+    borderWidth: 1.5,
   },
   threadLead: {
     width: 36,
@@ -326,10 +331,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   separator: {
-    position: "absolute",
-    bottom: 0,
-    left: 16,
-    right: 16,
-    height: StyleSheet.hairlineWidth,
+    display: "none",
   },
 });

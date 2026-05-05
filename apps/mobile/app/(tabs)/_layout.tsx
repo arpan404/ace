@@ -1,7 +1,8 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Platform } from "react-native";
-import { Bell, Bot, FolderTree, Server, Settings2 } from "lucide-react-native";
+import { Platform, StyleSheet, View } from "react-native";
+import { Bell, LayoutGrid, MessageSquare } from "lucide-react-native";
+import { GlassView } from "expo-glass-effect";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 
@@ -12,73 +13,52 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.muted,
+        tabBarInactiveTintColor: colors.tertiaryLabel,
         headerShown: false,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: "500",
-          letterSpacing: 0,
-          marginBottom: Platform.select({ ios: 0, default: 2 }),
+          fontWeight: "600",
+          marginTop: -4,
+          marginBottom: Platform.select({ ios: 0, default: 4 }),
         },
         tabBarStyle: {
           position: "absolute",
-          left: Layout.pagePadding,
-          right: Layout.pagePadding,
-          bottom: Platform.select({ ios: 16, default: 12 }),
-          backgroundColor: isDark ? withAlpha("#0a111c", 0.96) : withAlpha("#ffffff", 0.96),
-          borderTopColor: "transparent",
-          borderTopWidth: 0,
-          borderWidth: 1,
-          borderColor: colors.elevatedBorder,
-          height: Layout.tabBarHeight,
-          paddingTop: 8,
-          paddingBottom: Platform.select({ ios: 12, default: 8 }),
-          paddingHorizontal: 8,
-          borderRadius: Radius.panel,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "transparent",
+          borderTopColor: colors.separator,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          height: Platform.OS === "ios" ? 88 : 64,
+          paddingTop: 12,
+          paddingBottom: Platform.select({ ios: 28, default: 8 }),
           elevation: 0,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.1,
-          shadowRadius: 16,
         },
-        tabBarItemStyle: { paddingVertical: 2 },
-        tabBarBackground: () => null,
+        tabBarBackground: () => (
+          <GlassView style={StyleSheet.absoluteFill} />
+        ),
       }}
     >
       <Tabs.Screen
         name="projects"
         options={{
           title: "Projects",
-          tabBarIcon: ({ color, size }) => <FolderTree size={size ?? 20} color={color} />,
+          tabBarIcon: ({ color, size }) => <LayoutGrid size={22} color={color} strokeWidth={2.4} />,
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
           title: "Threads",
-          tabBarIcon: ({ color, size }) => <Bot size={size ?? 20} color={color} />,
+          tabBarIcon: ({ color, size }) => <MessageSquare size={22} color={color} strokeWidth={2.4} />,
         }}
       />
       <Tabs.Screen
         name="notifications"
         options={{
           title: "Alerts",
-          tabBarIcon: ({ color, size }) => <Bell size={size ?? 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="hosts"
-        options={{
-          title: "Hosts",
-          tabBarIcon: ({ color, size }) => <Server size={size ?? 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color, size }) => <Settings2 size={size ?? 20} color={color} />,
+          tabBarIcon: ({ color, size }) => <Bell size={22} color={color} strokeWidth={2.4} />,
         }}
       />
     </Tabs>
