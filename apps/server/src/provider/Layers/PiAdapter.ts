@@ -98,6 +98,7 @@ type PiTurnState = {
   readonly interactionMode: ProviderSessionStartInput["interactionMode"];
   readonly startedAtMs: number;
   assistantText: string;
+  visibleAssistantText: string;
   reasoningText: string;
   readonly items: Array<unknown>;
   readonly toolItems: Map<string, PiToolItemState>;
@@ -271,6 +272,10 @@ function requestedPiThoughtLevel(
 
 function currentModel(metadata: PiSessionMetadata): PiModel | undefined {
   return metadata.availableModels.find((model) => model.slug === metadata.currentModelSlug);
+}
+
+function stripPiProposedPlanBlock(text: string): string {
+  return text.replace(PI_PROPOSED_PLAN_BLOCK_REGEX, "").trimEnd();
 }
 
 function buildConfigOptions(
@@ -899,7 +904,9 @@ export const PiAdapterLive = Layer.effect(
       context.replayTurns.push({
         prompt: turn.inputText,
         attachmentNames: [...turn.attachmentNames],
-        ...(turn.assistantText.trim().length > 0 ? { assistantResponse: turn.assistantText } : {}),
+        ...(turn.visibleAssistantText.trim().length > 0
+          ? { assistantResponse: turn.visibleAssistantText }
+          : {}),
       });
       context.activeTurn = null;
       updateSession(context, {
@@ -1237,22 +1244,32 @@ export const PiAdapterLive = Layer.effect(
               return;
             }
             turn.assistantText += delta;
-            emit(
-              baseEvent(context, {
-                type: "content.delta",
-                turnId: turn.id,
-                rawType: event.type,
-                rawPayload: event,
-                payload: {
-                  streamKind: "assistant_text",
-                  delta,
-                },
-              }),
-            );
-            appendTurnItem(context, turn.id, {
-              kind: "assistant_text",
-              text: delta,
-            });
+            const nextVisibleAssistantText =
+              turn.interactionMode === "plan"
+                ? stripPiProposedPlanBlock(turn.assistantText)
+                : turn.assistantText;
+            const visibleDelta = nextVisibleAssistantText.startsWith(turn.visibleAssistantText)
+              ? nextVisibleAssistantText.slice(turn.visibleAssistantText.length)
+              : nextVisibleAssistantText;
+            turn.visibleAssistantText = nextVisibleAssistantText;
+            if (visibleDelta) {
+              emit(
+                baseEvent(context, {
+                  type: "content.delta",
+                  turnId: turn.id,
+                  rawType: event.type,
+                  rawPayload: event,
+                  payload: {
+                    streamKind: "assistant_text",
+                    delta: visibleDelta,
+                  },
+                }),
+              );
+              appendTurnItem(context, turn.id, {
+                kind: "assistant_text",
+                text: visibleDelta,
+              });
+            }
             emitProposedPlanDeltaFromAssistantText(context, turn, event.type, event);
             return;
           }
@@ -1453,9 +1470,6 @@ export const PiAdapterLive = Layer.effect(
       );
       const cwd = input.cwd ?? serverConfig.cwd;
       const args = ["--mode", "rpc", "--no-session"];
-      if (input.modelSelection?.provider === PROVIDER) {
-        args.push("--model", input.modelSelection.model);
-      }
       const client = startPiRpcClient({
         binaryPath: settings.binaryPath,
         args,
@@ -1763,6 +1777,7 @@ export const PiAdapterLive = Layer.effect(
             attachmentNames: (input.attachments ?? []).map((attachment) => attachment.name),
             interactionMode: input.interactionMode,
             assistantText: "",
+            visibleAssistantText: "",
             reasoningText: "",
             items: [],
             toolItems: new Map(),

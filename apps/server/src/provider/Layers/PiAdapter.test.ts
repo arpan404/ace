@@ -129,7 +129,12 @@ describe("PiAdapterLive", () => {
             return {
               models: [
                 { id: "gpt-5.4", provider: "openai", name: "GPT-5.4", reasoning: true },
-                { id: "gpt-5.5", provider: "openai", name: "GPT-5.5", reasoning: true },
+                {
+                  id: "claude-sonnet-4-6",
+                  provider: "anthropic",
+                  name: "Claude Sonnet 4.6",
+                  reasoning: true,
+                },
               ],
             };
           case "get_commands":
@@ -138,11 +143,11 @@ describe("PiAdapterLive", () => {
             };
           case "set_model":
             return {
-              id: "gpt-5.5",
-              provider: "openai",
-              name: "GPT-5.5",
+              id: "claude-sonnet-4-6",
+              provider: "anthropic",
+              name: "Claude Sonnet 4.6",
               reasoning: true,
-              contextWindow: 256_000,
+              contextWindow: 1_000_000,
             };
           case "set_thinking_level":
             return {};
@@ -175,7 +180,7 @@ describe("PiAdapterLive", () => {
             interactionMode: "plan",
             modelSelection: {
               provider: "pi",
-              model: "openai/gpt-5.5",
+              model: "anthropic/claude-sonnet-4-6",
               options: {
                 thoughtLevel: "xhigh",
               },
@@ -183,15 +188,15 @@ describe("PiAdapterLive", () => {
           }),
         );
 
-        expect(session.model).toBe("openai/gpt-5.5");
+        expect(session.model).toBe("anthropic/claude-sonnet-4-6");
         expect(mockedStartPiRpcClient).toHaveBeenCalledWith({
           binaryPath: "pi",
-          args: ["--mode", "rpc", "--no-session", "--model", "openai/gpt-5.5"],
+          args: ["--mode", "rpc", "--no-session"],
           cwd: "/repo/pi-config",
         });
         expect(client.request).toHaveBeenCalledWith(
           "set_model",
-          { provider: "openai", modelId: "gpt-5.5" },
+          { provider: "anthropic", modelId: "claude-sonnet-4-6" },
           { timeoutMs: 20_000 },
         );
         expect(client.request).toHaveBeenCalledWith(
@@ -218,7 +223,7 @@ describe("PiAdapterLive", () => {
           expect.arrayContaining([
             expect.objectContaining({
               id: "model",
-              currentValue: "openai/gpt-5.5",
+              currentValue: "anthropic/claude-sonnet-4-6",
             }),
             expect.objectContaining({
               id: "thought_level",
@@ -417,6 +422,14 @@ describe("PiAdapterLive", () => {
           "turn.proposed.completed",
           "turn.completed",
         ]);
+        const assistantDeltaEvent = events[1];
+        expect(assistantDeltaEvent?.type).toBe("content.delta");
+        if (assistantDeltaEvent?.type !== "content.delta") {
+          return;
+        }
+        expect(assistantDeltaEvent.payload.streamKind).toBe("assistant_text");
+        expect(assistantDeltaEvent.payload.delta).toBe("Working it through.");
+        expect(assistantDeltaEvent.payload.delta).not.toContain("ACE_PROPOSED_PLAN_START");
 
         const proposedCompletedEvent = events.find(
           (event) => event.type === "turn.proposed.completed",
