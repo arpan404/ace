@@ -16,6 +16,24 @@ vi.mock("../nativeApi", () => ({
 }));
 
 describe("PlanSummaryPanel", () => {
+  it("does not render summary placeholder copy when no summary or diff is available", () => {
+    const html = renderToStaticMarkup(
+      <PlanSummaryPanel
+        activePlan={null}
+        activeProposedPlan={null}
+        generatedWorkspaceSummary={null}
+        activeProvider="codex"
+        markdownCwd={undefined}
+        workspaceDiffSummary={null}
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(html).not.toContain("No current workspace diff is available.");
+    expect(html).not.toContain("Workspace summary");
+    expect(html).not.toContain("Workspace diff summary");
+  });
+
   it("renders only one active in-progress todo when multiple rows are marked in progress", () => {
     const html = renderToStaticMarkup(
       <PlanSummaryPanel

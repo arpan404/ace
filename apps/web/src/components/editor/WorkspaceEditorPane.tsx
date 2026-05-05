@@ -24,7 +24,6 @@ import {
   useState,
 } from "react";
 
-import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
@@ -51,9 +50,7 @@ import {
 } from "./dragTransfer";
 import {
   buildWorkspacePreviewUrl,
-  canOpenFileExternallyFromReadError,
   detectWorkspacePreviewKind,
-  joinWorkspaceAbsolutePath,
   type WorkspacePreviewKind,
 } from "./workspaceFileUtils";
 
@@ -112,6 +109,7 @@ interface WorkspaceEditorPaneProps {
   savingFilePath: string | null;
   problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null;
   symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null;
+  findRequestToken?: number;
 }
 
 export interface WorkspaceEditorPaneProblem {
@@ -1208,6 +1206,15 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   }, [editorMountVersion, pane.activeFilePath, props.symbolNavigationTarget]);
 
   useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !props.active || !props.findRequestToken) {
+      return;
+    }
+    editor.focus();
+    void runEditorAction(editor, "actions.find");
+  }, [editorMountVersion, props.active, props.findRequestToken]);
+
+  useEffect(() => {
     syncRequestIdRef.current += 1;
     const requestId = syncRequestIdRef.current;
 
@@ -1711,21 +1718,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     });
   }, []);
 
-  const handleOpenInExternalEditor = useCallback(async () => {
-    if (!api || !props.gitCwd || !pane.activeFilePath) {
-      return;
-    }
-    try {
-      setActionError(null);
-      await openInPreferredEditor(
-        api,
-        joinWorkspaceAbsolutePath(props.gitCwd, pane.activeFilePath),
-      );
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to open file in editor.");
-    }
-  }, [api, pane.activeFilePath, props.gitCwd]);
-
   const handleAddAndSendSelectionComment = useCallback(async () => {
     if (
       !activeSelection ||
@@ -1774,8 +1766,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     activeFileQuery.error instanceof Error
       ? activeFileQuery.error.message
       : "An unexpected error occurred.";
-  const canOpenAnyway =
-    activeFileQuery.isError && canOpenFileExternallyFromReadError(activeFileErrorMessage);
   return (
     <section
       data-pane-active={props.active ? "true" : "false"}
@@ -1788,7 +1778,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5 scrollbar-none",
+          "flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1801,7 +1791,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden scrollbar-none"
+          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1975,14 +1965,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
             <div
               className={cn(
-                "flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
+                "flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
                 "border-border/60",
               )}
             >
               <span className="truncate">{previewModeLabel}</span>
-              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
-                Open in Editor
-              </Button>
             </div>
           </div>
         ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
@@ -2006,14 +1993,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
             <div
               className={cn(
-                "flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
+                "flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
                 "border-border/60",
               )}
             >
               <span className="truncate">{previewModeLabel}</span>
-              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
-                Open in Editor
-              </Button>
             </div>
           </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
@@ -2041,22 +2025,12 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   <RefreshCwIcon className="size-3.5" />
                   Retry
                 </Button>
-                {canOpenAnyway ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleOpenInExternalEditor()}
-                  >
-                    Open Anyway
-                  </Button>
-                ) : null}
               </div>
             </div>
           </div>
         ) : (
           <div className="relative h-full min-h-0 min-w-0 overflow-hidden">
             <Editor
-              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.monacoTheme}`}
               height="100%"
               value={activeFileContents}
               theme={props.monacoTheme}

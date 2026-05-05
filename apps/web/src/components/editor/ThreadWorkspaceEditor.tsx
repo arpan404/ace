@@ -51,7 +51,6 @@ import {
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
-import { usePreferredEditor } from "~/editorPreferences";
 import { useAppearancePrefs } from "~/appearancePrefs";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -85,10 +84,9 @@ import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
+import { resolveShortcutCommand } from "~/keybindings";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
-import { OpenInEditorMenuSection, resolveOpenInEditorOptions } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -101,7 +99,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
@@ -184,111 +181,6 @@ function parseSaveConflictState(
   };
 }
 
-const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
-  connectionUrl,
-  gitCwd,
-  keybindings,
-  availableEditors,
-}: {
-  connectionUrl?: string | null | undefined;
-  gitCwd: string | null;
-  keybindings: ResolvedKeybindingsConfig;
-  availableEditors: ReadonlyArray<EditorId>;
-}) {
-  const api = readNativeApi();
-  const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
-  const openFavoriteEditorShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "editor.openFavorite"),
-    [keybindings],
-  );
-  const editorOptions = useMemo(
-    () => resolveOpenInEditorOptions(navigator.platform, availableEditors),
-    [availableEditors],
-  );
-  const preferredEditorOption = useMemo(() => {
-    const fallbackEditorOption = editorOptions[0];
-    if (!preferredEditor) {
-      return fallbackEditorOption;
-    }
-    return editorOptions.find((option) => option.value === preferredEditor) ?? fallbackEditorOption;
-  }, [editorOptions, preferredEditor]);
-  const handleOpenPreferredEditor = useCallback(() => {
-    if (!api || !gitCwd || !preferredEditorOption) {
-      return;
-    }
-    void api.shell.openInEditor(gitCwd, preferredEditorOption.value, { connectionUrl });
-    setPreferredEditor(preferredEditorOption.value);
-  }, [api, connectionUrl, gitCwd, preferredEditorOption, setPreferredEditor]);
-
-  if (!gitCwd) {
-    return null;
-  }
-
-  return (
-    <div className="flex shrink-0 items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 min-w-0 max-w-[15rem] shrink-0 gap-1.5 rounded-[var(--control-radius)] border-border/60 bg-background/84 px-2.5 text-[11px] font-medium text-foreground/84 shadow-none hover:bg-background"
-              aria-label={
-                preferredEditorOption
-                  ? `Open workspace in ${preferredEditorOption.label}`
-                  : "Open workspace in external editor"
-              }
-              onClick={handleOpenPreferredEditor}
-              disabled={!preferredEditorOption}
-            >
-              {preferredEditorOption ? (
-                <preferredEditorOption.Icon className="size-3.5 shrink-0" />
-              ) : null}
-              <span className="truncate">
-                {preferredEditorOption ? preferredEditorOption.label : "Open in editor"}
-              </span>
-            </Button>
-          }
-        />
-        <TooltipPopup side="bottom" align="start" className="max-w-xs">
-          {preferredEditorOption
-            ? `Open this workspace in ${preferredEditorOption.label}.`
-            : "Open this workspace in an installed editor."}
-          {openFavoriteEditorShortcutLabel ? (
-            <>
-              {" "}
-              <span className="text-muted-foreground">
-                Favorite: {openFavoriteEditorShortcutLabel}
-              </span>
-            </>
-          ) : null}
-        </TooltipPopup>
-      </Tooltip>
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button
-              variant="outline"
-              size="icon-xs"
-              className="size-7 shrink-0 rounded-[var(--control-radius)] border-border/60 bg-background/84 text-muted-foreground/78 shadow-none hover:bg-background hover:text-foreground"
-              aria-label="Choose external editor"
-            />
-          }
-        >
-          <ChevronDownIcon className="size-3.5" />
-        </MenuTrigger>
-        <MenuPopup align="start" className="min-w-48">
-          <OpenInEditorMenuSection
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={gitCwd}
-          />
-        </MenuPopup>
-      </Menu>
-    </div>
-  );
-});
-
 type TreeRow =
   | {
       depth: number;
@@ -336,13 +228,7 @@ type ExplorerRenderRow =
       state: ExplorerInlineEntryState;
     };
 
-type WorkspaceSidebarMode =
-  | "explorer"
-  | "search"
-  | "source-control"
-  | "outline"
-  | "problems"
-  | "notes";
+type WorkspaceSidebarMode = "explorer" | "source-control" | "outline" | "problems" | "notes";
 
 interface QueuedWorkspaceContext {
   readonly context: WorkspaceSelectionContext;
@@ -860,7 +746,7 @@ function WorkspaceActivityButton(props: {
       aria-label={props.label}
       title={props.label}
       className={cn(
-        "relative my-0.5 flex size-8 items-center justify-center rounded-lg transition-colors",
+        "relative my-0.5 flex size-8 items-center justify-center rounded-lg outline-none transition-colors focus-visible:outline-none focus-visible:ring-0",
         props.active
           ? "bg-accent text-foreground"
           : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
@@ -1016,6 +902,7 @@ function ThreadWorkspaceEditor(inputProps: {
     useState<WorkspaceEditorProblemNavigationTarget | null>(null);
   const [symbolNavigationTarget, setSymbolNavigationTarget] =
     useState<WorkspaceEditorSymbolNavigationTarget | null>(null);
+  const [findRequestToken, setFindRequestToken] = useState(0);
   const [collapsedOutlineIds, setCollapsedOutlineIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -1255,10 +1142,14 @@ function ThreadWorkspaceEditor(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
-  const monacoTheme = ensureMonacoConfigured({
-    resolvedTheme,
-    themePreset,
-  });
+  const monacoTheme = useMemo(
+    () =>
+      ensureMonacoConfigured({
+        resolvedTheme,
+        themePreset,
+      }),
+    [resolvedTheme, themePreset],
+  );
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -2104,6 +1995,9 @@ function ThreadWorkspaceEditor(inputProps: {
     setCommandPaletteMode(mode);
     setCommandPaletteOpen(true);
   }, []);
+  const requestFindInActiveEditor = useCallback(() => {
+    setFindRequestToken((current) => current + 1);
+  }, []);
   const workspaceCommandActions = useMemo<readonly WorkspaceCommandAction[]>(
     () => [
       {
@@ -2115,15 +2009,11 @@ function ThreadWorkspaceEditor(inputProps: {
       },
       {
         id: "search-text",
-        description: "Switch to workspace search.",
+        description: "Open find in the active editor.",
         icon: "search",
-        label: "Search Text",
-        shortcut: "⌘⇧F",
-        run: () => {
-          setSidebarMode("search");
-          setExplorerOpen(props.threadId, true);
-          treeSearchInputRef.current?.focus();
-        },
+        label: "Find in Active Editor",
+        shortcut: "⌘F",
+        run: requestFindInActiveEditor,
       },
       {
         id: "source-control",
@@ -2193,6 +2083,7 @@ function ThreadWorkspaceEditor(inputProps: {
       props.gitCwd,
       props.threadId,
       queueWorkspaceSelectionContext,
+      requestFindInActiveEditor,
       setExplorerOpen,
     ],
   );
@@ -2718,9 +2609,7 @@ function ThreadWorkspaceEditor(inputProps: {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         event.stopPropagation();
-        setSidebarMode("search");
-        setExplorerOpen(props.threadId, true);
-        window.setTimeout(() => treeSearchInputRef.current?.focus(), 0);
+        requestFindInActiveEditor();
         return;
       }
       const terminalFocus = isTerminalFocused();
@@ -2739,9 +2628,7 @@ function ThreadWorkspaceEditor(inputProps: {
       if (command === "search.open") {
         event.preventDefault();
         event.stopPropagation();
-        setSidebarMode("search");
-        setExplorerOpen(props.threadId, true);
-        window.setTimeout(() => treeSearchInputRef.current?.focus(), 0);
+        requestFindInActiveEditor();
         return;
       }
 
@@ -2966,9 +2853,9 @@ function ThreadWorkspaceEditor(inputProps: {
     props.keybindings,
     props.terminalOpen,
     props.threadId,
+    requestFindInActiveEditor,
     setActiveFile,
     setActivePane,
-    setExplorerOpen,
     startInlineEntry,
     updateSettings,
   ]);
@@ -2991,16 +2878,6 @@ function ThreadWorkspaceEditor(inputProps: {
             onClick={() => {
               setSidebarMode("explorer");
               setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "search"}
-            icon={<SearchIcon className="size-4" />}
-            label="Search"
-            onClick={() => {
-              setSidebarMode("search");
-              setExplorerOpen(props.threadId, true);
-              window.setTimeout(() => treeSearchInputRef.current?.focus(), 0);
             }}
           />
           <WorkspaceActivityButton
@@ -3052,12 +2929,6 @@ function ThreadWorkspaceEditor(inputProps: {
             <aside className="flex min-h-0 min-w-0 flex-col border-r border-border bg-card/68 text-foreground">
               <div className="flex h-12 items-center gap-2 border-b border-border bg-card/80 px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-                  <ExternalEditorOpenMenu
-                    availableEditors={props.availableEditors}
-                    connectionUrl={inputProps.connectionUrl}
-                    gitCwd={props.gitCwd}
-                    keybindings={props.keybindings}
-                  />
                   {activeWorktreePath ? (
                     <span
                       className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[10.5px] font-medium text-foreground/76"
@@ -3125,7 +2996,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   </Button>
                 </div>
               </div>
-              {sidebarMode === "explorer" || sidebarMode === "search" ? (
+              {sidebarMode === "explorer" ? (
                 <>
                   <div className="border-b border-border/70 bg-background/35 px-2.5 py-2.5">
                     <div className="relative">
@@ -3504,7 +3375,7 @@ function ThreadWorkspaceEditor(inputProps: {
                             key={group.id}
                             className={cn(
                               "overflow-hidden rounded-[8px] border border-border/65 bg-background/52",
-                              isActiveFile && "border-primary/35 bg-primary/[0.05]",
+                              isActiveFile && "border-border bg-accent/40",
                             )}
                           >
                             <button
@@ -3761,6 +3632,7 @@ function ThreadWorkspaceEditor(inputProps: {
                                 : null
                             }
                             symbolNavigationTarget={symbolNavigationTarget}
+                            findRequestToken={pane.id === activePaneId ? findRequestToken : 0}
                           />
                           {paneIndex < row.panes.length - 1 ? (
                             <div
