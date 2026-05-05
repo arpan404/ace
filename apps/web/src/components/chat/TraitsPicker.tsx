@@ -85,11 +85,37 @@ function getRawEffort(
     case "claudeAgent":
       return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
     case "pi":
-      return trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel);
+      return (
+        trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
+        trimOrNull((modelOptions as PiModelOptions | undefined)?.reasoningEffort)
+      );
     case "gemini":
     case "opencode":
       return null;
   }
+}
+
+function findPiThoughtConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "thought_level" || option.id === "thought_level",
+  );
+}
+
+function buildPiOptionsFromThoughtLevel(
+  modelOptions: ProviderOptions | null | undefined,
+  value: string,
+): PiModelOptions {
+  return {
+    ...(modelOptions as PiModelOptions | undefined),
+    thoughtLevel: value as PiModelOptions["thoughtLevel"],
+    ...(value === "low" || value === "medium" || value === "high" || value === "xhigh"
+      ? {
+          reasoningEffort: value as NonNullable<PiModelOptions["reasoningEffort"]>,
+        }
+      : {}),
+  };
 }
 
 function getRawContextWindow(
@@ -290,11 +316,10 @@ export function shouldRenderTraitsPicker(input: {
     return hasVisibleCursorTraits(input.models, input.model);
   }
   if (input.provider === "pi") {
-    return (
-      (input.sessionConfigOptions ?? []).some(
-        (option) => option.category === "thought_level" || option.id === "thought_level",
-      ) || false
-    );
+    const piThoughtOption = findPiThoughtConfigOption(input.sessionConfigOptions);
+    if (piThoughtOption && piThoughtOption.options.length > 0) {
+      return true;
+    }
   }
 
   const { caps, effortLevels, thinkingEnabled, contextWindowOptions } = getSelectedTraits(
@@ -541,29 +566,17 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     [persistence, provider, setProviderModelOptions],
   );
   const piThoughtOption =
-    provider === "pi"
-      ? (sessionConfigOptions ?? []).find(
-          (option) => option.category === "thought_level" || option.id === "thought_level",
-        )
-      : undefined;
-  if (provider === "pi") {
-    if (!piThoughtOption || piThoughtOption.options.length === 0) {
-      return null;
-    }
+    provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
+  if (provider === "pi" && piThoughtOption && piThoughtOption.options.length > 0) {
     const selectedThoughtLevel =
-      trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
-      piThoughtOption.currentValue;
+      getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
     return (
       <MenuGroup>
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking Level</div>
         <MenuRadioGroup
           value={selectedThoughtLevel}
           onValueChange={(value) => {
-            updateModelOptions(
-              buildNextOptions(provider, modelOptions, {
-                thoughtLevel: value,
-              }),
-            );
+            updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, value));
           }}
         >
           {piThoughtOption.options.map((option) => (
@@ -607,6 +620,10 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       if (ultrathinkPromptControlled) {
         const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
         onPromptChange(stripped);
+      }
+      if (provider === "pi") {
+        updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, nextOption.value));
+        return;
       }
       const effortKey = provider === "claudeAgent" ? "effort" : "reasoningEffort";
       updateModelOptions(
@@ -761,18 +778,10 @@ export const TraitsPicker = memo(function TraitsPicker({
 }: TraitsMenuContentProps & TraitsPersistence) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const piThoughtOption =
-    provider === "pi"
-      ? (sessionConfigOptions ?? []).find(
-          (option) => option.category === "thought_level" || option.id === "thought_level",
-        )
-      : undefined;
-  if (provider === "pi") {
-    if (!piThoughtOption || piThoughtOption.options.length === 0) {
-      return null;
-    }
+    provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
+  if (provider === "pi" && piThoughtOption && piThoughtOption.options.length > 0) {
     const selectedThoughtLevel =
-      trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
-      piThoughtOption.currentValue;
+      getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
     const triggerLabel =
       piThoughtOption.options.find((option) => option.value === selectedThoughtLevel)?.name ??
       "Thinking";

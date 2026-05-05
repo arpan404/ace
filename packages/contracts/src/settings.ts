@@ -325,6 +325,7 @@ const ModelSelectionPatch = Schema.Union([
     options: Schema.optionalKey(
       Schema.Struct({
         thoughtLevel: Schema.optionalKey(PiModelOptions.fields.thoughtLevel),
+        reasoningEffort: Schema.optionalKey(PiModelOptions.fields.reasoningEffort),
       }),
     ),
   }),

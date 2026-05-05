@@ -255,6 +255,20 @@ function normalizePiThoughtLevel(value: string | undefined): PiThoughtLevel | un
   return value && PI_THOUGHT_LEVEL_SET.has(value) ? (value as PiThoughtLevel) : undefined;
 }
 
+function requestedPiThoughtLevel(
+  modelSelection:
+    | ProviderSessionStartInput["modelSelection"]
+    | ProviderSendTurnInput["modelSelection"]
+    | undefined,
+): PiThoughtLevel | undefined {
+  if (!modelSelection || modelSelection.provider !== PROVIDER) {
+    return undefined;
+  }
+  return normalizePiThoughtLevel(
+    modelSelection.options?.thoughtLevel ?? modelSelection.options?.reasoningEffort,
+  );
+}
+
 function currentModel(metadata: PiSessionMetadata): PiModel | undefined {
   return metadata.availableModels.find((model) => model.slug === metadata.currentModelSlug);
 }
@@ -1674,12 +1688,7 @@ export const PiAdapterLive = Layer.effect(
         context,
         input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined,
       );
-      await syncThoughtLevel(
-        context,
-        input.modelSelection?.provider === PROVIDER
-          ? input.modelSelection.options?.thoughtLevel
-          : undefined,
-      );
+      await syncThoughtLevel(context, requestedPiThoughtLevel(input.modelSelection));
       emitUnsupportedModeWarnings(context, input);
       return context;
     };
@@ -1705,12 +1714,7 @@ export const PiAdapterLive = Layer.effect(
               existing,
               input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined,
             );
-            await syncThoughtLevel(
-              existing,
-              input.modelSelection?.provider === PROVIDER
-                ? input.modelSelection.options?.thoughtLevel
-                : undefined,
-            );
+            await syncThoughtLevel(existing, requestedPiThoughtLevel(input.modelSelection));
             emitUnsupportedModeWarnings(existing, input);
             return existing.session;
           }
@@ -1771,12 +1775,7 @@ export const PiAdapterLive = Layer.effect(
             context,
             input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined,
           );
-          await syncThoughtLevel(
-            context,
-            input.modelSelection?.provider === PROVIDER
-              ? input.modelSelection.options?.thoughtLevel
-              : undefined,
-          );
+          await syncThoughtLevel(context, requestedPiThoughtLevel(input.modelSelection));
           emitUnsupportedModeWarnings(context, {
             interactionMode: input.interactionMode,
             runtimeMode: context.session.runtimeMode,
@@ -1895,8 +1894,8 @@ export const PiAdapterLive = Layer.effect(
           }
           if (
             input.modelSelection?.provider === PROVIDER &&
-            input.modelSelection.options?.thoughtLevel !== undefined &&
-            input.modelSelection.options.thoughtLevel !== context.metadata.currentThinkingLevel
+            requestedPiThoughtLevel(input.modelSelection) !== undefined &&
+            requestedPiThoughtLevel(input.modelSelection) !== context.metadata.currentThinkingLevel
           ) {
             throw new ProviderAdapterValidationError({
               provider: PROVIDER,

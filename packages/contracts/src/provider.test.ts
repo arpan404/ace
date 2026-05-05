@@ -136,6 +136,29 @@ describe("ProviderSessionStartInput", () => {
     }
     expect(parsed.modelSelection.options?.thoughtLevel).toBe("high");
   });
+
+  it("accepts pi reasoning effort model options", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-pi-2",
+      provider: "pi",
+      cwd: "/tmp/workspace",
+      modelSelection: {
+        provider: "pi",
+        model: "openai/gpt-5.4-mini",
+        options: {
+          reasoningEffort: "high",
+        },
+      },
+      runtimeMode: "full-access",
+    });
+
+    expect(parsed.provider).toBe("pi");
+    expect(parsed.modelSelection?.provider).toBe("pi");
+    if (parsed.modelSelection?.provider !== "pi") {
+      throw new Error("Expected pi modelSelection");
+    }
+    expect(parsed.modelSelection.options?.reasoningEffort).toBe("high");
+  });
 });
 
 describe("ProviderSendTurnInput", () => {
@@ -218,5 +241,24 @@ describe("ProviderSendTurnInput", () => {
       throw new Error("Expected pi modelSelection");
     }
     expect(parsed.modelSelection.options?.thoughtLevel).toBe("minimal");
+  });
+
+  it("accepts pi modelSelection with reasoning effort", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-pi-3",
+      modelSelection: {
+        provider: "pi",
+        model: "openai/gpt-5.4-mini",
+        options: {
+          reasoningEffort: "xhigh",
+        },
+      },
+    });
+
+    expect(parsed.modelSelection?.provider).toBe("pi");
+    if (parsed.modelSelection?.provider !== "pi") {
+      throw new Error("Expected pi modelSelection");
+    }
+    expect(parsed.modelSelection.options?.reasoningEffort).toBe("xhigh");
   });
 });

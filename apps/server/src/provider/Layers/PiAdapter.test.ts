@@ -246,6 +246,65 @@ describe("PiAdapterLive", () => {
     });
   });
 
+  it("accepts generic reasoning effort and forwards it to Pi thinking-level RPC", async () => {
+    const client = makeFakePiClient({
+      requestImpl: async (command) => {
+        switch (command) {
+          case "get_state":
+            return {
+              sessionId: "pi-session-reasoning-effort",
+              model: {
+                id: "gpt-5.5",
+                provider: "openai",
+                name: "GPT-5.5",
+                reasoning: true,
+              },
+              thinkingLevel: "medium",
+            };
+          case "get_available_models":
+            return {
+              models: [{ id: "gpt-5.5", provider: "openai", name: "GPT-5.5", reasoning: true }],
+            };
+          case "get_commands":
+            return { commands: [] };
+          case "set_thinking_level":
+            return {};
+          default:
+            throw new Error(`Unexpected Pi RPC command: ${command}`);
+        }
+      },
+    });
+    mockedStartPiRpcClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "pi",
+            threadId: asThreadId("thread-pi-reasoning-effort"),
+            cwd: "/repo/pi-reasoning-effort",
+            runtimeMode: "full-access",
+            modelSelection: {
+              provider: "pi",
+              model: "openai/gpt-5.5",
+              options: {
+                reasoningEffort: "high",
+              },
+            },
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "set_thinking_level",
+          { level: "high" },
+          { timeoutMs: 20_000 },
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("wraps Pi plan turns and emits proposed plans from assistant output", async () => {
     const client = makeFakePiClient({
       requestImpl: async (command) => {

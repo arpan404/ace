@@ -117,9 +117,21 @@ export function normalizePiModelOptionsWithCapabilities(
   caps: ModelCapabilities,
   modelOptions: PiModelOptions | null | undefined,
 ): PiModelOptions | undefined {
-  const thoughtLevel = resolveEffort(caps, modelOptions?.thoughtLevel);
+  const normalizedEffort = resolveEffort(
+    caps,
+    modelOptions?.thoughtLevel ?? modelOptions?.reasoningEffort,
+  );
   const nextOptions: PiModelOptions = {
-    ...(thoughtLevel ? { thoughtLevel: thoughtLevel as PiModelOptions["thoughtLevel"] } : {}),
+    ...(normalizedEffort
+      ? { thoughtLevel: normalizedEffort as PiModelOptions["thoughtLevel"] }
+      : {}),
+    ...(normalizedEffort &&
+    (normalizedEffort === "low" ||
+      normalizedEffort === "medium" ||
+      normalizedEffort === "high" ||
+      normalizedEffort === "xhigh")
+      ? { reasoningEffort: normalizedEffort as PiModelOptions["reasoningEffort"] }
+      : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
