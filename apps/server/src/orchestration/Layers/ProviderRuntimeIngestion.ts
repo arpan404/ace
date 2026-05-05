@@ -2843,38 +2843,18 @@ const make = Effect.fn("make")(function* () {
 
       const providerCommands = providerSlashCommandsFromSessionConfigured(event);
       const providerConfigOptions = providerConfigOptionsFromSessionConfigured(event);
-      if (providerConfigOptions !== null) {
+      if (providerConfigOptions !== null || providerCommands !== null) {
         yield* orchestrationEngine.dispatch({
           type: "thread.session.set",
-          commandId: providerCommandId(event, "thread-session-config-options-set"),
+          commandId: providerCommandId(event, "thread-session-configured-set"),
           threadId: thread.id,
           session: {
             threadId: thread.id,
             status: thread.session?.status ?? "ready",
             providerName: event.provider,
             capabilities: yield* resolveSessionCapabilities(event.provider),
-            configOptions: providerConfigOptions,
-            commands: thread.session?.commands ?? [],
-            runtimeMode: thread.session?.runtimeMode ?? "full-access",
-            activeTurnId: thread.session?.activeTurnId ?? null,
-            lastError: thread.session?.lastError ?? null,
-            updatedAt: now,
-          },
-          createdAt: now,
-        });
-      }
-      if (providerCommands !== null) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.session.set",
-          commandId: providerCommandId(event, "thread-session-commands-set"),
-          threadId: thread.id,
-          session: {
-            threadId: thread.id,
-            status: thread.session?.status ?? "ready",
-            providerName: event.provider,
-            capabilities: yield* resolveSessionCapabilities(event.provider),
-            configOptions: thread.session?.configOptions ?? [],
-            commands: providerCommands,
+            configOptions: providerConfigOptions ?? thread.session?.configOptions ?? [],
+            commands: providerCommands ?? thread.session?.commands ?? [],
             runtimeMode: thread.session?.runtimeMode ?? "full-access",
             activeTurnId: thread.session?.activeTurnId ?? null,
             lastError: thread.session?.lastError ?? null,

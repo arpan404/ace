@@ -21,7 +21,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import {
+  makeSqlitePersistenceLive,
+  SqlitePersistenceMemory,
+} from "../../persistence/Layers/Sqlite.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -35,6 +38,7 @@ import {
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -157,6 +161,27 @@ async function waitForThread(
   return poll();
 }
 
+async function waitForProjectedThread(
+  readThread: (threadId?: ThreadId) => Promise<ProviderRuntimeTestThread | undefined>,
+  predicate: (thread: ProviderRuntimeTestThread) => boolean,
+  timeoutMs = 2000,
+  threadId: ThreadId = asThreadId("thread-1"),
+) {
+  const deadline = Date.now() + timeoutMs;
+  const poll = async (): Promise<ProviderRuntimeTestThread> => {
+    const thread = await readThread(threadId);
+    if (thread && predicate(thread)) {
+      return thread;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for projected thread state");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return poll();
+  };
+  return poll();
+}
+
 type ProviderRuntimeTestReadModel = OrchestrationReadModel;
 type ProviderRuntimeTestThread = ProviderRuntimeTestReadModel["threads"][number];
 type ProviderRuntimeTestMessage = ProviderRuntimeTestThread["messages"][number];
@@ -176,6 +201,13 @@ describe("ProviderRuntimeIngestion", () => {
   }
 
   afterEach(async () => {
+    await disposeHarness();
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  async function disposeHarness() {
     if (scope) {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
@@ -184,27 +216,31 @@ describe("ProviderRuntimeIngestion", () => {
       await runtime.dispose();
     }
     runtime = null;
-    for (const dir of tempDirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  }
 
-  async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
-    const workspaceRoot = makeTempDir("ace-provider-project-");
-    const serverBaseDir = makeTempDir("ace-provider-state-");
-    fs.mkdirSync(path.join(workspaceRoot, ".git"));
+  async function createHarness(options?: {
+    serverSettings?: Partial<ServerSettings>;
+    workspaceRoot?: string;
+    serverBaseDir?: string;
+    seedBaseState?: boolean;
+    persistenceLayer?: Layer.Layer<SqlClient.SqlClient>;
+  }) {
+    const workspaceRoot = options?.workspaceRoot ?? makeTempDir("ace-provider-project-");
+    const serverBaseDir = options?.serverBaseDir ?? makeTempDir("ace-provider-state-");
+    fs.mkdirSync(path.join(workspaceRoot, ".git"), { recursive: true });
     const provider = createProviderServiceHarness();
+    const persistenceLayer = options?.persistenceLayer ?? SqlitePersistenceMemory;
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-      Layer.provide(SqlitePersistenceMemory),
+      Layer.provide(persistenceLayer),
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
-      Layer.provideMerge(SqlitePersistenceMemory),
+      Layer.provideMerge(persistenceLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), serverBaseDir)),
@@ -213,6 +249,9 @@ describe("ProviderRuntimeIngestion", () => {
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
+    const projectionSnapshotQuery = await runtime.runPromise(
+      Effect.service(ProjectionSnapshotQuery),
+    );
     const serverConfig = await runtime.runPromise(Effect.service(ServerConfig));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
@@ -248,65 +287,73 @@ describe("ProviderRuntimeIngestion", () => {
           };
         }),
       );
+    const readProjectedThread = (threadId: ThreadId = asThreadId("thread-1")) =>
+      runtime!.runPromise(
+        projectionSnapshotQuery
+          .getSnapshot({ hydrateThreadId: threadId })
+          .pipe(Effect.map((snapshot) => snapshot.threads.find((entry) => entry.id === threadId))),
+      );
 
     const createdAt = new Date().toISOString();
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-provider-project-create"),
-        projectId: asProjectId("project-1"),
-        title: "Provider Project",
-        workspaceRoot,
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: asProjectId("project-1"),
-        title: "Thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
-        createdAt,
-      }),
-    );
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-seed"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
+    if (options?.seedBaseState !== false) {
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.makeUnsafe("cmd-provider-project-create"),
+          projectId: asProjectId("project-1"),
+          title: "Provider Project",
+          workspaceRoot,
+          defaultModelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          createdAt,
+        }),
+      );
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-thread-create"),
           threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "ready",
-          providerName: "codex",
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "approval-required",
-          activeTurnId: null,
-          updatedAt: createdAt,
-          lastError: null,
-        },
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      );
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-session-seed"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          session: {
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            updatedAt: createdAt,
+            lastError: null,
+          },
+          createdAt,
+        }),
+      );
+      provider.setSession({
+        provider: "codex",
+        status: "ready",
+        runtimeMode: "approval-required",
+        threadId: ThreadId.makeUnsafe("thread-1"),
         createdAt,
-      }),
-    );
-    provider.setSession({
-      provider: "codex",
-      status: "ready",
-      runtimeMode: "approval-required",
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      createdAt,
-      updatedAt: createdAt,
-    });
+        updatedAt: createdAt,
+      });
+    }
 
     return {
       engine,
@@ -315,6 +362,7 @@ describe("ProviderRuntimeIngestion", () => {
       serverConfig,
       drain,
       readActivityPersistence,
+      readProjectedThread,
     };
   }
 
@@ -446,6 +494,271 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("ready");
     expect(thread.session?.lastError).toBeNull();
+  });
+
+  it("restores Pi session config options and replay-ready transcript after orchestration restart", async () => {
+    const workspaceRoot = makeTempDir("ace-provider-project-pi-restart-");
+    const serverBaseDir = makeTempDir("ace-provider-state-pi-restart-");
+    const dbPath = path.join(serverBaseDir, "provider-runtime.sqlite");
+    const persistenceLayer = makeSqlitePersistenceLive(dbPath).pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.orDie,
+    );
+
+    const firstHarness = await createHarness({
+      workspaceRoot,
+      serverBaseDir,
+      persistenceLayer,
+    });
+    const now = new Date().toISOString();
+
+    firstHarness.setProviderSession({
+      provider: "pi",
+      status: "ready",
+      runtimeMode: "full-access",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    firstHarness.emit({
+      type: "session.started",
+      eventId: asEventId("evt-pi-session-started"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        processPid: 4312,
+      },
+    });
+
+    await waitForThread(
+      firstHarness.engine,
+      (thread) => thread.session?.providerName === "pi" && thread.session?.status === "ready",
+    );
+
+    firstHarness.emit({
+      type: "session.configured",
+      eventId: asEventId("evt-pi-session-configured"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        config: {
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              currentValue: "openai/gpt-5.5",
+              options: [
+                {
+                  value: "openai/gpt-5.4",
+                  name: "GPT-5.4",
+                },
+                {
+                  value: "openai/gpt-5.5",
+                  name: "GPT-5.5",
+                },
+              ],
+            },
+            {
+              id: "thought_level",
+              name: "Thinking Level",
+              category: "thought_level",
+              type: "select",
+              currentValue: "xhigh",
+              options: [
+                {
+                  value: "medium",
+                  name: "Medium",
+                },
+                {
+                  value: "xhigh",
+                  name: "Extra High",
+                },
+              ],
+            },
+          ],
+          availableCommands: [
+            {
+              name: "review",
+              kind: "provider",
+              description: "Review the workspace",
+            },
+          ],
+        },
+      },
+    });
+
+    await firstHarness.drain();
+    const configuredReadModel = await Effect.runPromise(firstHarness.engine.getReadModel());
+    const configuredThread = configuredReadModel.threads.find((thread) => thread.id === "thread-1");
+    expect(configuredThread?.session?.providerName).toBe("pi");
+    expect(configuredThread?.session?.commands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "review", kind: "provider" })]),
+    );
+    expect(configuredThread?.session?.configOptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "model",
+          currentValue: "openai/gpt-5.5",
+        }),
+        expect.objectContaining({
+          id: "thought_level",
+          currentValue: "xhigh",
+        }),
+      ]),
+    );
+
+    await Effect.runPromise(
+      firstHarness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-pi-restart-turn-start"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("message-pi-restart-user"),
+          role: "user",
+          text: "Investigate the flaky restart path.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        createdAt: now,
+      }),
+    );
+    await firstHarness.drain();
+
+    firstHarness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-pi-turn-started"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-pi-restart"),
+    });
+    await waitForThread(
+      firstHarness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-pi-restart",
+    );
+
+    firstHarness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-pi-assistant-delta-1"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-pi-restart"),
+      itemId: asItemId("pi-assistant-item"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "I found the replay bug",
+      },
+    });
+    firstHarness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-pi-assistant-delta-2"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-pi-restart"),
+      itemId: asItemId("pi-assistant-item"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " in the restart path.",
+      },
+    });
+    firstHarness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-pi-assistant-item-completed"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-pi-restart"),
+      itemId: asItemId("pi-assistant-item"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    firstHarness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-pi-turn-completed"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-pi-restart"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await waitForThread(
+      firstHarness.engine,
+      (thread) =>
+        thread.session?.status === "ready" &&
+        thread.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:pi-assistant-item" &&
+            message.text === "I found the replay bug in the restart path.",
+        ),
+    );
+    await firstHarness.drain();
+    await waitForProjectedThread(
+      firstHarness.readProjectedThread,
+      (thread) =>
+        thread.session?.configOptions?.some(
+          (option) => option.id === "thought_level" && option.currentValue === "xhigh",
+        ) === true &&
+        thread.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:pi-assistant-item" &&
+            message.text === "I found the replay bug in the restart path.",
+        ),
+    );
+
+    await disposeHarness();
+
+    const restartedHarness = await createHarness({
+      workspaceRoot,
+      serverBaseDir,
+      persistenceLayer,
+      seedBaseState: false,
+    });
+
+    const recoveredThread = await restartedHarness.readProjectedThread(asThreadId("thread-1"));
+
+    expect(recoveredThread?.session?.providerName).toBe("pi");
+    expect(recoveredThread?.session?.status).toBe("ready");
+    expect(recoveredThread?.session?.commands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "review", kind: "provider" })]),
+    );
+    expect(recoveredThread?.session?.configOptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "model",
+          currentValue: "openai/gpt-5.5",
+        }),
+        expect.objectContaining({
+          id: "thought_level",
+          currentValue: "xhigh",
+        }),
+      ]),
+    );
+    expect(recoveredThread?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "message-pi-restart-user",
+          text: "Investigate the flaky restart path.",
+        }),
+        expect.objectContaining({
+          id: "assistant:pi-assistant-item",
+          text: "I found the replay bug in the restart path.",
+        }),
+      ]),
+    );
   });
 
   it("ignores session.exited when the reported runtime pid is still alive", async () => {
