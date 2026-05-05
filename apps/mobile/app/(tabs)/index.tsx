@@ -70,13 +70,11 @@ export default function ThreadsScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
         <ScreenHeader
-          eyebrow="ace"
           title="Threads"
-          subtitle="Monitor every agent thread across connected hosts, from live runs to review-ready work."
           action={
             <View style={styles.headerActions}>
-              <IconButton icon={Search} label="Find" onPress={() => router.push("/search")} />
-              <StatusBadge label={`${threads.length} threads`} tone="success" />
+              <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
+              <StatusBadge label={`${threads.length}`} tone="success" />
             </View>
           }
         />
@@ -105,7 +103,7 @@ export default function ThreadsScreen() {
         </ScrollView>
 
         <View style={styles.sectionHeader}>
-          <SectionTitle>Execution Feed</SectionTitle>
+          <SectionTitle>Threads</SectionTitle>
           <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
             {filteredThreads.length} visible
           </Text>
@@ -138,11 +136,7 @@ export default function ThreadsScreen() {
         )}
 
         {error ? (
-          <NoticeBanner
-            tone="danger"
-            title="Unable to refresh threads"
-            body={error}
-          />
+          <NoticeBanner tone="danger" title="Unable to refresh threads" body={error} />
         ) : null}
       </ScrollView>
     </View>
@@ -249,43 +243,43 @@ const styles = StyleSheet.create({
   headerActions: {
     alignItems: "flex-end",
     gap: 8,
+    flexDirection: "row",
   },
   metricRow: {
-    marginTop: 22,
+    marginTop: 18,
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
   },
   filterStrip: {
-    gap: 10,
-    paddingTop: 18,
+    gap: 8,
+    paddingTop: 14,
   },
   sectionHeader: {
-    marginTop: 22,
-    marginBottom: 10,
+    marginTop: 18,
+    marginBottom: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   sectionMeta: {
     fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    fontWeight: "500",
   },
   listShell: {
     overflow: "hidden",
   },
   threadRow: {
-    minHeight: 126,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    minHeight: 96,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 14,
+    gap: 12,
   },
   threadLead: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -296,46 +290,46 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
   threadTitle: {
     flex: 1,
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "800",
-    letterSpacing: -0.35,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
+    letterSpacing: -0.2,
   },
   threadMeta: {
-    marginTop: 8,
+    marginTop: 4,
     fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
+    lineHeight: 17,
+    fontWeight: "500",
   },
   threadPreview: {
-    marginTop: 10,
-    fontSize: 14,
-    lineHeight: 21,
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
   },
   threadFooter: {
-    marginTop: 12,
+    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   threadTime: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   threadFootnote: {
     flex: 1,
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
   },
   separator: {
     position: "absolute",
     bottom: 0,
-    left: 18,
-    right: 18,
+    left: 16,
+    right: 16,
     height: StyleSheet.hairlineWidth,
   },
 });

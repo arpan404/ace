@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, View, ScrollView, StyleSheet, Pressable, Text } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Server, Plus, ChevronRight, RefreshCw, Search } from "lucide-react-native";
+import { Server, Plus, ChevronRight, RefreshCw } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {
@@ -75,12 +75,9 @@ export default function HostsScreen() {
         }}
       >
         <ScreenHeader
-          eyebrow="ace"
           title="Hosts"
-          subtitle="Pair, inspect, and reconnect desktop agents across every reachable machine."
           action={
             <View style={styles.headerActions}>
-              <IconButton icon={Search} label="Find" onPress={() => router.push("/search")} />
               <IconButton icon={Plus} label="Pair" onPress={() => router.push("/pairing")} />
             </View>
           }

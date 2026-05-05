@@ -1,18 +1,18 @@
 export const Layout = {
-  pagePadding: 22,
-  sectionGap: 28,
-  cardPadding: 20,
-  rowHeight: 76,
-  pillHeight: 38,
-  tabBarHeight: 86,
+  pagePadding: 20,
+  sectionGap: 24,
+  cardPadding: 16,
+  rowHeight: 64,
+  pillHeight: 36,
+  tabBarHeight: 68,
 } as const;
 
 export const Radius = {
-  panel: 28,
-  card: 24,
-  row: 22,
+  panel: 16,
+  card: 14,
+  row: 12,
   pill: 999,
-  input: 20,
+  input: 12,
 } as const;
 
 export function withAlpha(color: string, alpha: number): string {

@@ -1054,9 +1054,7 @@ export default function SettingsScreen() {
         }}
       >
         <ScreenHeader
-          eyebrow="ace"
           title="Settings"
-          subtitle="Control pairing, appearance, and the mobile surface for remote operation."
           action={<StatusBadge label={`${connectedHostCount} online`} tone="success" />}
         />
 

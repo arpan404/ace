@@ -36,12 +36,10 @@ export function ScreenBackdrop() {
 }
 
 export function ScreenHeader({
-  eyebrow,
   title,
-  subtitle,
   action,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   subtitle?: string;
   action?: ReactNode;
@@ -51,11 +49,7 @@ export function ScreenHeader({
   return (
     <View style={styles.headerRow}>
       <View style={styles.headerCopy}>
-        <Text style={[styles.eyebrow, { color: colors.tertiaryLabel }]}>{eyebrow}</Text>
         <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
-        {subtitle ? (
-          <Text style={[styles.subtitle, { color: colors.secondaryLabel }]}>{subtitle}</Text>
-        ) : null}
       </View>
       {action ? <View style={styles.headerAction}>{action}</View> : null}
     </View>
@@ -331,7 +325,10 @@ export function ChoiceChip({
       ]}
     >
       <Text
-        style={[styles.choiceChipLabel, { color: selected ? colors.foreground : colors.secondaryLabel }]}
+        style={[
+          styles.choiceChipLabel,
+          { color: selected ? colors.foreground : colors.secondaryLabel },
+        ]}
       >
         {label}
       </Text>
@@ -346,10 +343,7 @@ export function ListSkeleton({ rows = 4 }: { rows?: number }) {
       {Array.from({ length: rows }).map((_, index) => (
         <View key={index} style={styles.skeletonRow}>
           <View
-            style={[
-              styles.skeletonLead,
-              { backgroundColor: withAlpha(colors.foreground, 0.08) },
-            ]}
+            style={[styles.skeletonLead, { backgroundColor: withAlpha(colors.foreground, 0.08) }]}
           />
           <View style={styles.skeletonCopy}>
             <View
@@ -397,7 +391,9 @@ export function NoticeBanner({
       ]}
     >
       <Text style={[styles.noticeTitle, { color: toneColor }]}>{title}</Text>
-      {body ? <Text style={[styles.noticeBody, { color: colors.secondaryLabel }]}>{body}</Text> : null}
+      {body ? (
+        <Text style={[styles.noticeBody, { color: colors.secondaryLabel }]}>{body}</Text>
+      ) : null}
     </View>
   );
 }
@@ -408,118 +404,105 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 16,
+    gap: 12,
   },
   headerCopy: {
     flex: 1,
-    minWidth: 220,
+    minWidth: 200,
   },
   headerAction: {
     marginLeft: "auto",
-    paddingTop: 10,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
+    paddingTop: 4,
   },
   title: {
-    marginTop: 8,
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: "800",
-    letterSpacing: -1.2,
-  },
-  subtitle: {
-    marginTop: 10,
-    fontSize: 15,
-    lineHeight: 21,
-    maxWidth: 420,
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: "700",
+    letterSpacing: -0.8,
   },
   panel: {
     borderWidth: 1,
     borderRadius: Radius.panel,
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.2,
-    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
     elevation: 0,
   },
   panelPadded: {
-    padding: 20,
+    padding: 16,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.34,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.4,
     textTransform: "uppercase",
   },
   badge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     borderWidth: 1,
     borderRadius: Radius.pill,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   badgeDot: {
-    width: 7,
-    height: 7,
+    width: 6,
+    height: 6,
     borderRadius: 999,
   },
   badgeLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.16,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   metricCard: {
     flex: 1,
-    minHeight: 104,
+    minHeight: 80,
     borderWidth: 1,
     borderRadius: Radius.card,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     justifyContent: "space-between",
     overflow: "hidden",
   },
   metricLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   metricValue: {
-    fontSize: 30,
-    lineHeight: 32,
-    fontWeight: "800",
-    letterSpacing: -1.1,
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: "700",
+    letterSpacing: -0.6,
   },
   iconButton: {
-    minHeight: 48,
-    paddingHorizontal: 16,
+    minHeight: 36,
+    paddingHorizontal: 14,
     borderRadius: Radius.pill,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   iconButtonLabel: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "600",
     letterSpacing: -0.1,
   },
   rowLink: {
-    minHeight: 80,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    minHeight: 64,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 12,
   },
   rowIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -527,86 +510,86 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   rowTitle: {
-    fontSize: 17,
+    fontSize: 16,
     lineHeight: 20,
-    fontWeight: "700",
-    letterSpacing: -0.32,
+    fontWeight: "600",
+    letterSpacing: -0.2,
   },
   rowMeta: {
-    marginTop: 5,
+    marginTop: 3,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 17,
   },
   emptyTitle: {
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: "800",
-    letterSpacing: -0.7,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "600",
+    letterSpacing: -0.3,
   },
   emptyBody: {
-    marginTop: 10,
+    marginTop: 6,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
   },
   emptyAction: {
-    marginTop: 18,
+    marginTop: 16,
   },
   searchShell: {
-    marginTop: 24,
-    minHeight: 60,
+    marginTop: 20,
+    minHeight: 48,
     borderWidth: 1,
-    borderRadius: Radius.card,
-    paddingHorizontal: 18,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.12,
-    shadowRadius: 30,
+    gap: 10,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
     elevation: 0,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 20,
-    fontWeight: "500",
+    fontWeight: "400",
   },
   formField: {
-    minHeight: 56,
+    minHeight: 48,
     borderWidth: 1,
     borderRadius: Radius.input,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     fontSize: 15,
-    fontWeight: "500",
+    fontWeight: "400",
   },
   choiceChip: {
-    minHeight: 42,
+    minHeight: 34,
     borderRadius: Radius.pill,
     borderWidth: 1,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   choiceChipLabel: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "500",
     letterSpacing: -0.1,
   },
   skeletonShell: {
     overflow: "hidden",
   },
   skeletonRow: {
-    minHeight: 82,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    minHeight: 68,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 12,
   },
   skeletonLead: {
-    width: 40,
-    height: 40,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
   },
   skeletonCopy: {
     flex: 1,
@@ -614,37 +597,37 @@ const styles = StyleSheet.create({
   },
   skeletonLinePrimary: {
     width: "62%",
-    height: 14,
-    borderRadius: 7,
+    height: 13,
+    borderRadius: 6,
   },
   skeletonLineSecondary: {
     width: "86%",
-    height: 12,
-    borderRadius: 6,
+    height: 11,
+    borderRadius: 5,
   },
   separator: {
     position: "absolute",
     bottom: 0,
-    left: 18,
-    right: 18,
+    left: 16,
+    right: 16,
     height: StyleSheet.hairlineWidth,
   },
   noticeBanner: {
-    marginTop: 14,
+    marginTop: 12,
     borderWidth: 1,
     borderRadius: Radius.input,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 4,
+    paddingVertical: 10,
+    gap: 3,
   },
   noticeTitle: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   noticeBody: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "400",
   },
 });
