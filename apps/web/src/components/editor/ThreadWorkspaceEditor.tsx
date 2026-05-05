@@ -1752,15 +1752,8 @@ function ThreadWorkspaceEditor(inputProps: {
   const handleAddCodeComment = useCallback(
     (comment: WorkspaceCodeComment) => {
       addCodeComment(props.threadId, comment);
-      setSidebarMode("notes");
-      setExplorerOpen(props.threadId, true);
-      toastManager.add({
-        description: formatWorkspaceCodeCommentTitle(comment),
-        title: "Code comment added",
-        type: "success",
-      });
     },
-    [addCodeComment, props.threadId, setExplorerOpen],
+    [addCodeComment, props.threadId],
   );
   const submitAgentNotePrompt = useCallback(
     async (submission: WorkspaceAgentNoteSubmission) => {
@@ -1787,35 +1780,24 @@ function ThreadWorkspaceEditor(inputProps: {
   const handleAddAndSendCodeComment = useCallback(
     async (comment: WorkspaceCodeComment) => {
       addCodeComment(props.threadId, comment);
-      setSidebarMode("notes");
-      setExplorerOpen(props.threadId, true);
       const sent = await submitAgentNotePrompt({
         mode: "send",
         prompt: buildWorkspaceCodeCommentPrompt(comment),
       });
-      if (!sent) {
-        toastManager.add({
-          description: "Saved to Agent Notes. You can send it from there.",
-          title: "Comment queued",
-          type: "info",
-        });
-        return false;
+      if (sent) {
+        updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+        return true;
       }
-      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
-      toastManager.add({
-        description: formatWorkspaceCodeCommentTitle(comment),
-        title: "Code comment sent",
-        type: "success",
+      const queued = await submitAgentNotePrompt({
+        mode: "queue",
+        prompt: buildWorkspaceCodeCommentPrompt(comment),
       });
-      return true;
+      if (queued) {
+        updateCodeCommentStatus(props.threadId, comment.id, "queued");
+      }
+      return queued;
     },
-    [
-      addCodeComment,
-      props.threadId,
-      setExplorerOpen,
-      submitAgentNotePrompt,
-      updateCodeCommentStatus,
-    ],
+    [addCodeComment, props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
   );
   const handleSendQueuedContext = useCallback(
     async (entry: QueuedWorkspaceContext) => {
@@ -1824,11 +1806,6 @@ function ThreadWorkspaceEditor(inputProps: {
         return;
       }
       setQueuedWorkspaceContexts((current) => current.filter((item) => item.id !== entry.id));
-      toastManager.add({
-        description: `${entry.context.relativePath}:${entry.context.range.startLine + 1}-${entry.context.range.endLine + 1}`,
-        title: "Selection context sent",
-        type: "success",
-      });
     },
     [submitAgentNotePrompt],
   );
@@ -1842,11 +1819,6 @@ function ThreadWorkspaceEditor(inputProps: {
         return;
       }
       updateCodeCommentStatus(props.threadId, comment.id, "resolved");
-      toastManager.add({
-        description: formatWorkspaceCodeCommentTitle(comment),
-        title: "Code comment sent",
-        type: "success",
-      });
     },
     [props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
   );
@@ -1866,11 +1838,6 @@ function ThreadWorkspaceEditor(inputProps: {
     for (const comment of unresolvedCodeComments) {
       updateCodeCommentStatus(props.threadId, comment.id, "resolved");
     }
-    toastManager.add({
-      description: `Sent ${queuedWorkspaceContexts.length + unresolvedCodeComments.length} note${queuedWorkspaceContexts.length + unresolvedCodeComments.length === 1 ? "" : "s"} to the agent.`,
-      title: "Agent notes sent",
-      type: "success",
-    });
   }, [
     props.threadId,
     queuedWorkspaceContexts,
@@ -2198,16 +2165,6 @@ function ThreadWorkspaceEditor(inputProps: {
         },
       },
       {
-        id: "agent-notes",
-        description: `${openCodeCommentCount} open code comments, ${queuedWorkspaceContexts.length} queued contexts.`,
-        icon: "comment",
-        label: "Open Agent Notes",
-        run: () => {
-          setSidebarMode("notes");
-          setExplorerOpen(props.threadId, true);
-        },
-      },
-      {
         id: "split-right",
         icon: "code",
         label: "Split Editor Right",
@@ -2232,11 +2189,9 @@ function ThreadWorkspaceEditor(inputProps: {
       activePane?.id,
       changedFiles.length,
       handleSplitPane,
-      openCodeCommentCount,
       openCommandPalette,
       props.gitCwd,
       props.threadId,
-      queuedWorkspaceContexts.length,
       queueWorkspaceSelectionContext,
       setExplorerOpen,
     ],
@@ -3074,16 +3029,6 @@ function ThreadWorkspaceEditor(inputProps: {
             label="Problems"
             onClick={() => {
               setSidebarMode("problems");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "notes"}
-            badge={openCodeCommentCount + queuedWorkspaceContexts.length}
-            icon={<MessageSquareTextIcon className="size-4" />}
-            label="Agent Notes"
-            onClick={() => {
-              setSidebarMode("notes");
               setExplorerOpen(props.threadId, true);
             }}
           />
