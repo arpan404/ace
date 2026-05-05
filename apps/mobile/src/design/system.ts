@@ -3,16 +3,22 @@ export const Layout = {
   sectionGap: 24,
   cardPadding: 16,
   rowHeight: 64,
-  pillHeight: 36,
-  tabBarHeight: 68,
+  compactRowHeight: 56,
+  pillHeight: 34,
+  tabBarHeight: 72,
 } as const;
 
 export const Radius = {
-  panel: 20,
+  panel: 24,
   card: 16,
   row: 14,
   pill: 999,
-  input: 12,
+  input: 14,
+  xs: 8,
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 24,
 } as const;
 
 export function withAlpha(color: string, alpha: number): string {

@@ -10,31 +10,76 @@ import {
 } from "react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { ChevronRight } from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Radius, withAlpha } from "./system";
 import { useTheme, type ThemeColors } from "./ThemeContext";
-import { GlassBackground } from "./GlassBackground";
+import { Typography } from "./tokens";
+import type { ActionTone, StatusTone } from "./roles";
 
-type Tone = "accent" | "success" | "warning" | "danger" | "muted";
-
-function resolveToneColor(colors: ThemeColors, tone: Tone): string {
+function resolveToneColor(colors: ThemeColors, tone: StatusTone): string {
   switch (tone) {
     case "success":
-      return colors.green;
+      return colors.status.success;
     case "warning":
-      return colors.orange;
+      return colors.status.warning;
     case "danger":
-      return colors.red;
+      return colors.status.danger;
+    case "info":
+      return colors.status.info;
     case "muted":
-      return colors.muted;
+      return colors.status.muted;
     case "accent":
     default:
-      return colors.primary;
+      return colors.accent.primary;
+  }
+}
+
+function resolveActionColors(colors: ThemeColors, tone: ActionTone) {
+  switch (tone) {
+    case "primary":
+      return {
+        backgroundColor: colors.accent.primary,
+        borderColor: colors.accent.primary,
+        color: colors.text.inverse,
+      };
+    case "danger":
+      return {
+        backgroundColor: withAlpha(colors.status.danger, 0.12),
+        borderColor: withAlpha(colors.status.danger, 0.22),
+        color: colors.status.danger,
+      };
+    case "quiet":
+      return {
+        backgroundColor: "transparent",
+        borderColor: "transparent",
+        color: colors.text.secondary,
+      };
+    case "neutral":
+    default:
+      return {
+        backgroundColor: colors.surfaces.muted,
+        borderColor: colors.border.strong,
+        color: colors.text.primary,
+      };
   }
 }
 
 export function ScreenBackdrop() {
-  return null;
+  const { colors } = useTheme();
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View style={[styles.backdropBase, { backgroundColor: colors.bg.app }]} />
+      <View
+        style={[
+          styles.backdropOrbLarge,
+          { backgroundColor: withAlpha(colors.accent.primary, 0.055) },
+        ]}
+      />
+      <View
+        style={[styles.backdropOrbSmall, { backgroundColor: withAlpha(colors.status.info, 0.05) }]}
+      />
+    </View>
+  );
 }
 
 export function ScreenHeader({
@@ -46,47 +91,57 @@ export function ScreenHeader({
   subtitle?: string;
   action?: ReactNode;
 }) {
-  const { colors } = useTheme();
-
-  return (
-    <View style={styles.headerRow}>
-      <View style={styles.headerCopy}>
-        <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
-      </View>
-      {action ? <View style={styles.headerAction}>{action}</View> : null}
-    </View>
-  );
+  return <ScreenHeaderV2 title={title} actions={action} />;
 }
 
-export function GlassScreenHeader({
+export function GlassScreenHeader({ title, action }: { title: string; action?: ReactNode }) {
+  return <ScreenHeaderV2 title={title} actions={action} sticky />;
+}
+
+export function ScreenHeaderV2({
   title,
-  action,
+  eyebrow,
+  subtitle,
+  actions,
+  sticky = false,
 }: {
   title: string;
-  action?: ReactNode;
+  eyebrow?: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  sticky?: boolean;
 }) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
-    <GlassBackground
+    <View
       style={[
-        styles.glassHeaderContainer,
-        {
-          paddingTop: insets.top + 8,
-          borderBottomColor: colors.separator,
+        styles.headerShell,
+        sticky && {
+          backgroundColor: withAlpha(colors.bg.app, 0.96),
+          borderBottomColor: colors.border.soft,
+          borderBottomWidth: StyleSheet.hairlineWidth,
         },
       ]}
     >
-      <View style={styles.glassHeaderRow}>
-        <View style={styles.glassHeaderCopy}>
-          <Text style={[styles.glassTitle, { color: colors.foreground }]}>
-            {title}
-          </Text>
+      <View style={styles.headerRow}>
+        <View style={styles.headerCopy}>
+          {eyebrow ? (
+            <Text style={[styles.headerEyebrow, { color: colors.text.tertiary }]}>{eyebrow}</Text>
+          ) : null}
+          <Text style={[styles.headerTitle, { color: colors.text.primary }]}>{title}</Text>
+          {subtitle ? (
+            <Text
+              style={[styles.headerSubtitle, { color: colors.text.secondary }]}
+              numberOfLines={2}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
-        {action ? <View style={styles.glassHeaderAction}>{action}</View> : null}
+        {actions ? <View style={styles.headerActions}>{actions}</View> : null}
       </View>
-    </GlassBackground>
+    </View>
   );
 }
 
@@ -106,8 +161,8 @@ export function Panel({
       style={[
         styles.panel,
         {
-          backgroundColor: colors.surface,
-          borderColor: colors.elevatedBorder,
+          backgroundColor: colors.surfaces.default,
+          borderColor: colors.border.soft,
         },
         padded && styles.panelPadded,
         style,
@@ -118,12 +173,85 @@ export function Panel({
   );
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
+export function SectionCard({
+  title,
+  meta,
+  action,
+  children,
+  style,
+}: {
+  title: string;
+  meta?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  style?: ViewStyle;
+}) {
   const { colors } = useTheme();
-  return <Text style={[styles.sectionTitle, { color: colors.secondaryLabel }]}>{children}</Text>;
+  return (
+    <Panel {...(style ? { style } : {})}>
+      <View style={styles.sectionCardHeader}>
+        <View style={styles.sectionCardCopy}>
+          <Text style={[styles.sectionCardTitle, { color: colors.text.primary }]}>{title}</Text>
+          {meta ? (
+            <Text style={[styles.sectionCardMeta, { color: colors.text.secondary }]}>{meta}</Text>
+          ) : null}
+        </View>
+        {action}
+      </View>
+      {children}
+    </Panel>
+  );
 }
 
-export function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
+export function UtilityCard({
+  label,
+  value,
+  meta,
+  tone = "muted",
+  style,
+}: {
+  label: string;
+  value: string | number;
+  meta?: string;
+  tone?: StatusTone;
+  style?: ViewStyle;
+}) {
+  const { colors } = useTheme();
+  const toneColor = resolveToneColor(colors, tone);
+  return (
+    <View
+      style={[
+        styles.utilityCard,
+        {
+          backgroundColor: colors.surfaces.default,
+          borderColor: colors.border.soft,
+        },
+        style,
+      ]}
+    >
+      <Text style={[styles.utilityCardLabel, { color: colors.text.secondary }]}>{label}</Text>
+      <Text style={[styles.utilityCardValue, { color: colors.text.primary }]}>{value}</Text>
+      {meta ? (
+        <View style={styles.utilityMetaRow}>
+          <View style={[styles.inlineDot, { backgroundColor: toneColor }]} />
+          <Text style={[styles.utilityCardMeta, { color: colors.text.tertiary }]}>{meta}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function SectionTitle({ children }: { children: ReactNode }) {
+  const { colors } = useTheme();
+  return <Text style={[styles.sectionTitle, { color: colors.text.tertiary }]}>{children}</Text>;
+}
+
+export function InlineStatusDot({ tone = "accent" }: { tone?: StatusTone }) {
+  const { colors } = useTheme();
+  return <View style={[styles.inlineDot, { backgroundColor: resolveToneColor(colors, tone) }]} />;
+}
+
+export function StatusBadge({ label, tone }: { label: string; tone: StatusTone }) {
   const { colors } = useTheme();
   const toneColor = resolveToneColor(colors, tone);
 
@@ -133,7 +261,7 @@ export function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
         styles.badge,
         {
           backgroundColor: withAlpha(toneColor, 0.1),
-          borderColor: withAlpha(toneColor, 0.15),
+          borderColor: withAlpha(toneColor, 0.16),
         },
       ]}
     >
@@ -151,26 +279,10 @@ export function MetricCard({
 }: {
   label: string;
   value: string | number;
-  tone?: Tone;
+  tone?: StatusTone;
   style?: ViewStyle;
 }) {
-  const { colors } = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.metricCard,
-        {
-          backgroundColor: colors.surface,
-          borderColor: colors.elevatedBorder,
-        },
-        style,
-      ]}
-    >
-      <Text style={[styles.metricLabel, { color: colors.secondaryLabel }]}>{label}</Text>
-      <Text style={[styles.metricValue, { color: colors.foreground }]}>{value}</Text>
-    </View>
-  );
+  return <UtilityCard label={label} value={value} tone={tone} {...(style ? { style } : {})} />;
 }
 
 export function IconButton({
@@ -178,29 +290,63 @@ export function IconButton({
   label,
   onPress,
   style,
+  tone = "neutral",
 }: {
   icon: LucideIcon;
   label: string;
   onPress: () => void;
   style?: ViewStyle;
+  tone?: ActionTone;
 }) {
   const { colors } = useTheme();
+  const actionColors = resolveActionColors(colors, tone);
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.pillButton,
+        styles.iconButton,
         {
-          backgroundColor: colors.surfaceSecondary,
-          borderColor: colors.elevatedBorder,
-          opacity: pressed ? 0.7 : 1,
+          backgroundColor: actionColors.backgroundColor,
+          borderColor: actionColors.borderColor,
+          opacity: pressed ? 0.72 : 1,
         },
         style,
       ]}
     >
-      <Icon size={16} color={colors.foreground} strokeWidth={2} />
-      <Text style={[styles.pillButtonLabel, { color: colors.foreground }]}>{label}</Text>
+      <Icon size={16} color={actionColors.color} strokeWidth={2.1} />
+      <Text style={[styles.iconButtonLabel, { color: actionColors.color }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export function ActionChip({
+  icon: Icon,
+  label,
+  onPress,
+  tone = "neutral",
+}: {
+  icon?: LucideIcon;
+  label: string;
+  onPress: () => void;
+  tone?: ActionTone;
+}) {
+  const { colors } = useTheme();
+  const actionColors = resolveActionColors(colors, tone);
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionChip,
+        {
+          backgroundColor: actionColors.backgroundColor,
+          borderColor: actionColors.borderColor,
+          opacity: pressed ? 0.76 : 1,
+        },
+      ]}
+    >
+      {Icon ? <Icon size={14} color={actionColors.color} strokeWidth={2.1} /> : null}
+      <Text style={[styles.actionChipLabel, { color: actionColors.color }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -215,7 +361,7 @@ export function RowLink({
   icon?: LucideIcon;
   title: string;
   meta: string;
-  tone?: Tone;
+  tone?: StatusTone;
   onPress: () => void;
 }) {
   const { colors } = useTheme();
@@ -227,7 +373,7 @@ export function RowLink({
       style={({ pressed }) => [
         styles.rowLink,
         {
-          backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+          backgroundColor: pressed ? withAlpha(colors.text.primary, 0.03) : "transparent",
         },
       ]}
     >
@@ -236,23 +382,39 @@ export function RowLink({
           style={[
             styles.rowIconWrap,
             {
-              backgroundColor: toneColor ? withAlpha(toneColor, 0.12) : colors.surfaceSecondary,
+              backgroundColor: toneColor ? withAlpha(toneColor, 0.1) : colors.surfaces.muted,
             },
           ]}
         >
-          <Icon size={18} color={toneColor ?? colors.secondaryLabel} strokeWidth={2.2} />
+          <Icon size={17} color={toneColor ?? colors.text.secondary} strokeWidth={2.1} />
         </View>
       ) : null}
       <View style={styles.rowCopy}>
-        <Text style={[styles.rowTitle, { color: colors.foreground }]} numberOfLines={1}>
+        <Text style={[styles.rowTitle, { color: colors.text.primary }]} numberOfLines={1}>
           {title}
         </Text>
-        <Text style={[styles.rowMeta, { color: colors.secondaryLabel }]} numberOfLines={1}>
+        <Text style={[styles.rowMeta, { color: colors.text.secondary }]} numberOfLines={1}>
           {meta}
         </Text>
       </View>
-      <ChevronRight size={18} color={colors.tertiaryLabel} />
+      <ChevronRight size={16} color={colors.text.tertiary} />
     </Pressable>
+  );
+}
+
+export function SettingsRow({
+  title,
+  meta,
+  icon: Icon,
+  onPress,
+}: {
+  title: string;
+  meta?: string;
+  icon?: LucideIcon;
+  onPress: () => void;
+}) {
+  return (
+    <RowLink {...(Icon ? { icon: Icon } : {})} title={title} meta={meta ?? ""} onPress={onPress} />
   );
 }
 
@@ -265,24 +427,35 @@ export function ChoiceChip({
   selected: boolean;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
+  return <FilterPill label={label} selected={selected} onPress={onPress} />;
+}
 
+export function FilterPill({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.chip,
+        styles.filterPill,
         {
-          backgroundColor: selected ? withAlpha(colors.primary, 0.1) : colors.surfaceSecondary,
-          borderColor: selected ? withAlpha(colors.primary, 0.4) : "transparent",
+          backgroundColor: selected ? colors.surfaces.default : colors.surfaces.muted,
+          borderColor: selected ? withAlpha(colors.accent.primary, 0.35) : colors.border.soft,
           opacity: pressed ? 0.8 : 1,
         },
       ]}
     >
       <Text
         style={[
-          styles.chipLabel,
-          { color: selected ? colors.primary : colors.secondaryLabel },
+          styles.filterPillLabel,
+          { color: selected ? colors.text.primary : colors.text.secondary },
         ]}
       >
         {label}
@@ -309,20 +482,20 @@ export function SearchField({
       style={[
         styles.searchField,
         {
-          backgroundColor: colors.surface,
-          borderColor: colors.elevatedBorder,
+          backgroundColor: colors.surfaces.default,
+          borderColor: colors.border.soft,
         },
       ]}
     >
       {Icon ? (
-        <Icon size={18} color={colors.tertiaryLabel} strokeWidth={2.2} style={styles.searchIcon} />
+        <Icon size={18} color={colors.text.tertiary} strokeWidth={2.1} style={styles.searchIcon} />
       ) : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.tertiaryLabel}
-        style={[styles.searchInput, { color: colors.foreground }]}
+        placeholderTextColor={colors.text.tertiary}
+        style={[styles.searchInput, { color: colors.text.primary }]}
       />
     </View>
   );
@@ -333,13 +506,13 @@ export function FormField(props: TextInputProps) {
 
   return (
     <TextInput
-      placeholderTextColor={colors.tertiaryLabel}
+      placeholderTextColor={colors.text.tertiary}
       style={[
         styles.formField,
         {
-          backgroundColor: colors.surface,
-          borderColor: colors.elevatedBorder,
-          color: colors.foreground,
+          backgroundColor: colors.surfaces.muted,
+          borderColor: colors.border.soft,
+          color: colors.text.primary,
         },
         props.style,
       ]}
@@ -364,13 +537,13 @@ export function EmptyState({
       style={[
         styles.emptyState,
         {
-          backgroundColor: colors.surface,
-          borderColor: colors.elevatedBorder,
+          backgroundColor: colors.surfaces.default,
+          borderColor: colors.border.soft,
         },
       ]}
     >
-      <Text style={[styles.emptyTitle, { color: colors.foreground }]}>{title}</Text>
-      <Text style={[styles.emptyBody, { color: colors.secondaryLabel }]}>{body}</Text>
+      <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>{title}</Text>
+      <Text style={[styles.emptyBody, { color: colors.text.secondary }]}>{body}</Text>
       {action ? <View style={styles.emptyAction}>{action}</View> : null}
     </View>
   );
@@ -383,7 +556,7 @@ export function NoticeBanner({
 }: {
   title: string;
   body?: string;
-  tone?: Tone;
+  tone?: StatusTone;
 }) {
   const { colors } = useTheme();
   const toneColor = resolveToneColor(colors, tone);
@@ -394,13 +567,13 @@ export function NoticeBanner({
         styles.noticeBanner,
         {
           backgroundColor: withAlpha(toneColor, 0.1),
-          borderColor: withAlpha(toneColor, 0.2),
+          borderColor: withAlpha(toneColor, 0.18),
         },
       ]}
     >
       <Text style={[styles.noticeTitle, { color: toneColor }]}>{title}</Text>
       {body ? (
-        <Text style={[styles.noticeBody, { color: toneColor }]}>{body}</Text>
+        <Text style={[styles.noticeBody, { color: colors.text.secondary }]}>{body}</Text>
       ) : null}
     </View>
   );
@@ -416,7 +589,7 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
           key={i}
           style={[
             styles.skeletonRow,
-            { backgroundColor: colors.surface, borderColor: colors.elevatedBorder },
+            { backgroundColor: colors.surfaces.default, borderColor: colors.border.soft },
           ]}
         />
       ))}
@@ -425,128 +598,169 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
 }
 
 const styles = StyleSheet.create({
-  glassHeaderContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 16,
-    paddingHorizontal: 20,
+  backdropBase: {
+    ...StyleSheet.absoluteFillObject,
   },
-  glassHeaderRow: {
+  backdropOrbLarge: {
+    position: "absolute",
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    top: -48,
+    right: -96,
+  },
+  backdropOrbSmall: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    top: 180,
+    left: -80,
+  },
+  headerShell: {
+    marginBottom: 20,
+  },
+  headerRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
   },
-  glassHeaderCopy: {
+  headerCopy: {
     flex: 1,
+    minWidth: 180,
   },
-  glassTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    letterSpacing: -0.5,
+  headerEyebrow: {
+    ...Typography.roles.micro,
+    textTransform: "uppercase",
+    marginBottom: 6,
   },
-  glassHeaderAction: {
+  headerTitle: {
+    ...Typography.roles.titleLg,
+  },
+  headerSubtitle: {
+    ...Typography.roles.meta,
+    marginTop: 4,
+  },
+  headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  pillButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 18,
-    borderWidth: 1,
-  },
-  pillButtonLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  headerRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 20,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 200,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: -0.6,
-  },
-  headerAction: {
-    paddingTop: 4,
-  },
   panel: {
     borderRadius: Radius.panel,
-    borderWidth: 1.5,
+    borderWidth: 1,
   },
   panelPadded: {
     padding: 16,
   },
+  sectionCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 16,
+  },
+  sectionCardCopy: {
+    flex: 1,
+  },
+  sectionCardTitle: {
+    ...Typography.roles.bodyStrong,
+  },
+  sectionCardMeta: {
+    ...Typography.roles.meta,
+    marginTop: 3,
+  },
   sectionTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
+    ...Typography.roles.micro,
     textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   badge: {
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingVertical: 5,
+    borderRadius: Radius.pill,
     borderWidth: 1,
+    gap: 6,
   },
   badgeDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  badgeLabel: {
+    ...Typography.roles.micro,
+    textTransform: "none",
+  },
+  utilityCard: {
+    flex: 1,
+    minHeight: 84,
+    padding: 14,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    justifyContent: "space-between",
+  },
+  utilityCardLabel: {
+    ...Typography.roles.meta,
+  },
+  utilityCardValue: {
+    ...Typography.roles.titleMd,
+    marginTop: 10,
+  },
+  utilityMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  utilityCardMeta: {
+    ...Typography.roles.micro,
+  },
+  inlineDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    marginRight: 6,
   },
-  badgeLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  metricCard: {
-    padding: 16,
-    borderRadius: Radius.card,
-    borderWidth: 1.5,
-    minHeight: 100,
-    justifyContent: "center",
-  },
-  metricLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  metricValue: {
-    fontSize: 28,
-    fontWeight: "700",
-    letterSpacing: -0.5,
-  },
-  rowLink: {
+  iconButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
+    gap: 6,
+  },
+  iconButtonLabel: {
+    ...Typography.roles.meta,
+    fontFamily: Typography.fonts.uiMedium,
+  },
+  actionChip: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  actionChipLabel: {
+    ...Typography.roles.meta,
+    fontFamily: Typography.fonts.uiMedium,
+  },
+  rowLink: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
     gap: 12,
   },
   rowIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -554,62 +768,59 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   rowTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+    ...Typography.roles.bodyStrong,
   },
   rowMeta: {
+    ...Typography.roles.meta,
     marginTop: 2,
-    fontSize: 13,
   },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  filterPill: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: Radius.pill,
-    borderWidth: 1.5,
+    borderWidth: 1,
+    justifyContent: "center",
   },
-  chipLabel: {
-    fontSize: 14,
-    fontWeight: "700",
+  filterPillLabel: {
+    ...Typography.roles.meta,
+    fontFamily: Typography.fonts.uiMedium,
   },
   searchField: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: Radius.input,
-    borderWidth: 1.5,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
     paddingHorizontal: 14,
-    height: 52,
+    minHeight: 48,
   },
   searchIcon: {
     marginRight: 10,
   },
   searchInput: {
+    ...Typography.roles.body,
     flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
   },
   formField: {
-    height: 52,
-    borderRadius: Radius.input,
-    borderWidth: 1.5,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    fontWeight: "600",
+    minHeight: 48,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    ...Typography.roles.body,
   },
   emptyState: {
-    padding: 24,
+    padding: 20,
     borderRadius: Radius.panel,
-    borderWidth: 1.5,
+    borderWidth: 1,
     alignItems: "flex-start",
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: "800",
+    ...Typography.roles.titleMd,
     marginBottom: 8,
   },
   emptyBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 20,
+    ...Typography.roles.body,
+    marginBottom: 16,
   },
   emptyAction: {
     width: "100%",
@@ -617,24 +828,22 @@ const styles = StyleSheet.create({
   noticeBanner: {
     padding: 16,
     borderRadius: Radius.card,
-    borderWidth: 1.5,
+    borderWidth: 1,
     marginTop: 16,
   },
   noticeTitle: {
-    fontSize: 14,
-    fontWeight: "800",
+    ...Typography.roles.bodyStrong,
     marginBottom: 4,
   },
   noticeBody: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...Typography.roles.meta,
   },
   skeletonContainer: {
     gap: 12,
   },
   skeletonRow: {
-    height: 80,
+    height: 74,
     borderRadius: Radius.card,
-    borderWidth: 1.5,
+    borderWidth: 1,
   },
 });

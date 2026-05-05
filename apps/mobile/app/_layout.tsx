@@ -4,11 +4,18 @@ import { Platform, StatusBar } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import * as Notifications from "expo-notifications";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useFonts } from "expo-font";
 import type { OrchestrationEvent } from "@ace/contracts";
 import { ThemeProvider, useTheme } from "../src/design/ThemeContext";
 import { initializeConnections } from "../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../src/rpc/ConnectionManager";
 import { notificationFromDomainEvent, notificationThreadRouteFromData } from "../src/notifications";
+import { IBMPlexMono_400Regular, IBMPlexMono_500Medium } from "@expo-google-fonts/ibm-plex-mono";
+import {
+  IBMPlexSans_400Regular,
+  IBMPlexSans_500Medium,
+  IBMPlexSans_600SemiBold,
+} from "@expo-google-fonts/ibm-plex-sans";
 
 const MAX_NOTIFICATION_EVENT_CACHE = 300;
 
@@ -218,9 +225,21 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    IBMPlexSans_400Regular,
+    IBMPlexSans_500Medium,
+    IBMPlexSans_600SemiBold,
+    IBMPlexMono_400Regular,
+    IBMPlexMono_500Medium,
+  });
+
   useEffect(() => {
     void initializeConnections();
   }, []);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   return (
     <SafeAreaProvider>

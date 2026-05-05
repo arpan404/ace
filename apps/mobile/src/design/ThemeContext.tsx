@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useColorScheme } from "react-native";
-import { Palette } from "./tokens";
+import { Palette, Typography } from "./tokens";
 import { formatErrorMessage } from "../errors";
 
 const THEME_MODE_STORAGE_KEY = "ace-mobile-theme-mode";
@@ -15,6 +15,7 @@ export type ThemeColors = (typeof Palette)[keyof typeof Palette];
 
 interface ThemeContextValue {
   colors: ThemeColors;
+  typography: typeof Typography;
   isDark: boolean;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
@@ -57,6 +58,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       colors,
+      typography: Typography,
       isDark,
       themeMode,
       setThemeMode,

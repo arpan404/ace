@@ -59,7 +59,7 @@ import {
   Panel,
   RowLink,
   ScreenBackdrop,
-  GlassScreenHeader,
+  ScreenHeaderV2,
   SectionTitle,
   StatusBadge,
 } from "../src/design/primitives";
@@ -360,6 +360,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, themeMode, setThemeMode } = useTheme();
+  const canGoBack = router.canGoBack();
   const browserSearchEngine = useMobilePreferencesStore((state) => state.browserSearchEngine);
   const browserHistoryCount = useMobileBrowserHistoryStore((state) => state.history.length);
   const clearBrowserHistory = useMobileBrowserHistoryStore((state) => state.clearHistory);
@@ -1044,27 +1045,30 @@ export default function SettingsScreen() {
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
       <ScreenBackdrop />
-      <GlassScreenHeader
-        title="Settings"
-        action={
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <StatusBadge label={`${connectedHostCount} online`} tone="success" />
-            <Pressable onPress={() => router.back()} style={{ padding: 4 }}>
-              <X size={24} color={colors.foreground} />
-            </Pressable>
-          </View>
-        }
-      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 76,
+          paddingTop: insets.top + 14,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
       >
+        <ScreenHeaderV2
+          title="Settings"
+          subtitle="Preferences, connected hosts, provider controls, diagnostics, and archived items."
+          actions={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <StatusBadge label={`${connectedHostCount} online`} tone="success" />
+              {canGoBack ? (
+                <Pressable onPress={() => router.back()} style={{ padding: 4 }}>
+                  <X size={24} color={colors.foreground} />
+                </Pressable>
+              ) : null}
+            </View>
+          }
+        />
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <SectionTitle>Hosts</SectionTitle>

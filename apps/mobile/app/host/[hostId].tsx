@@ -17,9 +17,10 @@ import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {
   EmptyState,
-  MetricCard,
+  IconButton,
   Panel,
   ScreenBackdrop,
+  ScreenHeaderV2,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -168,32 +169,29 @@ export default function HostDetailScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={[
-              styles.backButton,
-              { backgroundColor: colors.surface, borderColor: colors.elevatedBorder },
-            ]}
-          >
-            <ChevronLeft size={18} color={colors.foreground} strokeWidth={2.4} />
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: colors.tertiaryLabel }]}>Host</Text>
-            <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
-              {host.name}
-            </Text>
-          </View>
-          <StatusBadge
-            label={isConnected ? "online" : "offline"}
-            tone={isConnected ? "success" : connectionError ? "danger" : "muted"}
-          />
-        </View>
+        <ScreenHeaderV2
+          eyebrow="Host"
+          title={host.name}
+          subtitle={isConnected ? `${host.wsUrl} · Connected` : host.wsUrl}
+          actions={
+            <View style={styles.headerActions}>
+              <IconButton icon={ChevronLeft} label="Back" onPress={() => router.back()} />
+              {!isConnected ? (
+                <IconButton
+                  icon={RefreshCw}
+                  label={reconnecting ? "Retrying" : "Reconnect"}
+                  onPress={() => void onReconnect()}
+                  tone="primary"
+                />
+              ) : null}
+            </View>
+          }
+        />
 
-        <View style={styles.metricRow}>
-          <MetricCard label="Projects" value={projects.length} tone="accent" />
-          <MetricCard label="Threads" value={threads.length} tone="success" />
-          <MetricCard
+        <Panel style={styles.summaryStrip}>
+          <SummaryCell label="Projects" value={projects.length} />
+          <SummaryCell label="Threads" value={threads.length} />
+          <SummaryCell
             label="Active"
             value={
               threads.filter((thread) => {
@@ -201,9 +199,8 @@ export default function HostDetailScreen() {
                 return status === "running" || status === "starting" || status === "ready";
               }).length
             }
-            tone="warning"
           />
-        </View>
+        </Panel>
 
         {!isConnected || connectionError ? (
           <Panel style={styles.statusPanel}>
@@ -493,6 +490,16 @@ export default function HostDetailScreen() {
   );
 }
 
+function SummaryCell({ label, value }: { label: string; value: number }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.summaryCell}>
+      <Text style={[styles.summaryValue, { color: colors.foreground }]}>{value}</Text>
+      <Text style={[styles.summaryLabel, { color: colors.secondaryLabel }]}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   missingWrap: {
@@ -500,11 +507,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.pagePadding,
     gap: 18,
   },
-  header: {
-    minHeight: 70,
+  headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 8,
   },
   backButton: {
     width: 44,
@@ -514,25 +520,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerCopy: { flex: 1, minWidth: 0 },
-  eyebrow: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  title: {
-    marginTop: 4,
-    fontSize: 30,
-    lineHeight: 33,
-    fontWeight: "900",
-    letterSpacing: -0.9,
-  },
-  metricRow: {
-    marginTop: 18,
+  summaryStrip: {
     flexDirection: "row",
+    justifyContent: "space-between",
     gap: 10,
+    marginTop: 2,
+  },
+  summaryCell: {
+    flex: 1,
+    gap: 2,
+  },
+  summaryValue: {
+    fontSize: 19,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
+  summaryLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   loadingWrap: { paddingVertical: 40, alignItems: "center" },
   errorText: {

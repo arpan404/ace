@@ -60,7 +60,16 @@ import {
 import { formatShortTimestamp } from "@ace/shared/timeFormat";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
-import { Panel, ScreenBackdrop, SectionTitle, StatusBadge } from "../../src/design/primitives";
+import {
+  ActionChip,
+  IconButton,
+  Panel,
+  ScreenBackdrop,
+  ScreenHeaderV2,
+  SectionTitle,
+  StatusBadge,
+} from "../../src/design/primitives";
+import { ComposerDock } from "../../src/design/components/ComposerDock";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import { useHostStore } from "../../src/store/HostStore";
 import { upsertThreadMessage } from "../../src/chat/threadMessages";
@@ -1134,75 +1143,64 @@ export default function ThreadChatScreen() {
             },
           ]}
         >
-          <View style={styles.headerRow}>
-            <Pressable
-              onPress={() => router.back()}
+          <ScreenHeaderV2
+            {...(thread ? { eyebrow: formatTimeAgo(thread.updatedAt) } : {})}
+            title={thread?.title ?? "Thread"}
+            subtitle={connection?.host.name ?? "Unknown host"}
+            actions={
+              <View style={styles.headerActions}>
+                <IconButton icon={ChevronLeft} label="Back" onPress={() => router.back()} />
+                {isRunning ? (
+                  <IconButton
+                    icon={Square}
+                    label="Stop"
+                    onPress={() => void handleInterrupt()}
+                    tone="danger"
+                  />
+                ) : (
+                  <IconButton
+                    icon={Terminal}
+                    label="Terminal"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/thread/terminal",
+                        params: {
+                          threadId,
+                          hostId,
+                          cwd: thread?.worktreePath ?? undefined,
+                        },
+                      })
+                    }
+                  />
+                )}
+              </View>
+            }
+          />
+          {thread?.branch || thread?.worktreePath ? (
+            <View
               style={[
-                styles.headerButton,
+                styles.branchStrip,
                 {
-                  backgroundColor: colors.surface,
+                  backgroundColor: colors.surfaceSecondary,
                   borderColor: colors.elevatedBorder,
-                  shadowColor: colors.shadow,
                 },
               ]}
             >
-              <ChevronLeft size={18} color={colors.foreground} strokeWidth={2.2} />
-            </Pressable>
-
-            <View style={styles.headerCopy}>
-              <Text style={[styles.eyebrow, { color: colors.tertiaryLabel }]}>
-                {thread ? formatTimeAgo(thread.updatedAt) : ""}
-              </Text>
-              <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-                {thread?.title ?? "Thread"}
-              </Text>
-              <Text
-                style={[styles.headerSubtitle, { color: colors.secondaryLabel }]}
-                numberOfLines={1}
-              >
-                {connection?.host.name ?? "Unknown host"}
-              </Text>
+              {thread?.branch ? (
+                <Text style={[styles.branchLabel, { color: colors.foreground }]} numberOfLines={1}>
+                  Branch: {thread.branch}
+                </Text>
+              ) : null}
+              {thread?.worktreePath ? (
+                <Text
+                  style={[styles.branchMeta, { color: colors.secondaryLabel }]}
+                  numberOfLines={1}
+                >
+                  {thread.worktreePath}
+                </Text>
+              ) : null}
             </View>
-
-            {isRunning ? (
-              <Pressable
-                onPress={() => void handleInterrupt()}
-                style={[
-                  styles.stopButton,
-                  {
-                    backgroundColor: withAlpha(colors.red, 0.14),
-                    borderColor: withAlpha(colors.red, 0.2),
-                  },
-                ]}
-              >
-                <Square size={12} color={colors.red} fill={colors.red} />
-                <Text style={[styles.stopLabel, { color: colors.red }]}>Stop</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={() =>
-                  router.push({
-                    pathname: "/thread/terminal",
-                    params: {
-                      threadId,
-                      hostId,
-                      cwd: thread?.worktreePath ?? undefined,
-                    },
-                  })
-                }
-                style={[
-                  styles.headerButton,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.elevatedBorder,
-                    shadowColor: colors.shadow,
-                  },
-                ]}
-              >
-                <Terminal size={18} color={colors.foreground} strokeWidth={2.2} />
-              </Pressable>
-            )}
-          </View>
+          ) : null}
 
           <Panel style={styles.summaryPanel}>
             <View style={styles.summaryTop}>
@@ -1753,42 +1751,42 @@ export default function ThreadChatScreen() {
               </Pressable>
             </View>
           ) : null}
-          <View
-            style={[
-              styles.composerField,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.elevatedBorder,
-                shadowColor: colors.shadow,
-              },
-            ]}
-          >
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Send a follow-up or instruction"
-              placeholderTextColor={colors.muted}
-              style={[styles.textInput, { color: colors.foreground }]}
-              multiline
-              editable={!sending && !hostOffline}
-            />
-            <Pressable
-              onPress={() => void handleSend()}
-              disabled={!canSend}
-              style={[
-                styles.sendButton,
-                {
-                  backgroundColor: canSend ? colors.primary : colors.surfaceSecondary,
-                },
-              ]}
-            >
-              <ArrowUp
-                size={16}
-                color={canSend ? colors.primaryForeground : colors.muted}
-                strokeWidth={2.5}
-              />
-            </Pressable>
-          </View>
+          <ComposerDock
+            value={input}
+            onChangeText={setInput}
+            placeholder="Message ace..."
+            canSend={canSend}
+            onSend={() => void handleSend()}
+            SendIcon={ArrowUp}
+            leadingActions={
+              <>
+                <ActionChip
+                  icon={Globe}
+                  label="Browser"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/thread/browser",
+                      params: { threadId, hostId },
+                    })
+                  }
+                />
+                <ActionChip
+                  icon={Terminal}
+                  label="Terminal"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/thread/terminal",
+                      params: {
+                        threadId,
+                        hostId,
+                        cwd: thread?.worktreePath ?? undefined,
+                      },
+                    })
+                  }
+                />
+              </>
+            }
+          />
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -2890,6 +2888,30 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Layout.pagePadding,
     paddingBottom: 14,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  branchStrip: {
+    marginTop: 14,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 3,
+    justifyContent: "center",
+  },
+  branchLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  branchMeta: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   headerRow: {
     flexDirection: "row",
