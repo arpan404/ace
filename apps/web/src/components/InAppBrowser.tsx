@@ -24,6 +24,7 @@ import {
   useState,
 } from "react";
 import { motion, type MotionStyle } from "motion/react";
+import { isElectron } from "~/env";
 import {
   useInAppBrowserState,
   type ActiveBrowserRuntimeState,
@@ -255,6 +256,26 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     () => resolveAddressFieldPresentation(activeTab?.url ?? draftUrl),
     [activeTab?.url, draftUrl],
   );
+  const avoidNativeWebviewTransforms = isElectron;
+  const browserShellInitial = avoidNativeWebviewTransforms
+    ? { opacity: 0 }
+    : mode === "full"
+      ? { opacity: 0, scale: 0.99 }
+      : { opacity: 0, x: 16 };
+  const browserShellAnimate = avoidNativeWebviewTransforms
+    ? visible
+      ? { opacity: 1 }
+      : { opacity: 0 }
+    : visible
+      ? { opacity: 1, scale: 1, x: 0 }
+      : mode === "full"
+        ? { opacity: 0, scale: 0.99 }
+        : { opacity: 0, x: 16 };
+  const browserShellExit = avoidNativeWebviewTransforms
+    ? { opacity: 0 }
+    : mode === "full"
+      ? { opacity: 0, scale: 0.99 }
+      : { opacity: 0, x: 16 };
   const shouldShowExpandedAddressField = forceExpandedAddressField || addressFieldExpanded;
   const SecurityIcon =
     addressPresentation.security === "secure"
@@ -526,15 +547,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   return (
     <motion.div
       aria-hidden={!visible}
-      initial={mode === "full" ? { opacity: 0, scale: 0.99 } : { opacity: 0, x: 16 }}
-      animate={
-        visible
-          ? { opacity: 1, scale: 1, x: 0 }
-          : mode === "full"
-            ? { opacity: 0, scale: 0.99 }
-            : { opacity: 0, x: 16 }
-      }
-      exit={mode === "full" ? { opacity: 0, scale: 0.99 } : { opacity: 0, x: 16 }}
+      initial={browserShellInitial}
+      animate={browserShellAnimate}
+      exit={browserShellExit}
       transition={BROWSER_SHELL_TRANSITION}
       className={cn(
         mode === "split"
