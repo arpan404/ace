@@ -1,45 +1,61 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Platform, StyleSheet, View } from "react-native";
-import { Bell, LayoutGrid, MessageSquare } from "lucide-react-native";
-import { GlassView } from "expo-glass-effect";
+import { Platform, StyleSheet } from "react-native";
+import { LayoutGrid, MessageSquare, Server, SlidersHorizontal } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { Typography } from "../../src/design/tokens";
 
 export default function TabsLayout() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.tertiaryLabel,
+        sceneStyle: { backgroundColor: colors.bg.app },
+        tabBarActiveTintColor: colors.accent.primary,
+        tabBarInactiveTintColor: colors.text.tertiary,
         headerShown: false,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
+          ...Typography.roles.micro,
           fontSize: 11,
-          fontWeight: "600",
           marginTop: -4,
           marginBottom: Platform.select({ ios: 0, default: 4 }),
         },
         tabBarStyle: {
           position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "transparent",
-          borderTopColor: colors.separator,
+          left: 12,
+          right: 12,
+          bottom: 10,
+          backgroundColor: colors.surfaces.default,
+          borderTopColor: colors.border.soft,
           borderTopWidth: StyleSheet.hairlineWidth,
-          height: Platform.OS === "ios" ? 88 : 64,
-          paddingTop: 12,
-          paddingBottom: Platform.select({ ios: 28, default: 8 }),
+          height: Platform.OS === "ios" ? 78 : 70,
+          paddingTop: 10,
+          paddingBottom: Platform.select({ ios: 18, default: 10 }),
+          paddingHorizontal: 10,
+          borderRadius: 22,
           elevation: 0,
+          shadowColor: colors.shadow,
+          shadowOpacity: 0.06,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 8 },
         },
-        tabBarBackground: () => (
-          <GlassView style={StyleSheet.absoluteFill} />
-        ),
+        tabBarItemStyle: {
+          borderRadius: 16,
+          marginHorizontal: 2,
+        },
+        tabBarIconStyle: {
+          marginBottom: 1,
+        },
       }}
     >
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          href: null,
+        }}
+      />
       <Tabs.Screen
         name="projects"
         options={{
@@ -51,14 +67,25 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Threads",
-          tabBarIcon: ({ color, size }) => <MessageSquare size={22} color={color} strokeWidth={2.4} />,
+          tabBarIcon: ({ color, size }) => (
+            <MessageSquare size={22} color={color} strokeWidth={2.4} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="notifications"
+        name="hosts"
         options={{
-          title: "Alerts",
-          tabBarIcon: ({ color, size }) => <Bell size={22} color={color} strokeWidth={2.4} />,
+          title: "Hosts",
+          tabBarIcon: ({ color, size }) => <Server size={22} color={color} strokeWidth={2.4} />,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: "Settings",
+          tabBarIcon: ({ color, size }) => (
+            <SlidersHorizontal size={21} color={color} strokeWidth={2.4} />
+          ),
         }}
       />
     </Tabs>

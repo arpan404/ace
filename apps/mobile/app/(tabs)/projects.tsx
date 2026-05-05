@@ -10,7 +10,16 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronRight, FolderGit2, FolderOpen, Plus, RefreshCw, Search, Settings2 } from "lucide-react-native";
+import {
+  Bell,
+  ChevronRight,
+  FolderGit2,
+  FolderOpen,
+  Plus,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react-native";
 import { DEFAULT_MODEL_BY_PROVIDER, type FilesystemBrowseResult } from "@ace/contracts";
 import { newCommandId, newProjectId } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
@@ -21,12 +30,11 @@ import {
   FormField,
   IconButton,
   ListSkeleton,
-  MetricCard,
   NoticeBanner,
   Panel,
   SearchField,
   ScreenBackdrop,
-  GlassScreenHeader,
+  ScreenHeaderV2,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -189,39 +197,50 @@ export default function ProjectsScreen() {
   const hasHosts = hosts.length > 0;
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
       <ScreenBackdrop />
-      <GlassScreenHeader
-        title="Projects"
-        action={
-          <View style={styles.headerActions}>
-            <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
-            <IconButton
-              icon={Plus}
-              label="New"
-              onPress={() =>
-                setShowComposer((current) => {
-                  const next = !current;
-                  if (next) {
-                    setComposerStep("path");
-                  }
-                  return next;
-                })
-              }
-            />
-            <IconButton icon={Settings2} label="Settings" onPress={() => router.push("/profile")} />
-          </View>
-        }
-      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 80,
+          paddingTop: insets.top + 14,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
+        <ScreenHeaderV2
+          title="Projects"
+          subtitle="Workspace roots, host state, and project activity across connected environments."
+          actions={
+            <View style={styles.headerActions}>
+              <IconButton
+                icon={Bell}
+                label="Alerts"
+                onPress={() => router.push("/notifications")}
+              />
+              <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
+              <IconButton
+                icon={Plus}
+                label="New"
+                onPress={() =>
+                  setShowComposer((current) => {
+                    const next = !current;
+                    if (next) {
+                      setComposerStep("path");
+                    }
+                    return next;
+                  })
+                }
+                tone="primary"
+              />
+              <IconButton
+                icon={SlidersHorizontal}
+                label="Settings"
+                onPress={() => router.push("/settings")}
+              />
+            </View>
+          }
+        />
         {hosts.length > 0 ? (
           <ScrollView
             horizontal
@@ -243,20 +262,16 @@ export default function ProjectsScreen() {
           </ScrollView>
         ) : null}
 
-        <View style={styles.metricRow}>
-          <MetricCard label="Projects" value={projects.length} tone="accent" />
-          <MetricCard label="Online" value={connectedHostCount} tone="success" />
-          <MetricCard
-            label="Live target"
-            value={activeConnection?.host.name ?? "None"}
-            tone={activeConnection ? "muted" : "warning"}
-          />
-        </View>
+        <Panel style={styles.summaryStrip}>
+          <SummaryCell label="Projects" value={String(projects.length)} />
+          <SummaryCell label="Online" value={String(connectedHostCount)} />
+          <SummaryCell label="Target" value={activeConnection?.host.name ?? "None"} />
+        </Panel>
 
         <View style={styles.sectionHeader}>
           <SectionTitle>Workspace Index</SectionTitle>
           {hasHosts ? (
-            <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
+            <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
               {filteredProjects.length} visible
             </Text>
           ) : null}
@@ -359,6 +374,18 @@ export default function ProjectsScreen() {
   );
 }
 
+function SummaryCell({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.summaryCell}>
+      <Text style={[styles.summaryValue, { color: colors.text.primary }]} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={[styles.summaryLabel, { color: colors.text.secondary }]}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -375,10 +402,21 @@ const styles = StyleSheet.create({
   hostStrip: {
     gap: 10,
   },
-  metricRow: {
+  summaryStrip: {
     flexDirection: "row",
-    gap: 10,
+    justifyContent: "space-between",
     marginBottom: 20,
+  },
+  summaryCell: {
+    flex: 1,
+    gap: 2,
+  },
+  summaryValue: {
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  summaryLabel: {
+    fontSize: 12,
   },
   sectionHeader: {
     marginTop: 12,

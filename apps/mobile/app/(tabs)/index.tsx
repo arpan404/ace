@@ -1,28 +1,23 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LoaderCircle, Search, Settings2 } from "lucide-react-native";
+import { Bell, Search, SlidersHorizontal } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { Layout } from "../../src/design/system";
 import {
   ChoiceChip,
   EmptyState,
   IconButton,
   ListSkeleton,
-  MetricCard,
   NoticeBanner,
   Panel,
   ScreenBackdrop,
-  GlassScreenHeader,
+  ScreenHeaderV2,
   SectionTitle,
-  StatusBadge,
 } from "../../src/design/primitives";
-import {
-  formatTimeAgo,
-  type MobileThreadSummary,
-  useAggregatedOrchestration,
-} from "../../src/orchestration/mobileData";
+import { useAggregatedOrchestration } from "../../src/orchestration/mobileData";
+import { ThreadListRow } from "../../src/design/components/ThreadListRow";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -41,7 +36,7 @@ export default function ThreadsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { threads, refresh, loading, error } = useAggregatedOrchestration();
+  const { threads, attentionThreads, refresh, loading, error } = useAggregatedOrchestration();
   const [activeFilter, setActiveFilter] = useState<ThreadFilter>("all");
 
   const filteredThreads = useMemo(() => {
@@ -57,33 +52,64 @@ export default function ThreadsScreen() {
   ).length;
   const streamingCount = threads.filter((entry) => entry.status.bucket === "live").length;
 
+  const groupedThreads = useMemo(() => {
+    const needsAttention = filteredThreads.filter(
+      (entry) => entry.status.bucket === "input" || entry.status.bucket === "review",
+    );
+    const active = filteredThreads.filter(
+      (entry) =>
+        entry.status.bucket === "live" ||
+        entry.status.bucket === "queued" ||
+        entry.status.bucket === "waiting",
+    );
+    const recent = filteredThreads.filter(
+      (entry) => !needsAttention.includes(entry) && !active.includes(entry),
+    );
+
+    return [
+      { title: "Needs attention", items: needsAttention },
+      { title: "Active", items: active },
+      { title: "Recent", items: recent },
+    ].filter((group) => group.items.length > 0);
+  }, [filteredThreads]);
+
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
       <ScreenBackdrop />
-      <GlassScreenHeader
-        title="Threads"
-        action={
-          <View style={styles.headerActions}>
-            <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
-            <IconButton icon={Settings2} label="Settings" onPress={() => router.push("/profile")} />
-            <StatusBadge label={`${threads.length}`} tone="success" />
-          </View>
-        }
-      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 80,
+          paddingTop: insets.top + 14,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        <View style={styles.metricRow}>
-          <MetricCard label="Streaming" value={streamingCount} tone="success" />
-          <MetricCard label="Queued" value={queueCount} tone="warning" />
-          <MetricCard label="Attention" value={attentionCount} tone="accent" />
-        </View>
+        <ScreenHeaderV2
+          title="Threads"
+          subtitle="Your active coding runs, queued work, and review requests."
+          actions={
+            <View style={styles.headerActions}>
+              <IconButton
+                icon={Bell}
+                label={String(attentionThreads.length)}
+                onPress={() => router.push("/notifications")}
+              />
+              <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
+              <IconButton
+                icon={SlidersHorizontal}
+                label="Settings"
+                onPress={() => router.push("/settings")}
+              />
+            </View>
+          }
+        />
+
+        <Panel style={styles.summaryStrip}>
+          <SummaryCell label="Running" value={streamingCount} />
+          <SummaryCell label="Queued" value={queueCount} />
+          <SummaryCell label="Review" value={attentionCount} />
+        </Panel>
 
         <ScrollView
           horizontal
@@ -91,24 +117,15 @@ export default function ThreadsScreen() {
           contentContainerStyle={styles.filterStrip}
           style={styles.filterStripScroll}
         >
-          {FILTERS.map((filter) => {
-            return (
-              <ChoiceChip
-                key={filter.key}
-                label={filter.label}
-                selected={filter.key === activeFilter}
-                onPress={() => setActiveFilter(filter.key)}
-              />
-            );
-          })}
+          {FILTERS.map((filter) => (
+            <ChoiceChip
+              key={filter.key}
+              label={filter.label}
+              selected={filter.key === activeFilter}
+              onPress={() => setActiveFilter(filter.key)}
+            />
+          ))}
         </ScrollView>
-
-        <View style={styles.sectionHeader}>
-          <SectionTitle>Recent Activity</SectionTitle>
-          <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
-            {filteredThreads.length} threads
-          </Text>
-        </View>
 
         {loading ? (
           <ListSkeleton rows={5} />
@@ -118,20 +135,30 @@ export default function ThreadsScreen() {
             body="Threads from connected hosts will appear here once projects sync or agent runs start."
           />
         ) : (
-          <View style={styles.listShell}>
-            {filteredThreads.map((entry, index) => (
-              <ThreadRow
-                key={`${entry.hostId}-${entry.thread.id}`}
-                entry={entry}
-                index={index}
-                total={filteredThreads.length}
-                onPress={() =>
-                  router.push({
-                    pathname: "/thread/[threadId]",
-                    params: { threadId: entry.thread.id, hostId: entry.hostId },
-                  })
-                }
-              />
+          <View style={styles.groupList}>
+            {groupedThreads.map((group) => (
+              <View key={group.title} style={styles.groupSection}>
+                <View style={styles.sectionHeader}>
+                  <SectionTitle>{group.title}</SectionTitle>
+                  <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
+                    {group.items.length}
+                  </Text>
+                </View>
+                <Panel style={styles.listShell}>
+                  {group.items.map((entry) => (
+                    <ThreadListRow
+                      key={`${entry.hostId}-${entry.thread.id}`}
+                      entry={entry}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/thread/[threadId]",
+                          params: { threadId: entry.thread.id, hostId: entry.hostId },
+                        })
+                      }
+                    />
+                  ))}
+                </Panel>
+              </View>
             ))}
           </View>
         )}
@@ -144,96 +171,13 @@ export default function ThreadsScreen() {
   );
 }
 
-function ThreadRow({
-  entry,
-  index,
-  total,
-  onPress,
-}: {
-  entry: MobileThreadSummary;
-  index: number;
-  total: number;
-  onPress: () => void;
-}) {
+function SummaryCell({ label, value }: { label: string; value: number }) {
   const { colors } = useTheme();
-
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.threadRow,
-        {
-          backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
-          transform: [{ scale: pressed ? 0.995 : 1 }],
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.threadLead,
-          {
-            backgroundColor: withAlpha(
-              entry.status.tone === "success"
-                ? colors.green
-                : entry.status.tone === "warning"
-                  ? colors.orange
-                  : entry.status.tone === "danger"
-                    ? colors.red
-                    : entry.status.tone === "accent"
-                      ? colors.primary
-                      : colors.muted,
-              0.15,
-            ),
-          },
-        ]}
-      >
-        <LoaderCircle
-          size={18}
-          color={
-            entry.status.tone === "success"
-              ? colors.green
-              : entry.status.tone === "warning"
-                ? colors.orange
-                : entry.status.tone === "danger"
-                  ? colors.red
-                  : entry.status.tone === "accent"
-                    ? colors.primary
-                    : colors.muted
-          }
-          strokeWidth={2.2}
-        />
-      </View>
-      <View style={styles.threadCopy}>
-        <View style={styles.threadHeader}>
-          <Text style={[styles.threadTitle, { color: colors.foreground }]} numberOfLines={1}>
-            {entry.thread.title}
-          </Text>
-          <StatusBadge label={entry.status.label} tone={entry.status.tone} />
-        </View>
-        <Text style={[styles.threadMeta, { color: colors.secondaryLabel }]} numberOfLines={1}>
-          {entry.projectTitle} · {entry.hostName}
-        </Text>
-        <Text style={[styles.threadPreview, { color: colors.tertiaryLabel }]} numberOfLines={2}>
-          {entry.preview}
-        </Text>
-        <View style={styles.threadFooter}>
-          <Text style={[styles.threadTime, { color: colors.muted }]}>
-            {formatTimeAgo(entry.lastActivityAt)}
-          </Text>
-          {entry.attentionActivity ? (
-            <Text
-              style={[styles.threadFootnote, { color: colors.secondaryLabel }]}
-              numberOfLines={1}
-            >
-              {entry.attentionActivity.summary}
-            </Text>
-          ) : null}
-        </View>
-      </View>
-      {index < total - 1 ? (
-        <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-      ) : null}
-    </Pressable>
+    <View style={styles.summaryCell}>
+      <Text style={[styles.summaryValue, { color: colors.text.primary }]}>{value}</Text>
+      <Text style={[styles.summaryLabel, { color: colors.text.secondary }]}>{label}</Text>
+    </View>
   );
 }
 
@@ -246,91 +190,44 @@ const styles = StyleSheet.create({
     gap: 8,
     flexDirection: "row",
   },
-  metricRow: {
+  summaryStrip: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 20,
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  summaryCell: {
+    flex: 1,
+    gap: 2,
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  summaryLabel: {
+    fontSize: 12,
   },
   filterStripScroll: {
-    marginBottom: 4,
+    marginBottom: 12,
   },
   filterStrip: {
     gap: 10,
   },
+  groupList: {
+    gap: 18,
+  },
+  groupSection: {
+    gap: 0,
+  },
   sectionHeader: {
-    marginTop: 20,
     marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   sectionMeta: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 11,
   },
   listShell: {
-    gap: 12,
-  },
-  threadRow: {
-    minHeight: 110,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-    borderRadius: Radius.card,
-    borderWidth: 1.5,
-  },
-  threadLead: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  threadCopy: {
-    flex: 1,
-  },
-  threadHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  threadTitle: {
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "600",
-    letterSpacing: -0.2,
-  },
-  threadMeta: {
-    marginTop: 4,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "500",
-  },
-  threadPreview: {
-    marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  threadFooter: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  threadTime: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  threadFootnote: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  separator: {
-    display: "none",
+    paddingHorizontal: 16,
   },
 });

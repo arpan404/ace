@@ -3,24 +3,23 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "r
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  BellDot,
+  Bell,
   CircleAlert,
   FileDiff,
   MessageSquareMore,
   ShieldAlert,
-  Settings2,
   ChevronRight,
+  SlidersHorizontal,
 } from "lucide-react-native";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import { useTheme } from "../../src/design/ThemeContext";
 import {
   EmptyState,
   IconButton,
-  MetricCard,
   NoticeBanner,
   Panel,
   ScreenBackdrop,
-  GlassScreenHeader,
+  ScreenHeaderV2,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -78,46 +77,32 @@ export default function NotificationsScreen() {
     },
   ].filter((section) => section.items.length > 0);
 
-  const displayTitle = "Alerts";
-
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
       <ScreenBackdrop />
-      <GlassScreenHeader
-        title={displayTitle}
-        action={
-          <View style={styles.headerActions}>
-            <IconButton icon={Settings2} label="Settings" onPress={() => router.push("/profile")} />
-            <StatusBadge label={`${attentionThreads.length}`} tone="warning" />
-          </View>
-        }
-      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 180,
+          paddingTop: insets.top + 14,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        <View style={styles.metricRow}>
-          <MetricCard
-            label="Needs input"
-            value={sections.find((section) => section.key === "input")?.items.length ?? 0}
-            tone="warning"
-          />
-          <MetricCard
-            label="Diff ready"
-            value={sections.find((section) => section.key === "review")?.items.length ?? 0}
-            tone="accent"
-          />
-          <MetricCard
-            label="Errored"
-            value={sections.find((section) => section.key === "error")?.items.length ?? 0}
-            tone="danger"
-          />
-        </View>
+        <ScreenHeaderV2
+          title="Alerts"
+          subtitle="Approvals, input requests, failures, and completions that need a glance."
+          actions={
+            <View style={styles.headerActions}>
+              <IconButton icon={Bell} label={String(attentionThreads.length)} onPress={() => {}} />
+              <IconButton
+                icon={SlidersHorizontal}
+                label="Settings"
+                onPress={() => router.push("/settings")}
+              />
+            </View>
+          }
+        />
 
         {sections.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -135,7 +120,7 @@ export default function NotificationsScreen() {
                   <SectionTitle>{meta.title}</SectionTitle>
                   <StatusBadge label={`${section.items.length}`} tone={meta.tone} />
                 </View>
-                <View style={styles.listShell}>
+                <Panel style={styles.listShell}>
                   {section.items.map((entry, index) => (
                     <AttentionRow
                       key={`${entry.hostId}-${entry.thread.id}`}
@@ -151,7 +136,7 @@ export default function NotificationsScreen() {
                       }
                     />
                   ))}
-                </View>
+                </Panel>
               </View>
             );
           })
@@ -175,7 +160,7 @@ function AttentionRow({
   entry: MobileThreadSummary;
   index: number;
   total: number;
-  Icon: typeof BellDot;
+  Icon: typeof Bell;
   onPress: () => void;
 }) {
   const { colors } = useTheme();
@@ -186,8 +171,8 @@ function AttentionRow({
       style={({ pressed }) => [
         styles.attentionRow,
         {
-          backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
-          borderColor: colors.elevatedBorder,
+          backgroundColor: pressed ? withAlpha(colors.text.primary, 0.03) : "transparent",
+          borderBottomColor: index < total - 1 ? colors.border.soft : "transparent",
         },
       ]}
     >
@@ -195,27 +180,29 @@ function AttentionRow({
         <View
           style={[
             styles.attentionIcon,
-            { backgroundColor: withAlpha(colors.primary, 0.12) },
+            { backgroundColor: withAlpha(colors.accent.primary, 0.12) },
           ]}
         >
-          <Icon size={18} color={colors.primary} strokeWidth={2.2} />
+          <Icon size={16} color={colors.accent.primary} strokeWidth={2.1} />
         </View>
         <View style={styles.attentionCopy}>
-          <Text style={[styles.attentionTitle, { color: colors.foreground }]} numberOfLines={1}>
+          <Text style={[styles.attentionTitle, { color: colors.text.primary }]} numberOfLines={1}>
             {entry.thread.title}
           </Text>
-          <Text style={[styles.attentionMeta, { color: colors.secondaryLabel }]} numberOfLines={1}>
+          <Text style={[styles.attentionMeta, { color: colors.text.secondary }]} numberOfLines={1}>
             {entry.projectTitle} · {entry.hostName}
           </Text>
+          <Text style={[styles.attentionBody, { color: colors.text.tertiary }]} numberOfLines={2}>
+            {entry.attentionActivity?.summary ?? entry.preview}
+          </Text>
         </View>
-        <ChevronRight size={18} color={colors.tertiaryLabel} />
+        <View style={styles.attentionTrailing}>
+          <Text style={[styles.attentionTime, { color: colors.text.tertiary }]}>
+            {formatTimeAgo(entry.lastActivityAt)}
+          </Text>
+          <ChevronRight size={16} color={colors.text.tertiary} />
+        </View>
       </View>
-      <Text style={[styles.attentionBody, { color: colors.secondaryLabel }]} numberOfLines={2}>
-        {entry.attentionActivity?.summary ?? entry.preview}
-      </Text>
-      <Text style={[styles.attentionTime, { color: colors.tertiaryLabel }]}>
-        {formatTimeAgo(entry.lastActivityAt)}
-      </Text>
     </Pressable>
   );
 }
@@ -229,10 +216,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  metricRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
   emptyWrap: {
     marginTop: 22,
   },
@@ -240,28 +223,27 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   sectionHeader: {
-    marginBottom: 12,
+    marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   listShell: {
-    gap: 12,
+    paddingHorizontal: 16,
   },
   attentionRow: {
-    padding: 16,
-    borderRadius: Radius.card,
-    borderWidth: 1.5,
-    gap: 12,
+    minHeight: 82,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   attentionMain: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
   attentionIcon: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
@@ -271,18 +253,22 @@ const styles = StyleSheet.create({
   },
   attentionTitle: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   attentionMeta: {
-    marginTop: 2,
+    marginTop: 3,
     fontSize: 13,
   },
   attentionBody: {
+    marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
   },
+  attentionTrailing: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
   attentionTime: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 11,
   },
 });

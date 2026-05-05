@@ -61,9 +61,9 @@ import { useTheme } from "../../src/design/ThemeContext";
 import {
   EmptyState,
   IconButton,
-  MetricCard,
   Panel,
   ScreenBackdrop,
+  ScreenHeaderV2,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -1246,40 +1246,33 @@ export default function ProjectDetailScreen() {
         }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
       >
-        <View style={styles.headerRow}>
-          <Pressable
-            onPress={() => router.back()}
-            style={[
-              styles.backButton,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.elevatedBorder,
-                shadowColor: colors.shadow,
-              },
-            ]}
-          >
-            <ChevronLeft size={18} color={colors.foreground} strokeWidth={2.2} />
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: colors.tertiaryLabel }]}>Project</Text>
-            <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
-              {entry?.project.title ?? "Project"}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.secondaryLabel }]} numberOfLines={1}>
-              {entry?.hostName ?? "Unknown host"} · {projectThreads.length} threads
-            </Text>
-          </View>
-          {entry ? (
-            <IconButton
-              icon={Plus}
-              label="Agent"
-              onPress={() => setShowNewThread((current) => !current)}
-            />
-          ) : null}
-        </View>
+        <ScreenHeaderV2
+          eyebrow="Project"
+          title={entry?.project.title ?? "Project"}
+          subtitle={`${entry?.hostName ?? "Unknown host"} · ${projectThreads.length} threads`}
+          actions={
+            <View style={styles.headerActions}>
+              <IconButton icon={ChevronLeft} label="Back" onPress={() => router.back()} />
+              {entry ? (
+                <IconButton
+                  icon={Plus}
+                  label="Agent"
+                  onPress={() => setShowNewThread((current) => !current)}
+                  tone="primary"
+                />
+              ) : null}
+            </View>
+          }
+        />
 
         {entry ? (
           <>
+            <Panel style={styles.summaryStrip}>
+              <SummaryCell label="Live" value={entry.liveCount} />
+              <SummaryCell label="Pending" value={entry.pendingCount} />
+              <SummaryCell label="Completed" value={entry.completedCount} />
+            </Panel>
+
             <Panel style={styles.heroPanel}>
               <View style={styles.heroRow}>
                 <View
@@ -1343,12 +1336,6 @@ export default function ProjectDetailScreen() {
                 </Text>
               </Pressable>
             </Panel>
-
-            <View style={styles.metricRow}>
-              <MetricCard label="Live" value={entry.liveCount} tone="success" />
-              <MetricCard label="Pending" value={entry.pendingCount} tone="warning" />
-              <MetricCard label="Completed" value={entry.completedCount} tone="muted" />
-            </View>
 
             {showProjectSettings ? (
               <Panel style={styles.projectSettingsPanel}>
@@ -2720,50 +2707,49 @@ export default function ProjectDetailScreen() {
   );
 }
 
+function SummaryCell({ label, value }: { label: string; value: number }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.summaryCell}>
+      <Text style={[styles.summaryValue, { color: colors.foreground }]} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={[styles.summaryLabel, { color: colors.secondaryLabel }]}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  headerRow: {
+  headerActions: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderWidth: 1,
-    borderRadius: Radius.pill,
     alignItems: "center",
-    justifyContent: "center",
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.14,
-    shadowRadius: 28,
-    elevation: 0,
+    gap: 8,
   },
-  headerCopy: {
+  summaryStrip: {
+    marginTop: 2,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  summaryCell: {
     flex: 1,
+    gap: 2,
   },
-  eyebrow: {
-    fontSize: 12,
+  summaryValue: {
+    fontSize: 19,
+    lineHeight: 22,
     fontWeight: "700",
-    letterSpacing: 0.34,
-    textTransform: "uppercase",
   },
-  title: {
-    marginTop: 8,
-    fontSize: 32,
-    lineHeight: 34,
-    fontWeight: "800",
-    letterSpacing: -1.1,
-  },
-  subtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
+  summaryLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   heroPanel: {
-    marginTop: 22,
+    marginTop: 16,
   },
   heroRow: {
     flexDirection: "row",
@@ -2805,11 +2791,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     letterSpacing: -0.1,
-  },
-  metricRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    gap: 10,
   },
   projectSettingsPanel: {
     marginTop: 16,

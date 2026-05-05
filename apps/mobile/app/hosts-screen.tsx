@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, View, ScrollView, StyleSheet, Pressable, Text } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Server, Plus, ChevronRight, RefreshCw } from "lucide-react-native";
+import { Server, Plus, ChevronRight, RefreshCw, Search, Bell } from "lucide-react-native";
 import { useTheme } from "../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../src/design/system";
+import { Layout, withAlpha } from "../src/design/system";
 import {
   EmptyState,
   IconButton,
@@ -12,7 +12,7 @@ import {
   MetricCard,
   Panel,
   ScreenBackdrop,
-  ScreenHeader,
+  ScreenHeaderV2,
   SectionTitle,
   StatusBadge,
 } from "../src/design/primitives";
@@ -64,21 +64,32 @@ export default function HostsScreen() {
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
       <ScreenBackdrop />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 12,
+          paddingTop: insets.top + 14,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
       >
-        <ScreenHeader
+        <ScreenHeaderV2
           title="Hosts"
-          action={
+          subtitle="Connected machines, provider readiness, and environment health."
+          actions={
             <View style={styles.headerActions}>
-              <IconButton icon={Plus} label="Pair" onPress={() => router.push("/pairing")} />
+              <IconButton
+                icon={Bell}
+                label="Alerts"
+                onPress={() => router.push("/notifications")}
+              />
+              <IconButton
+                icon={Plus}
+                label="Pair"
+                onPress={() => router.push("/pairing")}
+                tone="primary"
+              />
             </View>
           }
         />
@@ -99,16 +110,21 @@ export default function HostsScreen() {
               title="No hosts paired"
               body="Scan the pairing code from ace Desktop to connect a machine for mobile agent control."
               action={
-                <IconButton icon={Plus} label="Pair Host" onPress={() => router.push("/pairing")} />
+                <IconButton
+                  icon={Plus}
+                  label="Pair Host"
+                  onPress={() => router.push("/pairing")}
+                  tone="primary"
+                />
               }
             />
           </View>
         ) : (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <SectionTitle>Paired Hosts</SectionTitle>
-              <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
-                {hosts.length} total
+              <SectionTitle>Infrastructure</SectionTitle>
+              <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
+                {hosts.length} hosts
               </Text>
             </View>
             <Panel padded={false} style={styles.hostList}>
@@ -133,9 +149,8 @@ export default function HostsScreen() {
                         styles.hostRow,
                         {
                           backgroundColor: pressed
-                            ? withAlpha(colors.foreground, 0.04)
+                            ? withAlpha(colors.text.primary, 0.03)
                             : "transparent",
-                          transform: [{ scale: pressed ? 0.995 : 1 }],
                         },
                       ]}
                     >
@@ -144,33 +159,33 @@ export default function HostsScreen() {
                           styles.hostIconWrap,
                           {
                             backgroundColor: isConnected
-                              ? withAlpha(colors.green, 0.14)
-                              : withAlpha(colors.muted, 0.14),
+                              ? withAlpha(colors.status.success, 0.12)
+                              : withAlpha(colors.status.muted, 0.12),
                           },
                         ]}
                       >
                         <Server
                           size={18}
-                          color={isConnected ? colors.green : colors.muted}
-                          strokeWidth={2.2}
+                          color={isConnected ? colors.status.success : colors.status.muted}
+                          strokeWidth={2.1}
                         />
                       </View>
                       <View style={styles.hostContent}>
                         <View style={styles.hostTitleRow}>
                           <Text
-                            style={[styles.hostName, { color: colors.foreground }]}
+                            style={[styles.hostName, { color: colors.text.primary }]}
                             numberOfLines={1}
                           >
                             {host.name}
                           </Text>
                           <StatusBadge
-                            label={isConnected ? "online" : "offline"}
+                            label={isConnected ? "Connected" : "Offline"}
                             tone={isConnected ? "success" : connectionError ? "danger" : "muted"}
                           />
                         </View>
                         <Text
-                          style={[styles.hostStatus, { color: colors.secondaryLabel }]}
-                          numberOfLines={3}
+                          style={[styles.hostStatus, { color: colors.text.secondary }]}
+                          numberOfLines={2}
                         >
                           {connectionError ? connectionError : host.wsUrl}
                         </Text>
@@ -185,25 +200,29 @@ export default function HostsScreen() {
                             style={({ pressed }) => [
                               styles.reconnectButton,
                               {
-                                backgroundColor: withAlpha(colors.primary, 0.12),
-                                borderColor: withAlpha(colors.primary, 0.22),
+                                backgroundColor: colors.surfaces.muted,
+                                borderColor: colors.border.soft,
                               },
                               pressed && { opacity: 0.7 },
                               reconnectingHostId !== null && styles.disabled,
                             ]}
                           >
                             {reconnecting ? (
-                              <ActivityIndicator color={colors.primary} />
+                              <ActivityIndicator color={colors.accent.primary} />
                             ) : (
-                              <RefreshCw size={17} color={colors.primary} strokeWidth={2.3} />
+                              <RefreshCw
+                                size={16}
+                                color={colors.accent.primary}
+                                strokeWidth={2.2}
+                              />
                             )}
                           </Pressable>
                         ) : null}
-                        <ChevronRight size={16} color={colors.muted} strokeWidth={2.2} />
+                        <ChevronRight size={16} color={colors.text.tertiary} strokeWidth={2.1} />
                       </View>
                     </Pressable>
                     {i < hosts.length - 1 && (
-                      <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                      <View style={[styles.separator, { backgroundColor: colors.border.soft }]} />
                     )}
                   </View>
                 );
@@ -214,12 +233,14 @@ export default function HostsScreen() {
                 style={({ pressed }) => [
                   styles.addRow,
                   {
-                    backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+                    backgroundColor: pressed ? withAlpha(colors.text.primary, 0.03) : "transparent",
                   },
                 ]}
               >
-                <Plus size={18} color={colors.primary} strokeWidth={2} />
-                <Text style={[styles.addRowText, { color: colors.primary }]}>Pair New Host</Text>
+                <Plus size={18} color={colors.accent.primary} strokeWidth={2} />
+                <Text style={[styles.addRowText, { color: colors.accent.primary }]}>
+                  Pair new host
+                </Text>
               </Pressable>
             </Panel>
           </View>
@@ -244,7 +265,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   metricRow: {
-    marginTop: 22,
+    marginTop: 2,
     flexDirection: "row",
     gap: 10,
   },
@@ -252,85 +273,83 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   section: {
-    marginTop: 24,
+    marginTop: 28,
   },
   sectionHeader: {
-    marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    marginBottom: 10,
   },
   sectionMeta: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
+    fontSize: 11,
   },
-  hostList: { overflow: "hidden" },
+  hostList: {
+    overflow: "hidden",
+  },
   hostRow: {
+    minHeight: 78,
     flexDirection: "row",
-    alignItems: "flex-start",
-    minHeight: 88,
-    gap: 13,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  separator: {
-    position: "absolute",
-    bottom: 0,
-    left: 71,
-    right: 18,
-    height: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   hostIconWrap: {
     width: 40,
     height: 40,
-    borderRadius: 15,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  hostContent: { flex: 1, minWidth: 0 },
+  hostContent: {
+    flex: 1,
+  },
   hostTitleRow: {
-    minHeight: 24,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "space-between",
+    gap: 10,
   },
   hostName: {
+    fontSize: 15,
+    fontWeight: "600",
     flex: 1,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "800",
-    letterSpacing: -0.2,
   },
   hostStatus: {
-    marginTop: 7,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
   },
   hostActions: {
-    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   reconnectButton: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.pill,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
   },
-  disabled: { opacity: 0.45 },
   addRow: {
+    minHeight: 58,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 58,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    gap: 12,
+    gap: 10,
   },
-  addRowText: { fontSize: 15, lineHeight: 19, fontWeight: "800" },
+  addRowText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 68,
+  },
+  disabled: {
+    opacity: 0.55,
+  },
 });
