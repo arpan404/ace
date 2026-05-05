@@ -15,6 +15,7 @@ interface AppPageTopBarProps {
   readonly children: ReactNode;
   readonly className?: string;
   readonly contentClassName?: string;
+  readonly desktopDragRegion?: boolean;
   readonly showSidebarTrigger?: boolean;
 }
 
@@ -25,6 +26,7 @@ export function AppPageTopBar({
   children,
   className,
   contentClassName,
+  desktopDragRegion = true,
   showSidebarTrigger = true,
 }: AppPageTopBarProps) {
   const { isMobile, state: sidebarState } = useSidebar();
@@ -35,7 +37,11 @@ export function AppPageTopBar({
       className={cn(
         "relative z-30 w-full shrink-0 bg-sidebar",
         isElectron
-          ? cn("drag-region flex min-h-[44px] items-center", DESKTOP_HEADER_CHROME_CLASS_NAME)
+          ? cn(
+              desktopDragRegion ? "drag-region" : "[-webkit-app-region:no-drag]",
+              "flex min-h-[44px] items-center",
+              DESKTOP_HEADER_CHROME_CLASS_NAME,
+            )
           : DESKTOP_HEADER_CHROME_CLASS_NAME,
         className,
       )}
