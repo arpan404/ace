@@ -58,7 +58,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     reviewChangesMode: "git",
     reviewSurface: "git-worktree",
     approvalRequestsMode: "none",
-    turnSteeringMode: "queued-message",
+    turnSteeringMode: "native",
     transcriptAuthority: "local",
     historyAuthority: "local-server-session",
     sessionResumeMode: "local-replay",

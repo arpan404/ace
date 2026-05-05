@@ -41,6 +41,7 @@ import { type PiAdapterShape, PiAdapter } from "../Services/PiAdapter.ts";
 const PROVIDER = "pi" as const;
 const PI_RPC_CONTROL_TIMEOUT_MS = 20_000;
 const BOOTSTRAP_MAX_CHARS = 24_000;
+const MAX_TURN_ITEMS_PER_TURN = 512;
 
 type PiAvailableCommand = {
   readonly name: string;
@@ -98,12 +99,14 @@ type PendingPiUserInput =
       readonly rpcRequestId: string;
       readonly method: "confirm";
       readonly questions: ReadonlyArray<UserInputQuestion>;
+      readonly turnId?: TurnId | undefined;
     }
   | {
       readonly requestId: ApprovalRequestId;
       readonly rpcRequestId: string;
       readonly method: "select";
       readonly questions: ReadonlyArray<UserInputQuestion>;
+      readonly turnId?: TurnId | undefined;
     };
 
 type PiSessionContext = {
@@ -358,6 +361,14 @@ function streamKindForToolItemType(
   return itemType === "command_execution" ? "command_output" : "file_change_output";
 }
 
+function readTurnItemId(item: unknown): string | undefined {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return undefined;
+  }
+  const { id } = item as { id?: unknown };
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
 function extractContentText(value: unknown): string {
   return asArray(value)
     .flatMap((entry) => {
@@ -468,6 +479,52 @@ export const PiAdapterLive = Layer.effect(
       void runPromise(PubSub.publish(eventsPubSub, event).pipe(Effect.asVoid));
     };
 
+    const resolveTurnSnapshot = (
+      context: PiSessionContext,
+      turnId: TurnId,
+    ): { id: TurnId; items: Array<unknown> } => {
+      const existing = context.turns.find((turn) => turn.id === turnId);
+      if (existing) {
+        return existing as { id: TurnId; items: Array<unknown> };
+      }
+      const created = { id: turnId, items: [] as Array<unknown> };
+      context.turns.push(created);
+      return created;
+    };
+
+    const appendTurnItem = (
+      context: PiSessionContext,
+      turnId: TurnId | undefined,
+      item: unknown,
+    ): void => {
+      if (!turnId) {
+        return;
+      }
+      const appendInto = (items: Array<unknown>) => {
+        const itemId = readTurnItemId(item);
+        if (itemId === undefined) {
+          items.push(item);
+        } else {
+          const existingIndex = items.findIndex(
+            (candidate) => readTurnItemId(candidate) === itemId,
+          );
+          if (existingIndex === -1) {
+            items.push(item);
+          } else {
+            items[existingIndex] = item;
+          }
+        }
+        if (items.length > MAX_TURN_ITEMS_PER_TURN) {
+          items.splice(0, items.length - MAX_TURN_ITEMS_PER_TURN);
+        }
+      };
+
+      appendInto(resolveTurnSnapshot(context, turnId).items);
+      if (context.activeTurn?.id === turnId) {
+        appendInto(context.activeTurn.items);
+      }
+    };
+
     const baseEvent = (
       context: PiSessionContext,
       input: {
@@ -571,6 +628,14 @@ export const PiAdapterLive = Layer.effect(
           },
         }),
       );
+      appendTurnItem(context, turn.id, {
+        id: String(state.itemId),
+        itemType,
+        status: "inProgress",
+        ...(describeToolTitle(input.toolName, input.args)
+          ? { title: describeToolTitle(input.toolName, input.args)! }
+          : {}),
+      });
       return state;
     };
 
@@ -605,6 +670,11 @@ export const PiAdapterLive = Layer.effect(
           },
         }),
       );
+      appendTurnItem(context, turn.id, {
+        kind: streamKindForToolItemType(toolState.itemType),
+        text: delta,
+        itemId: toolState.itemId,
+      });
     };
 
     const emitUsageSnapshot = async (context: PiSessionContext) => {
@@ -659,6 +729,61 @@ export const PiAdapterLive = Layer.effect(
       }
     };
 
+    const emitUserInputResolved = (
+      context: PiSessionContext,
+      pending: PendingPiUserInput,
+      answers: Record<string, string>,
+      input?: {
+        readonly rawType?: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "pi.rpc.event" | "pi.rpc.command";
+      },
+    ) => {
+      emit(
+        baseEvent(context, {
+          type: "user-input.resolved",
+          ...(pending.turnId ? { turnId: pending.turnId } : {}),
+          requestId: pending.requestId,
+          ...(input?.rawType ? { rawType: input.rawType } : {}),
+          ...(input?.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+          ...(input?.rawSource ? { rawSource: input.rawSource } : {}),
+          payload: {
+            answers,
+          },
+        }),
+      );
+      appendTurnItem(context, pending.turnId, {
+        id: String(pending.requestId),
+        kind: "user_input",
+        answers,
+      });
+    };
+
+    const cancelPendingUserInputs = (
+      context: PiSessionContext,
+      input?: {
+        readonly turnId?: TurnId;
+        readonly notifyProvider?: boolean;
+        readonly rawType?: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "pi.rpc.event" | "pi.rpc.command";
+      },
+    ) => {
+      for (const [requestId, pending] of context.pendingUserInputs.entries()) {
+        if (input?.turnId && pending.turnId !== input.turnId) {
+          continue;
+        }
+        context.pendingUserInputs.delete(requestId);
+        if (input?.notifyProvider !== false) {
+          context.client.notify("extension_ui_response", {
+            id: pending.rpcRequestId,
+            cancelled: true,
+          });
+        }
+        emitUserInputResolved(context, pending, {}, input);
+      }
+    };
+
     const completeTurn = (
       context: PiSessionContext,
       input: {
@@ -694,7 +819,14 @@ export const PiAdapterLive = Layer.effect(
         );
       }
 
-      context.turns.push({ id: turn.id, items: [...turn.items] });
+      cancelPendingUserInputs(context, {
+        turnId: turn.id,
+        ...(input.rawType ? { rawType: input.rawType } : {}),
+        ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+      });
+
+      const turnSnapshot = resolveTurnSnapshot(context, turn.id);
+      turnSnapshot.items = [...turn.items];
       context.replayTurns.push({
         prompt: turn.inputText,
         attachmentNames: [...turn.attachmentNames],
@@ -891,8 +1023,7 @@ export const PiAdapterLive = Layer.effect(
             type: notifyType === "error" ? "runtime.error" : "runtime.warning",
             rawType: "extension_ui_request",
             rawPayload: event,
-            payload:
-              notifyType === "error" ? { errorClass: "provider_error", message } : { message },
+            payload: notifyType === "error" ? { class: "provider_error", message } : { message },
           }),
         );
         return;
@@ -950,6 +1081,7 @@ export const PiAdapterLive = Layer.effect(
         rpcRequestId,
         method,
         questions,
+        ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
       });
       emit(
         baseEvent(context, {
@@ -961,6 +1093,12 @@ export const PiAdapterLive = Layer.effect(
           payload: { questions },
         }),
       );
+      appendTurnItem(context, context.activeTurn?.id, {
+        id: String(requestId),
+        kind: "user_input",
+        questions,
+        status: "pending",
+      });
     };
 
     const handleEvent = (context: PiSessionContext, event: PiRpcEvent) => {
@@ -990,6 +1128,10 @@ export const PiAdapterLive = Layer.effect(
                 },
               }),
             );
+            appendTurnItem(context, turn.id, {
+              kind: "assistant_text",
+              text: delta,
+            });
             return;
           }
           if (deltaType === "thinking_delta") {
@@ -1010,6 +1152,10 @@ export const PiAdapterLive = Layer.effect(
                 },
               }),
             );
+            appendTurnItem(context, turn.id, {
+              kind: "reasoning_text",
+              text: delta,
+            });
             return;
           }
           if (deltaType === "done" || deltaType === "error") {
@@ -1088,6 +1234,11 @@ export const PiAdapterLive = Layer.effect(
                 },
               }),
             );
+            appendTurnItem(context, turn.id, {
+              id: String(toolState.itemId),
+              itemType: toolState.itemType,
+              status: event.isError === true ? "failed" : "completed",
+            });
           }
           return;
         }
@@ -1140,7 +1291,7 @@ export const PiAdapterLive = Layer.effect(
               rawType: event.type,
               rawPayload: event,
               payload: {
-                errorClass: "provider_error",
+                class: "provider_error",
                 message:
                   asString(event.errorMessage) ?? asString(event.message) ?? "Pi extension error.",
               },
@@ -1174,18 +1325,17 @@ export const PiAdapterLive = Layer.effect(
         cwd,
       });
 
-      const [stateResult, modelsResult, commandsResult] = await Promise.all([
-        client.request("get_state", undefined, { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS }),
-        client.request("get_available_models", undefined, { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS }),
-        client.request("get_commands", undefined, { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS }),
+      const stateResult = await client.request("get_state", undefined, {
+        timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS,
+      });
+      const [modelsResult, commandsResult] = await Promise.all([
+        client
+          .request("get_available_models", undefined, { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS })
+          .catch(() => null),
+        client
+          .request("get_commands", undefined, { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS })
+          .catch(() => null),
       ]);
-      if (input.threadTitle) {
-        await client.request(
-          "set_session_name",
-          { name: input.threadTitle },
-          { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS },
-        );
-      }
       const stateRecord = asObject(stateResult);
       const sessionId = asString(stateRecord?.sessionId) ?? randomUUID();
       const createdAt = isoNow();
@@ -1218,9 +1368,49 @@ export const PiAdapterLive = Layer.effect(
         stopRequested: false,
       };
 
+      if (input.threadTitle) {
+        try {
+          await client.request(
+            "set_session_name",
+            { name: input.threadTitle },
+            { timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS },
+          );
+        } catch (cause) {
+          emit(
+            baseEvent(context, {
+              type: "runtime.warning",
+              rawType: "set_session_name",
+              rawPayload: { name: input.threadTitle },
+              rawSource: "pi.rpc.command",
+              payload: {
+                message: toMessage(cause, "Unable to set the Pi session title."),
+              },
+            }),
+          );
+        }
+      }
+
       client.setEventHandler((event) => handleEvent(context, event));
       client.setCloseHandler((close) => {
         context.closed = true;
+        cancelPendingUserInputs(context, {
+          notifyProvider: false,
+          rawType: "session_closed",
+          rawPayload: close,
+          rawSource: "pi.rpc.command",
+        });
+        if (context.activeTurn) {
+          completeTurn(context, {
+            state: context.activeTurn.interruptedRequested ? "interrupted" : "failed",
+            ...(context.activeTurn.interruptedRequested
+              ? { stopReason: "aborted" }
+              : {
+                  errorMessage: `Pi RPC exited (code=${close.code ?? "null"}, signal=${close.signal ?? "null"}).`,
+                }),
+            rawType: "session_closed",
+            rawPayload: close,
+          });
+        }
         if (context.stopRequested) {
           emit(
             baseEvent(context, {
@@ -1233,6 +1423,19 @@ export const PiAdapterLive = Layer.effect(
           );
           return;
         }
+        updateSession(context, {
+          status: "error",
+          activeTurnId: undefined,
+          lastError: `Pi RPC exited (code=${close.code ?? "null"}, signal=${close.signal ?? "null"}).`,
+        });
+        emit(
+          baseEvent(context, {
+            type: "session.state.changed",
+            payload: {
+              state: "error",
+            },
+          }),
+        );
         emit(
           baseEvent(context, {
             type: "session.exited",
@@ -1243,13 +1446,22 @@ export const PiAdapterLive = Layer.effect(
             },
           }),
         );
+        emit(
+          baseEvent(context, {
+            type: "runtime.error",
+            payload: {
+              class: "transport_error",
+              message: `Pi RPC exited unexpectedly (code=${close.code ?? "null"}, signal=${close.signal ?? "null"}).`,
+            },
+          }),
+        );
       });
       client.setProtocolErrorHandler((error) => {
         emit(
           baseEvent(context, {
             type: "runtime.error",
             payload: {
-              errorClass: "transport_error",
+              class: "transport_error",
               message: error.message,
             },
           }),
@@ -1268,6 +1480,31 @@ export const PiAdapterLive = Layer.effect(
           },
         }),
       );
+      if (modelsResult === null) {
+        emit(
+          baseEvent(context, {
+            type: "runtime.warning",
+            rawType: "get_available_models",
+            rawSource: "pi.rpc.command",
+            payload: {
+              message:
+                "Pi model discovery failed; Ace continued with the current Pi session state.",
+            },
+          }),
+        );
+      }
+      if (commandsResult === null) {
+        emit(
+          baseEvent(context, {
+            type: "runtime.warning",
+            rawType: "get_commands",
+            rawSource: "pi.rpc.command",
+            payload: {
+              message: "Pi command discovery failed; Ace continued with fallback slash commands.",
+            },
+          }),
+        );
+      }
       emit(
         baseEvent(context, {
           type: "session.started",
@@ -1623,7 +1860,12 @@ export const PiAdapterLive = Layer.effect(
               detail: `Unknown Pi user-input request '${requestId}'.`,
             });
           }
-          const answerValue = answers[pending.questions[0]?.id ?? ""];
+          const normalizedAnswers = Object.fromEntries(
+            Object.entries(answers).flatMap(([key, value]) =>
+              typeof value === "string" ? [[key, value]] : [],
+            ),
+          );
+          const answerValue = normalizedAnswers[pending.questions[0]?.id ?? ""];
           if (pending.method === "confirm") {
             const confirmed = answerValue === "Confirm";
             context.client.notify("extension_ui_response", {
@@ -1645,19 +1887,11 @@ export const PiAdapterLive = Layer.effect(
             }
           }
           context.pendingUserInputs.delete(requestId);
-          emit(
-            baseEvent(context, {
-              type: "user-input.resolved",
-              ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
-              requestId,
-              rawType: "extension_ui_response",
-              rawPayload: answers,
-              rawSource: "pi.rpc.command",
-              payload: {
-                answers,
-              },
-            }),
-          );
+          emitUserInputResolved(context, pending, normalizedAnswers, {
+            rawType: "extension_ui_response",
+            rawPayload: normalizedAnswers,
+            rawSource: "pi.rpc.command",
+          });
         },
         catch: (cause) =>
           isProviderAdapterSessionNotFoundError(cause) || isProviderAdapterRequestError(cause)
@@ -1678,18 +1912,7 @@ export const PiAdapterLive = Layer.effect(
             return;
           }
           context.stopRequested = true;
-          for (const pending of context.pendingUserInputs.values()) {
-            emit(
-              baseEvent(context, {
-                type: "user-input.resolved",
-                requestId: pending.requestId,
-                payload: {
-                  answers: {},
-                },
-              }),
-            );
-          }
-          context.pendingUserInputs.clear();
+          cancelPendingUserInputs(context, { notifyProvider: false });
           sessions.delete(threadId);
           await context.client.close();
         },
