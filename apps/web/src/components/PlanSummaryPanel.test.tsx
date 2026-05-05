@@ -58,6 +58,7 @@ describe("PlanSummaryPanel", () => {
         }}
         activeProvider="codex"
         markdownCwd={undefined}
+        onRegenerateSummary={() => undefined}
         workspaceDiffSummary={{ additions: 15, deletions: 19, fileCount: 2 }}
         workspaceRoot={undefined}
       />,
@@ -65,6 +66,7 @@ describe("PlanSummaryPanel", () => {
 
     expect(html).toContain("Diff summary");
     expect(html).toContain("Current diff:");
+    expect(html).toContain("Regenerate summary");
     expect(html).not.toContain(">Changes<");
   });
 

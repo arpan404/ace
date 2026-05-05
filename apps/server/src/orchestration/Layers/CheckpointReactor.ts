@@ -134,8 +134,11 @@ function formatWorkingTreeSummary(workingTree: {
 
 function hasGeneratedWorkspaceSummary(
   activities: ReadonlyArray<{ readonly kind: string; readonly turnId: TurnId | null }>,
-  turnId: TurnId,
+  turnId: TurnId | null,
 ) {
+  if (turnId === null) {
+    return false;
+  }
   return activities.some(
     (activity) => activity.kind === "workspace.summary.generated" && activity.turnId === turnId,
   );
@@ -156,7 +159,7 @@ const make = Effect.gen(function* () {
 
   const appendWorkspaceSummaryActivity = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
-    readonly turnId: TurnId;
+    readonly turnId: TurnId | null;
     readonly cwd: string;
     readonly thread: {
       readonly modelSelection: ModelSelection;
@@ -173,11 +176,12 @@ const make = Effect.gen(function* () {
     readonly turnState: "completed" | "failed" | "interrupted" | "cancelled";
     readonly workingTreeSummary: string;
     readonly workingTreeDiff: string;
-    readonly assistantMessageId: MessageId;
+    readonly assistantMessageId: MessageId | null;
     readonly checkpointTurnCount?: number | undefined;
+    readonly force?: boolean | undefined;
     readonly createdAt: string;
   }) {
-    if (hasGeneratedWorkspaceSummary(input.thread.activities, input.turnId)) {
+    if (!input.force && hasGeneratedWorkspaceSummary(input.thread.activities, input.turnId)) {
       return;
     }
 
@@ -209,7 +213,7 @@ const make = Effect.gen(function* () {
           summary: generated.summary,
           keyChanges: generated.keyChanges,
           risks: generated.risks,
-          assistantMessageId: input.assistantMessageId,
+          assistantMessageId: input.assistantMessageId ?? null,
           checkpointTurnCount: input.checkpointTurnCount ?? null,
           turnState: input.turnState,
         },
@@ -947,6 +951,71 @@ const make = Effect.gen(function* () {
       );
   });
 
+  const handleWorkspaceSummaryRegenerateRequested = Effect.fnUntraced(function* (
+    event: Extract<OrchestrationEvent, { type: "thread.workspace-summary-regenerate-requested" }>,
+  ) {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const thread = readModel.threads.find((entry) => entry.id === event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+
+    const summaryCwd = yield* resolveSummaryCwd({
+      threadId: thread.id,
+      thread,
+      projects: readModel.projects,
+    });
+    if (!summaryCwd) {
+      return;
+    }
+
+    const latestAssistantMessage = thread.messages
+      .toReversed()
+      .find((entry) => entry.role === "assistant");
+    const turnId = thread.latestTurn?.turnId ?? latestAssistantMessage?.turnId ?? null;
+    const checkpointTurnCount =
+      turnId === null
+        ? undefined
+        : thread.checkpoints.toReversed().find((checkpoint) => checkpoint.turnId === turnId)
+            ?.checkpointTurnCount;
+    const workingTreeSummary = isGitWorkspace(summaryCwd)
+      ? yield* gitCore.statusDetails(summaryCwd).pipe(
+          Effect.map((details) => formatWorkingTreeSummary(details.workingTree)),
+          Effect.catch(() =>
+            Effect.succeed("Current working tree summary is unavailable for this workspace."),
+          ),
+        )
+      : "Current working tree summary is unavailable for this workspace.";
+    const workingTreeDiff = isGitWorkspace(summaryCwd)
+      ? yield* gitCore.readWorkingTreeDiff({ cwd: summaryCwd }).pipe(
+          Effect.map((result) => result.diff),
+          Effect.catch(() => Effect.succeed("")),
+        )
+      : "";
+
+    yield* appendWorkspaceSummaryActivity({
+      threadId: thread.id,
+      turnId,
+      cwd: summaryCwd,
+      thread,
+      turnState: turnSummaryStateFromLatestTurn(thread.latestTurn?.state),
+      workingTreeSummary,
+      workingTreeDiff,
+      assistantMessageId:
+        thread.latestTurn?.assistantMessageId ?? latestAssistantMessage?.id ?? null,
+      checkpointTurnCount,
+      force: true,
+      createdAt: event.payload.createdAt,
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("failed to regenerate workspace summary", {
+          threadId: thread.id,
+          detail: error.message,
+        }),
+      ),
+    );
+  });
+
   const processDomainEvent = Effect.fnUntraced(function* (event: OrchestrationEvent) {
     if (event.type === "thread.turn-start-requested" || event.type === "thread.message-sent") {
       yield* ensurePreTurnBaselineFromDomainTurnStart(event);
@@ -964,6 +1033,11 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      return;
+    }
+
+    if (event.type === "thread.workspace-summary-regenerate-requested") {
+      yield* handleWorkspaceSummaryRegenerateRequested(event);
       return;
     }
 
@@ -1036,6 +1110,7 @@ const make = Effect.gen(function* () {
           event.type !== "thread.turn-start-requested" &&
           event.type !== "thread.message-sent" &&
           event.type !== "thread.checkpoint-revert-requested" &&
+          event.type !== "thread.workspace-summary-regenerate-requested" &&
           event.type !== "thread.turn-diff-completed"
         ) {
           return Effect.void;
