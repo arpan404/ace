@@ -7226,6 +7226,7 @@ export default function ChatView({
   const activeRightPanelBrowserSession =
     browserOpen && activeThreadId ? (browserSessionByThreadId[activeThreadId] ?? null) : null;
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
+  const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
   const showDockedRightSidePanelChrome =
     activeRightSidePanelMode !== null && !rightSidePanelFullscreen;
   const dockedRightSidePanelWidth = constrainedPanelWidth(
@@ -7279,7 +7280,7 @@ export default function ChatView({
         <motion.div
           key="thread-right-side-panel-top-bar"
           className={cn(
-            "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar",
+            "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ width: 0, opacity: 0, x: 20 }}
@@ -7309,7 +7310,7 @@ export default function ChatView({
         <motion.div
           key="thread-right-side-panel-fullscreen-top-bar"
           className={cn(
-            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar",
+            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ opacity: 0, y: -10 }}
@@ -7343,7 +7344,11 @@ export default function ChatView({
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <AppPageTopBar className="min-w-0 flex-1" showSidebarTrigger={showSidebarTrigger}>
+        <AppPageTopBar
+          className="min-w-0 flex-1"
+          desktopDragRegion={!rightSidePanelFullscreen}
+          showSidebarTrigger={showSidebarTrigger}
+        >
           <div className="flex min-w-0 flex-1 items-center overflow-hidden">
             {paneControls ? (
               <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
@@ -7631,23 +7636,47 @@ export default function ChatView({
             <motion.div
               key="thread-right-side-panel"
               className={cn(
-                "flex h-full min-h-0 transform-gpu overflow-hidden bg-background will-change-[width,transform,opacity]",
+                "flex h-full min-h-0 overflow-hidden bg-background",
+                avoidNativeBrowserPanelTransforms
+                  ? "will-change-[width,opacity]"
+                  : "transform-gpu will-change-[width,transform,opacity]",
                 !rightSidePanelInteractive && "pointer-events-none select-none",
                 rightSidePanelFullscreen ? "absolute inset-y-0 right-0 z-40" : "relative shrink-0",
               )}
-              initial={{ width: 0, opacity: 0, x: 24 }}
-              animate={{
-                width: rightSidePanelFullscreen
-                  ? "100%"
-                  : constrainedPanelWidth(
-                      rightSidePanelWidth,
-                      MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                      MIN_RIGHT_SIDE_PANEL_WIDTH,
-                    ),
-                opacity: 1,
-                x: 0,
-              }}
-              exit={{ width: 0, opacity: 0, x: 24 }}
+              initial={
+                avoidNativeBrowserPanelTransforms
+                  ? { width: 0, opacity: 0 }
+                  : { width: 0, opacity: 0, x: 24 }
+              }
+              animate={
+                avoidNativeBrowserPanelTransforms
+                  ? {
+                      width: rightSidePanelFullscreen
+                        ? "100%"
+                        : constrainedPanelWidth(
+                            rightSidePanelWidth,
+                            MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                            MIN_RIGHT_SIDE_PANEL_WIDTH,
+                          ),
+                      opacity: 1,
+                    }
+                  : {
+                      width: rightSidePanelFullscreen
+                        ? "100%"
+                        : constrainedPanelWidth(
+                            rightSidePanelWidth,
+                            MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                            MIN_RIGHT_SIDE_PANEL_WIDTH,
+                          ),
+                      opacity: 1,
+                      x: 0,
+                    }
+              }
+              exit={
+                avoidNativeBrowserPanelTransforms
+                  ? { width: 0, opacity: 0 }
+                  : { width: 0, opacity: 0, x: 24 }
+              }
               transition={RIGHT_SIDE_PANEL_TRANSITION}
             >
               {!rightSidePanelFullscreen ? (
@@ -7666,9 +7695,9 @@ export default function ChatView({
               ) : null}
               <motion.div
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 6 }}
+                initial={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 8 }}
+                animate={avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }}
+                exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 6 }}
                 transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
               >
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
