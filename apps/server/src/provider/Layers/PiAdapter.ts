@@ -42,6 +42,18 @@ const PROVIDER = "pi" as const;
 const PI_RPC_CONTROL_TIMEOUT_MS = 20_000;
 const BOOTSTRAP_MAX_CHARS = 24_000;
 const MAX_TURN_ITEMS_PER_TURN = 512;
+const PI_PROPOSED_PLAN_BLOCK_REGEX =
+  /<!--\s*ACE_PROPOSED_PLAN_START\s*-->\s*([\s\S]*?)\s*<!--\s*ACE_PROPOSED_PLAN_END\s*-->/i;
+const PI_PLAN_MODE_PROMPT_PREAMBLE = [
+  "Ace is running Pi in provider-emulated planning mode.",
+  "Do not run commands, call tools, modify files, or claim that code has been changed.",
+  "Think through the task and produce an implementation plan only.",
+  "If you need clarification, ask concise questions and do not emit a proposed plan block.",
+  "When you are ready to propose a plan, place the plan markdown between these exact markers:",
+  "<!-- ACE_PROPOSED_PLAN_START -->",
+  "<!-- ACE_PROPOSED_PLAN_END -->",
+  "Inside the markers, start with a top-level markdown heading and then list short actionable steps.",
+].join("\n");
 
 type PiAvailableCommand = {
   readonly name: string;
@@ -83,11 +95,14 @@ type PiTurnState = {
   readonly id: TurnId;
   readonly inputText: string;
   readonly attachmentNames: ReadonlyArray<string>;
+  readonly interactionMode: ProviderSessionStartInput["interactionMode"];
   readonly startedAtMs: number;
   assistantText: string;
   reasoningText: string;
   readonly items: Array<unknown>;
   readonly toolItems: Map<string, PiToolItemState>;
+  lastProposedPlanMarkdown?: string | undefined;
+  planToolWarningEmitted: boolean;
   interruptedRequested: boolean;
   stopReason?: string | undefined;
   errorMessage?: string | undefined;
@@ -117,6 +132,7 @@ type PiSessionContext = {
   readonly turns: Array<{ readonly id: TurnId; readonly items: ReadonlyArray<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingPiUserInput>;
+  readonly emittedWarnings: Set<"plan" | "approval-required">;
   activeTurn: PiTurnState | null;
   pendingBootstrapReset: boolean;
   closed: boolean;
@@ -429,6 +445,28 @@ function promptMessage(input: ProviderSendTurnInput): string {
     return input.input;
   }
   return "Analyze the attached image.";
+}
+
+function looksLikePlanMarkdown(text: string): boolean {
+  return /^\s{0,3}#{1,6}\s+\S/m.test(text) && /^(?:[-*+]|\d+\.)\s+\S/m.test(text);
+}
+
+function extractPiProposedPlanMarkdown(text: string | undefined): string | undefined {
+  const match = text ? PI_PROPOSED_PLAN_BLOCK_REGEX.exec(text) : null;
+  const taggedPlanMarkdown = match?.[1]?.trim();
+  if (taggedPlanMarkdown && taggedPlanMarkdown.length > 0) {
+    return taggedPlanMarkdown;
+  }
+  const trimmed = text?.trim();
+  if (!trimmed || !looksLikePlanMarkdown(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function wrapPiPlanPrompt(message: string): string {
+  const trimmed = message.trim();
+  return `${PI_PLAN_MODE_PROMPT_PREAMBLE}\n\nUser request:\n${trimmed.length > 0 ? trimmed : "Provide a proposed implementation plan."}`;
 }
 
 function buildUserInputQuestionsForConfirm(
@@ -825,6 +863,23 @@ export const PiAdapterLive = Layer.effect(
         ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
       });
 
+      if (input.state === "completed" && turn.interactionMode === "plan") {
+        const planMarkdown = extractPiProposedPlanMarkdown(turn.assistantText);
+        if (planMarkdown) {
+          emit(
+            baseEvent(context, {
+              type: "turn.proposed.completed",
+              turnId: turn.id,
+              ...(input.rawType ? { rawType: input.rawType } : {}),
+              ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+              payload: {
+                planMarkdown,
+              },
+            }),
+          );
+        }
+      }
+
       const turnSnapshot = resolveTurnSnapshot(context, turn.id);
       turnSnapshot.items = [...turn.items];
       context.replayTurns.push({
@@ -945,32 +1000,84 @@ export const PiAdapterLive = Layer.effect(
       });
     };
 
+    const emitPlanShimNotice = (context: PiSessionContext) => {
+      if (context.emittedWarnings.has("plan")) {
+        return;
+      }
+      context.emittedWarnings.add("plan");
+      emit(
+        baseEvent(context, {
+          type: "config.warning",
+          payload: {
+            summary: "Pi plan mode is being emulated by Ace.",
+            details:
+              "Ace is constraining the Pi prompt and extracting proposed plans locally because Pi RPC does not expose a native plan mode.",
+          },
+        }),
+      );
+    };
+
+    const emitApprovalModeWarning = (context: PiSessionContext) => {
+      if (context.emittedWarnings.has("approval-required")) {
+        return;
+      }
+      context.emittedWarnings.add("approval-required");
+      emit(
+        baseEvent(context, {
+          type: "config.warning",
+          payload: {
+            summary: "Pi does not expose Codex-style approval mode over RPC.",
+            details:
+              "Ace continued with Pi's normal execution mode because Pi RPC does not emit tool permission requests.",
+          },
+        }),
+      );
+    };
+
+    const emitProposedPlanDeltaFromAssistantText = (
+      context: PiSessionContext,
+      turn: PiTurnState,
+      rawType: string,
+      rawPayload: unknown,
+    ) => {
+      if (turn.interactionMode !== "plan") {
+        return;
+      }
+      const planMarkdown = extractPiProposedPlanMarkdown(turn.assistantText);
+      if (!planMarkdown || planMarkdown === turn.lastProposedPlanMarkdown) {
+        return;
+      }
+      const previousPlanMarkdown = turn.lastProposedPlanMarkdown ?? "";
+      turn.lastProposedPlanMarkdown = planMarkdown;
+      if (previousPlanMarkdown.length > 0 && !planMarkdown.startsWith(previousPlanMarkdown)) {
+        return;
+      }
+      const delta = planMarkdown.slice(previousPlanMarkdown.length);
+      if (!delta) {
+        return;
+      }
+      emit(
+        baseEvent(context, {
+          type: "turn.proposed.delta",
+          turnId: turn.id,
+          rawType,
+          rawPayload,
+          payload: {
+            delta,
+          },
+        }),
+      );
+    };
+
     const emitUnsupportedModeWarnings = (
       context: PiSessionContext,
       input: Pick<ProviderSessionStartInput, "interactionMode" | "runtimeMode">,
     ) => {
       if (input.interactionMode === "plan") {
-        emit(
-          baseEvent(context, {
-            type: "config.warning",
-            payload: {
-              summary: "Pi does not expose a native plan mode over RPC.",
-              details: "Ace continued with Pi's default execution mode.",
-            },
-          }),
-        );
+        emitPlanShimNotice(context);
       }
       if (input.runtimeMode === "approval-required") {
-        emit(
-          baseEvent(context, {
-            type: "config.warning",
-            payload: {
-              summary: "Pi does not expose Codex-style approval mode over RPC.",
-              details:
-                "Ace continued with Pi's normal execution mode because Pi RPC does not emit tool permission requests.",
-            },
-          }),
-        );
+        emitApprovalModeWarning(context);
       }
     };
 
@@ -1132,6 +1239,7 @@ export const PiAdapterLive = Layer.effect(
               kind: "assistant_text",
               text: delta,
             });
+            emitProposedPlanDeltaFromAssistantText(context, turn, event.type, event);
             return;
           }
           if (deltaType === "thinking_delta") {
@@ -1171,6 +1279,21 @@ export const PiAdapterLive = Layer.effect(
           const toolCallId = asString(event.toolCallId);
           if (!turn || !toolCallId) {
             return;
+          }
+          if (turn.interactionMode === "plan" && !turn.planToolWarningEmitted) {
+            turn.planToolWarningEmitted = true;
+            emit(
+              baseEvent(context, {
+                type: "runtime.warning",
+                turnId: turn.id,
+                rawType: event.type,
+                rawPayload: event,
+                payload: {
+                  message:
+                    "Pi started a tool while Ace-managed plan mode was active. Plan-only behavior is best-effort for this provider.",
+                },
+              }),
+            );
           }
           ensureToolItem(context, turn, toolCallId, {
             toolName: asString(event.toolName),
@@ -1362,6 +1485,7 @@ export const PiAdapterLive = Layer.effect(
         turns: [],
         replayTurns: cloneReplayTurns(input.replayTurns),
         pendingUserInputs: new Map(),
+        emittedWarnings: new Set(),
         activeTurn: null,
         pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0,
         closed: false,
@@ -1633,10 +1757,12 @@ export const PiAdapterLive = Layer.effect(
             id: turnId,
             inputText: input.input ?? "",
             attachmentNames: (input.attachments ?? []).map((attachment) => attachment.name),
+            interactionMode: input.interactionMode,
             assistantText: "",
             reasoningText: "",
             items: [],
             toolItems: new Map(),
+            planToolWarningEmitted: false,
             interruptedRequested: false,
             startedAtMs: Date.now(),
           };
@@ -1666,7 +1792,14 @@ export const PiAdapterLive = Layer.effect(
                 ).text,
               }
             : input;
-          const promptPayload = await buildPromptPayload(promptInput);
+          const effectivePromptInput =
+            promptInput.interactionMode === "plan"
+              ? {
+                  ...promptInput,
+                  input: wrapPiPlanPrompt(promptMessage(promptInput)),
+                }
+              : promptInput;
+          const promptPayload = await buildPromptPayload(effectivePromptInput);
 
           await context.client.request("prompt", promptPayload, {
             timeoutMs: PI_RPC_CONTROL_TIMEOUT_MS,
