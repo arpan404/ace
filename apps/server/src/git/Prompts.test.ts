@@ -5,6 +5,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "./Prompts.ts";
 import { normalizeCliError, sanitizeThreadTitle } from "./Utils.ts";
 import { TextGenerationError } from "@ace/contracts";
@@ -133,6 +134,28 @@ describe("buildThreadTitlePrompt", () => {
     expect(result.prompt).toContain("thread.png");
     expect(result.prompt).toContain("image/png");
     expect(result.prompt).toContain("67890 bytes");
+  });
+});
+
+describe("buildWorkspaceSummaryPrompt", () => {
+  it("includes conversation context and current working tree context", () => {
+    const result = buildWorkspaceSummaryPrompt({
+      turnState: "completed",
+      userRequests: "Make the summary more useful and descriptive.",
+      assistantWork: "Updated the summary panel and added new tests.",
+      workingTreeSummary: "2 files currently changed, +25 -4",
+      workingTreeDiff: "diff --git a/a.ts b/a.ts\n+const summary = true;",
+    });
+
+    expect(result.prompt).toContain("Latest turn outcome: completed");
+    expect(result.prompt).toContain("Relevant user requests:");
+    expect(result.prompt).toContain("Make the summary more useful");
+    expect(result.prompt).toContain("Relevant assistant work:");
+    expect(result.prompt).toContain("Updated the summary panel");
+    expect(result.prompt).toContain("Current working tree summary:");
+    expect(result.prompt).toContain("2 files currently changed");
+    expect(result.prompt).toContain("Current working tree diff:");
+    expect(result.prompt).toContain("const summary = true;");
   });
 });
 

@@ -74,6 +74,67 @@ export function sanitizeThreadTitle(raw: string): string {
   return `${normalized.slice(0, 47).trimEnd()}...`;
 }
 
+function sanitizeSummaryList(
+  raw: ReadonlyArray<string>,
+  fallbackLimit: number,
+): ReadonlyArray<string> {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const entry of raw) {
+    const normalized = entry.trim().replace(/\s+/g, " ");
+    if (normalized.length === 0) {
+      continue;
+    }
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    next.push(normalized);
+    if (next.length >= fallbackLimit) {
+      break;
+    }
+  }
+  return next;
+}
+
+export function sanitizeWorkspaceSummaryHeadline(raw: string): string {
+  const normalized = raw
+    .trim()
+    .split(/\r?\n/g)[0]
+    ?.trim()
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/[.]+$/g, "")
+    .replace(/\s+/g, " ");
+
+  if (!normalized || normalized.length === 0) {
+    return "Workspace summary";
+  }
+
+  if (normalized.length <= 72) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 69).trimEnd()}...`;
+}
+
+export function sanitizeWorkspaceSummaryParagraph(raw: string): string {
+  const normalized = raw.trim().replace(/\s+/g, " ");
+  if (normalized.length > 0) {
+    return normalized;
+  }
+  return "The workspace contains uncommitted implementation changes.";
+}
+
+export function sanitizeWorkspaceSummaryKeyChanges(
+  raw: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  return sanitizeSummaryList(raw, 4);
+}
+
+export function sanitizeWorkspaceSummaryRisks(raw: ReadonlyArray<string>): ReadonlyArray<string> {
+  return sanitizeSummaryList(raw, 3);
+}
+
 /** CLI name to human-readable label, e.g. "codex" → "Codex CLI (`codex`)" */
 function cliLabel(cliName: string): string {
   const capitalized = cliName.charAt(0).toUpperCase() + cliName.slice(1);

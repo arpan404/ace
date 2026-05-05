@@ -89,9 +89,12 @@ export function deriveThreadActivityRenderState(
   }
 
   const visibleThreadActivities = filterVisibleWorkLogActivities(activities, visibility);
+  const derivedWorkLogEntries = deriveWorkLogEntries(visibleThreadActivities);
   const nextState = {
     visibleThreadActivities,
-    workLogEntries: deriveWorkLogEntries(visibleThreadActivities),
+    workLogEntries: visibility.enableThinkingStreaming
+      ? derivedWorkLogEntries
+      : derivedWorkLogEntries.filter((entry) => entry.tone !== "thinking"),
     pendingApprovals: derivePendingApprovals(activities),
     pendingUserInputs: derivePendingUserInputs(activities),
   } satisfies ThreadActivityRenderState;

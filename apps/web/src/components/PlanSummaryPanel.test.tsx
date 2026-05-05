@@ -30,6 +30,7 @@ describe("PlanSummaryPanel", () => {
           ],
         }}
         activeProposedPlan={null}
+        generatedWorkspaceSummary={null}
         activeProvider="codex"
         markdownCwd={undefined}
         workspaceDiffSummary={null}

@@ -110,6 +110,9 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
   if (activity.summary === "Checkpoint captured") {
     return false;
   }
+  if (activity.kind === "workspace.summary.generated") {
+    return false;
+  }
   return !isPlanBoundaryToolActivity(activity);
 }
 
@@ -233,13 +236,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.collapseKey = collapseKey;
   }
   return entry;
-}
-
-function isRenderableDerivedWorkLogEntry(entry: DerivedWorkLogEntry): boolean {
-  if (entry.activityKind === "reasoning.completed" && !entry.detail) {
-    return false;
-  }
-  return true;
 }
 
 function collapseDerivedWorkLogEntries(
@@ -463,10 +459,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter(isRenderableWorkLogActivity)
     .map(toDerivedWorkLogEntry);
-  // Drop terminal reasoning-completed shell activities that carry no detail.
-  // Some providers emit these after the assistant message, which otherwise creates
-  // a stray trailing "1 reasoning step" disclosure with no useful content.
-  return collapseDerivedWorkLogEntries(entries.filter(isRenderableDerivedWorkLogEntry)).map(
+  return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
 }

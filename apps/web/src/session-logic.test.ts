@@ -11,6 +11,7 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLatestGeneratedWorkspaceSummary,
   deriveVisibleWorkTurnId,
   deriveVisibleTurnDiffSummaryByAssistantMessageId,
   PROVIDER_OPTIONS,
@@ -988,6 +989,34 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
+  it("omits generated turn summary info entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "turn-summary",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "workspace.summary.generated",
+        summary: "Updated editor summary panel",
+        tone: "info",
+        payload: {
+          headline: "Updated editor summary panel",
+          summary: "Added AI-generated summaries to the side panel.",
+          keyChanges: ["Rendered summary card"],
+          risks: [],
+        },
+      }),
+      makeActivity({
+        id: "tool-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        summary: "Ran command",
+        tone: "tool",
+        kind: "tool.completed",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+  });
+
   it("omits ExitPlanMode lifecycle entries once the plan card is shown", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1177,19 +1206,8 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("drops empty terminal reasoning completion entries", () => {
+  it("keeps empty terminal reasoning completion entries instead of dropping them", () => {
     const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "reasoning-progress-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "task.progress",
-        summary: "Reasoning",
-        tone: "info",
-        payload: {
-          taskId: "reasoning:item-empty-complete",
-          detail: "Inspecting package scripts.",
-        },
-      }),
       makeActivity({
         id: "reasoning-complete-empty",
         createdAt: "2026-02-23T00:00:03.000Z",
@@ -1206,10 +1224,11 @@ describe("deriveWorkLogEntries", () => {
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      createdAt: "2026-02-23T00:00:01.000Z",
+      createdAt: "2026-02-23T00:00:03.000Z",
       tone: "thinking",
-      detail: "Inspecting package scripts.",
+      label: "Reasoning",
     });
+    expect(entries[0]?.detail).toBeUndefined();
   });
 
   it("accumulates token-like streamed reasoning fragments into readable text", () => {
@@ -2386,6 +2405,43 @@ describe("filterVisibleWorkLogActivities", () => {
     });
 
     expect(visible).toBe(activities);
+  });
+});
+
+describe("deriveLatestGeneratedWorkspaceSummary", () => {
+  it("returns the latest generated workspace summary", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "summary-turn-1",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "workspace.summary.generated",
+        summary: "Turn one summary",
+        tone: "info",
+        payload: {
+          headline: "Turn one summary",
+          summary: "Completed the first turn.",
+          keyChanges: ["Updated one file"],
+          risks: [],
+        },
+      }),
+      makeActivity({
+        id: "summary-turn-2",
+        turnId: "turn-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "workspace.summary.generated",
+        summary: "Turn two summary",
+        tone: "info",
+        payload: {
+          headline: "Turn two summary",
+          summary: "Completed the second turn.",
+          keyChanges: ["Updated two files"],
+          risks: ["Tests not run"],
+        },
+      }),
+    ];
+
+    expect(deriveLatestGeneratedWorkspaceSummary(activities)?.headline).toBe("Turn two summary");
   });
 });
 

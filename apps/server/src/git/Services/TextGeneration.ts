@@ -79,6 +79,24 @@ export interface ThreadTitleGenerationResult {
   title: string;
 }
 
+export interface WorkspaceSummaryGenerationInput {
+  cwd: string;
+  turnState: "completed" | "failed" | "interrupted" | "cancelled";
+  userRequests: string;
+  assistantWork: string;
+  workingTreeSummary: string;
+  workingTreeDiff: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
+}
+
+export interface WorkspaceSummaryGenerationResult {
+  headline: string;
+  summary: string;
+  keyChanges: ReadonlyArray<string>;
+  risks: ReadonlyArray<string>;
+}
+
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -86,6 +104,9 @@ export interface TextGenerationService {
   generatePrContent(input: PrContentGenerationInput): Promise<PrContentGenerationResult>;
   generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
   generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
+  generateWorkspaceSummary(
+    input: WorkspaceSummaryGenerationInput,
+  ): Promise<WorkspaceSummaryGenerationResult>;
 }
 
 /**
@@ -119,6 +140,13 @@ export interface TextGenerationShape {
   readonly generateThreadTitle: (
     input: ThreadTitleGenerationInput,
   ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+  /**
+   * Generate a concise summary for the current uncommitted workspace state.
+   */
+  readonly generateWorkspaceSummary: (
+    input: WorkspaceSummaryGenerationInput,
+  ) => Effect.Effect<WorkspaceSummaryGenerationResult, TextGenerationError>;
 }
 
 /**

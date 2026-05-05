@@ -200,3 +200,56 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 
   return { prompt, outputSchema };
 }
+
+// ---------------------------------------------------------------------------
+// Turn summary
+// ---------------------------------------------------------------------------
+
+export interface WorkspaceSummaryPromptInput {
+  turnState: "completed" | "failed" | "interrupted" | "cancelled";
+  userRequests: string;
+  assistantWork: string;
+  workingTreeSummary: string;
+  workingTreeDiff: string;
+}
+
+export function buildWorkspaceSummaryPrompt(input: WorkspaceSummaryPromptInput) {
+  const prompt = [
+    "You write concise engineering summaries for the current uncommitted state of a coding workspace.",
+    "Return a JSON object with keys: headline, summary, keyChanges, risks.",
+    "Rules:",
+    "- headline must be a specific single line of 4-10 words with no trailing period",
+    "- summary must be 2-4 short factual sentences",
+    "- keyChanges must be an array of 0-4 short bullet strings",
+    "- risks must be an array of 0-3 short bullet strings and must be empty when there are no unresolved watchouts",
+    "- describe the current not-yet-committed workspace state, not just the last turn",
+    "- explain the work in terms of the user's request and the assistant's implementation progress",
+    "- do not write like a pull request, changelog, review, or release note",
+    "- prefer concrete product or code behavior over file-by-file narration",
+    "- mention failures or interrupted work directly when the latest turn outcome was not completed",
+    "- do not invent tests, commits, or validation that did not happen",
+    "",
+    `Latest turn outcome: ${input.turnState}`,
+    "",
+    "Relevant user requests:",
+    limitSection(input.userRequests || "(none)", 12_000),
+    "",
+    "Relevant assistant work:",
+    limitSection(input.assistantWork || "(none)", 12_000),
+    "",
+    "Current working tree summary:",
+    limitSection(input.workingTreeSummary || "(none)", 12_000),
+    "",
+    "Current working tree diff:",
+    limitSection(input.workingTreeDiff || "(none)", 40_000),
+  ].join("\n");
+
+  const outputSchema = Schema.Struct({
+    headline: Schema.String,
+    summary: Schema.String,
+    keyChanges: Schema.Array(Schema.String),
+    risks: Schema.Array(Schema.String),
+  });
+
+  return { prompt, outputSchema };
+}
