@@ -26,6 +26,7 @@ import {
   SlidersHorizontal,
   Sun,
   Wrench,
+  X,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import {
@@ -51,32 +52,32 @@ import type {
   TimestampFormat,
 } from "@ace/contracts/settings";
 import { newCommandId } from "@ace/shared/ids";
-import { useTheme, type ThemeMode } from "../../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { useTheme, type ThemeMode } from "../src/design/ThemeContext";
+import { Layout, Radius, withAlpha } from "../src/design/system";
 import {
   IconButton,
   Panel,
   RowLink,
   ScreenBackdrop,
-  ScreenHeader,
+  GlassScreenHeader,
   SectionTitle,
   StatusBadge,
-} from "../../src/design/primitives";
-import { useHostStore } from "../../src/store/HostStore";
-import { useAggregatedOrchestration } from "../../src/orchestration/mobileData";
-import { formatErrorMessage } from "../../src/errors";
-import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStore";
-import { useMobileBrowserHistoryStore } from "../../src/store/MobileBrowserHistoryStore";
-import { useMobileBrowserSessionStore } from "../../src/store/MobileBrowserSessionStore";
+} from "../src/design/primitives";
+import { useHostStore } from "../src/store/HostStore";
+import { useAggregatedOrchestration } from "../src/orchestration/mobileData";
+import { formatErrorMessage } from "../src/errors";
+import { useMobilePreferencesStore } from "../src/store/MobilePreferencesStore";
+import { useMobileBrowserHistoryStore } from "../src/store/MobileBrowserHistoryStore";
+import { useMobileBrowserSessionStore } from "../src/store/MobileBrowserSessionStore";
 import {
   runMobileHostDiagnostics,
   type MobileHostDiagnosticsStatus,
-} from "../../src/diagnostics/mobileHostDiagnostics";
+} from "../src/diagnostics/mobileHostDiagnostics";
 import {
   runNativePermissionDiagnostics,
   type NativePermissionKind,
   type NativePermissionDiagnosticsStatus,
-} from "../../src/diagnostics/nativePermissionDiagnostics";
+} from "../src/diagnostics/nativePermissionDiagnostics";
 import {
   encodeShortcutValue,
   filterMobileKeybindings,
@@ -84,8 +85,8 @@ import {
   formatShortcutValue,
   keybindingCommandLabel,
   keybindingWhenExpression,
-} from "../../src/settings/mobileKeybindings";
-import mobilePackage from "../../package.json";
+} from "../src/settings/mobileKeybindings";
+import mobilePackage from "../package.json";
 
 const MOBILE_APP_VERSION = mobilePackage.version;
 
@@ -1045,19 +1046,25 @@ export default function SettingsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScreenBackdrop />
+      <GlassScreenHeader
+        title="Settings"
+        action={
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <StatusBadge label={`${connectedHostCount} online`} tone="success" />
+            <Pressable onPress={() => router.back()} style={{ padding: 4 }}>
+              <X size={24} color={colors.foreground} />
+            </Pressable>
+          </View>
+        }
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 12,
+          paddingTop: insets.top + 76,
           paddingHorizontal: Layout.pagePadding,
           paddingBottom: insets.bottom + 120,
         }}
       >
-        <ScreenHeader
-          title="Settings"
-          action={<StatusBadge label={`${connectedHostCount} online`} tone="success" />}
-        />
-
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <SectionTitle>Hosts</SectionTitle>
