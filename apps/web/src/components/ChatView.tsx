@@ -2098,6 +2098,22 @@ export default function ChatView({
       fileCount: workingTree.files.length,
     };
   }, [workspaceStatusQuery.data?.workingTree]);
+  const handleRegenerateSummary = useCallback(async () => {
+    if (!activeThread) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+
+    await api.orchestration.dispatchCommand({
+      type: "thread.workspace-summary.regenerate",
+      commandId: newCommandId(),
+      threadId: activeThread.id,
+      createdAt: new Date().toISOString(),
+    });
+  }, [activeThread]);
   const branchesQuery = useQuery({
     ...gitBranchesQueryOptions(codingGitCwd),
     enabled: codingGitCwd !== null && activeForSideEffects,
@@ -7674,6 +7690,7 @@ export default function ChatView({
                             activeProvider={activeThread?.session?.provider ?? null}
                             markdownCwd={gitCwd ?? undefined}
                             onOpenDiffPanel={isGitRepo ? () => setRightSidePanelMode("diff") : null}
+                            onRegenerateSummary={handleRegenerateSummary}
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
                             onOpenFilePath={
                               canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
