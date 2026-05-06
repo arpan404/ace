@@ -75,14 +75,16 @@ export function deriveChatViewProviderSelectionState(
     projectModelSelection: input.projectModelSelection,
     settings: input.modelSettings,
   });
+  const draftSelection = input.draft?.modelSelectionByProvider?.[selectedProvider];
   const selectedProviderInstanceId =
-    input.draft?.modelSelectionByProvider?.[selectedProvider]?.providerInstanceId ??
-    (input.threadModelSelection?.provider === selectedProvider
-      ? input.threadModelSelection.providerInstanceId
-      : undefined) ??
-    (input.projectModelSelection?.provider === selectedProvider
-      ? input.projectModelSelection.providerInstanceId
-      : undefined);
+    draftSelection !== undefined
+      ? draftSelection.providerInstanceId
+      : ((input.threadModelSelection?.provider === selectedProvider
+          ? input.threadModelSelection.providerInstanceId
+          : undefined) ??
+        (input.projectModelSelection?.provider === selectedProvider
+          ? input.projectModelSelection.providerInstanceId
+          : undefined));
   const selectedProviderModels = getProviderModels(
     input.providers,
     selectedProvider,

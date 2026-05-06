@@ -1,4 +1,5 @@
-import { type ProviderKind, type ServerProvider } from "@ace/contracts";
+import { type ModelSelection, type ProviderKind, type ServerProvider } from "@ace/contracts";
+import { buildProviderModelSelection } from "@ace/shared/model";
 import type { ComponentProps } from "react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,15 @@ import { render } from "vitest-browser-react";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { getCustomModelOptionsByProvider } from "../../modelSelection";
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
+
+function modelSelection(
+  provider: ProviderKind,
+  model: string,
+  options?: ModelSelection["options"],
+  providerInstanceId?: string,
+): ModelSelection {
+  return buildProviderModelSelection(provider, model, options, providerInstanceId);
+}
 
 function effort(value: string, isDefault = false) {
   return {
@@ -210,6 +220,7 @@ async function mountPicker(props: {
   providerInstancesByProvider?: ComponentProps<
     typeof ProviderModelPicker
   >["providerInstancesByProvider"];
+  modelSelectionByProvider?: ComponentProps<typeof ProviderModelPicker>["modelSelectionByProvider"];
   model: string;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
@@ -234,6 +245,9 @@ async function mountPicker(props: {
       lockedProvider={props.lockedProvider}
       providers={providers}
       modelOptionsByProvider={modelOptionsByProvider}
+      {...(props.modelSelectionByProvider
+        ? { modelSelectionByProvider: props.modelSelectionByProvider }
+        : {})}
       {...(props.providerInstancesByProvider
         ? { providerInstancesByProvider: props.providerInstancesByProvider }
         : {})}
@@ -524,6 +538,48 @@ describe("ProviderModelPicker", () => {
     }
   });
 
+  it("keeps pinned provider accounts scoped to their account entry", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const providerInstancesByProvider = {
+      codex: [{ id: "personal", label: "Personal", enabled: true }],
+    };
+    const mounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "personal",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+      providers,
+      providerInstancesByProvider,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Pin Codex Personal" }).click();
+
+      await vi.waitFor(() => {
+        expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
+          "codex:personal",
+        );
+      });
+
+      await page.getByRole("button", { exact: true, name: "Codex" }).click();
+      await expect
+        .element(page.getByRole("button", { exact: true, name: "Pin Codex" }))
+        .toBeVisible();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("shows provider accounts as provider rail entries", async () => {
     const personalModel = buildCodexModel(77);
     const providers = TEST_PROVIDERS.map((provider) =>
@@ -556,16 +612,18 @@ describe("ProviderModelPicker", () => {
       await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
       await page.getByRole("button", { name: "Codex Personal" }).click();
 
-      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
-        "codex",
-        personalModel.slug,
-        "personal",
-      );
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
       const popupText = document.body.textContent ?? "";
       expect(popupText).toContain("Personal");
       expect(popupText).toContain("1 model");
       expect(popupText).toContain(personalModel.name);
       expect(popupText).not.toContain("GPT-5.3 Codex");
+      await page.getByRole("menuitemradio", { name: personalModel.name }).click();
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "codex",
+        personalModel.slug,
+        "personal",
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -606,13 +664,89 @@ describe("ProviderModelPicker", () => {
       await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
       await page.getByRole("button", { name: "Codex Personal" }).click();
 
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      expect(document.body.textContent ?? "").toContain(personalModel.name);
+      expect(document.body.textContent ?? "").not.toContain("GPT-5.3 Codex");
+      await page.getByRole("menuitemradio", { name: personalModel.name }).click();
       expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
         "codex",
         personalModel.slug,
         "personal",
       );
-      expect(document.body.textContent ?? "").toContain(personalModel.name);
-      expect(document.body.textContent ?? "").not.toContain("GPT-5.3 Codex");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not carry the selected model highlight across provider accounts", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5.3-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider: {
+        codex: [{ id: "personal", label: "Personal", enabled: true }],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Codex Personal" }).click();
+
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      expect(document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]')).toHaveLength(
+        0,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("restores the remembered model for each provider account", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "personal",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider: {
+        codex: [{ id: "personal", label: "Personal", enabled: true }],
+      },
+      modelSelectionByProvider: {
+        codex: modelSelection("codex", "gpt-5-codex", undefined, "personal"),
+        "codex:default": modelSelection("codex", "gpt-5.3-codex"),
+        "codex:personal": modelSelection("codex", "gpt-5-codex", undefined, "personal"),
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { exact: true, name: "Codex" }).click();
+
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      await page.getByRole("menuitemradio", { name: "GPT-5.3 Codex" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("codex", "gpt-5.3-codex");
     } finally {
       await mounted.cleanup();
     }

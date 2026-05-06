@@ -59,6 +59,7 @@ import {
 import {
   deriveEffectiveComposerExecutionModeState,
   type ComposerImageAttachment,
+  type ModelSelectionByProvider,
   type PersistedComposerImageAttachment,
   useComposerDraftStore,
   useComposerThreadDraft,
@@ -94,7 +95,7 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
-const EMPTY_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> = Object.freeze({});
+const EMPTY_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 
 function normalizeSlashCommandName(name: string): string {
   return name
@@ -206,6 +207,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly modelOptionsByProvider: ComponentProps<
     typeof ChatComposerPanel
   >["modelOptionsByProvider"];
+  readonly modelSelectionByProvider?: ModelSelectionByProvider | undefined;
   readonly providerInstancesByProvider?: ComponentProps<
     typeof ChatComposerPanel
   >["providerInstancesByProvider"];
@@ -1411,6 +1413,7 @@ export const ConnectedChatComposerPanels = memo(
             lockedProvider={props.lockedProvider}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            modelSelectionByProvider={props.modelSelectionByProvider}
             providerInstancesByProvider={props.providerInstancesByProvider}
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}
@@ -1519,6 +1522,7 @@ export const ConnectedChatComposerPanels = memo(
             lockedProvider={props.lockedProvider}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            modelSelectionByProvider={props.modelSelectionByProvider}
             providerInstancesByProvider={props.providerInstancesByProvider}
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}

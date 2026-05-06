@@ -1853,6 +1853,14 @@ export function BrowserTabWebview(props: {
     [clearAgentPointerActionTimer],
   );
 
+  const clearAgentPointer = useCallback(() => {
+    agentPointerTokenRef.current += 1;
+    clearAgentPointerActionTimer();
+    cancelAgentPointerAnimation();
+    agentPointerPositionRef.current = null;
+    setAgentPointer(null);
+  }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
+
   const animateAgentPointerTo = useCallback(
     (
       effect: BrowserAgentPointerEffect,
@@ -2019,6 +2027,7 @@ export function BrowserTabWebview(props: {
           viewportWidth,
         });
       },
+      clearAgentPointer,
       closeDevTools: () => {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
@@ -2113,14 +2122,16 @@ export function BrowserTabWebview(props: {
     return () => {
       onHandleChange(tab.id, null);
     };
-  }, [animateAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
+  }, [animateAgentPointer, clearAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      agentPointerTokenRef.current += 1;
       clearAgentPointerActionTimer();
       cancelAgentPointerAnimation();
+      agentPointerPositionRef.current = null;
     };
   }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
 

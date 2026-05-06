@@ -1,4 +1,5 @@
 import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, RuntimeMode, ThreadId } from "@ace/contracts";
+import { buildProviderModelSelection } from "@ace/shared/model";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -30,11 +31,12 @@ async function mountMenu(props?: {
     persistedAttachments: [],
     terminalContexts: [],
     modelSelectionByProvider: {
-      [provider]: {
+      [provider]: buildProviderModelSelection(
         provider,
         model,
-        ...(props?.modelSelection?.options ? { options: props.modelSelection.options } : {}),
-      },
+        props?.modelSelection?.options,
+        props?.modelSelection?.providerInstanceId,
+      ),
     },
     activeProvider: provider,
     runtimeMode: null,

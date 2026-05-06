@@ -71,6 +71,7 @@ import { readNativeApi } from "~/nativeApi";
 import { toastManager } from "~/components/ui/toast";
 
 export interface InAppBrowserController {
+  clearAgentPointers: () => void;
   closeActiveTab: () => void;
   closeTab: (tabId: string) => void;
   closeDevTools: () => void;
@@ -888,6 +889,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     handle?.reload();
   }, [activeRuntime.loading, activeTab]);
 
+  const clearAgentPointers = useCallback(() => {
+    for (const handle of webviewHandlesRef.current.values()) {
+      handle.clearAgentPointer();
+    }
+  }, []);
+
   const resolveBridgeTarget = useCallback(
     (args: Record<string, unknown>) => {
       const tabId = readStringArgAny(args, ["tabId", "tab_id"]) ?? browserSession.activeTabId;
@@ -1597,6 +1604,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   );
 
   const closeActiveTabEvent = useEffectEvent(closeActiveTab);
+  const clearAgentPointersEvent = useEffectEvent(clearAgentPointers);
   const closeTabEvent = useEffectEvent(closeTab);
   const closeDevToolsEvent = useEffectEvent(closeDevTools);
   const focusAddressBarEvent = useEffectEvent(focusAddressBar);
@@ -1618,6 +1626,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const zoomResetEvent = useEffectEvent(zoomReset);
   const browserController = useMemo<InAppBrowserController>(
     () => ({
+      clearAgentPointers: () => clearAgentPointersEvent(),
       closeActiveTab: () => closeActiveTabEvent(),
       closeTab: (tabId) => closeTabEvent(tabId),
       closeDevTools: () => closeDevToolsEvent(),
