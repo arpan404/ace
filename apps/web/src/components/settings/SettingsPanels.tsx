@@ -2824,18 +2824,34 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 <ProviderModelPicker
                   provider={textGenProvider}
+                  providerInstanceId={textGenerationModelSelection.providerInstanceId}
                   model={textGenModel}
                   lockedProvider={null}
                   providers={serverProviders}
                   modelOptionsByProvider={gitModelOptionsByProvider}
+                  providerInstancesByProvider={{
+                    codex: settings.providers.codex.instances,
+                    claudeAgent: settings.providers.claudeAgent.instances,
+                    githubCopilot: settings.providers.githubCopilot.instances,
+                    cursor: settings.providers.cursor.instances,
+                    pi: settings.providers.pi.instances,
+                    gemini: settings.providers.gemini.instances,
+                    opencode: settings.providers.opencode.instances,
+                  }}
                   triggerVariant="outline"
                   triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                  onProviderModelChange={(provider, model) => {
+                  onProviderModelChange={(provider, model, providerInstanceId) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
                         {
                           ...settings,
-                          textGenerationModelSelection: { provider, model },
+                          textGenerationModelSelection: {
+                            provider,
+                            ...(providerInstanceId && providerInstanceId !== "default"
+                              ? { providerInstanceId }
+                              : {}),
+                            model,
+                          },
                         },
                         serverProviders,
                       ),
@@ -2864,6 +2880,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             textGenProvider,
                             textGenModel,
                             nextOptions,
+                            textGenerationModelSelection.providerInstanceId,
                           ),
                         },
                         serverProviders,

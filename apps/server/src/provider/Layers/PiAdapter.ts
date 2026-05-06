@@ -35,6 +35,7 @@ import {
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
 import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { startPiRpcClient, type PiRpcClient, type PiRpcEvent } from "../piRpcClient.ts";
 import { type PiAdapterShape, PiAdapter } from "../Services/PiAdapter.ts";
 
@@ -1608,7 +1609,9 @@ export const PiAdapterLive = Layer.effect(
       input: ProviderSessionStartInput,
     ): Promise<PiSessionContext> => {
       const settings = await runPromise(
-        settingsService.getSettings.pipe(Effect.map((state) => state.providers.pi)),
+        settingsService.getSettings.pipe(
+          Effect.map((state) => resolveProviderSettings(state, PROVIDER, input.providerInstanceId)),
+        ),
       );
       const cwd = input.cwd ?? serverConfig.cwd;
       const args = ["--mode", "rpc", "--no-session"];
@@ -1616,6 +1619,10 @@ export const PiAdapterLive = Layer.effect(
         binaryPath: settings.binaryPath,
         args,
         cwd,
+        env: {
+          ...settings.launchEnv,
+          ...(settings.agentDir ? { PI_CODING_AGENT_DIR: settings.agentDir } : {}),
+        },
       });
 
       const stateResult = await client.request("get_state", undefined, {
@@ -1642,6 +1649,7 @@ export const PiAdapterLive = Layer.effect(
         client,
         session: {
           provider: PROVIDER,
+          ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
           status: "ready",
           runtimeMode: input.runtimeMode,
           ...(cwd ? { cwd } : {}),

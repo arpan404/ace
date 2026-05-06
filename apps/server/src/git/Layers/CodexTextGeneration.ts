@@ -5,6 +5,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { CodexModelSelection } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -157,9 +158,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
     const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
-    const codexSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.codex,
+    const codexSettings = yield* Effect.map(serverSettingsService.getSettings, (settings) =>
+      resolveProviderSettings(settings, "codex", modelSelection.providerInstanceId),
     ).pipe(Effect.catch(() => Effect.undefined));
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
@@ -191,6 +191,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         {
           env: {
             ...process.env,
+            ...codexSettings?.launchEnv,
             ...(codexSettings?.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
           },
           cwd,

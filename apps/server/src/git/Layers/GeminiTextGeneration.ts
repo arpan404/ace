@@ -3,6 +3,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { GeminiModelSelection, TextGenerationError } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
@@ -90,7 +91,9 @@ const makeGeminiTextGeneration = Effect.gen(function* () {
     modelSelection: GeminiModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const geminiSettings = yield* serverSettingsService.getSettings.pipe(
-      Effect.map((settings) => settings.providers.gemini),
+      Effect.map((settings) =>
+        resolveProviderSettings(settings, "gemini", modelSelection.providerInstanceId),
+      ),
       Effect.catch(() => Effect.undefined),
     );
 
@@ -99,6 +102,10 @@ const makeGeminiTextGeneration = Effect.gen(function* () {
         geminiSettings?.binaryPath || "gemini",
         ["--output-format", "json", "--approval-mode", "plan", "--model", modelSelection.model],
         {
+          env: {
+            ...process.env,
+            ...geminiSettings?.launchEnv,
+          },
           cwd,
           shell: process.platform === "win32",
           stdin: {

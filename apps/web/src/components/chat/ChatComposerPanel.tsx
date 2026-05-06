@@ -92,6 +92,7 @@ interface ChatComposerPanelProps {
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
   readonly composerProviderState: ComposerProviderState;
   readonly selectedProvider: ProviderKind;
+  readonly selectedProviderInstanceId?: string | undefined;
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
@@ -102,6 +103,9 @@ interface ChatComposerPanelProps {
   readonly modelOptionsByProvider: ComponentProps<
     typeof ProviderModelPicker
   >["modelOptionsByProvider"];
+  readonly providerInstancesByProvider?: ComponentProps<
+    typeof ProviderModelPicker
+  >["providerInstancesByProvider"];
   readonly isServerThread: boolean;
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
@@ -181,7 +185,11 @@ interface ChatComposerPanelProps {
   readonly onAdvancePendingUserInput: ComponentProps<
     typeof ComposerPendingUserInputPanel
   >["onAdvance"];
-  readonly onProviderModelSelect: (provider: ProviderKind, model: string) => void;
+  readonly onProviderModelSelect: (
+    provider: ProviderKind,
+    model: string,
+    providerInstanceId?: string,
+  ) => void;
   readonly onHandoffToProvider: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
   readonly onToggleInteractionMode: () => void;
   readonly onRuntimeModeChange: (
@@ -534,10 +542,16 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   <ProviderModelPicker
                     compact={props.isComposerFooterCompact}
                     provider={props.selectedProvider}
+                    {...(props.selectedProviderInstanceId
+                      ? { providerInstanceId: props.selectedProviderInstanceId }
+                      : {})}
                     model={props.selectedModelForPickerWithCustomFallback}
                     lockedProvider={props.lockedProvider}
                     providers={props.providers}
                     modelOptionsByProvider={props.modelOptionsByProvider}
+                    {...(props.providerInstancesByProvider
+                      ? { providerInstancesByProvider: props.providerInstancesByProvider }
+                      : {})}
                     {...(props.composerProviderState.modelPickerIconClassName
                       ? {
                           activeProviderIconClassName:

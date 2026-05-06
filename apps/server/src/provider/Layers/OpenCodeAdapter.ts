@@ -53,6 +53,7 @@ import {
   mergeProviderSlashCommands,
   providerFallbackSlashCommands,
 } from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
@@ -1893,8 +1894,18 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
 
         const settings = await runPromise(serverSettingsService.getSettings);
-        const binaryPath = settings.providers.opencode.binaryPath;
-        const server = await startOpenCodeServerIsolated(binaryPath);
+        const openCodeSettings = resolveProviderSettings(
+          settings,
+          PROVIDER,
+          input.providerInstanceId,
+        );
+        const binaryPath = openCodeSettings.binaryPath;
+        const server = await startOpenCodeServerIsolated(binaryPath, {
+          ...openCodeSettings.launchEnv,
+          ...(openCodeSettings.configDir
+            ? { OPENCODE_CONFIG_DIR: openCodeSettings.configDir }
+            : {}),
+        });
         const cwd = input.cwd ?? serverConfig.cwd;
         const client = createOpenCodeSdkClient({
           baseUrl: server.url,
@@ -1994,6 +2005,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
           const session: ProviderSession = {
             provider: PROVIDER,
+            ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
             status: "ready",
             runtimeMode: input.runtimeMode,
             cwd,

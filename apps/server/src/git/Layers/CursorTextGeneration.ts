@@ -3,6 +3,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { CursorModelSelection, TextGenerationError } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveCursorCliModelId } from "../../provider/Layers/CursorProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -77,7 +78,9 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     modelSelection: CursorModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const cursorSettings = yield* serverSettingsService.getSettings.pipe(
-      Effect.map((settings) => settings.providers.cursor),
+      Effect.map((settings) =>
+        resolveProviderSettings(settings, "cursor", modelSelection.providerInstanceId),
+      ),
       Effect.catch(() => Effect.undefined),
     );
 
@@ -106,6 +109,11 @@ const makeCursorTextGeneration = Effect.gen(function* () {
           cursorCliModel,
         ],
         {
+          env: {
+            ...process.env,
+            ...cursorSettings?.launchEnv,
+            ...(cursorSettings?.configDir ? { CURSOR_CONFIG_DIR: cursorSettings.configDir } : {}),
+          },
           cwd,
           shell: process.platform === "win32",
           stdin: {

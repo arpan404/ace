@@ -12,6 +12,7 @@ import {
   PiModelOptions,
 } from "./model";
 import { ModelSelection } from "./orchestration";
+import { ProviderInstanceId } from "./orchestration/provider";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -147,54 +148,138 @@ const makeBinaryPathSetting = (fallback: string) =>
     Schema.withDecodingDefault(() => fallback),
   );
 
+const ProviderInstanceLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(80));
+const ProviderLaunchEnvKey = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
+).check(Schema.isMaxLength(128));
+const ProviderLaunchEnvValue = Schema.String.check(Schema.isMaxLength(8_192));
+const ProviderLaunchEnv = Schema.Record(ProviderLaunchEnvKey, ProviderLaunchEnvValue).check(
+  Schema.isMaxProperties(128),
+);
+
+const ProviderInstanceBaseSettings = Schema.Struct({
+  id: ProviderInstanceId,
+  label: ProviderInstanceLabel,
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
+});
+
 export const CodexSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("codex"),
   homePath: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("codex"),
+      homePath: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type CodexSettings = typeof CodexSettings.Type;
 
 export const ClaudeSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("claude"),
+  configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("claude"),
+      configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
 export const GitHubCopilotSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("copilot"),
+  homePath: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   cliUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("copilot"),
+      homePath: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      cliUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type GitHubCopilotSettings = typeof GitHubCopilotSettings.Type;
 
 export const CursorSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("cursor-agent"),
+  configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("cursor-agent"),
+      configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type CursorSettings = typeof CursorSettings.Type;
 
 export const PiSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("pi"),
+  agentDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("pi"),
+      agentDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type PiSettings = typeof PiSettings.Type;
 
 export const GeminiSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("gemini"),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("gemini"),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type GeminiSettings = typeof GeminiSettings.Type;
 
 export const OpenCodeSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("opencode"),
+  configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  instances: Schema.Array(
+    Schema.Struct({
+      ...ProviderInstanceBaseSettings.fields,
+      binaryPath: makeBinaryPathSetting("opencode"),
+      configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+      customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+    }),
+  ).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
@@ -302,25 +387,30 @@ const GeminiModelOptionsPatch = Schema.Struct({
 const ModelSelectionPatch = Schema.Union([
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("codex")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(CodexModelOptionsPatch),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("claudeAgent")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(ClaudeModelOptionsPatch),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("githubCopilot")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(GitHubCopilotModelOptionsPatch),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("cursor")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("pi")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(
       Schema.Struct({
@@ -331,58 +421,150 @@ const ModelSelectionPatch = Schema.Union([
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("gemini")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(GeminiModelOptionsPatch),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("opencode")),
+    providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(OpenCodeModelOptionsPatch),
   }),
 ]);
 
+const ProviderLaunchEnvPatch = Schema.Record(ProviderLaunchEnvKey, ProviderLaunchEnvValue);
+const ProviderInstanceBaseSettingsPatch = Schema.Struct({
+  id: ProviderInstanceId,
+  label: TrimmedNonEmptyString,
+  enabled: Schema.optionalKey(Schema.Boolean),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
+});
+
 const CodexSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
   homePath: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        homePath: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const ClaudeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  configDir: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        configDir: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const GitHubCopilotSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  homePath: Schema.optionalKey(Schema.String),
   cliUrl: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        homePath: Schema.optionalKey(Schema.String),
+        cliUrl: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const CursorSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  configDir: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        configDir: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const PiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  agentDir: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        agentDir: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const GeminiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const OpenCodeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  configDir: Schema.optionalKey(Schema.String),
+  launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  instances: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...ProviderInstanceBaseSettingsPatch.fields,
+        binaryPath: Schema.optionalKey(Schema.String),
+        configDir: Schema.optionalKey(Schema.String),
+        customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
 });
 
 const RemoteRelaySettingsPatch = Schema.Struct({

@@ -195,6 +195,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly threadInteractionMode: ProviderInteractionMode | null | undefined;
   readonly composerModelOptions: ProviderModelOptions | null;
   readonly selectedProvider: ProviderKind;
+  readonly selectedProviderInstanceId?: string | undefined;
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
@@ -205,6 +206,9 @@ interface ConnectedChatComposerPanelsProps {
   readonly modelOptionsByProvider: ComponentProps<
     typeof ChatComposerPanel
   >["modelOptionsByProvider"];
+  readonly providerInstancesByProvider?: ComponentProps<
+    typeof ChatComposerPanel
+  >["providerInstancesByProvider"];
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
   readonly interactionModeShortcutLabel: string | null;
@@ -848,31 +852,36 @@ export const ConnectedChatComposerPanels = memo(
         onInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
       }, [interactionMode, onInteractionModeChange]);
 
-      const onProviderModelSelect = useEffectEvent((provider: ProviderKind, model: string) => {
-        if (props.lockedProvider !== null && provider !== props.lockedProvider) {
+      const onProviderModelSelect = useEffectEvent(
+        (provider: ProviderKind, model: string, providerInstanceId?: string) => {
+          if (props.lockedProvider !== null && provider !== props.lockedProvider) {
+            scheduleComposerFocus();
+            return;
+          }
+          const resolvedProvider = resolveSelectableProvider(props.providers, provider);
+          const resolvedModel = resolveAppModelSelection(
+            resolvedProvider,
+            props.modelSettings,
+            props.providers,
+            model,
+          );
+          const nextModelSelection: ModelSelection = {
+            provider: resolvedProvider,
+            ...(providerInstanceId && providerInstanceId !== "default"
+              ? { providerInstanceId }
+              : {}),
+            model: resolvedModel,
+          };
+          if (resolvedProvider === "cursor") {
+            setComposerDraftProviderModelOptions(props.threadId, "cursor", undefined, {
+              persistSticky: true,
+            });
+          }
+          setComposerDraftModelSelection(props.threadId, nextModelSelection);
+          setStickyComposerModelSelection(nextModelSelection);
           scheduleComposerFocus();
-          return;
-        }
-        const resolvedProvider = resolveSelectableProvider(props.providers, provider);
-        const resolvedModel = resolveAppModelSelection(
-          resolvedProvider,
-          props.modelSettings,
-          props.providers,
-          model,
-        );
-        const nextModelSelection: ModelSelection = {
-          provider: resolvedProvider,
-          model: resolvedModel,
-        };
-        if (resolvedProvider === "cursor") {
-          setComposerDraftProviderModelOptions(props.threadId, "cursor", undefined, {
-            persistSticky: true,
-          });
-        }
-        setComposerDraftModelSelection(props.threadId, nextModelSelection);
-        setStickyComposerModelSelection(nextModelSelection);
-        scheduleComposerFocus();
-      });
+        },
+      );
 
       const applyPromptReplacement = useCallback(
         (
@@ -1390,6 +1399,7 @@ export const ConnectedChatComposerPanels = memo(
             queuedSteerMessageId={props.queuedSteerMessageId}
             composerProviderState={composerProviderState}
             selectedProvider={props.selectedProvider}
+            selectedProviderInstanceId={props.selectedProviderInstanceId}
             selectedModel={props.selectedModel}
             selectedProviderModels={props.selectedProviderModels}
             selectedProviderModelOptions={props.selectedProviderModelOptions}
@@ -1400,6 +1410,7 @@ export const ConnectedChatComposerPanels = memo(
             lockedProvider={props.lockedProvider}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            providerInstancesByProvider={props.providerInstancesByProvider}
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}
             handoffDisabled={props.handoffDisabled}
@@ -1496,6 +1507,7 @@ export const ConnectedChatComposerPanels = memo(
             queuedSteerMessageId={props.queuedSteerMessageId}
             composerProviderState={composerProviderState}
             selectedProvider={props.selectedProvider}
+            selectedProviderInstanceId={props.selectedProviderInstanceId}
             selectedModel={props.selectedModel}
             selectedProviderModels={props.selectedProviderModels}
             selectedProviderModelOptions={props.selectedProviderModelOptions}
@@ -1506,6 +1518,7 @@ export const ConnectedChatComposerPanels = memo(
             lockedProvider={props.lockedProvider}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            providerInstancesByProvider={props.providerInstancesByProvider}
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}
             handoffDisabled={props.handoffDisabled}

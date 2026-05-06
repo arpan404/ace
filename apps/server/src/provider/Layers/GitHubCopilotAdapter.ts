@@ -43,6 +43,7 @@ import {
   stopGitHubCopilotClient,
 } from "../githubCopilotSdk";
 import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { loadGitHubCopilotSdkModule, type GitHubCopilotSdkLoader } from "../providerSdkRuntime";
 import {
   ProviderAdapterProcessError,
@@ -2333,7 +2334,9 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
 
       const settings = await runPromise(
         serverSettingsService.getSettings.pipe(
-          Effect.map((value) => value.providers.githubCopilot),
+          Effect.map((value) =>
+            resolveProviderSettings(value, "githubCopilot", input.providerInstanceId),
+          ),
         ),
       );
       const existing = sessions.get(input.threadId);
@@ -2512,6 +2515,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         const createdContext: GitHubCopilotSessionContext = {
           session: {
             provider: PROVIDER,
+            ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
             status: "ready",
             runtimeMode: input.runtimeMode,
             threadId: input.threadId,
