@@ -1870,6 +1870,37 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             />
           </SettingsSection>
 
+          <SettingsSection title="Comments">
+            <SettingsRow
+              title="Accumulate comments"
+              description="Hold browser and chat comments, then send them together with the next assistant request."
+              resetAction={
+                settings.commentSubmissionMode !==
+                DEFAULT_UNIFIED_SETTINGS.commentSubmissionMode ? (
+                  <SettingResetButton
+                    label="comment submission"
+                    onClick={() =>
+                      updateSettings({
+                        commentSubmissionMode: DEFAULT_UNIFIED_SETTINGS.commentSubmissionMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.commentSubmissionMode === "accumulate"}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      commentSubmissionMode: checked ? "accumulate" : "immediate",
+                    })
+                  }
+                  aria-label="Accumulate comments"
+                />
+              }
+            />
+          </SettingsSection>
+
           <SettingsSection title="Confirmations">
             <SettingsRow
               title="Archive confirmation"

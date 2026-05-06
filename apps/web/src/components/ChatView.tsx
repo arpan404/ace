@@ -11,6 +11,7 @@ import {
   type ProviderApprovalDecision,
   type ServerProvider,
   PROVIDER_DISPLAY_NAMES,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type ThreadHandoffMode,
   type ThreadId,
   type TurnId,
@@ -177,6 +178,7 @@ import {
 import {
   appendBrowserDesignContextToPrompt,
   appendTerminalContextsToPrompt,
+  buildBrowserDesignContextBlock,
   deriveDisplayedUserMessageState,
   formatTerminalContextLabel,
   insertInlineTerminalContextPlaceholder,
@@ -248,6 +250,11 @@ import {
   checkpointRestoreActionTitle,
   checkpointRestoreFailureMessage,
 } from "~/lib/chat/checkpointRestore";
+import {
+  buildAccumulatedCommentsPrompt,
+  mergePendingCommentImages,
+  type PendingComposerComment,
+} from "~/lib/chat/commentAccumulation";
 import { useThreadPlanCatalog } from "~/lib/chat/threadPlanCatalog";
 import {
   BROWSER_SPLIT_WIDTH_STORAGE_KEY,
@@ -366,6 +373,7 @@ const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
+const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
@@ -553,6 +561,26 @@ function waitForBrowserBridgePoll(): Promise<void> {
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
+function describeBrowserDesignCommentTarget(submission: BrowserDesignRequestSubmission): {
+  targetLabel: string;
+  detailLabel: string | null;
+} {
+  const targetLabel = submission.pagePath.trim() || submission.pageUrl.trim() || "Browser";
+  const targetElement = submission.targetElement ?? submission.mainContainer;
+  const textSnippet = targetElement?.textSnippet?.trim();
+  const selector = targetElement?.selector?.trim();
+  const tagName = targetElement?.tagName?.trim().toLowerCase();
+  const detailLabel =
+    textSnippet && textSnippet.length > 0
+      ? truncate(textSnippet.replace(/\s+/g, " "), 90)
+      : selector && selector.length > 0
+        ? truncate(selector, 90)
+        : tagName && tagName.length > 0
+          ? tagName
+          : null;
+  return { targetLabel, detailLabel };
+}
+
 interface ChatViewProps {
   activeInBoard?: boolean;
   connectionUrl?: string | null;
@@ -734,6 +762,7 @@ export default function ChatView({
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
   const browserMaxMountedInstances = useSetting("browserMaxMountedInstances");
+  const commentSubmissionMode = useSetting("commentSubmissionMode");
   const {
     activeDraftThread: currentRouteDraftThread,
     activeThread: currentRouteThread,
@@ -946,6 +975,9 @@ export default function ChatView({
   const pendingInterruptStopFallbackRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
+  const [pendingComposerCommentsByThreadId, setPendingComposerCommentsByThreadId] = useState<
+    Record<ThreadId, PendingComposerComment[]>
+  >({});
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
@@ -1009,6 +1041,48 @@ export default function ChatView({
     },
     [addComposerDraftTerminalContexts, threadId],
   );
+  const pendingComposerComments = useMemo(
+    () => pendingComposerCommentsByThreadId[threadId] ?? EMPTY_PENDING_COMPOSER_COMMENTS,
+    [pendingComposerCommentsByThreadId, threadId],
+  );
+  const pendingComposerCommentItems = useMemo(
+    () =>
+      pendingComposerComments.map((comment) => ({
+        id: comment.id,
+        sourceLabel: "Browser",
+        targetLabel: comment.targetLabel,
+        body: comment.body,
+        previewUrl: comment.image.previewUrl ?? null,
+      })),
+    [pendingComposerComments],
+  );
+  const dismissPendingComposerComment = useCallback(
+    (commentId: string) => {
+      setPendingComposerCommentsByThreadId((current) => {
+        const existing = current[threadId] ?? [];
+        const next = existing.filter((comment) => comment.id !== commentId);
+        if (next.length === existing.length) {
+          return current;
+        }
+        return {
+          ...current,
+          [threadId]: next,
+        };
+      });
+    },
+    [threadId],
+  );
+  const clearPendingComposerComments = useCallback(() => {
+    setPendingComposerCommentsByThreadId((current) => {
+      if ((current[threadId] ?? []).length === 0) {
+        return current;
+      }
+      return {
+        ...current,
+        [threadId]: [],
+      };
+    });
+  }, [threadId]);
 
   const threadConnectionUrl = useThreadConnectionUrl(threadId);
   const projectConnectionUrl = useProjectConnectionUrl(
@@ -3254,6 +3328,8 @@ export default function ChatView({
       }
       const hiddenDesignMessage = queuedDesignMessageEditRef.current;
       const composerImages = composerImagesRef.current;
+      const pendingCommentsForQueue = pendingComposerComments;
+      const hasPendingComposerComments = pendingCommentsForQueue.length > 0;
       const promptForQueueWithoutInlineMarkers = stripComposerInlineMarkers(promptRef.current);
       const composerTerminalContexts = composerTerminalContextsRef.current;
       const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
@@ -3262,7 +3338,7 @@ export default function ChatView({
           imageCount: composerImages.length,
           terminalContexts: composerTerminalContexts,
         });
-      if (!hasSendableContent) {
+      if (!hasSendableContent && !hasPendingComposerComments) {
         if (expiredTerminalContextCount > 0) {
           const toastCopy = buildExpiredTerminalContextToastCopy(
             expiredTerminalContextCount,
@@ -3298,18 +3374,33 @@ export default function ChatView({
         providerSlashCommandPayload?.promptText ?? promptForQueueWithoutInlineMarkers;
       const promptForQueue =
         hiddenDesignMessage === null
-          ? promptForQueueBase
-          : appendHiddenBrowserDesignContextFromOriginalPrompt(
-              promptForQueueBase,
-              hiddenDesignMessage.prompt,
+          ? buildAccumulatedCommentsPrompt(promptForQueueBase, pendingCommentsForQueue)
+          : buildAccumulatedCommentsPrompt(
+              appendHiddenBrowserDesignContextFromOriginalPrompt(
+                promptForQueueBase,
+                hiddenDesignMessage.prompt,
+              ),
+              pendingCommentsForQueue,
             );
-      const mergedQueuedImages =
+      const mergedQueuedImagesBeforeComments =
         hiddenDesignMessage === null
           ? queuedImages
           : [...hiddenDesignMessage.images, ...queuedImages].filter(
               (image, index, allImages) =>
                 allImages.findIndex((candidate) => candidate.id === image.id) === index,
             );
+      const mergedQueuedImages = mergePendingCommentImages(
+        mergedQueuedImagesBeforeComments,
+        pendingCommentsForQueue,
+      );
+      if (mergedQueuedImages.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+        toastManager.add({
+          type: "warning",
+          title: "Too many screenshots",
+          description: `Send at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images at a time.`,
+        });
+        return false;
+      }
       const queuedTerminalContexts = sendableTerminalContexts.map((context) => ({
         id: context.id,
         createdAt: context.createdAt,
@@ -3336,7 +3427,7 @@ export default function ChatView({
         interactionMode,
       };
       const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: promptForQueueBase,
+        titleSeed: promptForQueueBase || pendingCommentsForQueue[0]?.body || "Pending comments",
         modelSelection: selectedModelSelection,
         runtimeMode,
         interactionMode,
@@ -3373,6 +3464,12 @@ export default function ChatView({
       promptRef.current = "";
       clearComposerDraftContent(threadId);
       queuedDesignMessageEditRef.current = null;
+      if (hasPendingComposerComments) {
+        setPendingComposerCommentsByThreadId((current) => ({
+          ...current,
+          [threadId]: [],
+        }));
+      }
       composerPanelsRef.current?.resetUi("");
       return true;
     },
@@ -3383,6 +3480,7 @@ export default function ChatView({
       ensureQueuedComposerThread,
       interactionMode,
       appendQueuedComposerMessage,
+      pendingComposerComments,
       runtimeMode,
       selectedModelSelection,
       setThreadError,
@@ -3447,6 +3545,40 @@ export default function ChatView({
         targetElement: submission.targetElement,
         mainContainer: submission.mainContainer,
       });
+      if (commentSubmissionMode === "accumulate") {
+        const existingPendingComments = pendingComposerCommentsByThreadId[threadId] ?? [];
+        if (existingPendingComments.length >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+          throw new Error(
+            `You can accumulate up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} browser comments with screenshots.`,
+          );
+        }
+        const target = describeBrowserDesignCommentTarget(submission);
+        const hiddenContextBlock = buildBrowserDesignContextBlock({
+          requestId: submission.requestId,
+          pageUrl: submission.pageUrl,
+          pagePath: submission.pagePath,
+          selection: submission.selection,
+          targetElement: submission.targetElement,
+          mainContainer: submission.mainContainer,
+        });
+        setPendingComposerCommentsByThreadId((current) => ({
+          ...current,
+          [threadId]: [
+            ...(current[threadId] ?? []),
+            {
+              id: randomUUID(),
+              source: "browser",
+              body: trimmedInstructions || "Review this browser screenshot.",
+              targetLabel: target.targetLabel,
+              detailLabel: target.detailLabel,
+              hiddenContextBlock,
+              image: imageAttachment,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }));
+        return;
+      }
       const queuedMessage: QueuedComposerMessage = {
         id: newMessageId(),
         prompt: promptWithContext,
@@ -6044,6 +6176,8 @@ export default function ChatView({
     const promptForSend = promptRef.current;
     const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
     const composerImages = composerImagesRef.current;
+    const pendingCommentsForSend = pendingComposerComments;
+    const hasPendingComposerComments = pendingCommentsForSend.length > 0;
     const composerTerminalContexts = composerTerminalContextsRef.current;
     const hiddenDesignMessage = queuedDesignMessageEditRef.current;
     const {
@@ -6137,7 +6271,7 @@ export default function ChatView({
       }
       return;
     }
-    if (!hasSendableContent) {
+    if (!hasSendableContent && !hasPendingComposerComments) {
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
@@ -6207,6 +6341,22 @@ export default function ChatView({
             promptWithIssueContext,
             hiddenDesignMessage.prompt,
           );
+    const promptWithPendingComments = buildAccumulatedCommentsPrompt(
+      promptWithHiddenDesignContext,
+      pendingCommentsForSend,
+    );
+    imagesWithIssueContext = mergePendingCommentImages(
+      imagesWithIssueContext,
+      pendingCommentsForSend,
+    );
+    if (imagesWithIssueContext.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+      toastManager.add({
+        type: "warning",
+        title: "Too many screenshots",
+        description: `Send at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images at a time.`,
+      });
+      return;
+    }
     const terminalContextsForDispatch =
       hiddenDesignMessage === null
         ? sendableComposerTerminalContexts
@@ -6236,9 +6386,9 @@ export default function ChatView({
     queuedDesignMessageEditRef.current = null;
     composerPanelsRef.current?.resetUi("");
 
-    await dispatchComposerMessage(
+    const dispatched = await dispatchComposerMessage(
       {
-        prompt: promptWithHiddenDesignContext,
+        prompt: promptWithPendingComments,
         images: imagesWithIssueContext,
         terminalContexts: terminalContextsForDispatch,
         modelSelection: selectedModelSelection,
@@ -6252,6 +6402,12 @@ export default function ChatView({
         },
       },
     );
+    if (dispatched && hasPendingComposerComments) {
+      setPendingComposerCommentsByThreadId((current) => ({
+        ...current,
+        [threadId]: [],
+      }));
+    }
   });
 
   const clearPendingInterruptStopFallback = useEffectEvent(() => {
@@ -7598,6 +7754,7 @@ export default function ChatView({
                     activeContextWindow={activeContextWindow}
                     queuedComposerMessages={queuedComposerMessages}
                     queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+                    pendingComposerComments={pendingComposerCommentItems}
                     liveTurnInProgress={liveTurnInProgress}
                     isConnecting={isConnecting}
                     isPreparingWorktree={isPreparingWorktree}
@@ -7649,6 +7806,8 @@ export default function ChatView({
                     onEditQueuedComposerMessage={onEditQueuedComposerMessage}
                     onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
                     onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                    onDismissPendingComposerComment={dismissPendingComposerComment}
+                    onClearPendingComposerComments={clearPendingComposerComments}
                     onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
                     onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
                     onSetThreadError={setThreadError}

@@ -107,24 +107,24 @@ export function useLocalStorage<T, E>(
   const setValue = useCallback(
     (value: T | ((val: T) => T)) => {
       try {
-        setStoredValueState((prevState) => {
-          const previousValue = prevState.key === key ? prevState.value : initialStoredValue;
-          const valueToStore =
-            typeof value === "function" ? (value as (val: T) => T)(previousValue) : value;
-          if (Object.is(valueToStore, previousValue)) {
-            setStorageError(null);
-            return prevState.key === key ? prevState : { key, value: previousValue };
-          }
-          if (valueToStore === null) {
-            removeLocalStorageItem(key);
-          } else {
-            setLocalStorageItem(key, valueToStore, schema);
-          }
-          // Dispatch event after state update completes to avoid nested state updates
-          queueMicrotask(() => dispatchLocalStorageChange(key, sourceIdRef.current ?? 0));
+        const previousValue = getLocalStorageItem(key, schema) ?? initialStoredValue;
+        const valueToStore =
+          typeof value === "function" ? (value as (val: T) => T)(previousValue) : value;
+        if (Object.is(valueToStore, previousValue)) {
           setStorageError(null);
-          return { key, value: valueToStore };
-        });
+          setStoredValueState((prevState) =>
+            prevState.key === key ? prevState : { key, value: previousValue },
+          );
+          return;
+        }
+        if (valueToStore === null) {
+          removeLocalStorageItem(key);
+        } else {
+          setLocalStorageItem(key, valueToStore, schema);
+        }
+        queueMicrotask(() => dispatchLocalStorageChange(key, sourceIdRef.current ?? 0));
+        setStorageError(null);
+        setStoredValueState({ key, value: valueToStore });
       } catch (error) {
         setStorageError(reportLocalStorageError(key, "write", error));
       }

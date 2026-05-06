@@ -219,6 +219,9 @@ interface ConnectedChatComposerPanelsProps {
     typeof ChatComposerPanel
   >["queuedComposerMessages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ChatComposerPanel>["queuedSteerMessageId"];
+  readonly pendingComposerComments: ComponentProps<
+    typeof ChatComposerPanel
+  >["pendingComposerComments"];
   readonly liveTurnInProgress: boolean;
   readonly isConnecting: boolean;
   readonly isPreparingWorktree: boolean;
@@ -278,6 +281,12 @@ interface ConnectedChatComposerPanelsProps {
   readonly onClearQueuedComposerMessages: ComponentProps<
     typeof ChatComposerPanel
   >["onClearQueuedComposerMessages"];
+  readonly onDismissPendingComposerComment: ComponentProps<
+    typeof ChatComposerPanel
+  >["onDismissPendingComposerComment"];
+  readonly onClearPendingComposerComments: ComponentProps<
+    typeof ChatComposerPanel
+  >["onClearPendingComposerComments"];
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ChatComposerPanel
   >["onReorderQueuedComposerMessages"];
@@ -703,6 +712,7 @@ export const ConnectedChatComposerPanels = memo(
         props.pendingUserInputs.length === 0 &&
         /^\/issues\s*$/i.test(prompt.trimStart());
       const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
+      const hasPendingComposerComments = props.pendingComposerComments.length > 0;
 
       const setPrompt = useCallback(
         (nextPrompt: string) => {
@@ -1400,6 +1410,7 @@ export const ConnectedChatComposerPanels = memo(
             composerTerminalContexts={composerTerminalContexts}
             queuedComposerMessages={props.queuedComposerMessages}
             queuedSteerMessageId={props.queuedSteerMessageId}
+            pendingComposerComments={props.pendingComposerComments}
             composerProviderState={composerProviderState}
             selectedProvider={props.selectedProvider}
             selectedProviderInstanceId={props.selectedProviderInstanceId}
@@ -1423,8 +1434,11 @@ export const ConnectedChatComposerPanels = memo(
             interactionModeShortcutLabel={props.interactionModeShortcutLabel}
             activeContextWindow={props.activeContextWindow}
             promptHasText={prompt.trim().length > 0}
-            hasSendableContent={composerSendState.hasSendableContent}
-            canQueueMessage={composerSendState.hasSendableContent && props.allowQueueWhenSendable}
+            hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
+            canQueueMessage={
+              (composerSendState.hasSendableContent || hasPendingComposerComments) &&
+              props.allowQueueWhenSendable
+            }
             activePendingApproval={props.activePendingApproval}
             pendingApprovalsCount={props.pendingApprovalsCount}
             pendingUserInputs={props.pendingUserInputs}
@@ -1453,6 +1467,8 @@ export const ConnectedChatComposerPanels = memo(
             onEditQueuedComposerMessage={props.onEditQueuedComposerMessage}
             onDeleteQueuedComposerMessage={props.onDeleteQueuedComposerMessage}
             onClearQueuedComposerMessages={props.onClearQueuedComposerMessages}
+            onDismissPendingComposerComment={props.onDismissPendingComposerComment}
+            onClearPendingComposerComments={props.onClearPendingComposerComments}
             onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
             onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
             onPreviewComposerImage={onPreviewComposerImage}
@@ -1509,6 +1525,7 @@ export const ConnectedChatComposerPanels = memo(
             composerTerminalContexts={composerTerminalContexts}
             queuedComposerMessages={props.queuedComposerMessages}
             queuedSteerMessageId={props.queuedSteerMessageId}
+            pendingComposerComments={props.pendingComposerComments}
             composerProviderState={composerProviderState}
             selectedProvider={props.selectedProvider}
             selectedProviderInstanceId={props.selectedProviderInstanceId}
@@ -1532,8 +1549,11 @@ export const ConnectedChatComposerPanels = memo(
             interactionModeShortcutLabel={props.interactionModeShortcutLabel}
             activeContextWindow={props.activeContextWindow}
             promptHasText={prompt.trim().length > 0}
-            hasSendableContent={composerSendState.hasSendableContent}
-            canQueueMessage={composerSendState.hasSendableContent && props.allowQueueWhenSendable}
+            hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
+            canQueueMessage={
+              (composerSendState.hasSendableContent || hasPendingComposerComments) &&
+              props.allowQueueWhenSendable
+            }
             activePendingApproval={props.activePendingApproval}
             pendingApprovalsCount={props.pendingApprovalsCount}
             pendingUserInputs={props.pendingUserInputs}
@@ -1562,6 +1582,8 @@ export const ConnectedChatComposerPanels = memo(
             onEditQueuedComposerMessage={props.onEditQueuedComposerMessage}
             onDeleteQueuedComposerMessage={props.onDeleteQueuedComposerMessage}
             onClearQueuedComposerMessages={props.onClearQueuedComposerMessages}
+            onDismissPendingComposerComment={props.onDismissPendingComposerComment}
+            onClearPendingComposerComments={props.onClearPendingComposerComments}
             onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
             onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
             onPreviewComposerImage={onPreviewComposerImage}
