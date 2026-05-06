@@ -130,8 +130,8 @@ describe("PiAdapterLive", () => {
               models: [
                 { id: "gpt-5.4", provider: "openai", name: "GPT-5.4", reasoning: true },
                 {
-                  id: "claude-sonnet-4-6",
-                  provider: "anthropic",
+                  id: "claude-sonnet-4.6",
+                  provider: "github-copilot",
                   name: "Claude Sonnet 4.6",
                   reasoning: true,
                 },
@@ -143,8 +143,8 @@ describe("PiAdapterLive", () => {
             };
           case "set_model":
             return {
-              id: "claude-sonnet-4-6",
-              provider: "anthropic",
+              id: "claude-sonnet-4.6",
+              provider: "github-copilot",
               name: "Claude Sonnet 4.6",
               reasoning: true,
               contextWindow: 1_000_000,
@@ -188,7 +188,7 @@ describe("PiAdapterLive", () => {
           }),
         );
 
-        expect(session.model).toBe("anthropic/claude-sonnet-4-6");
+        expect(session.model).toBe("github-copilot/claude-sonnet-4.6");
         expect(mockedStartPiRpcClient).toHaveBeenCalledWith({
           binaryPath: "pi",
           args: ["--mode", "rpc", "--no-session"],
@@ -196,7 +196,7 @@ describe("PiAdapterLive", () => {
         });
         expect(client.request).toHaveBeenCalledWith(
           "set_model",
-          { provider: "anthropic", modelId: "claude-sonnet-4-6" },
+          { provider: "github-copilot", modelId: "claude-sonnet-4.6" },
           { timeoutMs: 20_000 },
         );
         expect(client.request).toHaveBeenCalledWith(
@@ -223,7 +223,7 @@ describe("PiAdapterLive", () => {
           expect.arrayContaining([
             expect.objectContaining({
               id: "model",
-              currentValue: "anthropic/claude-sonnet-4-6",
+              currentValue: "github-copilot/claude-sonnet-4.6",
             }),
             expect.objectContaining({
               id: "thought_level",
@@ -606,6 +606,113 @@ describe("PiAdapterLive", () => {
             }),
           ]),
         );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("surfaces provider error messages reported on Pi assistant messages", async () => {
+    const client = makeFakePiClient({
+      requestImpl: async (command) => {
+        switch (command) {
+          case "get_state":
+            return {
+              sessionId: "pi-session-provider-error",
+              model: {
+                id: "claude-sonnet-4.6",
+                provider: "github-copilot",
+                name: "Claude Sonnet 4.6",
+                reasoning: true,
+              },
+              thinkingLevel: "high",
+            };
+          case "get_available_models":
+            return {
+              models: [
+                {
+                  id: "claude-sonnet-4.6",
+                  provider: "github-copilot",
+                  name: "Claude Sonnet 4.6",
+                  reasoning: true,
+                },
+              ],
+            };
+          case "get_commands":
+            return { commands: [] };
+          case "prompt":
+            return {};
+          default:
+            throw new Error(`Unexpected Pi RPC command: ${command}`);
+        }
+      },
+    });
+    mockedStartPiRpcClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "pi",
+            threadId: asThreadId("thread-pi-provider-error"),
+            cwd: "/repo/pi-provider-error",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const turnEventsPromise = collectEvents(
+          adapter,
+          2,
+          (event) => event.type === "turn.started" || event.type === "turn.completed",
+        );
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId: asThreadId("thread-pi-provider-error"),
+            input: "Use the selected Sonnet model.",
+            interactionMode: "default",
+          }),
+        );
+
+        const providerError =
+          '400 {"error":{"message":"The requested model is not supported.","code":"model_not_supported","param":"model","type":"invalid_request_error"}}';
+        const errorMessage = {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: providerError,
+        };
+        client.emitEvent({
+          type: "message_start",
+          message: errorMessage,
+        });
+        client.emitEvent({
+          type: "turn_end",
+          message: errorMessage,
+        });
+        client.emitEvent({
+          type: "agent_end",
+          message: errorMessage,
+        });
+
+        const events = await turnEventsPromise;
+        expect(events.map((event) => event.type)).toEqual(["turn.started", "turn.completed"]);
+        const turnCompletedEvent = events.at(-1);
+        expect(turnCompletedEvent?.type).toBe("turn.completed");
+        if (turnCompletedEvent?.type !== "turn.completed") {
+          return;
+        }
+        expect(turnCompletedEvent.payload.state).toBe("failed");
+        expect(turnCompletedEvent.payload.errorMessage).toContain("model_not_supported");
+        expect(turnCompletedEvent.payload.errorMessage).toContain(
+          "The requested model is not supported.",
+        );
+
+        const [session] = await Effect.runPromise(adapter.listSessions());
+        expect(session).toMatchObject({
+          status: "error",
+          lastError: expect.stringContaining("model_not_supported"),
+        });
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

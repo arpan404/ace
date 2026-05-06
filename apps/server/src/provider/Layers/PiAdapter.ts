@@ -183,6 +183,67 @@ function modelSlug(provider: string | undefined, modelId: string): string {
   return provider ? `${provider}/${modelId}` : modelId;
 }
 
+function canonicalizePiModelToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function splitPiRequestedModelSlug(slug: string): {
+  readonly provider?: string;
+  readonly modelId: string;
+} {
+  const slashIndex = slug.indexOf("/");
+  if (slashIndex > 0 && slashIndex < slug.length - 1) {
+    return {
+      provider: slug.slice(0, slashIndex),
+      modelId: slug.slice(slashIndex + 1),
+    };
+  }
+  return { modelId: slug };
+}
+
+function rankPiRequestedProviderMatch(
+  requestedProvider: string | undefined,
+  candidate: Pick<PiModel, "provider" | "modelId">,
+): number {
+  if (!requestedProvider) {
+    return 0;
+  }
+  const normalizedRequestedProvider = requestedProvider.trim().toLowerCase();
+  const normalizedCandidateProvider = candidate.provider?.trim().toLowerCase();
+  const normalizedCandidateModelId = candidate.modelId.trim().toLowerCase();
+
+  if (normalizedCandidateProvider === normalizedRequestedProvider) {
+    return 5;
+  }
+  if (normalizedCandidateProvider?.startsWith(`${normalizedRequestedProvider}-`)) {
+    return 4;
+  }
+  if (normalizedCandidateProvider?.includes(normalizedRequestedProvider)) {
+    return 3;
+  }
+  if (
+    normalizedRequestedProvider === "anthropic" &&
+    normalizedCandidateModelId.startsWith("claude-")
+  ) {
+    return 2;
+  }
+  if (normalizedRequestedProvider === "openai" && normalizedCandidateModelId.startsWith("gpt-")) {
+    return 2;
+  }
+  if (
+    normalizedRequestedProvider === "google" &&
+    normalizedCandidateModelId.startsWith("gemini-")
+  ) {
+    return 2;
+  }
+  return 0;
+}
+
 function normalizePiModel(value: unknown): PiModel | null {
   const record = asObject(value);
   const modelId = asString(record?.id) ?? asString(record?.modelId);
@@ -416,6 +477,19 @@ function extractContentText(value: unknown): string {
     .join("");
 }
 
+function readPiAssistantErrorMessage(value: unknown): string | undefined {
+  const message = asObject(value);
+  if (!message || asString(message.role) !== "assistant") {
+    return undefined;
+  }
+  const stopReason = asString(message.stopReason);
+  const errorMessage = asString(message.errorMessage);
+  if (stopReason !== "error" && !errorMessage) {
+    return undefined;
+  }
+  return errorMessage ?? (stopReason === "error" ? "Pi turn failed." : undefined);
+}
+
 function describeToolTitle(toolName: string | undefined, args: unknown): string | undefined {
   const name = asString(toolName);
   const argRecord = asObject(args);
@@ -440,11 +514,33 @@ function resolveModelReference(
       slug: exactMatch.slug,
     };
   }
-  const slashIndex = slug.indexOf("/");
-  if (slashIndex > 0 && slashIndex < slug.length - 1) {
+  const requested = splitPiRequestedModelSlug(slug);
+  const requestedCanonicalModelId = canonicalizePiModelToken(requested.modelId);
+  const normalizedMatches = metadata.availableModels.filter(
+    (model) => canonicalizePiModelToken(model.modelId) === requestedCanonicalModelId,
+  );
+  if (normalizedMatches.length > 0) {
+    const bestMatch = [...normalizedMatches].sort((left, right) => {
+      const scoreDelta =
+        rankPiRequestedProviderMatch(requested.provider, right) -
+        rankPiRequestedProviderMatch(requested.provider, left);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      return left.slug.localeCompare(right.slug);
+    })[0]!;
+    if (bestMatch.provider) {
+      return {
+        provider: bestMatch.provider,
+        modelId: bestMatch.modelId,
+        slug: bestMatch.slug,
+      };
+    }
+  }
+  if (requested.provider) {
     return {
-      provider: slug.slice(0, slashIndex),
-      modelId: slug.slice(slashIndex + 1),
+      provider: requested.provider,
+      modelId: requested.modelId,
       slug,
     };
   }
@@ -1232,6 +1328,18 @@ export const PiAdapterLive = Layer.effect(
     const handleEvent = (context: PiSessionContext, event: PiRpcEvent) => {
       const turn = context.activeTurn;
       switch (event.type) {
+        case "message_start":
+        case "message_end": {
+          if (!turn) {
+            return;
+          }
+          const errorMessage = readPiAssistantErrorMessage(event.message);
+          if (errorMessage) {
+            turn.stopReason = "error";
+            turn.errorMessage = errorMessage;
+          }
+          return;
+        }
         case "message_update": {
           const deltaEvent = asObject(event.assistantMessageEvent);
           const deltaType = asString(deltaEvent?.type);
@@ -1402,6 +1510,7 @@ export const PiAdapterLive = Layer.effect(
           }
           const message = asObject(event.message);
           turn.stopReason = asString(message?.stopReason) ?? turn.stopReason;
+          turn.errorMessage = readPiAssistantErrorMessage(event.message) ?? turn.errorMessage;
           return;
         }
         case "agent_end": {
