@@ -28,7 +28,6 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import ChatMarkdown from "./ChatMarkdown";
-import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
@@ -127,17 +126,6 @@ function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: b
   );
 }
 
-function DiffMetric(props: { label: string; value: ReactNode; className?: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[10px] font-medium text-muted-foreground uppercase">{props.label}</p>
-      <p className={cn("mt-1 text-sm font-semibold tabular-nums text-foreground", props.className)}>
-        {props.value}
-      </p>
-    </div>
-  );
-}
-
 function DiffSummaryOverview({
   workspaceDiffSummary,
   actions,
@@ -150,12 +138,6 @@ function DiffSummaryOverview({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant="secondary"
-              className="rounded-md border border-border/50 bg-background/80 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-            >
-              {formatDiffCount(workspaceDiffSummary.fileCount)} files
-            </Badge>
             <p className="text-sm font-semibold text-foreground">Diff summary</p>
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -164,27 +146,19 @@ function DiffSummaryOverview({
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <DiffMetric label="Files" value={formatDiffCount(workspaceDiffSummary.fileCount)} />
-        <DiffMetric
-          label="Added"
-          value={`+${formatDiffCount(workspaceDiffSummary.additions)}`}
-          className="text-success"
-        />
-        <DiffMetric
-          label="Removed"
-          value={`-${formatDiffCount(workspaceDiffSummary.deletions)}`}
-          className="text-destructive"
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Current diff:{" "}
-        <span className="font-medium text-foreground">
-          <DiffStatLabel
-            additions={workspaceDiffSummary.additions}
-            deletions={workspaceDiffSummary.deletions}
-          />
+      <p className="text-sm text-muted-foreground">
+        <span className="font-semibold tabular-nums text-success">
+          +{formatDiffCount(workspaceDiffSummary.additions)}
         </span>
+        <span className="font-semibold tabular-nums text-foreground">/</span>
+        <span className="font-semibold tabular-nums text-destructive">
+          -{formatDiffCount(workspaceDiffSummary.deletions)}
+        </span>{" "}
+        changes across{" "}
+        <span className="font-semibold tabular-nums text-foreground">
+          {formatDiffCount(workspaceDiffSummary.fileCount)}
+        </span>{" "}
+        {workspaceDiffSummary.fileCount === 1 ? "file" : "files"}
       </p>
     </div>
   );
@@ -393,7 +367,11 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
           <Spinner className="size-3.5" />
         ) : (
           <>
-            {generatedWorkspaceSummary ? <RotateCwIcon className="size-3" /> : <SparklesIcon className="size-3" />}
+            {generatedWorkspaceSummary ? (
+              <RotateCwIcon className="size-3" />
+            ) : (
+              <SparklesIcon className="size-3" />
+            )}
           </>
         )}
       </TooltipTrigger>

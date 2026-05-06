@@ -3526,16 +3526,10 @@ export default function ChatView({
 
   const openBrowser = useCallback(() => {
     if (!isElectron) return;
-    ensureBrowserRightSidePanelOpenWidth();
     setRightSidePanelMode("browser");
     setBrowserMode("split");
     setRightSidePanelVisible(true);
-  }, [
-    ensureBrowserRightSidePanelOpenWidth,
-    setBrowserMode,
-    setRightSidePanelMode,
-    setRightSidePanelVisible,
-  ]);
+  }, [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
   const ensureBrowserBridgeController = useCallback(
     async (requestThreadId: ThreadId): Promise<InAppBrowserController> => {
       const existingController = browserControllerByThreadRef.current.get(requestThreadId);
@@ -3549,6 +3543,7 @@ export default function ChatView({
         throw new Error("Ace browser bridge can only control a mounted thread browser.");
       }
 
+      ensureBrowserRightSidePanelOpenWidth();
       openBrowser();
       const deadline = Date.now() + BROWSER_BRIDGE_CONTROLLER_WAIT_MS;
       while (Date.now() < deadline) {
@@ -3561,7 +3556,7 @@ export default function ChatView({
 
       throw new Error("Ace browser bridge could not attach to the in-app browser.");
     },
-    [activeThreadId, openBrowser],
+    [activeThreadId, ensureBrowserRightSidePanelOpenWidth, openBrowser],
   );
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
@@ -3801,7 +3796,6 @@ export default function ChatView({
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
       if (!isElectron || typeof url !== "string" || url.length === 0) return;
-      ensureBrowserRightSidePanelOpenWidth();
       setRightSidePanelMode("browser");
       setBrowserMode("split");
       setRightSidePanelVisible(true);
@@ -3812,12 +3806,7 @@ export default function ChatView({
       }
       controller.openUrl(url, options);
     },
-    [
-      ensureBrowserRightSidePanelOpenWidth,
-      setBrowserMode,
-      setRightSidePanelMode,
-      setRightSidePanelVisible,
-    ],
+    [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
