@@ -2,13 +2,28 @@
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { ChevronRightIcon } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
+import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
 import { cn } from "~/lib/utils";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
-const Menu = MenuPrimitive.Root;
+function Menu<Payload = unknown>({
+  defaultOpen,
+  modal = false,
+  onOpenChange,
+  open,
+  ...props
+}: MenuPrimitive.Root.Props<Payload>) {
+  const boundaryDismissedOpen = useBoundaryDismissedOpen<MenuPrimitive.Root.ChangeEventDetails>({
+    defaultOpen,
+    onOpenChange,
+    open,
+  });
+
+  return <MenuPrimitive.Root modal={modal} {...boundaryDismissedOpen} {...props} />;
+}
 
 const MenuPortal = MenuPrimitive.Portal;
 
