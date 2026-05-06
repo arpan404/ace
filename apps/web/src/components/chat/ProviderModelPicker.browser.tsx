@@ -538,9 +538,45 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("button", { name: "Work" }).click();
+      await page.getByRole("button", { name: "Personal" }).click();
 
-      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("codex", "gpt-5-codex", "work");
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "codex",
+        "gpt-5-codex",
+        "personal",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders the selected instance badge on the composer trigger", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "work",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+      providerInstancesByProvider: {
+        codex: [
+          {
+            id: "work",
+            label: "Work",
+            enabled: true,
+            badgeColor: "emerald",
+            badgeIcon: "briefcase",
+          },
+        ],
+      },
+    });
+
+    try {
+      const trigger = document.querySelector('[data-chat-provider-model-picker="true"]');
+      if (!(trigger instanceof HTMLElement)) {
+        throw new Error("Expected provider picker trigger to be mounted.");
+      }
+      const badge = trigger.querySelector('[data-provider-instance-badge="true"]');
+      expect(badge).toBeInstanceOf(HTMLElement);
+      expect((badge as HTMLElement).style.backgroundColor).toBe("rgb(5, 150, 105)");
     } finally {
       await mounted.cleanup();
     }

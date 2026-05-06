@@ -749,7 +749,9 @@ function normalizeModelSelection(
     provider,
     provider === "codex" ? legacy?.legacyCodex : undefined,
   );
-  return buildProviderModelSelection(provider, model, modelOptions?.[provider]);
+  const providerInstanceId =
+    typeof candidate?.providerInstanceId === "string" ? candidate.providerInstanceId : undefined;
+  return buildProviderModelSelection(provider, model, modelOptions?.[provider], providerInstanceId);
 }
 
 // ── Legacy sync helpers (used only during migration from v2 storage) ──
@@ -762,7 +764,12 @@ function legacySyncModelSelectionOptions(
     return null;
   }
   const options = modelOptions?.[modelSelection.provider];
-  return buildProviderModelSelection(modelSelection.provider, modelSelection.model, options);
+  return buildProviderModelSelection(
+    modelSelection.provider,
+    modelSelection.model,
+    options,
+    modelSelection.providerInstanceId,
+  );
 }
 
 function legacyMergeModelSelectionIntoProviderModelOptions(
@@ -1812,6 +1819,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
                 normalized.provider,
                 normalized.model,
                 current?.options,
+                normalized.providerInstanceId,
               );
             }
           }
@@ -1854,6 +1862,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
                 provider,
                 current?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider],
                 opts,
+                current?.providerInstanceId,
               );
             } else if (current?.options) {
               // Remove options but keep the selection
@@ -1900,6 +1909,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               normalizedProvider,
               currentForProvider?.model ?? DEFAULT_MODEL_BY_PROVIDER[normalizedProvider],
               providerOpts,
+              currentForProvider?.providerInstanceId,
             );
           } else if (currentForProvider?.options) {
             const { options: _, ...rest } = currentForProvider;
@@ -1923,6 +1933,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
                 normalizedProvider,
                 stickyBase.model,
                 providerOpts,
+                stickyBase.providerInstanceId,
               );
             } else if (stickyBase.options) {
               const { options: _, ...rest } = stickyBase;
