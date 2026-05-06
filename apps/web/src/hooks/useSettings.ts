@@ -48,6 +48,9 @@ const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
 const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
 const ClientSettingsPatchSchema = Schema.Struct({
+  browserMaxMountedInstances: Schema.optionalKey(
+    ClientSettingsSchema.fields.browserMaxMountedInstances,
+  ),
   browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
   confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
   confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),

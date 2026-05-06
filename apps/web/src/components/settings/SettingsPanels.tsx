@@ -11,6 +11,7 @@ import {
   ThreadId,
 } from "@ace/contracts";
 import {
+  BROWSER_MAX_MOUNTED_INSTANCES_LIMIT,
   DEFAULT_UI_FONT_FAMILY,
   DEFAULT_UI_FONT_SIZE_SCALE,
   DEFAULT_UI_LETTER_SPACING,
@@ -638,6 +639,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine
         ? ["Browser search engine"]
         : []),
+      ...(settings.browserMaxMountedInstances !==
+      DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances
+        ? ["Max mounted browsers"]
+        : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -713,6 +718,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       areProviderSettingsDirty,
+      settings.browserMaxMountedInstances,
       settings.browserSearchEngine,
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
@@ -769,7 +775,14 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-type SettingsPanelPage = "general" | "chat" | "editor" | "providers" | "advanced" | "about";
+type SettingsPanelPage =
+  | "general"
+  | "browser"
+  | "chat"
+  | "editor"
+  | "providers"
+  | "advanced"
+  | "about";
 
 function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
@@ -1211,6 +1224,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       : null;
 
   const isGeneralPage = page === "general";
+  const isBrowserPage = page === "browser";
   const isChatPage = page === "chat";
   const isEditorPage = page === "editor";
   const isProvidersPage = page === "providers";
@@ -2631,7 +2645,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         </>
       ) : null}
 
-      {isGeneralPage ? (
+      {isBrowserPage ? (
         <SettingsSection title="In-app browser">
           <SettingsRow
             title="Search engine"
@@ -2662,6 +2676,52 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               ))}
             </div>
           </SettingsRow>
+          <SettingsRow
+            title="Max mounted browsers"
+            description="Control how many thread browser surfaces stay mounted for fast switching. Higher values preserve more browser state but use more memory."
+            resetAction={
+              settings.browserMaxMountedInstances !==
+              DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances ? (
+                <SettingResetButton
+                  label="max mounted browsers"
+                  onClick={() =>
+                    updateSettings({
+                      browserMaxMountedInstances:
+                        DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={BROWSER_MAX_MOUNTED_INSTANCES_LIMIT}
+                  step={1}
+                  className="w-full sm:w-24"
+                  aria-label="Maximum mounted browser instances"
+                  value={String(settings.browserMaxMountedInstances)}
+                  onChange={(event) => {
+                    const nextValue = Number.parseInt(event.target.value, 10);
+                    if (!Number.isFinite(nextValue)) {
+                      return;
+                    }
+                    updateSettings({
+                      browserMaxMountedInstances: Math.min(
+                        BROWSER_MAX_MOUNTED_INSTANCES_LIMIT,
+                        Math.max(1, nextValue),
+                      ),
+                    });
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {settings.browserMaxMountedInstances === 1 ? "browser" : "browsers"}
+                </span>
+              </div>
+            }
+          />
         </SettingsSection>
       ) : null}
 
@@ -3012,6 +3072,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
 export function GeneralSettingsPanel() {
   return <SettingsPanel page="general" />;
+}
+
+export function BrowserSettingsPanel() {
+  return <SettingsPanel page="browser" />;
 }
 
 export function ChatSettingsPanel() {
