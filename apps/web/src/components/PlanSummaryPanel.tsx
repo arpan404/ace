@@ -28,7 +28,6 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import ChatMarkdown from "./ChatMarkdown";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Spinner } from "./ui/spinner";
@@ -121,7 +120,7 @@ function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: b
   return (
     <div className="flex items-center gap-2 text-xs text-blue-300" role="status">
       <Spinner aria-hidden="true" className="size-3.5 text-blue-300" role="presentation" />
-      <span>{hasExistingSummary ? "Updating AI summary..." : "Generating AI summary..."}</span>
+      <span>{hasExistingSummary ? "Updating summary..." : "Generating summary..."}</span>
     </div>
   );
 }
@@ -172,7 +171,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   activePlan,
   activeProposedPlan,
   generatedWorkspaceSummary,
-  activeProvider = null,
   markdownCwd,
   onOpenDiffPanel = null,
   onRegenerateSummary = null,
@@ -206,53 +204,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const completedPercent = planProgress
     ? Math.round((planProgress.completed / Math.max(planProgress.total, 1)) * 100)
     : 0;
-  const isCopilotSummary = activeProvider === "githubCopilot";
-  const todoMeta = useMemo(() => {
-    if (!effectivePlan) {
-      return null;
-    }
-    if (isCopilotSummary) {
-      return effectivePlan.source === "plan-update"
-        ? {
-            badge: "Live",
-            label: "Live todo state",
-            detail: "Execution checklist mirrored from Copilot's session state.",
-          }
-        : {
-            badge: "Derived",
-            label: "Execution checklist",
-            detail:
-              "Inferred from current task activity because no native todo update is available.",
-          };
-    }
-    return effectivePlan.source === "plan-update"
-      ? {
-          badge: "Plan",
-          label: "Current plan",
-          detail: null,
-        }
-      : {
-          badge: "Derived",
-          label: "Current plan",
-          detail: "Derived from task activity.",
-        };
-  }, [effectivePlan, isCopilotSummary]);
-  const planMeta = useMemo(() => {
-    if (!effectivePlanMarkdown) {
-      return null;
-    }
-    return isCopilotSummary
-      ? {
-          badge: "plan.md",
-          label: "Plan document",
-          detail: "Native Copilot plan file prepared for review.",
-        }
-      : {
-          badge: "Draft",
-          label: planTitle ?? "Full plan",
-          detail: null,
-        };
-  }, [effectivePlanMarkdown, isCopilotSummary, planTitle]);
   const generatedWorkspaceSummaryCreatedAt = generatedWorkspaceSummary?.createdAt ?? null;
 
   useEffect(() => {
@@ -446,12 +397,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Summary
                           </span>
-                          <Badge
-                            variant="secondary"
-                            className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                          >
-                            AI
-                          </Badge>
                         </button>
                         {!workspaceDiffSummary ? regenerateSummaryButton : null}
                       </div>
@@ -526,14 +471,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           Plan
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
-                          {planMeta ? (
-                            <Badge
-                              variant="secondary"
-                              className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                            >
-                              {planMeta.badge}
-                            </Badge>
-                          ) : null}
                           <button
                             type="button"
                             className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
@@ -551,11 +488,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                             <span>{planTitle ?? "Proposed plan"}</span>
                           </button>
                         </div>
-                        {planMeta?.detail ? (
-                          <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
-                            {planMeta.detail}
-                          </p>
-                        ) : null}
                       </div>
                       <Menu>
                         <MenuTrigger
@@ -609,14 +541,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           Todos
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
-                          {todoMeta ? (
-                            <Badge
-                              variant="secondary"
-                              className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                            >
-                              {todoMeta.badge}
-                            </Badge>
-                          ) : null}
                           <button
                             type="button"
                             className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
@@ -631,19 +555,9 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                             ) : (
                               <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
                             )}
-                            <span>{todoMeta?.label ?? "Current plan"}</span>
+                            <span>Checklist</span>
                           </button>
                         </div>
-                        {todoDetailsExpanded && todoMeta?.detail ? (
-                          <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
-                            {todoMeta.detail}
-                          </p>
-                        ) : null}
-                        {todoDetailsExpanded && todoPlan.explanation ? (
-                          <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                            {todoPlan.explanation}
-                          </p>
-                        ) : null}
                       </div>
                       {planProgress ? (
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -669,24 +583,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
 
                     {todoDetailsExpanded && planProgress ? (
                       <div className="mt-4 p-0">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                              Execution
-                            </p>
-                            <p className="text-sm font-medium tracking-tight text-foreground">
-                              {hasActionableTodo && planProgress.currentStep
-                                ? planProgress.currentStep
-                                : "Waiting for the next actionable todo"}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                              {completedPercent}% complete
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted/60">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
                           <div
                             className="h-full rounded-full bg-[linear-gradient(90deg,rgba(96,165,250,0.95),rgba(59,130,246,0.58))] transition-[width] duration-300 ease-out"
                             style={{ width: `${completedPercent}%` }}
@@ -699,46 +596,18 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                       <div className="mt-4 space-y-2.5">
                         {(() => {
                           const stepOccurrenceByText = new Map<string, number>();
-                          return displaySteps.map((step, index) => {
+                          return displaySteps.map((step) => {
                             const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
                             stepOccurrenceByText.set(step.step, seenCount + 1);
                             const stepKey =
                               seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
-                            const isCurrentActionableStep =
-                              planProgress?.currentIndex != null &&
-                              index + 1 === planProgress.currentIndex;
                             return (
                               <div
                                 key={stepKey}
-                                className={cn(
-                                  "flex items-start gap-3 px-0 py-2.5 transition-colors duration-200",
-                                  step.status === "inProgress" && "bg-transparent",
-                                  step.status === "completed" && "bg-transparent",
-                                  isCurrentActionableStep &&
-                                    step.status === "pending" &&
-                                    "bg-transparent",
-                                )}
+                                className="flex items-start gap-3 px-0 py-2.5 transition-colors duration-200"
                               >
                                 <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                                      {formatPlanProgressValue(index + 1, progressDigits)}
-                                    </span>
-                                    {isCurrentActionableStep ? (
-                                      <Badge
-                                        variant="secondary"
-                                        className="rounded-md border border-blue-500/25 bg-blue-500/8 px-1.5 py-0 text-[10px] font-medium text-blue-300"
-                                      >
-                                        {step.status === "inProgress" ? "In progress" : "Ready"}
-                                      </Badge>
-                                    ) : null}
-                                    {step.status === "completed" ? (
-                                      <span className="text-[10px] font-medium tracking-wide text-emerald-400/90 uppercase">
-                                        Done
-                                      </span>
-                                    ) : null}
-                                  </div>
+                                <div className="min-w-0 flex-1">
                                   <p
                                     className={cn(
                                       "text-[13px] leading-snug",

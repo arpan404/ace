@@ -218,7 +218,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-pill-border/48 px-3 py-2.75 transition-colors duration-150 first:border-t-0 hover:bg-foreground/[0.028] sm:px-4",
+        "border-t border-pill-border/48 px-3 py-2.75 transition-colors duration-150 first:border-t-0 sm:px-4",
         tone === "warning" && "bg-warning/[0.04]",
         tone === "danger" && "bg-destructive/[0.04]",
       )}
