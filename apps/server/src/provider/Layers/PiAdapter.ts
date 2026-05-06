@@ -42,8 +42,10 @@ const PROVIDER = "pi" as const;
 const PI_RPC_CONTROL_TIMEOUT_MS = 20_000;
 const BOOTSTRAP_MAX_CHARS = 24_000;
 const MAX_TURN_ITEMS_PER_TURN = 512;
+const PI_PROPOSED_PLAN_START_REGEX = /<!--\s*ACE_PROPOSED_PLAN_START(?:\s*--\s*>?)?/i;
+const PI_PROPOSED_PLAN_END_REGEX = /<!--\s*ACE_PROPOSED_PLAN_END(?:\s*--\s*>?)?/i;
 const PI_PROPOSED_PLAN_BLOCK_REGEX =
-  /<!--\s*ACE_PROPOSED_PLAN_START\s*-->\s*([\s\S]*?)\s*<!--\s*ACE_PROPOSED_PLAN_END\s*-->/i;
+  /<!--\s*ACE_PROPOSED_PLAN_START(?:\s*--\s*>?)?\s*([\s\S]*?)\s*<!--\s*ACE_PROPOSED_PLAN_END(?:\s*--\s*>?)?/i;
 const PI_PLAN_MODE_PROMPT_PREAMBLE = [
   "Ace is running Pi in provider-emulated planning mode.",
   "Do not run commands, call tools, modify files, or claim that code has been changed.",
@@ -336,7 +338,27 @@ function currentModel(metadata: PiSessionMetadata): PiModel | undefined {
 }
 
 function stripPiProposedPlanBlock(text: string): string {
-  return text.replace(PI_PROPOSED_PLAN_BLOCK_REGEX, "").trimEnd();
+  const completeBlockStripped = text.replace(PI_PROPOSED_PLAN_BLOCK_REGEX, "");
+  const startMatch = PI_PROPOSED_PLAN_START_REGEX.exec(completeBlockStripped);
+  if (!startMatch || startMatch.index === undefined) {
+    return completeBlockStripped.trimEnd();
+  }
+  const beforePlanBlock = completeBlockStripped.slice(0, startMatch.index);
+  const afterPlanStart = completeBlockStripped.slice(startMatch.index + startMatch[0].length);
+  const endMatch = PI_PROPOSED_PLAN_END_REGEX.exec(afterPlanStart);
+  if (!endMatch || endMatch.index === undefined) {
+    return beforePlanBlock.trimEnd();
+  }
+  return `${beforePlanBlock}${afterPlanStart.slice(endMatch.index + endMatch[0].length)}`.trimEnd();
+}
+
+function normalizePiProposedPlanMarkdown(markdown: string): string {
+  return markdown
+    .replace(/^>\s*/, "")
+    .replace(/^(#{1,6})(?=\S)/gm, "$1 ")
+    .replace(/(?<!\d)(\d+)\.(?=\S)/g, "$1. ")
+    .replace(/([,:;])(?=\S)/g, "$1 ")
+    .trim();
 }
 
 function buildConfigOptions(
@@ -568,9 +590,20 @@ function looksLikePlanMarkdown(text: string): boolean {
 
 function extractPiProposedPlanMarkdown(text: string | undefined): string | undefined {
   const match = text ? PI_PROPOSED_PLAN_BLOCK_REGEX.exec(text) : null;
-  const taggedPlanMarkdown = match?.[1]?.trim();
+  const taggedPlanMarkdown = match?.[1] ? normalizePiProposedPlanMarkdown(match[1]) : undefined;
   if (taggedPlanMarkdown && taggedPlanMarkdown.length > 0) {
     return taggedPlanMarkdown;
+  }
+  const startMatch = text ? PI_PROPOSED_PLAN_START_REGEX.exec(text) : null;
+  if (text && startMatch && startMatch.index !== undefined) {
+    const afterPlanStart = text.slice(startMatch.index + startMatch[0].length);
+    const endMatch = PI_PROPOSED_PLAN_END_REGEX.exec(afterPlanStart);
+    const planCandidate = normalizePiProposedPlanMarkdown(
+      endMatch?.index === undefined ? afterPlanStart : afterPlanStart.slice(0, endMatch.index),
+    );
+    if (planCandidate.length > 0) {
+      return planCandidate;
+    }
   }
   const trimmed = text?.trim();
   if (!trimmed || !looksLikePlanMarkdown(trimmed)) {

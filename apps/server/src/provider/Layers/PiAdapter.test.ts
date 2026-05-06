@@ -447,6 +447,131 @@ describe("PiAdapterLive", () => {
     });
   });
 
+  it("does not render malformed Pi proposed-plan markers as assistant text", async () => {
+    const client = makeFakePiClient({
+      requestImpl: async (command) => {
+        switch (command) {
+          case "get_state":
+            return {
+              sessionId: "pi-session-malformed-plan",
+              model: { id: "gpt-5.4", provider: "openai", name: "GPT-5.4", reasoning: true },
+              thinkingLevel: "medium",
+            };
+          case "get_available_models":
+            return {
+              models: [{ id: "gpt-5.4", provider: "openai", name: "GPT-5.4", reasoning: true }],
+            };
+          case "get_commands":
+            return { commands: [] };
+          case "prompt":
+            return {};
+          case "get_session_stats":
+            return {
+              tokens: {
+                input: 12,
+                output: 18,
+                total: 30,
+              },
+            };
+          default:
+            throw new Error(`Unexpected Pi RPC command: ${command}`);
+        }
+      },
+    });
+    mockedStartPiRpcClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "pi",
+            threadId: asThreadId("thread-pi-malformed-plan"),
+            cwd: "/repo/pi-malformed-plan",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const turnEventsPromise = collectEvents(
+          adapter,
+          4,
+          (event) =>
+            event.type === "turn.started" ||
+            event.type === "content.delta" ||
+            event.type === "turn.proposed.delta" ||
+            event.type === "turn.proposed.completed" ||
+            event.type === "turn.completed",
+        );
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId: asThreadId("thread-pi-malformed-plan"),
+            input: "Plan robust scaling work.",
+            interactionMode: "plan",
+          }),
+        );
+
+        client.emitEvent({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            delta: "<!--ACE_PROPOSED_PLAN_START",
+          },
+        });
+        client.emitEvent({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            delta:
+              "\n>#Proposed Plan\n\n1.Define SLOs.\n2.Add observability.\n<!--ACE_PROPOSED_PLAN_END",
+          },
+        });
+        client.emitEvent({
+          type: "turn_end",
+          message: { stopReason: "end_turn" },
+        });
+        client.emitEvent({
+          type: "agent_end",
+          message: { stopReason: "end_turn" },
+        });
+
+        const events = await turnEventsPromise;
+        expect(events.map((event) => event.type)).toEqual([
+          "turn.started",
+          "turn.proposed.delta",
+          "turn.proposed.completed",
+          "turn.completed",
+        ]);
+        expect(events.some((event) => event.type === "content.delta")).toBe(false);
+
+        const proposedCompletedEvent = events.find(
+          (event) => event.type === "turn.proposed.completed",
+        );
+        expect(proposedCompletedEvent?.type).toBe("turn.proposed.completed");
+        if (proposedCompletedEvent?.type !== "turn.proposed.completed") {
+          return;
+        }
+        expect(proposedCompletedEvent.payload.planMarkdown).toBe(
+          "# Proposed Plan\n\n1. Define SLOs.\n2. Add observability.",
+        );
+
+        const thread = await Effect.runPromise(
+          adapter.readThread(asThreadId("thread-pi-malformed-plan")),
+        );
+        expect(
+          thread.turns[0]?.items.some(
+            (item) =>
+              typeof item === "object" &&
+              item !== null &&
+              "kind" in item &&
+              item.kind === "assistant_text",
+          ),
+        ).toBe(false);
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("streams assistant, reasoning, and tool events for Pi turns", async () => {
     const client = makeFakePiClient({
       requestImpl: async (command) => {
