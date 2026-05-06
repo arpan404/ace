@@ -5,11 +5,25 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
+import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
 import { cn } from "~/lib/utils";
 
-const Select = SelectPrimitive.Root;
+function Select<Value, Multiple extends boolean | undefined = false>({
+  defaultOpen,
+  onOpenChange,
+  open,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  const boundaryDismissedOpen = useBoundaryDismissedOpen<SelectPrimitive.Root.ChangeEventDetails>({
+    defaultOpen,
+    onOpenChange,
+    open,
+  });
+
+  return <SelectPrimitive.Root {...boundaryDismissedOpen} {...props} />;
+}
 
 const selectTriggerVariants = cva(
   "relative inline-flex select-none items-center justify-between gap-2 rounded-[var(--control-radius)] border text-left text-base outline-none transition-[color,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4",
