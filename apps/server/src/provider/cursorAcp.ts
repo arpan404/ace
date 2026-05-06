@@ -16,6 +16,7 @@ export type CursorAcpClient = AcpClient;
 export interface StartCursorAcpClientOptions {
   readonly binaryPath: string;
   readonly model?: string;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 export function startCursorAcpClient(options: StartCursorAcpClientOptions): CursorAcpClient {
@@ -23,6 +24,7 @@ export function startCursorAcpClient(options: StartCursorAcpClientOptions): Curs
     binaryPath: options.binaryPath,
     args: [...(options.model ? ["--model", options.model] : []), "acp"],
     env: {
+      ...options.env,
       NO_OPEN_BROWSER: process.env.NO_OPEN_BROWSER ?? "1",
     },
   });

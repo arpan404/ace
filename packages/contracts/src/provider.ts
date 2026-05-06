@@ -16,6 +16,7 @@ import {
   ProviderApprovalDecision,
   ProviderApprovalPolicy,
   ProviderInteractionMode,
+  ProviderInstanceId,
   ProviderKind,
   ProviderRequestKind,
   ProviderSandboxMode,
@@ -33,6 +34,7 @@ const ProviderSessionStatus = Schema.Literals([
 
 export const ProviderSession = Schema.Struct({
   provider: ProviderKind,
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   status: ProviderSessionStatus,
   runtimeMode: RuntimeMode,
   cwd: Schema.optional(TrimmedNonEmptyString),
@@ -56,6 +58,7 @@ export type ProviderReplayTurn = typeof ProviderReplayTurn.Type;
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),
   threadTitle: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
@@ -77,6 +80,7 @@ export const ProviderSendTurnInput = Schema.Struct({
     Schema.Array(ChatAttachment).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
   ),
   modelSelection: Schema.optional(ModelSelection),
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   interactionMode: Schema.optional(ProviderInteractionMode),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
@@ -119,6 +123,7 @@ export const ProviderEvent = Schema.Struct({
   id: EventId,
   kind: ProviderEventKind,
   provider: ProviderKind,
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   threadId: ThreadId,
   createdAt: IsoDateTime,
   method: TrimmedNonEmptyString,

@@ -20,6 +20,7 @@ import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   ProviderLastChecked,
@@ -73,6 +74,45 @@ function resolveCustomModelPlaceholder(provider: ProviderKind): string {
   }
 }
 
+function formatLaunchEnv(env: Readonly<Record<string, string>>): string {
+  return Object.entries(env)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+function parseLaunchEnv(value: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const rawLine of value.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    env[key] = line.slice(separatorIndex + 1);
+  }
+  return env;
+}
+
+function instancePathLabel(provider: ProviderKind): string | null {
+  switch (provider) {
+    case "codex":
+      return "CODEX_HOME path";
+    case "githubCopilot":
+      return null;
+    case "claudeAgent":
+      return "CLAUDE_CONFIG_DIR path";
+    case "cursor":
+      return "CURSOR_CONFIG_DIR path";
+    case "pi":
+      return "PI_CODING_AGENT_DIR path";
+    case "opencode":
+      return "OPENCODE_CONFIG_DIR path";
+    case "gemini":
+      return null;
+  }
+}
+
 export function ProviderSettingsSection({
   addCustomModel,
   codexHomePath,
@@ -118,6 +158,71 @@ export function ProviderSettingsSection({
   upgradeProviderCli: (provider: ProviderKind, runtimeId: string) => void;
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
+  const updateProviderConfig = <TProvider extends ProviderKind>(
+    provider: TProvider,
+    config: UnifiedSettings["providers"][TProvider],
+  ) => {
+    updateSettings({
+      providers: {
+        ...settings.providers,
+        [provider]: config,
+      },
+    });
+  };
+
+  const addProviderInstance = (providerCard: ProviderCard) => {
+    const provider = providerCard.provider;
+    const providerConfig = settings.providers[provider];
+    const instanceId = `${provider}-${Date.now().toString(36)}`;
+    const base = {
+      id: instanceId,
+      label: `Account ${providerConfig.instances.length + 1}`,
+      enabled: true,
+      binaryPath: providerConfig.binaryPath,
+      customModels: [],
+      launchEnv: {},
+    };
+    const nextInstance =
+      provider === "codex"
+        ? { ...base, homePath: "" }
+        : provider === "githubCopilot"
+          ? { ...base, homePath: "", cliUrl: "" }
+          : provider === "claudeAgent" || provider === "cursor" || provider === "opencode"
+            ? { ...base, configDir: "" }
+            : provider === "pi"
+              ? { ...base, agentDir: "" }
+              : base;
+
+    updateProviderConfig(provider, {
+      ...providerConfig,
+      instances: [...providerConfig.instances, nextInstance],
+    } as UnifiedSettings["providers"][typeof provider]);
+  };
+
+  const updateProviderInstance = (
+    providerCard: ProviderCard,
+    instanceId: string,
+    patch: Record<string, unknown>,
+  ) => {
+    const provider = providerCard.provider;
+    const providerConfig = settings.providers[provider];
+    updateProviderConfig(provider, {
+      ...providerConfig,
+      instances: providerConfig.instances.map((instance) =>
+        instance.id === instanceId ? Object.assign({}, instance, patch) : instance,
+      ),
+    } as UnifiedSettings["providers"][typeof provider]);
+  };
+
+  const removeProviderInstance = (providerCard: ProviderCard, instanceId: string) => {
+    const provider = providerCard.provider;
+    const providerConfig = settings.providers[provider];
+    updateProviderConfig(provider, {
+      ...providerConfig,
+      instances: providerConfig.instances.filter((instance) => instance.id !== instanceId),
+    } as UnifiedSettings["providers"][typeof provider]);
+  };
+
   return (
     <SettingsSection
       title="Providers"
@@ -441,6 +546,165 @@ export function ProviderSettingsSection({
                       </label>
                     </div>
                   ) : null}
+
+                  <div className="border-t border-border/45 px-3 py-3 sm:px-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[12px] font-medium text-foreground/85">
+                          Provider instances
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground/60">
+                          Add named accounts with isolated config paths or env credentials.
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
+                        onClick={() => addProviderInstance(providerCard)}
+                      >
+                        <PlusIcon className="size-3" />
+                        Add
+                      </Button>
+                    </div>
+
+                    {providerCard.providerConfig.instances.length > 0 ? (
+                      <div className="mt-3 space-y-3">
+                        {providerCard.providerConfig.instances.map((instance) => {
+                          const pathLabel = instancePathLabel(providerCard.provider);
+                          const pathValue =
+                            "homePath" in instance
+                              ? instance.homePath
+                              : "configDir" in instance
+                                ? instance.configDir
+                                : "agentDir" in instance
+                                  ? instance.agentDir
+                                  : "";
+                          return (
+                            <div
+                              key={`${providerCard.provider}:${instance.id}`}
+                              className="rounded-[var(--control-radius)] border border-border/45 p-3"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <Input
+                                    value={instance.label}
+                                    onChange={(event) =>
+                                      updateProviderInstance(providerCard, instance.id, {
+                                        label: event.target.value,
+                                      })
+                                    }
+                                    placeholder="Instance name"
+                                  />
+                                </div>
+                                <Switch
+                                  checked={instance.enabled}
+                                  onCheckedChange={(checked) =>
+                                    updateProviderInstance(providerCard, instance.id, {
+                                      enabled: Boolean(checked),
+                                    })
+                                  }
+                                  aria-label={`Enable ${instance.label}`}
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-7 rounded-[var(--control-radius)] text-muted-foreground/60 hover:text-foreground"
+                                  onClick={() => removeProviderInstance(providerCard, instance.id)}
+                                  aria-label={`Remove ${instance.label}`}
+                                >
+                                  <XIcon className="size-3.5" />
+                                </Button>
+                              </div>
+
+                              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                                <label className="block">
+                                  <span className="text-[11px] font-medium text-foreground/75">
+                                    Binary path
+                                  </span>
+                                  <Input
+                                    className="mt-1"
+                                    value={instance.binaryPath}
+                                    onChange={(event) =>
+                                      updateProviderInstance(providerCard, instance.id, {
+                                        binaryPath: event.target.value,
+                                      })
+                                    }
+                                    placeholder={providerCard.binaryPlaceholder}
+                                    spellCheck={false}
+                                  />
+                                </label>
+                                {pathLabel ? (
+                                  <label className="block">
+                                    <span className="text-[11px] font-medium text-foreground/75">
+                                      {pathLabel}
+                                    </span>
+                                    <Input
+                                      className="mt-1"
+                                      value={pathValue}
+                                      onChange={(event) => {
+                                        const pathKey =
+                                          providerCard.provider === "codex" ||
+                                          providerCard.provider === "githubCopilot"
+                                            ? "homePath"
+                                            : providerCard.provider === "pi"
+                                              ? "agentDir"
+                                              : "configDir";
+                                        updateProviderInstance(providerCard, instance.id, {
+                                          [pathKey]: event.target.value,
+                                        });
+                                      }}
+                                      spellCheck={false}
+                                    />
+                                  </label>
+                                ) : null}
+                                {providerCard.provider === "githubCopilot" &&
+                                "cliUrl" in instance ? (
+                                  <label className="block">
+                                    <span className="text-[11px] font-medium text-foreground/75">
+                                      CLI server URL
+                                    </span>
+                                    <Input
+                                      className="mt-1"
+                                      value={instance.cliUrl}
+                                      onChange={(event) =>
+                                        updateProviderInstance(providerCard, instance.id, {
+                                          cliUrl: event.target.value,
+                                        })
+                                      }
+                                      placeholder={providerCard.cliUrlPlaceholder}
+                                      spellCheck={false}
+                                    />
+                                  </label>
+                                ) : null}
+                              </div>
+
+                              <label className="mt-2 block">
+                                <span className="text-[11px] font-medium text-foreground/75">
+                                  Launch env
+                                </span>
+                                <Textarea
+                                  className="mt-1"
+                                  value={formatLaunchEnv(instance.launchEnv)}
+                                  onChange={(event) =>
+                                    updateProviderInstance(providerCard, instance.id, {
+                                      launchEnv: parseLaunchEnv(event.target.value),
+                                    })
+                                  }
+                                  placeholder={
+                                    providerCard.provider === "gemini"
+                                      ? "GEMINI_API_KEY=..."
+                                      : "KEY=value"
+                                  }
+                                  spellCheck={false}
+                                />
+                              </label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
 
                   <div className="border-t border-border/45 px-3 py-3 sm:px-4">
                     <div className="text-[12px] font-medium text-foreground/85">Models</div>

@@ -21,6 +21,7 @@ import {
   TurnId,
 } from "@ace/contracts";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -864,21 +865,22 @@ function isMissingGeminiSessionError(cause: unknown): boolean {
 
 function preferredAuthMethod(
   authMethods: ReadonlyArray<GeminiAuthMethod>,
+  env: NodeJS.ProcessEnv = process.env,
 ): { readonly methodId: string; readonly meta?: Record<string, unknown> } | undefined {
   const find = (id: string) => authMethods.find((method) => method.id === id);
 
-  if (process.env.GEMINI_API_KEY && find("gemini-api-key")) {
+  if (env.GEMINI_API_KEY && find("gemini-api-key")) {
     return {
       methodId: "gemini-api-key",
       meta: {
-        "api-key": process.env.GEMINI_API_KEY,
+        "api-key": env.GEMINI_API_KEY,
       },
     };
   }
-  if (process.env.GOOGLE_GENAI_USE_VERTEXAI?.toLowerCase() === "true" && find("vertex-ai")) {
+  if (env.GOOGLE_GENAI_USE_VERTEXAI?.toLowerCase() === "true" && find("vertex-ai")) {
     return { methodId: "vertex-ai" };
   }
-  if (process.env.GOOGLE_GENAI_USE_GCA?.toLowerCase() === "true" && find("oauth-personal")) {
+  if (env.GOOGLE_GENAI_USE_GCA?.toLowerCase() === "true" && find("oauth-personal")) {
     return { methodId: "oauth-personal" };
   }
   return undefined;
@@ -2187,6 +2189,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     binaryPath: string,
     cwd: string,
     approvalMode: GeminiLaunchApprovalMode,
+    env: NodeJS.ProcessEnv = {},
   ): Promise<{
     readonly client: AcpClient;
     readonly metadata: GeminiSessionMetadata;
@@ -2202,6 +2205,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         args,
         cwd,
         env: {
+          ...env,
           NO_OPEN_BROWSER: process.env.NO_OPEN_BROWSER ?? "1",
         },
       });
@@ -2240,8 +2244,9 @@ const makeGeminiAdapter = Effect.gen(function* () {
   const authenticateGeminiIfRequired = async (
     client: AcpClient,
     metadata: GeminiSessionMetadata,
+    env: NodeJS.ProcessEnv,
   ): Promise<void> => {
-    const auth = preferredAuthMethod(metadata.authMethods);
+    const auth = preferredAuthMethod(metadata.authMethods, env);
     if (!auth) {
       throw new ProviderAdapterRequestError({
         provider: PROVIDER,
@@ -2264,6 +2269,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     metadata: GeminiSessionMetadata,
     input: ProviderSessionStartInput,
     cwd: string,
+    env: NodeJS.ProcessEnv,
   ): Promise<{
     readonly sessionId: string;
     readonly metadata: GeminiSessionMetadata;
@@ -2317,7 +2323,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         if (!isGeminiAuthRequiredError(cause)) {
           throw cause;
         }
-        await authenticateGeminiIfRequired(client, metadata);
+        await authenticateGeminiIfRequired(client, metadata, env);
         return await execute(method, params);
       }
     };
@@ -2398,6 +2404,8 @@ const makeGeminiAdapter = Effect.gen(function* () {
     input: ProviderSessionStartInput,
   ): Promise<GeminiSessionContext> => {
     const settings = await runPromise(serverSettingsService.getSettings);
+    const geminiSettings = resolveProviderSettings(settings, PROVIDER, input.providerInstanceId);
+    const instanceEnv = { ...process.env, ...geminiSettings.launchEnv };
     const cwd = input.cwd ?? serverConfig.cwd;
     const launchApprovalMode = geminiLaunchApprovalModeForSession(
       input.runtimeMode,
@@ -2408,9 +2416,10 @@ const makeGeminiAdapter = Effect.gen(function* () {
       metadata: initializedMetadata,
       launchApprovalModeApplied,
     } = await startInitializedGeminiClient(
-      settings.providers.gemini.binaryPath,
+      geminiSettings.binaryPath,
       cwd,
       launchApprovalMode,
+      instanceEnv,
     );
 
     let contextRef: GeminiSessionContext | null = null;
@@ -2454,11 +2463,18 @@ const makeGeminiAdapter = Effect.gen(function* () {
     });
 
     try {
-      const started = await startOrLoadGeminiSession(client, initializedMetadata, input, cwd);
+      const started = await startOrLoadGeminiSession(
+        client,
+        initializedMetadata,
+        input,
+        cwd,
+        instanceEnv,
+      );
 
       const createdAt = isoNow();
       const session: ProviderSession = {
         provider: PROVIDER,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         status: "ready",
         runtimeMode: input.runtimeMode,
         cwd,

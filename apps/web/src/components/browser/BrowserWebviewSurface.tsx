@@ -2023,7 +2023,7 @@ export function BrowserTabWebview(props: {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
       },
-      executeJavaScript: async <T = unknown>(code: string): Promise<T> => {
+      executeJavaScript: async <T = unknown,>(code: string): Promise<T> => {
         const webview = webviewRef.current;
         if (!readyRef.current || !webview?.executeJavaScript) {
           throw new Error("The browser tab cannot execute JavaScript yet.");

@@ -1,24 +1,17 @@
-import { type ProviderKind, type ServerProvider, type ThreadHandoffMode } from "@ace/contracts";
+import {
+  type ProviderKind,
+  type ServerProvider,
+  type ServerProviderModel,
+  type ThreadHandoffMode,
+} from "@ace/contracts";
 import { resolveSelectableModel } from "@ace/shared/model";
+import * as Schema from "effect/Schema";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
-import { ChevronDownIcon, SearchIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator as MenuDivider,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator as MenuDivider, MenuTrigger } from "../ui/menu";
 import {
   ClaudeAI,
   CursorIcon,
@@ -37,6 +30,7 @@ import {
   resolveCursorSelectorFamily,
   resolveExactCursorModelSelection,
 } from "../../cursorModelSelector";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { HandoffMenuButton } from "./HandoffMenu";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
@@ -58,13 +52,49 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
 };
 
 export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
-const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
-const MODEL_MENU_MAX_HEIGHT = "24rem";
-const GROUPED_PROVIDER_MODEL_MENU_STABLE_HEIGHT_STYLE = {
-  minHeight: `min(var(--available-height), ${MODEL_MENU_MAX_HEIGHT})`,
+const MODEL_MENU_MAX_HEIGHT = "18rem";
+const PROVIDER_PICKER_PREFS_STORAGE_KEY = "ace:provider-model-picker-prefs:v1";
+const ProviderModelPickerPrefsSchema = Schema.Struct({
+  favoriteModels: Schema.Array(Schema.String),
+  pinnedProviders: Schema.Array(Schema.String),
+});
+type ProviderModelPickerPrefs = typeof ProviderModelPickerPrefsSchema.Type;
+const EMPTY_PROVIDER_MODEL_PICKER_PREFS: ProviderModelPickerPrefs = {
+  favoriteModels: [],
+  pinnedProviders: [],
 };
+const EMPTY_SERVER_PROVIDER_MODELS: ReadonlyArray<ServerProviderModel> = [];
+
 type ProviderModelOption = Readonly<{ slug: string; name: string }>;
-const GROUPED_PROVIDER_MODEL_PROVIDERS = new Set<ProviderKind>(["opencode", "pi"]);
+
+interface ModelPickerRow {
+  readonly favoriteKey: string;
+  readonly groupLabel?: string;
+  readonly label: string;
+  readonly searchText: string;
+  readonly selectionValue: string;
+  readonly slug: string;
+}
+
+function isSelectableLiveProvider(provider: ServerProvider | undefined): boolean {
+  if (!provider) {
+    return false;
+  }
+  return provider.status === "ready" || provider.versionStatus === "upgrade-required";
+}
+
+function providerIconClassName(
+  provider: ProviderKind | ProviderPickerKind,
+  fallbackClassName: string,
+): string {
+  if (provider === "claudeAgent") {
+    return "text-warning-foreground";
+  }
+  if (provider === "githubCopilot") {
+    return "text-foreground";
+  }
+  return fallbackClassName;
+}
 
 function toProviderBackedModelGroupLabel(providerId: string): string {
   const normalizedId = providerId.trim().toLowerCase();
@@ -122,173 +152,114 @@ function splitProviderBackedModelOption(option: ProviderModelOption): {
   };
 }
 
-const GroupedProviderModelMenuContent = memo(function GroupedProviderModelMenuContent(props: {
-  provider: ProviderKind;
-  options: ReadonlyArray<ProviderModelOption>;
-  selectedModel: string;
-  onModelChange: (value: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const groupedOptions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const groups = new Map<
-      string,
-      {
-        providerLabel: string;
-        options: Array<ProviderModelOption & { modelLabel: string }>;
-      }
-    >();
+function makeFavoriteModelKey(provider: ProviderKind, slug: string): string {
+  return `${provider}:${slug}`;
+}
 
-    for (const option of props.options) {
-      const parsed = splitProviderBackedModelOption(option);
-      const searchText =
-        `${parsed.providerLabel} ${parsed.modelLabel} ${option.slug} ${option.name}`.toLowerCase();
-      if (normalizedQuery.length > 0 && !searchText.includes(normalizedQuery)) {
-        continue;
-      }
-      const group = groups.get(parsed.providerId);
-      if (group) {
-        group.options.push({ ...option, modelLabel: parsed.modelLabel });
-        continue;
-      }
-      groups.set(parsed.providerId, {
-        providerLabel: parsed.providerLabel,
-        options: [{ ...option, modelLabel: parsed.modelLabel }],
-      });
-    }
+function dedupeStrings(values: ReadonlyArray<string>): Array<string> {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
 
-    return [...groups.entries()].map(([providerId, group]) => ({
-      providerId,
-      providerLabel: group.providerLabel,
-      options: group.options,
-    }));
-  }, [props.options, query]);
+function toggleString(values: ReadonlyArray<string>, value: string): Array<string> {
+  return values.includes(value)
+    ? values.filter((candidate) => candidate !== value)
+    : [...values, value];
+}
 
-  return (
-    <>
-      <div className="px-2 pb-1 pt-1">
-        <div className="flex items-center gap-1.5 border-b border-border/40 pb-1">
-          <SearchIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground/70" />
-          <input
-            type="search"
-            role="searchbox"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") {
-                event.stopPropagation();
-              }
-            }}
-            placeholder="Search models"
-            className="h-7 w-full border-0 bg-transparent px-0 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
-          />
-        </div>
-      </div>
+function buildProviderRows(
+  options: ReadonlyArray<(typeof AVAILABLE_PROVIDER_OPTIONS)[number]>,
+  pinnedProviders: ReadonlyArray<string>,
+): ReadonlyArray<(typeof AVAILABLE_PROVIDER_OPTIONS)[number]> {
+  const pinned = new Set(pinnedProviders);
+  return [
+    ...options.filter((option) => pinned.has(option.value)),
+    ...options.filter((option) => !pinned.has(option.value)),
+  ];
+}
 
-      {groupedOptions.length === 0 ? (
-        <MenuItem disabled>
-          {query.trim().length > 0 ? "No models match your search." : "No models available."}
-        </MenuItem>
-      ) : (
-        groupedOptions.map((group) => (
-          <MenuGroup key={`${props.provider}-group:${group.providerId}`}>
-            <MenuGroupLabel className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-              {group.providerLabel}
-            </MenuGroupLabel>
-            <MenuRadioGroup value={props.selectedModel} onValueChange={props.onModelChange}>
-              {group.options.map((modelOption) => (
-                <MenuRadioItem
-                  key={`${props.provider}-model:${modelOption.slug}`}
-                  value={modelOption.slug}
-                >
-                  {modelOption.modelLabel}
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          </MenuGroup>
-        ))
-      )}
-    </>
-  );
-});
+function buildStandardModelRows(
+  provider: ProviderKind,
+  options: ReadonlyArray<ProviderModelOption>,
+): ReadonlyArray<ModelPickerRow> {
+  return options.map((option) => {
+    const parsed =
+      provider === "opencode" || provider === "pi" ? splitProviderBackedModelOption(option) : null;
+    const label = parsed?.modelLabel ?? option.name;
+    const groupLabel = parsed?.providerLabel;
+    return {
+      favoriteKey: makeFavoriteModelKey(provider, option.slug),
+      ...(groupLabel ? { groupLabel } : {}),
+      label,
+      searchText: `${label} ${groupLabel ?? ""} ${option.name} ${option.slug}`.toLowerCase(),
+      selectionValue: option.slug,
+      slug: option.slug,
+    };
+  });
+}
 
-const CursorModelMenuContent = memo(function CursorModelMenuContent(props: {
-  models: ReadonlyArray<NonNullable<ServerProvider["models"]>[number]>;
-  selectedModel: string;
-  onModelChange: (value: string) => void;
-}) {
-  const families = useMemo(() => buildCursorSelectorFamilies(props.models), [props.models]);
-  const selectedExactModel = useMemo(
-    () =>
-      resolveExactCursorModelSelection({
-        models: props.models,
-        model: props.selectedModel,
-      }) ?? props.selectedModel,
-    [props.models, props.selectedModel],
-  );
-  const selectedFamily =
-    resolveCursorSelectorFamily(props.models, selectedExactModel) ?? families[0] ?? null;
+function buildCursorModelRows(input: {
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly selectedModel: string;
+}): ReadonlyArray<ModelPickerRow> {
+  const families = buildCursorSelectorFamilies(input.models);
+  const selectedExactModel =
+    resolveExactCursorModelSelection({
+      models: input.models,
+      model: input.selectedModel,
+    }) ?? input.selectedModel;
+  const selectedFamily = resolveCursorSelectorFamily(input.models, selectedExactModel);
 
-  if (families.length === 0 || !selectedFamily) {
-    return <MenuItem disabled>No Cursor models available.</MenuItem>;
-  }
-
-  const applyFamilySelection = (familySlug: string) => {
-    const family = families.find((candidate) => candidate.familySlug === familySlug);
-    if (!family) {
-      return;
-    }
-    const nextModel =
-      familySlug === selectedFamily.familySlug
-        ? (props.models.find((model) => model.slug === selectedExactModel) ?? null)
+  return families.flatMap((family) => {
+    const model =
+      family.familySlug === selectedFamily?.familySlug
+        ? (input.models.find((candidate) => candidate.slug === selectedExactModel) ?? null)
         : pickCursorModelFromTraits({ family, selections: {} });
-    if (!nextModel) {
-      return;
+    if (!model) {
+      return [];
     }
-    props.onModelChange(nextModel.slug);
-  };
+    return [
+      {
+        favoriteKey: makeFavoriteModelKey("cursor", family.familySlug),
+        label: family.familyName,
+        searchText: `${family.familyName} ${family.familySlug} ${model.slug}`.toLowerCase(),
+        selectionValue: model.slug,
+        slug: family.familySlug,
+      },
+    ];
+  });
+}
 
-  return (
-    <MenuGroup>
-      <MenuRadioGroup
-        value={selectedFamily.familySlug}
-        onValueChange={(value) => applyFamilySelection(value)}
-      >
-        {families.map((family) => (
-          <MenuRadioItem key={`cursor-family:${family.familySlug}`} value={family.familySlug}>
-            {family.familyName}
-          </MenuRadioItem>
-        ))}
-      </MenuRadioGroup>
-    </MenuGroup>
-  );
-});
-
-function providerIconClassName(
-  provider: ProviderKind | ProviderPickerKind,
-  fallbackClassName: string,
-): string {
-  if (provider === "claudeAgent") {
-    return "text-warning-foreground";
+function isRowSelected(
+  provider: ProviderKind,
+  row: ModelPickerRow,
+  selectedModel: string,
+): boolean {
+  if (provider !== "cursor") {
+    return row.selectionValue === selectedModel;
   }
-  if (provider === "githubCopilot") {
-    return "text-foreground";
-  }
-  return fallbackClassName;
+  return row.selectionValue === selectedModel || row.slug === selectedModel;
 }
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   provider: ProviderKind;
+  providerInstanceId?: string | undefined;
   model: string;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  providerInstancesByProvider?: Partial<
+    Record<ProviderKind, ReadonlyArray<{ id: string; label: string; enabled: boolean }>>
+  >;
   activeProviderIconClassName?: string;
   compact?: boolean;
   disabled?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
-  onProviderModelChange: (provider: ProviderKind, model: string) => void;
+  onProviderModelChange: (
+    provider: ProviderKind,
+    model: string,
+    providerInstanceId?: string,
+  ) => void;
   /** Icon-only control beside the picker; opens a separate handoff menu. */
   handoff?: {
     providers: ReadonlyArray<ProviderKind>;
@@ -297,6 +268,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   };
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [focusedProvider, setFocusedProvider] = useState<ProviderKind | null>(null);
+  const [query, setQuery] = useState("");
+  const [prefs, setPrefs] = useLocalStorage(
+    PROVIDER_PICKER_PREFS_STORAGE_KEY,
+    EMPTY_PROVIDER_MODEL_PICKER_PREFS,
+    ProviderModelPickerPrefsSchema,
+  );
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
   const cursorModels = useMemo(
@@ -326,78 +304,201 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : (selectedProviderOptions.find((option) => option.slug === props.model)?.name ??
         props.model);
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
+  const selectedProviderInstanceLabel =
+    props.providerInstanceId && props.providerInstanceId !== "default"
+      ? props.providerInstancesByProvider?.[activeProvider]?.find(
+          (instance) => instance.id === props.providerInstanceId,
+        )?.label
+      : undefined;
+
+  const selectableProviderOptions = useMemo(() => {
+    const providers = props.providers;
+    const options = !providers
+      ? AVAILABLE_PROVIDER_OPTIONS
+      : AVAILABLE_PROVIDER_OPTIONS.filter((option) =>
+          isSelectableLiveProvider(getProviderSnapshot(providers, option.value)),
+        );
+    return buildProviderRows(options, prefs.pinnedProviders);
+  }, [prefs.pinnedProviders, props.providers]);
+
+  const pickerProvider = useMemo(() => {
+    if (props.lockedProvider !== null) {
+      return props.lockedProvider;
+    }
+    if (
+      focusedProvider &&
+      selectableProviderOptions.some((option) => option.value === focusedProvider)
+    ) {
+      return focusedProvider;
+    }
+    if (selectableProviderOptions.some((option) => option.value === props.provider)) {
+      return props.provider;
+    }
+    return selectableProviderOptions[0]?.value ?? props.provider;
+  }, [focusedProvider, props.lockedProvider, props.provider, selectableProviderOptions]);
+
+  const pickerProviderOption =
+    AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === pickerProvider) ??
+    AVAILABLE_PROVIDER_OPTIONS[0]!;
+  const PickerProviderIcon = PROVIDER_ICON_BY_PROVIDER[pickerProvider];
+  const pickerProviderSnapshot = props.providers
+    ? getProviderSnapshot(props.providers, pickerProvider)
+    : undefined;
+  const pickerProviderModels = pickerProviderSnapshot?.models ?? EMPTY_SERVER_PROVIDER_MODELS;
+  const pickerModelOptions = props.modelOptionsByProvider[pickerProvider];
+  const pickerRows = useMemo(
+    () =>
+      pickerProvider === "cursor" && pickerProviderModels.length > 0
+        ? buildCursorModelRows({ models: pickerProviderModels, selectedModel: props.model })
+        : buildStandardModelRows(pickerProvider, pickerModelOptions),
+    [pickerModelOptions, pickerProvider, pickerProviderModels, props.model],
+  );
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleRows = useMemo(
+    () =>
+      normalizedQuery.length === 0
+        ? pickerRows
+        : pickerRows.filter((row) => row.searchText.includes(normalizedQuery)),
+    [normalizedQuery, pickerRows],
+  );
+  const favoriteModelSet = useMemo(() => new Set(prefs.favoriteModels), [prefs.favoriteModels]);
+  const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
+  const allPinnedProviderSet = useMemo(
+    () => new Set(prefs.pinnedProviders),
+    [prefs.pinnedProviders],
+  );
+
   const handleModelChange = (
     provider: ProviderKind,
     value: string,
     options: ReadonlyArray<{ slug: string; name: string }> = props.modelOptionsByProvider[provider],
     closeMenu = true,
+    providerInstanceId = props.provider === provider ? props.providerInstanceId : undefined,
   ) => {
     if (props.disabled) return;
     if (!value) return;
-    const resolvedModel = resolveSelectableModel(provider, value, options);
+    const resolvedModel =
+      provider === "cursor" ? value : resolveSelectableModel(provider, value, options);
     if (!resolvedModel) return;
-    props.onProviderModelChange(provider, resolvedModel);
+    if (providerInstanceId === undefined) {
+      props.onProviderModelChange(provider, resolvedModel);
+    } else {
+      props.onProviderModelChange(provider, resolvedModel, providerInstanceId);
+    }
     if (closeMenu) {
       setIsMenuOpen(false);
     }
   };
-
-  const handoffConfig = props.handoff;
-  const renderCursorModelMenu = (provider: "cursor") =>
-    cursorModels.length > 0 ? (
-      <CursorModelMenuContent
-        models={cursorModels}
-        selectedModel={
-          props.provider === provider ? props.model : provider === activeProvider ? props.model : ""
-        }
-        onModelChange={(value) => handleModelChange(provider, value)}
-      />
-    ) : (
-      <MenuGroup>
-        <MenuRadioGroup
-          value={props.provider === provider ? props.model : ""}
-          onValueChange={(value) => handleModelChange(provider, value)}
-        >
-          {props.modelOptionsByProvider[provider].map((modelOption) => (
-            <MenuRadioItem key={`${provider}:${modelOption.slug}`} value={modelOption.slug}>
-              {modelOption.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuGroup>
-    );
-  const renderStandardModelMenu = (provider: ProviderKind, value: string) => {
+  const handleProviderInstanceChange = (provider: ProviderKind, providerInstanceId: string) => {
     const options = props.modelOptionsByProvider[provider];
-    if (options.length === 0) {
-      return <MenuItem disabled>No models available.</MenuItem>;
+    const model = props.provider === provider ? props.model : options[0]?.slug;
+    if (!model) return;
+    const resolvedModel =
+      provider === "cursor" ? model : (resolveSelectableModel(provider, model, options) ?? model);
+    props.onProviderModelChange(provider, resolvedModel, providerInstanceId);
+  };
+  const togglePinnedProvider = (provider: ProviderKind) => {
+    setPrefs((previous) => ({
+      favoriteModels: dedupeStrings(previous.favoriteModels),
+      pinnedProviders: toggleString(dedupeStrings(previous.pinnedProviders), provider),
+    }));
+  };
+  const toggleFavoriteModel = (favoriteKey: string) => {
+    setPrefs((previous) => ({
+      favoriteModels: toggleString(dedupeStrings(previous.favoriteModels), favoriteKey),
+      pinnedProviders: dedupeStrings(previous.pinnedProviders),
+    }));
+  };
+
+  const renderAccountPicker = () => {
+    const instances = props.providerInstancesByProvider?.[pickerProvider]?.filter(
+      (instance) => instance.enabled,
+    );
+    if (!instances?.length) {
+      return null;
     }
-    if (GROUPED_PROVIDER_MODEL_PROVIDERS.has(provider)) {
-      return (
-        <GroupedProviderModelMenuContent
-          provider={provider}
-          options={options}
-          selectedModel={value}
-          onModelChange={(nextValue) => handleModelChange(provider, nextValue, options)}
-        />
-      );
-    }
+    const selectedInstance =
+      props.provider === pickerProvider ? (props.providerInstanceId ?? "default") : "default";
     return (
-      <MenuGroup>
-        <MenuRadioGroup
-          value={value}
-          onValueChange={(nextValue) => handleModelChange(provider, nextValue)}
+      <div className="border-b border-border/60 px-2.5 py-1.5">
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+          Account
+        </div>
+        <div className="flex min-w-0 flex-wrap gap-1">
+          {[{ id: "default", label: "Default" }, ...instances].map((instance) => {
+            const selected = selectedInstance === instance.id;
+            return (
+              <button
+                key={`${pickerProvider}:account:${instance.id}`}
+                type="button"
+                className={cn(
+                  "inline-flex h-6 max-w-full items-center gap-1 rounded-[var(--chip-radius)] border px-1.5 text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                  selected
+                    ? "border-primary/35 bg-primary/10 text-foreground"
+                    : "border-border/60 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                onClick={() => handleProviderInstanceChange(pickerProvider, instance.id)}
+              >
+                {selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
+                <span className="truncate">{instance.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderModelRow = (row: ModelPickerRow, section: "favorite" | "all") => {
+    const selected =
+      props.provider === pickerProvider && isRowSelected(pickerProvider, row, props.model);
+    const favorited = favoriteModelSet.has(row.favoriteKey);
+    return (
+      <div
+        key={`${section}:${row.favoriteKey}`}
+        className={cn(
+          "grid grid-cols-[1fr_auto] items-center gap-1 rounded-[var(--chip-radius)]",
+          selected ? "bg-accent/90 text-accent-foreground" : "hover:bg-accent/70",
+        )}
+      >
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked={selected}
+          className="grid min-h-7 min-w-0 grid-cols-[0.875rem_1fr] items-center gap-1.5 rounded-[var(--chip-radius)] px-1.5 py-0.5 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => handleModelChange(pickerProvider, row.selectionValue)}
         >
-          {options.map((modelOption) => (
-            <MenuRadioItem
-              key={`${provider}:${modelOption.slug}`}
-              value={modelOption.slug}
-              onClick={() => setIsMenuOpen(false)}
-            >
-              {modelOption.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuGroup>
+          <span className="flex size-3.5 items-center justify-center">
+            {selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate">{row.label}</span>
+            {row.groupLabel ? (
+              <span className="block truncate text-[10px] text-muted-foreground">
+                {row.groupLabel}
+              </span>
+            ) : null}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label={`${favorited ? "Remove favorite" : "Favorite"} ${row.label}`}
+          title={favorited ? "Remove favorite" : "Favorite model"}
+          className={cn(
+            "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+            favorited ? "text-warning-foreground" : undefined,
+          )}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleFavoriteModel(row.favoriteKey);
+          }}
+        >
+          <StarIcon
+            aria-hidden="true"
+            className={cn("size-3", favorited ? "fill-current" : undefined)}
+          />
+        </button>
+      </div>
     );
   };
 
@@ -408,6 +509,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         if (props.disabled) {
           setIsMenuOpen(false);
           return;
+        }
+        if (open) {
+          setFocusedProvider(activeProvider);
         }
         setIsMenuOpen(open);
       }}
@@ -420,7 +524,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             data-chat-provider-model-picker="true"
             className={cn(
               "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground transition-colors duration-150 hover:text-foreground [&_svg]:mx-0",
-              props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-2.5",
+              props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
               props.triggerClassName,
             )}
             disabled={props.disabled}
@@ -441,109 +545,157 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               props.activeProviderIconClassName,
             )}
           />
-          <span className="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
+          <span className="min-w-0 flex-1 truncate">
+            {selectedProviderInstanceLabel
+              ? `${selectedModelLabel} / ${selectedProviderInstanceLabel}`
+              : selectedModelLabel}
+          </span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
       <MenuPopup
         align="start"
+        className="w-[min(calc(100vw-1rem),30rem)]"
         listMaxHeight={MODEL_MENU_MAX_HEIGHT}
-        {...(props.lockedProvider !== null &&
-        GROUPED_PROVIDER_MODEL_PROVIDERS.has(props.lockedProvider)
-          ? { style: GROUPED_PROVIDER_MODEL_MENU_STABLE_HEIGHT_STYLE }
-          : {})}
       >
-        {props.lockedProvider !== null ? (
-          props.lockedProvider === "cursor" ? (
-            renderCursorModelMenu("cursor")
-          ) : (
-            renderStandardModelMenu(props.lockedProvider, props.model)
-          )
+        {props.lockedProvider === null && selectableProviderOptions.length === 0 ? (
+          <MenuItem disabled>No providers available.</MenuItem>
         ) : (
-          <>
-            {AVAILABLE_PROVIDER_OPTIONS.map((option) => {
-              const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-              const liveProvider = props.providers
-                ? getProviderSnapshot(props.providers, option.value)
-                : undefined;
-              const isUpgradeNeeded = liveProvider?.versionStatus === "upgrade-required";
-              if (liveProvider && liveProvider.status !== "ready" && !isUpgradeNeeded) {
-                const messageLower = liveProvider.message?.toLowerCase() ?? "";
-                const unavailableLabel = !liveProvider.enabled
-                  ? "Disabled"
-                  : messageLower.startsWith("checking ")
-                    ? "Checking"
-                    : !liveProvider.installed
-                      ? "Not installed"
-                      : "Unavailable";
-                return (
-                  <MenuItem key={option.value} disabled>
-                    <OptionIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-4 shrink-0 opacity-80",
-                        providerIconClassName(option.value, "text-muted-foreground"),
-                      )}
-                    />
-                    <span>{option.label}</span>
-                    <span className="ms-auto text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
-                      {unavailableLabel}
-                    </span>
-                  </MenuItem>
-                );
-              }
-              return (
-                <MenuSub key={option.value}>
-                  <MenuSubTrigger>
-                    <OptionIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-4 shrink-0",
-                        providerIconClassName(option.value, "text-muted-foreground"),
-                      )}
-                    />
-                    {option.label}
-                  </MenuSubTrigger>
-                  <MenuSubPopup
-                    listMaxHeight={MODEL_MENU_MAX_HEIGHT}
-                    sideOffset={4}
-                    {...(GROUPED_PROVIDER_MODEL_PROVIDERS.has(option.value)
-                      ? { style: GROUPED_PROVIDER_MODEL_MENU_STABLE_HEIGHT_STYLE }
-                      : {})}
-                  >
-                    {option.value === "cursor"
-                      ? renderCursorModelMenu("cursor")
-                      : renderStandardModelMenu(
-                          option.value,
-                          props.provider === option.value ? props.model : "",
+          <div
+            className={cn(
+              "grid min-h-52 w-full overflow-hidden",
+              props.lockedProvider === null ? "grid-cols-[2.75rem_minmax(0,1fr)]" : "grid-cols-1",
+            )}
+          >
+            {props.lockedProvider === null ? (
+              <div className="border-r border-border/60 bg-muted/20 p-1">
+                <div className="space-y-0.5">
+                  {selectableProviderOptions.map((option) => {
+                    const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
+                    const selected = pickerProvider === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-label={option.label}
+                        title={option.label}
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-[var(--chip-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                          selected
+                            ? "bg-accent text-accent-foreground"
+                            : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
                         )}
-                  </MenuSubPopup>
-                </MenuSub>
-              );
-            })}
-            {UNAVAILABLE_PROVIDER_OPTIONS.length > 0 && <MenuDivider />}
-            {UNAVAILABLE_PROVIDER_OPTIONS.map((option) => {
-              const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-              return (
-                <MenuItem key={option.value} disabled>
-                  <OptionIcon
+                        onClick={() => setFocusedProvider(option.value)}
+                      >
+                        <OptionIcon
+                          aria-hidden="true"
+                          className={cn(
+                            "size-4 shrink-0",
+                            providerIconClassName(option.value, "text-muted-foreground"),
+                          )}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex min-w-0 flex-col overflow-hidden">
+              <div className="border-b border-border/60 px-2.5 py-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <PickerProviderIcon
                     aria-hidden="true"
-                    className="size-4 shrink-0 text-muted-foreground opacity-80"
+                    className={cn(
+                      "size-3.5 shrink-0",
+                      providerIconClassName(pickerProvider, "text-muted-foreground"),
+                    )}
                   />
-                  <span>{option.label}</span>
-                  <span className="ms-auto text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
-                    Coming soon
-                  </span>
-                </MenuItem>
-              );
-            })}
-          </>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium">{pickerProviderOption.label}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {pickerRows.length} {pickerRows.length === 1 ? "model" : "models"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`${allPinnedProviderSet.has(pickerProvider) ? "Unpin" : "Pin"} ${pickerProviderOption.label}`}
+                    title={
+                      allPinnedProviderSet.has(pickerProvider) ? "Unpin provider" : "Pin provider"
+                    }
+                    className="inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => togglePinnedProvider(pickerProvider)}
+                  >
+                    <PinIcon
+                      aria-hidden="true"
+                      className={cn(
+                        "size-3",
+                        allPinnedProviderSet.has(pickerProvider)
+                          ? "fill-current text-foreground"
+                          : undefined,
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+              {renderAccountPicker()}
+              <div className="border-b border-border/60 px-2.5 py-1.5">
+                <div className="flex h-7 items-center gap-1.5 rounded-[var(--chip-radius)] border border-border/60 bg-background/50 px-2">
+                  <SearchIcon
+                    aria-hidden="true"
+                    className="size-3 shrink-0 text-muted-foreground"
+                  />
+                  <input
+                    type="search"
+                    role="searchbox"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape") {
+                        event.stopPropagation();
+                      }
+                    }}
+                    placeholder="Search models"
+                    className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
+                  />
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                {favoriteRows.length > 0 ? (
+                  <>
+                    <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                      Favorites
+                    </div>
+                    <div className="space-y-0.5">
+                      {favoriteRows.map((row) => renderModelRow(row, "favorite"))}
+                    </div>
+                    <MenuDivider />
+                  </>
+                ) : null}
+
+                <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                  Models
+                </div>
+                {visibleRows.length === 0 ? (
+                  <MenuItem disabled>
+                    {query.trim().length > 0
+                      ? "No models match your search."
+                      : "No models available."}
+                  </MenuItem>
+                ) : (
+                  <div className="space-y-0.5">
+                    {visibleRows.map((row) => renderModelRow(row, "all"))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </MenuPopup>
     </Menu>
   );
 
-  if (!handoffConfig) {
+  if (!props.handoff) {
     return modelMenu;
   }
 
@@ -552,13 +704,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       {modelMenu}
       <HandoffMenuButton
         {...(props.disabled ? { disabled: true } : {})}
-        entriesDisabled={handoffConfig.disabled}
-        providers={handoffConfig.providers}
+        entriesDisabled={props.handoff.disabled}
+        providers={props.handoff.providers}
         showLabel={false}
         triggerClassName={cn("shrink-0 rounded-md", props.compact ? "size-7 sm:size-8" : "size-8")}
         triggerVariant={props.triggerVariant ?? "ghost"}
         onSelect={(provider, mode) => {
-          handoffConfig.onSelect(provider, mode);
+          props.handoff?.onSelect(provider, mode);
         }}
       />
     </div>

@@ -7,6 +7,7 @@ import {
   ApprovalRequestId,
   EventId,
   ProviderItemId,
+  type ProviderInstanceId,
   ProviderRequestKind,
   type ProviderUserInputAnswers,
   ThreadId,
@@ -142,12 +143,14 @@ export interface CodexAppServerSteerTurnInput {
 export interface CodexAppServerStartSessionInput {
   readonly threadId: ThreadId;
   readonly provider?: "codex";
+  readonly providerInstanceId?: ProviderInstanceId;
   readonly cwd?: string;
   readonly model?: string;
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly launchEnv?: Readonly<Record<string, string>>;
   readonly runtimeMode: RuntimeMode;
 }
 
@@ -818,6 +821,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const session: ProviderSession = {
         provider: "codex",
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         status: "connecting",
         runtimeMode: input.runtimeMode,
         model: normalizeCodexModelSlug(input.model),
@@ -833,11 +837,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        ...(input.launchEnv ? { launchEnv: input.launchEnv } : {}),
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
         env: {
           ...process.env,
+          ...input.launchEnv,
           ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -2175,11 +2181,13 @@ function assertSupportedCodexCliVersion(input: {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly homePath?: string;
+  readonly launchEnv?: Readonly<Record<string, string>>;
 }): void {
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
     env: {
       ...process.env,
+      ...input.launchEnv,
       ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
     },
     encoding: "utf8",

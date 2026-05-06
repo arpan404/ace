@@ -41,6 +41,7 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
 import { type DeepPartial, deepMerge } from "@ace/shared/Struct";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { fromLenientJson } from "@ace/shared/schemaJson";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
@@ -110,7 +111,7 @@ const PROVIDER_ORDER: readonly ProviderKind[] = [
  */
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   const selection = settings.textGenerationModelSelection;
-  if (settings.providers[selection.provider].enabled) {
+  if (resolveProviderSettings(settings, selection.provider, selection.providerInstanceId).enabled) {
     return settings;
   }
 

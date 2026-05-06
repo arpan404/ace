@@ -72,6 +72,14 @@ export function deriveChatViewProviderSelectionState(
     settings: input.modelSettings,
   });
   const selectedProviderModels = getProviderModels(input.providers, selectedProvider);
+  const selectedProviderInstanceId =
+    input.draft?.modelSelectionByProvider?.[selectedProvider]?.providerInstanceId ??
+    (input.threadModelSelection?.provider === selectedProvider
+      ? input.threadModelSelection.providerInstanceId
+      : undefined) ??
+    (input.projectModelSelection?.provider === selectedProvider
+      ? input.projectModelSelection.providerInstanceId
+      : undefined);
   const composerProviderState = getComposerProviderState({
     provider: selectedProvider,
     model: selectedModel,
@@ -83,6 +91,7 @@ export function deriveChatViewProviderSelectionState(
     selectedProvider,
     selectedModel,
     composerProviderState.modelOptionsForDispatch,
+    selectedProviderInstanceId,
   );
   const modelOptionsByProvider = getCustomModelOptionsByProvider(
     input.modelSettings,
