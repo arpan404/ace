@@ -66,8 +66,7 @@ function formatProviderLabel(provider: ProviderKind): string {
 export function formatHandoffMarkerText(handoff: ThreadHandoff): string {
   const fromLabel = formatProviderLabel(handoff.fromProvider);
   const toLabel = formatProviderLabel(handoff.toProvider);
-  const modeLabel = handoff.mode === "compact" ? "compact summary" : "full transcript";
-  return `Handoff from ${fromLabel} to ${toLabel} — ${modeLabel} passed along.`;
+  return `Handoff from ${fromLabel} to ${toLabel}`;
 }
 
 export function buildHandoffMarkerMessage(handoff: ThreadHandoff): ChatMessage {

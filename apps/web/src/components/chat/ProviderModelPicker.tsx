@@ -9,20 +9,10 @@ import { resolveSelectableModel } from "@ace/shared/model";
 import * as Schema from "effect/Schema";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
+import { PROVIDER_OPTIONS } from "../../session-logic";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuSeparator as MenuDivider, MenuTrigger } from "../ui/menu";
-import {
-  ClaudeAI,
-  CursorIcon,
-  Gemini,
-  GitHubIcon,
-  Icon,
-  OpenAI,
-  OpenCodeIcon,
-  PiIcon,
-} from "../Icons";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -33,6 +23,7 @@ import {
 } from "../../cursorModelSelector";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { HandoffMenuButton } from "./HandoffMenu";
+import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";
 import { ProviderInstanceBadge } from "../../providerInstanceBadges";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
@@ -42,16 +33,6 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
 } {
   return option.available;
 }
-
-const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
-  codex: OpenAI,
-  claudeAgent: ClaudeAI,
-  githubCopilot: GitHubIcon,
-  cursor: CursorIcon,
-  pi: PiIcon,
-  gemini: Gemini,
-  opencode: OpenCodeIcon,
-};
 
 export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
 const MODEL_MENU_MAX_HEIGHT = "18rem";
@@ -98,19 +79,6 @@ function isSelectableLiveProvider(provider: ServerProvider | undefined): boolean
     return false;
   }
   return provider.status === "ready" || provider.versionStatus === "upgrade-required";
-}
-
-function providerIconClassName(
-  provider: ProviderKind | ProviderPickerKind,
-  fallbackClassName: string,
-): string {
-  if (provider === "claudeAgent") {
-    return "text-warning-foreground";
-  }
-  if (provider === "githubCopilot") {
-    return "text-foreground";
-  }
-  return fallbackClassName;
 }
 
 function toProviderBackedModelGroupLabel(providerId: string): string {
@@ -592,6 +560,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   );
   const favoriteModelSet = useMemo(() => new Set(prefs.favoriteModels), [prefs.favoriteModels]);
   const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
+  const modelRows = visibleRows.filter((row) => !favoriteModelSet.has(row.favoriteKey));
   const pickerProviderEntryPinned = isProviderEntryPinned(
     prefs.pinnedProviders,
     pickerProviderEntry,
@@ -716,7 +685,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             variant={props.triggerVariant ?? "ghost"}
             data-chat-provider-model-picker="true"
             className={cn(
-              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground transition-colors duration-150 hover:text-foreground [&_svg]:mx-0",
+              "min-w-0 justify-start overflow-hidden rounded-[var(--control-radius)] whitespace-nowrap px-2 text-muted-foreground transition-colors duration-150 hover:text-foreground [&_svg]:mx-0",
               props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
               props.triggerClassName,
             )}
@@ -753,7 +722,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       </MenuTrigger>
       <MenuPopup
         align="start"
-        className="w-[min(calc(100vw-1rem),30rem)]"
+        className="w-[min(calc(100vw-1rem),22rem)]"
         listClassName="overflow-hidden"
         listHeight={MODEL_MENU_MAX_HEIGHT}
         listMaxHeight={MODEL_MENU_MAX_HEIGHT}
@@ -785,7 +754,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                         aria-label={entry.label}
                         title={entry.label}
                         className={cn(
-                          "relative flex size-8 items-center justify-center rounded-[var(--chip-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                          "relative flex size-8 items-center justify-center rounded-[var(--control-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                           selected
                             ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
@@ -841,7 +810,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     type="button"
                     aria-label={`${pickerProviderEntryPinned ? "Unpin" : "Pin"} ${pickerProviderEntry.label}`}
                     title={pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
-                    className="inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    className="inline-flex size-6 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => togglePinnedProvider(pickerProviderEntryKey)}
                   >
                     <PinIcon
@@ -855,7 +824,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 </div>
               </div>
               <div className="border-b border-border/60 px-2.5 py-1.5">
-                <div className="flex h-7 items-center gap-1.5 rounded-[var(--chip-radius)] border border-border/60 bg-background/50 px-2">
+                <div className="flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/60 bg-background/50 px-2">
                   <SearchIcon
                     aria-hidden="true"
                     className="size-3 shrink-0 text-muted-foreground"
@@ -887,22 +856,25 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     <div className="space-y-0.5">
                       {favoriteRows.map((row) => renderModelRow(row, "favorite"))}
                     </div>
-                    <MenuDivider />
+                    <div
+                      aria-hidden="true"
+                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
+                    />
                   </>
                 ) : null}
 
                 <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
                   Models
                 </div>
-                {visibleRows.length === 0 ? (
-                  <MenuItem disabled>
+                {modelRows.length === 0 ? (
+                  <div className="px-1.5 py-1 text-xs text-muted-foreground/75">
                     {query.trim().length > 0
                       ? "No models match your search."
                       : "No models available."}
-                  </MenuItem>
+                  </div>
                 ) : (
                   <div className="space-y-0.5">
-                    {visibleRows.map((row) => renderModelRow(row, "all"))}
+                    {modelRows.map((row) => renderModelRow(row, "all"))}
                   </div>
                 )}
               </div>
@@ -913,7 +885,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     </Menu>
   );
 
-  if (!props.handoff) {
+  if (!props.handoff || props.handoff.disabled || props.handoff.providers.length === 0) {
     return modelMenu;
   }
 
@@ -925,7 +897,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         entriesDisabled={props.handoff.disabled}
         providers={props.handoff.providers}
         showLabel={false}
-        triggerClassName={cn("shrink-0 rounded-md", props.compact ? "size-7 sm:size-8" : "size-8")}
+        triggerClassName={cn(
+          "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-muted/70 hover:text-foreground/80 aria-expanded:bg-muted/70 aria-expanded:text-foreground/80",
+          props.compact ? "size-7" : "size-8",
+        )}
         triggerVariant={props.triggerVariant ?? "ghost"}
         onSelect={(provider, mode) => {
           props.handoff?.onSelect(provider, mode);

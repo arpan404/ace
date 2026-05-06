@@ -1,17 +1,11 @@
 import { PROVIDER_DISPLAY_NAMES, type ProviderKind, type ThreadHandoffMode } from "@ace/contracts";
-import { IconTransfer } from "@tabler/icons-react";
+import { ArrowRightLeftIcon } from "lucide-react";
 import { memo } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { Button, buttonVariants } from "../ui/button";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { cn } from "~/lib/utils";
+import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";
 
 function formatProviderLabel(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
@@ -37,17 +31,22 @@ export const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
       {props.omitLeadingLabel ? null : (
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Handoff to</div>
       )}
-      {props.providers.map((provider) => (
-        <MenuSub key={provider}>
-          <MenuSubTrigger>{formatProviderLabel(provider)}</MenuSubTrigger>
-          <MenuSubPopup>
-            <MenuItem onClick={() => props.onSelect(provider, "transcript")}>
-              Full transcript
-            </MenuItem>
-            <MenuItem onClick={() => props.onSelect(provider, "compact")}>Compact summary</MenuItem>
-          </MenuSubPopup>
-        </MenuSub>
-      ))}
+      {props.providers.map((provider) => {
+        const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[provider];
+        return (
+          <MenuItem
+            key={provider}
+            className="min-h-7 gap-2 px-2 text-sm text-foreground/90 data-highlighted:bg-muted/80"
+            onClick={() => props.onSelect(provider, "best")}
+          >
+            <ProviderIcon
+              aria-hidden="true"
+              className={cn("size-4", providerIconClassName(provider, "text-muted-foreground"))}
+            />
+            <span>{formatProviderLabel(provider)}</span>
+          </MenuItem>
+        );
+      })}
     </>
   );
 });
@@ -80,18 +79,22 @@ export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
             className={
               props.triggerClassName ??
               (showLabel
-                ? "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70"
-                : "shrink-0 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70")
+                ? "shrink-0 whitespace-nowrap rounded-[var(--control-radius)] px-2 text-muted-foreground/70 transition-colors duration-150 hover:bg-muted/70 hover:text-foreground/80 aria-expanded:bg-muted/70 aria-expanded:text-foreground/80"
+                : "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-muted/70 hover:text-foreground/80 aria-expanded:bg-muted/70 aria-expanded:text-foreground/80")
             }
             disabled={props.disabled}
             aria-label="Handoff to another provider"
           />
         }
       >
-        <IconTransfer className="size-4" />
+        <ArrowRightLeftIcon className="size-3.5" />
         {showLabel ? <span className="sr-only sm:not-sr-only">Handoff</span> : null}
       </MenuTrigger>
-      <MenuPopup align="start">
+      <MenuPopup
+        align="start"
+        className="min-w-40 border-border/70 bg-popover/95"
+        listClassName="p-1"
+      >
         <HandoffMenuEntries
           providers={props.providers}
           disabled={entriesDisabled}

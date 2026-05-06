@@ -65,33 +65,25 @@ describe("providerReplayTurns", () => {
     ]);
   });
 
-  it("prepends explicit handoff guidance for transcript mode", () => {
-    const handoffReplay = sourceMessagesToHandoffReplayTurns(sourceMessages, "transcript");
-    expect(handoffReplay).toHaveLength(3);
+  it("prepends explicit guidance and creates a best handoff packet", () => {
+    const handoffReplay = sourceMessagesToHandoffReplayTurns(sourceMessages, "best");
+    expect(handoffReplay).toHaveLength(4);
     expect(handoffReplay[0]?.attachmentNames).toEqual([]);
     expect(handoffReplay[0]?.prompt).toContain("historical interaction between USER and ASSISTANT");
-    expect(handoffReplay[0]?.prompt).toContain("Tool availability can differ across providers");
-    expect(handoffReplay[0]?.prompt).toContain("full transcript replay");
-    expect(handoffReplay.slice(1)).toEqual(sourceMessagesToReplayTurns(sourceMessages));
-  });
+    expect(handoffReplay[0]?.prompt).toContain("adapt to tools available in this session");
+    expect(handoffReplay[0]?.prompt).toContain("structured handoff brief");
+    expect(handoffReplay.slice(1, 3)).toEqual(sourceMessagesToReplayTurns(sourceMessages));
 
-  it("returns compact handoff replay with a summary assistant message", () => {
-    const handoffReplay = sourceMessagesToHandoffReplayTurns(sourceMessages, "compact");
-    expect(handoffReplay).toHaveLength(2);
-    expect(handoffReplay[0]?.prompt).toContain("historical interaction between USER and ASSISTANT");
-    expect(handoffReplay[0]?.prompt).toContain("compact interaction summary");
-
-    const compactSummaryTurn = handoffReplay[1];
-    expect(compactSummaryTurn?.prompt).toContain(
-      "Please provide a concise summary of the prior USER and ASSISTANT interaction",
-    );
-    expect(compactSummaryTurn?.assistantResponse).toContain("Prior interaction summary:");
-    expect(compactSummaryTurn?.assistantResponse).toContain("Turn 1 of 2");
-    expect(compactSummaryTurn?.assistantResponse).toContain("User:");
-    expect(compactSummaryTurn?.assistantResponse).toContain("Assistant:");
+    const handoffBriefTurn = handoffReplay[3];
+    expect(handoffBriefTurn?.prompt).toContain("best handoff brief");
+    expect(handoffBriefTurn?.assistantResponse).toContain("Best handoff brief");
+    expect(handoffBriefTurn?.assistantResponse).toContain("Most recent user intent:");
+    expect(handoffBriefTurn?.assistantResponse).toContain("Most recent assistant state:");
+    expect(handoffBriefTurn?.assistantResponse).toContain("Chronological digest:");
   });
 
   it("returns an empty replay for empty handoff history", () => {
+    expect(sourceMessagesToHandoffReplayTurns([], "best")).toEqual([]);
     expect(sourceMessagesToHandoffReplayTurns([], "transcript")).toEqual([]);
     expect(sourceMessagesToHandoffReplayTurns([], "compact")).toEqual([]);
   });
