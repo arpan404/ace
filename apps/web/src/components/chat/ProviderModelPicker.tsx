@@ -12,7 +12,7 @@ import type { VariantProps } from "class-variance-authority";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuSeparator as MenuDivider, MenuTrigger } from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -856,7 +856,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     <div className="space-y-0.5">
                       {favoriteRows.map((row) => renderModelRow(row, "favorite"))}
                     </div>
-                    <MenuDivider />
+                    <div
+                      aria-hidden="true"
+                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
+                    />
                   </>
                 ) : null}
 
@@ -864,11 +867,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   Models
                 </div>
                 {modelRows.length === 0 ? (
-                  <MenuItem disabled>
+                  <div className="px-1.5 py-1 text-xs text-muted-foreground/75">
                     {query.trim().length > 0
                       ? "No models match your search."
                       : "No models available."}
-                  </MenuItem>
+                  </div>
                 ) : (
                   <div className="space-y-0.5">
                     {modelRows.map((row) => renderModelRow(row, "all"))}
