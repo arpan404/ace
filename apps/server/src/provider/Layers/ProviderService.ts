@@ -54,6 +54,7 @@ import { ProjectionThreadMessageRepository } from "../../persistence/Services/Pr
 import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
 import { resolveProviderIntegrationCapabilities } from "../providerCapabilities.ts";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -159,6 +160,7 @@ function toRuntimePayloadFromSession(
   return {
     cwd: session.cwd ?? null,
     model: session.model ?? null,
+    providerInstanceId: session.providerInstanceId ?? null,
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
@@ -764,6 +766,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ...parsed,
         threadId,
         provider: parsed.provider ?? parsed.modelSelection?.provider ?? "codex",
+        providerInstanceId: parsed.providerInstanceId ?? parsed.modelSelection?.providerInstanceId,
       };
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.mapError((error) =>
@@ -774,10 +777,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ),
         ),
       );
-      if (!settings.providers[input.provider].enabled) {
+      if (!resolveProviderSettings(settings, input.provider, input.providerInstanceId).enabled) {
         return yield* toValidationError(
           "ProviderService.startSession",
-          `Provider '${input.provider}' is disabled in ace settings.`,
+          `Provider '${input.provider}' instance '${input.providerInstanceId ?? "default"}' is disabled in ace settings.`,
         );
       }
       const adapter = yield* registry.getByProvider(input.provider);
@@ -854,6 +857,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
       runtimePayload: {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerInstanceId !== undefined
+          ? { providerInstanceId: input.providerInstanceId }
+          : {}),
         activeTurnId: turn.turnId,
         lastRuntimeEvent: "provider.sendTurn",
         lastRuntimeEventAt: new Date().toISOString(),
@@ -998,6 +1004,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
       runtimePayload: {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerInstanceId !== undefined
+          ? { providerInstanceId: input.providerInstanceId }
+          : {}),
         activeTurnId: turn.turnId,
         lastRuntimeEvent: "provider.steerTurn",
         lastRuntimeEventAt: new Date().toISOString(),

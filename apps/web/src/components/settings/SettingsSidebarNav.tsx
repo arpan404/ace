@@ -34,7 +34,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               </SidebarGroupLabel>
               <SidebarMenu className="gap-0.5">
                 {items.map((item) => {
-                  const Icon = item.icon;
                   const isActive = pathname === item.to;
                   return (
                     <SidebarMenuItem key={item.to}>
@@ -51,14 +50,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         )}
                         onClick={() => void navigate({ to: item.to, replace: true })}
                       >
-                        <Icon
-                          className={cn(
-                            "size-3.5 shrink-0 transition-colors duration-150",
-                            isActive
-                              ? "text-sidebar-accent-foreground"
-                              : "text-sidebar-foreground/45",
-                          )}
-                        />
                         <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

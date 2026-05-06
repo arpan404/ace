@@ -21,11 +21,7 @@ import {
   type UiLetterSpacing,
   type UiMonoFontFamily,
 } from "@ace/contracts/settings";
-import {
-  buildProviderModelSelection,
-  formatProviderModelDisplayName,
-  normalizeModelSlug,
-} from "@ace/shared/model";
+import { buildProviderModelSelection, formatProviderModelDisplayName } from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
@@ -53,7 +49,6 @@ import {
   useDesktopCliInstallState,
 } from "../../lib/desktopCliInstallReactQuery";
 import {
-  MAX_CUSTOM_MODEL_LENGTH,
   getCustomModelOptionsByProvider,
   resolveAppModelSelectionState,
 } from "../../modelSelection";
@@ -786,42 +781,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       isElectron ? "default" : readAgentAttentionNotificationPermission(),
     );
   const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
-  const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
-    codex: Boolean(
-      settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
-      settings.providers.codex.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
-      settings.providers.codex.customModels.length > 0,
-    ),
-    claudeAgent: Boolean(
-      settings.providers.claudeAgent.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.claudeAgent.binaryPath ||
-      settings.providers.claudeAgent.customModels.length > 0,
-    ),
-    githubCopilot: Boolean(
-      settings.providers.githubCopilot.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.githubCopilot.binaryPath ||
-      settings.providers.githubCopilot.customModels.length > 0,
-    ),
-    cursor: Boolean(
-      settings.providers.cursor.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.cursor.binaryPath ||
-      settings.providers.cursor.customModels.length > 0,
-    ),
-    pi: Boolean(
-      settings.providers.pi.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.pi.binaryPath ||
-      settings.providers.pi.customModels.length > 0,
-    ),
-    gemini: Boolean(
-      settings.providers.gemini.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.gemini.binaryPath ||
-      settings.providers.gemini.customModels.length > 0,
-    ),
-    opencode: Boolean(
-      settings.providers.opencode.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.opencode.binaryPath ||
-      settings.providers.opencode.customModels.length > 0,
-    ),
-  });
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -1187,8 +1146,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 
   const serverProviders = useServerProviders();
-  const codexHomePath = settings.providers.codex.homePath;
-
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
   const textGenModel = textGenerationModelSelection.model;
@@ -1204,103 +1161,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
 
-  const addCustomModel = useCallback(
-    (provider: ProviderKind) => {
-      const customModelInput = customModelInputByProvider[provider];
-      const customModels = settings.providers[provider].customModels;
-      const normalized = normalizeModelSlug(customModelInput, provider);
-      if (!normalized) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: "Enter a model slug.",
-        }));
-        return;
-      }
-      if (
-        serverProviders
-          .find((candidate) => candidate.provider === provider)
-          ?.models.some((option) => !option.isCustom && option.slug === normalized)
-      ) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: "That model is already built in.",
-        }));
-        return;
-      }
-      if (normalized.length > MAX_CUSTOM_MODEL_LENGTH) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: `Model slugs must be ${MAX_CUSTOM_MODEL_LENGTH} characters or less.`,
-        }));
-        return;
-      }
-      if (customModels.includes(normalized)) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: "That custom model is already saved.",
-        }));
-        return;
-      }
-
-      updateSettings({
-        providers: {
-          ...settings.providers,
-          [provider]: {
-            ...settings.providers[provider],
-            customModels: [...customModels, normalized],
-          },
-        },
-      });
-      setCustomModelInputByProvider((existing) => ({
-        ...existing,
-        [provider]: "",
-      }));
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: null,
-      }));
-
-      const el = modelListRefs.current[provider];
-      if (!el) return;
-      const scrollToEnd = () => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      requestAnimationFrame(scrollToEnd);
-      const observer = new MutationObserver(() => {
-        scrollToEnd();
-        observer.disconnect();
-      });
-      observer.observe(el, { childList: true, subtree: true });
-      setTimeout(() => observer.disconnect(), 2_000);
-    },
-    [customModelInputByProvider, serverProviders, settings, updateSettings],
-  );
-
-  const removeCustomModel = useCallback(
-    (provider: ProviderKind, slug: string) => {
-      updateSettings({
-        providers: {
-          ...settings.providers,
-          [provider]: {
-            ...settings.providers[provider],
-            customModels: settings.providers[provider].customModels.filter(
-              (model) => model !== slug,
-            ),
-          },
-        },
-      });
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: null,
-      }));
-    },
-    [settings, updateSettings],
-  );
-
   const providerCards: ProviderCard[] = PROVIDER_SETTINGS.map((providerSettings) => {
-    const liveProvider = serverProviders.find(
+    const liveProviderSnapshots = serverProviders.filter(
       (candidate) => candidate.provider === providerSettings.provider,
     );
+    const liveProvider =
+      liveProviderSnapshots.find((candidate) => candidate.isDefaultProviderInstance === true) ??
+      liveProviderSnapshots.find((candidate) => !candidate.providerInstanceId) ??
+      liveProviderSnapshots[0];
     const providerConfig = settings.providers[providerSettings.provider];
-    const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
     const selectedModels = providerConfig.customModels.map((slug) => ({
@@ -1322,16 +1191,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       homePathKey: providerSettings.homePathKey,
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,
-      binaryPathValue: providerConfig.binaryPath,
-      cliUrlValue:
-        providerSettings.provider === "githubCopilot"
-          ? settings.providers.githubCopilot.cliUrl
-          : undefined,
       cliUrlPlaceholder: providerSettings.cliUrlPlaceholder,
       cliUrlDescription: providerSettings.cliUrlDescription,
-      isDirty: !Equal.equals(providerConfig, defaultProviderConfig),
       models,
-      providerConfig,
+      providerSnapshots: liveProviderSnapshots,
       runtimes: liveProvider?.runtimes,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
@@ -2824,18 +2687,34 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 <ProviderModelPicker
                   provider={textGenProvider}
+                  providerInstanceId={textGenerationModelSelection.providerInstanceId}
                   model={textGenModel}
                   lockedProvider={null}
                   providers={serverProviders}
                   modelOptionsByProvider={gitModelOptionsByProvider}
+                  providerInstancesByProvider={{
+                    codex: settings.providers.codex.instances,
+                    claudeAgent: settings.providers.claudeAgent.instances,
+                    githubCopilot: settings.providers.githubCopilot.instances,
+                    cursor: settings.providers.cursor.instances,
+                    pi: settings.providers.pi.instances,
+                    gemini: settings.providers.gemini.instances,
+                    opencode: settings.providers.opencode.instances,
+                  }}
                   triggerVariant="outline"
                   triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                  onProviderModelChange={(provider, model) => {
+                  onProviderModelChange={(provider, model, providerInstanceId) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
                         {
                           ...settings,
-                          textGenerationModelSelection: { provider, model },
+                          textGenerationModelSelection: {
+                            provider,
+                            ...(providerInstanceId && providerInstanceId !== "default"
+                              ? { providerInstanceId }
+                              : {}),
+                            model,
+                          },
                         },
                         serverProviders,
                       ),
@@ -2864,6 +2743,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             textGenProvider,
                             textGenModel,
                             nextOptions,
+                            textGenerationModelSelection.providerInstanceId,
                           ),
                         },
                         serverProviders,
@@ -3001,8 +2881,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           </SettingsSection>
 
           <ProviderSettingsSection
-            addCustomModel={addCustomModel}
-            codexHomePath={codexHomePath}
             customModelErrorByProvider={customModelErrorByProvider}
             customModelInputByProvider={customModelInputByProvider}
             isRefreshingProviders={isRefreshingProviders}
@@ -3010,13 +2888,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             isUpgradingRuntime={isUpgradingRuntime}
             lastCheckedAt={lastCheckedAt}
             modelListRefs={modelListRefs}
-            openProviderDetails={openProviderDetails}
             providerCards={providerCards}
             refreshProviders={refreshProviders}
-            removeCustomModel={removeCustomModel}
             setCustomModelErrorByProvider={setCustomModelErrorByProvider}
             setCustomModelInputByProvider={setCustomModelInputByProvider}
-            setOpenProviderDetails={setOpenProviderDetails}
             settings={settings}
             textGenProvider={textGenProvider}
             upgradeProviderCli={upgradeProviderCli}

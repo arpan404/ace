@@ -1853,6 +1853,14 @@ export function BrowserTabWebview(props: {
     [clearAgentPointerActionTimer],
   );
 
+  const clearAgentPointer = useCallback(() => {
+    agentPointerTokenRef.current += 1;
+    clearAgentPointerActionTimer();
+    cancelAgentPointerAnimation();
+    agentPointerPositionRef.current = null;
+    setAgentPointer(null);
+  }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
+
   const animateAgentPointerTo = useCallback(
     (
       effect: BrowserAgentPointerEffect,
@@ -2019,11 +2027,12 @@ export function BrowserTabWebview(props: {
           viewportWidth,
         });
       },
+      clearAgentPointer,
       closeDevTools: () => {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
       },
-      executeJavaScript: async <T = unknown>(code: string): Promise<T> => {
+      executeJavaScript: async <T = unknown,>(code: string): Promise<T> => {
         const webview = webviewRef.current;
         if (!readyRef.current || !webview?.executeJavaScript) {
           throw new Error("The browser tab cannot execute JavaScript yet.");
@@ -2113,14 +2122,16 @@ export function BrowserTabWebview(props: {
     return () => {
       onHandleChange(tab.id, null);
     };
-  }, [animateAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
+  }, [animateAgentPointer, clearAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      agentPointerTokenRef.current += 1;
       clearAgentPointerActionTimer();
       cancelAgentPointerAnimation();
+      agentPointerPositionRef.current = null;
     };
   }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
 

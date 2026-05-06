@@ -6,9 +6,10 @@
 import type { ModelSelection } from "@ace/contracts";
 import { TextGenerationError } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { Effect, Layer, Option, Schema } from "effect";
 
-import { startOpenCodeServer } from "../../provider/opencodeRuntime.ts";
+import { startOpenCodeServerIsolated } from "../../provider/opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
   extractTextPartsFromPromptResponse,
@@ -75,11 +76,21 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
           }),
       ),
     );
-    const binaryPath = settings.providers.opencode.binaryPath;
+    const openCodeSettings = resolveProviderSettings(
+      settings,
+      "opencode",
+      modelSelection.providerInstanceId,
+    );
+    const binaryPath = openCodeSettings.binaryPath;
 
     const rawPayload = yield* Effect.tryPromise({
       try: async () => {
-        const server = await startOpenCodeServer(binaryPath);
+        const server = await startOpenCodeServerIsolated(binaryPath, {
+          ...openCodeSettings.launchEnv,
+          ...(openCodeSettings.configDir
+            ? { OPENCODE_CONFIG_DIR: openCodeSettings.configDir }
+            : {}),
+        });
         try {
           const client = createOpenCodeSdkClient({
             baseUrl: server.url,
