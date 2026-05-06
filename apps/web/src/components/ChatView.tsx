@@ -34,8 +34,10 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  Profiler,
   Suspense,
   lazy,
+  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -153,7 +155,11 @@ import {
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError } from "~/lib/async";
-import { measureRenderWork } from "~/lib/renderProfiling";
+import {
+  isRenderProfilingEnabled,
+  measureRenderWork,
+  recordReactRenderProfile,
+} from "~/lib/renderProfiling";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import { useSetting } from "../hooks/useSettings";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
@@ -264,6 +270,13 @@ import {
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
+import {
+  clearBrowserSessions,
+  deleteBrowserSession,
+  getBrowserSession,
+  setBrowserSession,
+  useBrowserSession,
+} from "~/lib/browser/sessionStore";
 import {
   buildHandoffTimeline,
   type HandoffLineageResult,
@@ -552,6 +565,38 @@ interface ChatViewProps {
 }
 
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
+
+type BrowserPanelInstance = {
+  key: ThreadId;
+  inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
+};
+
+const RetainedBrowserInstances = memo(function RetainedBrowserInstances({
+  instances,
+}: {
+  instances: readonly BrowserPanelInstance[];
+}) {
+  const content = (
+    <>
+      {instances.map((instance) => (
+        <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
+      ))}
+    </>
+  );
+
+  return isRenderProfilingEnabled() ? (
+    <Profiler
+      id="retained-browser-instances"
+      onRender={(_id, phase, actualDuration) => {
+        recordReactRenderProfile("retained-browser-instances", phase, actualDuration);
+      }}
+    >
+      {content}
+    </Profiler>
+  ) : (
+    content
+  );
+});
 
 function handoffLineageResultsEqual(
   left: HandoffLineageResult | null,
@@ -2351,9 +2396,6 @@ export default function ChatView({
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
   const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
-  const [browserSessionByThreadId, setBrowserSessionByThreadId] = useState<
-    Record<string, BrowserSessionStorage>
-  >({});
   const browserControllerChangeHandlerByThreadRef = useRef(
     new Map<ThreadId, (controller: InAppBrowserController | null) => void>(),
   );
@@ -2415,6 +2457,7 @@ export default function ChatView({
       browserRuntimeStateByThreadRef.current.delete(browserThreadId);
       browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
+      deleteBrowserSession(browserThreadId);
       if (activeBrowserThreadIdRef.current !== browserThreadId) {
         return;
       }
@@ -2431,6 +2474,7 @@ export default function ChatView({
     browserRuntimeStateByThreadRef.current.clear();
     browserControllerChangeHandlerByThreadRef.current.clear();
     browserRuntimeStateChangeHandlerByThreadRef.current.clear();
+    clearBrowserSessions();
     activeBrowserThreadIdRef.current = null;
     browserControllerRef.current = null;
     pendingBrowserOpenUrlRef.current = null;
@@ -2615,7 +2659,7 @@ export default function ChatView({
     };
   }, [activeThreadId, rightSidePanelInteractive]);
   useEffect(() => {
-    if (!rightSidePanelInteractive || !isElectron || !activeThreadId) {
+    if (!rightSidePanelInteractive || !isElectron) {
       return;
     }
 
@@ -2623,12 +2667,12 @@ export default function ChatView({
       if (snapshot === null || !isMemoryPressureAtLeast("high", snapshot)) {
         return;
       }
-      setMountedBrowserInstances((current) => {
-        const activeEntry = current.find((entry) => entry.instanceId === activeThreadId);
-        return activeEntry ? [activeEntry] : current.slice(0, 1);
-      });
+      const protectedThreadId = browserOpen ? activeThreadId : null;
+      setMountedBrowserInstances((current) =>
+        protectedThreadId ? current.filter((entry) => entry.instanceId === protectedThreadId) : [],
+      );
     });
-  }, [activeThreadId, rightSidePanelInteractive]);
+  }, [activeThreadId, browserOpen, rightSidePanelInteractive]);
   useEffect(() => {
     const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
       (entry) => entry.instanceId,
@@ -3669,17 +3713,17 @@ export default function ChatView({
   const onSelectRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
       openBrowser();
-      const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      const session = getBrowserSession(activeThreadId);
       const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
       if (index >= 0) {
         browserControllerRef.current?.setActiveTabByIndex(index);
       }
     },
-    [activeThreadId, browserSessionByThreadId, openBrowser],
+    [activeThreadId, openBrowser],
   );
   const onCloseRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
-      const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      const session = getBrowserSession(activeThreadId);
       if (session?.tabs.length === 1) {
         closeBrowser();
         if (rightSidePanelMode === "browser") {
@@ -3692,13 +3736,7 @@ export default function ChatView({
         setRightSidePanelMode("summary");
       }
     },
-    [
-      activeThreadId,
-      browserSessionByThreadId,
-      closeBrowser,
-      rightSidePanelMode,
-      setRightSidePanelMode,
-    ],
+    [activeThreadId, closeBrowser, rightSidePanelMode, setRightSidePanelMode],
   );
   const onReorderRightSidePanelBrowserTab = useCallback(
     (draggedTabId: string, targetTabId: string) => {
@@ -3734,14 +3772,7 @@ export default function ChatView({
   }, [setRightSidePanelFullscreen]);
   const onBrowserSessionChange = useCallback(
     (browserThreadId: ThreadId, session: BrowserSessionStorage) => {
-      setBrowserSessionByThreadId((current) =>
-        current[browserThreadId] === session
-          ? current
-          : {
-              ...current,
-              [browserThreadId]: session,
-            },
-      );
+      setBrowserSession(browserThreadId, session);
     },
     [],
   );
@@ -7281,8 +7312,7 @@ export default function ChatView({
     : null;
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
-  const activeRightPanelBrowserSession =
-    browserOpen && activeThreadId ? (browserSessionByThreadId[activeThreadId] ?? null) : null;
+  const activeRightPanelBrowserSession = useBrowserSession(browserOpen ? activeThreadId : null);
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
   const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
   const showDockedRightSidePanelChrome =
@@ -7839,9 +7869,7 @@ export default function ChatView({
                           : "pointer-events-none invisible z-0",
                       )}
                     >
-                      {browserPanel.instances.map((instance) => (
-                        <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
-                      ))}
+                      <RetainedBrowserInstances instances={browserPanel.instances} />
                     </div>
                   ) : null}
                 </div>

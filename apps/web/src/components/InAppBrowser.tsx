@@ -15,6 +15,7 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  Profiler,
   memo,
   useCallback,
   useEffect,
@@ -52,6 +53,7 @@ import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
 import { isBrowserInternalTabUrl } from "~/lib/browser/session";
 import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
+import { isRenderProfilingEnabled, recordReactRenderProfile } from "~/lib/renderProfiling";
 import { toastManager } from "./ui/toast";
 
 export type {
@@ -147,17 +149,52 @@ const BROWSER_SHELL_TRANSITION = {
 export function resolveMountedBrowserTabs(input: {
   activeTabId: string | null | undefined;
   lastActiveTabId: string | null | undefined;
+  retainLastActiveTab: boolean;
   tabs: BrowserSessionStorage["tabs"];
 }): BrowserSessionStorage["tabs"] {
   const mountedTabIds = new Set(
-    [input.activeTabId ?? null, input.lastActiveTabId ?? null].filter(
-      (tabId): tabId is string => typeof tabId === "string" && tabId.length > 0,
-    ),
+    [
+      input.activeTabId ?? null,
+      input.retainLastActiveTab ? (input.lastActiveTabId ?? null) : null,
+    ].filter((tabId): tabId is string => typeof tabId === "string" && tabId.length > 0),
   );
   if (mountedTabIds.size === 0) {
     return [];
   }
   return input.tabs.filter((tab) => mountedTabIds.has(tab.id) && !isBrowserInternalTabUrl(tab.url));
+}
+
+export function shouldPublishBrowserSessionChange(input: {
+  previous: BrowserSessionStorage | null;
+  next: BrowserSessionStorage;
+  visible: boolean;
+}): boolean {
+  if (input.previous === input.next) {
+    return false;
+  }
+  if (input.previous === null || input.visible) {
+    return true;
+  }
+  if (input.previous.activeTabId !== input.next.activeTabId) {
+    return true;
+  }
+  if (input.previous.tabs.length !== input.next.tabs.length) {
+    return true;
+  }
+  for (let index = 0; index < input.next.tabs.length; index += 1) {
+    const previousTab = input.previous.tabs[index];
+    const nextTab = input.next.tabs[index];
+    if (
+      !previousTab ||
+      !nextTab ||
+      previousTab.id !== nextTab.id ||
+      previousTab.url !== nextTab.url ||
+      previousTab.title !== nextTab.title
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
@@ -252,9 +289,55 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(onControllerChange ? { onControllerChange } : {}),
     ...(onResizeViewport ? { onResizeViewport } : {}),
   });
+  const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
+  const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
+  const browserSessionPublishFrameRef = useRef<number | null>(null);
+  const lastPublishedBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
+
   useEffect(() => {
-    onBrowserSessionChange?.(browserSession);
-  }, [browserSession, onBrowserSessionChange]);
+    latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
+  }, [onBrowserSessionChange]);
+
+  useEffect(() => {
+    if (!latestBrowserSessionChangeHandlerRef.current) {
+      return;
+    }
+    if (
+      !shouldPublishBrowserSessionChange({
+        previous: lastPublishedBrowserSessionRef.current,
+        next: browserSession,
+        visible,
+      })
+    ) {
+      return;
+    }
+
+    pendingBrowserSessionRef.current = browserSession;
+    if (browserSessionPublishFrameRef.current !== null) {
+      return;
+    }
+
+    browserSessionPublishFrameRef.current = window.requestAnimationFrame(() => {
+      browserSessionPublishFrameRef.current = null;
+      const nextBrowserSession = pendingBrowserSessionRef.current;
+      pendingBrowserSessionRef.current = null;
+      const onBrowserSessionChange = latestBrowserSessionChangeHandlerRef.current;
+      if (!nextBrowserSession || !onBrowserSessionChange) {
+        return;
+      }
+      lastPublishedBrowserSessionRef.current = nextBrowserSession;
+      onBrowserSessionChange(nextBrowserSession);
+    });
+  }, [browserSession, visible]);
+  useEffect(() => {
+    return () => {
+      if (browserSessionPublishFrameRef.current !== null) {
+        window.cancelAnimationFrame(browserSessionPublishFrameRef.current);
+        browserSessionPublishFrameRef.current = null;
+      }
+      pendingBrowserSessionRef.current = null;
+    };
+  }, []);
   const browserShellRef = useRef<HTMLElement | null>(null);
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
   const browserToolbarRef = useRef<HTMLDivElement | null>(null);
@@ -331,9 +414,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       resolveMountedBrowserTabs({
         activeTabId: activeTab?.id ?? null,
         lastActiveTabId,
+        retainLastActiveTab: visible,
         tabs: browserSession.tabs,
       }),
-    [activeTab?.id, browserSession.tabs, lastActiveTabId],
+    [activeTab?.id, browserSession.tabs, lastActiveTabId, visible],
   );
 
   useEffect(() => {
@@ -579,7 +663,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     return null;
   }
 
-  return (
+  const browserContent = (
     <motion.div
       aria-hidden={!visible}
       initial={browserShellInitial}
@@ -1030,5 +1114,20 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         </div>
       </section>
     </motion.div>
+  );
+
+  const browserProfileName = scopeId ? `in-app-browser:${scopeId}` : "in-app-browser";
+
+  return isRenderProfilingEnabled() ? (
+    <Profiler
+      id={browserProfileName}
+      onRender={(_id, phase, actualDuration) => {
+        recordReactRenderProfile(browserProfileName, phase, actualDuration);
+      }}
+    >
+      {browserContent}
+    </Profiler>
+  ) : (
+    browserContent
   );
 });
