@@ -65,9 +65,13 @@ describe("PlanSummaryPanel", () => {
     );
 
     expect(html).toContain("Diff summary");
-    expect(html).toContain("Current diff:");
+    expect(html).toContain("+15");
+    expect(html).toContain("-19");
+    expect(html).toContain("changes across");
+    expect(html).toContain("files");
     expect(html).toContain('aria-label="Regenerate summary"');
     expect(html).not.toContain(">Changes<");
+    expect(html).not.toContain(">Files<");
   });
 
   it("does not render summary placeholder copy when no summary or diff is available", () => {

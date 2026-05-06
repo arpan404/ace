@@ -245,6 +245,15 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+const BROWSER_BRIDGE_TARGET_WAIT_MS = 2500;
+const BROWSER_BRIDGE_READ_CACHE_TTL_MS = 250;
+
+type BrowserHandleWaiter = (handle: BrowserTabHandle) => void;
+type BrowserBridgeReadCacheEntry = {
+  readonly cachedAt: number;
+  readonly result: Record<string, unknown>;
+};
+
 const BROWSER_VIEWPORT_SIZE_SCRIPT = `(() => ({
   devicePixelRatio: window.devicePixelRatio,
   height: window.innerHeight,
@@ -514,6 +523,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
   const lastNativeBrowserContextMenuAtRef = useRef<number>(-Infinity);
   const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
+  const webviewHandleWaitersRef = useRef(new Map<string, Set<BrowserHandleWaiter>>());
+  const bridgeReadCacheRef = useRef(new Map<string, BrowserBridgeReadCacheEntry>());
   const browserSessionNameRef = useRef<string | null>(null);
   const lastRecordedBrowserHistoryUrlByTabRef = useRef(new Map<string, string>());
   const [browserSession, setBrowserSession] = useLocalStorage(
@@ -691,26 +702,41 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     closeTab(activeTab.id);
   }, [activeTab, browserSession.tabs.length, closeTab, onClose]);
 
+  const clearBridgeReadCache = useCallback((tabId?: string) => {
+    if (!tabId) {
+      bridgeReadCacheRef.current.clear();
+      return;
+    }
+    for (const key of bridgeReadCacheRef.current.keys()) {
+      if (key.startsWith(`${tabId}:`)) {
+        bridgeReadCacheRef.current.delete(key);
+      }
+    }
+  }, []);
+
   const zoomIn = useCallback(() => {
     if (!activeTab || activeTabIsInternal) {
       return;
     }
+    clearBridgeReadCache(activeTab.id);
     webviewHandlesRef.current.get(activeTab.id)?.zoomIn();
-  }, [activeTab, activeTabIsInternal]);
+  }, [activeTab, activeTabIsInternal, clearBridgeReadCache]);
 
   const zoomOut = useCallback(() => {
     if (!activeTab || activeTabIsInternal) {
       return;
     }
+    clearBridgeReadCache(activeTab.id);
     webviewHandlesRef.current.get(activeTab.id)?.zoomOut();
-  }, [activeTab, activeTabIsInternal]);
+  }, [activeTab, activeTabIsInternal, clearBridgeReadCache]);
 
   const zoomReset = useCallback(() => {
     if (!activeTab || activeTabIsInternal) {
       return;
     }
+    clearBridgeReadCache(activeTab.id);
     webviewHandlesRef.current.get(activeTab.id)?.zoomReset();
-  }, [activeTab, activeTabIsInternal]);
+  }, [activeTab, activeTabIsInternal, clearBridgeReadCache]);
 
   const openUrl = useCallback(
     (rawUrl: string, options?: { newTab?: boolean }) => {
@@ -720,12 +746,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         dismissAddressBarSuggestionOverlay();
       }
       if (!activeTab || options?.newTab) {
+        clearBridgeReadCache();
         updateBrowserSession((current) => addBrowserTab(current, { activate: true, url: nextUrl }));
         if (shouldKeepAddressBarFocused) {
           focusAddressBar();
         }
         return;
       }
+      clearBridgeReadCache(activeTab.id);
       updateBrowserSession((current) => updateBrowserTab(current, activeTab.id, { url: nextUrl }));
       if (activeTabIsInternal) {
         return;
@@ -736,6 +764,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       activeTab,
       activeTabIsInternal,
       browserSearchEngine,
+      clearBridgeReadCache,
       dismissAddressBarSuggestionOverlay,
       focusAddressBar,
       updateBrowserSession,
@@ -818,12 +847,15 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       const handle = webviewHandlesRef.current.get(tabId);
       switch (clicked) {
         case "back":
+          clearBridgeReadCache(tabId);
           handle?.goBack();
           return;
         case "forward":
+          clearBridgeReadCache(tabId);
           handle?.goForward();
           return;
         case "reload":
+          clearBridgeReadCache(tabId);
           if (runtime.loading) {
             handle?.stop();
           } else {
@@ -840,6 +872,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           await copyBrowserAddress(tab.url);
           return;
         case "devtools":
+          clearBridgeReadCache(tabId);
           if (handle?.isDevToolsOpen()) {
             handle.closeDevTools();
           } else {
@@ -849,7 +882,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         default:
       }
     },
-    [api, browserSession.tabs, copyBrowserAddress, openNewTab, tabRuntimeById],
+    [
+      api,
+      browserSession.tabs,
+      clearBridgeReadCache,
+      copyBrowserAddress,
+      openNewTab,
+      tabRuntimeById,
+    ],
   );
 
   const handleWebviewContextMenuFallbackRequest = useCallback(
@@ -871,23 +911,26 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   const goBack = useCallback(() => {
     if (!activeTab) return;
+    clearBridgeReadCache(activeTab.id);
     webviewHandlesRef.current.get(activeTab.id)?.goBack();
-  }, [activeTab]);
+  }, [activeTab, clearBridgeReadCache]);
 
   const goForward = useCallback(() => {
     if (!activeTab) return;
+    clearBridgeReadCache(activeTab.id);
     webviewHandlesRef.current.get(activeTab.id)?.goForward();
-  }, [activeTab]);
+  }, [activeTab, clearBridgeReadCache]);
 
   const reload = useCallback(() => {
     if (!activeTab) return;
+    clearBridgeReadCache(activeTab.id);
     const handle = webviewHandlesRef.current.get(activeTab.id);
     if (activeRuntime.loading) {
       handle?.stop();
       return;
     }
     handle?.reload();
-  }, [activeRuntime.loading, activeTab]);
+  }, [activeRuntime.loading, activeTab, clearBridgeReadCache]);
 
   const clearAgentPointers = useCallback(() => {
     for (const handle of webviewHandlesRef.current.values()) {
@@ -895,8 +938,37 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     }
   }, []);
 
+  const waitForWebviewHandle = useCallback((tabId: string): Promise<BrowserTabHandle> => {
+    const existingHandle = webviewHandlesRef.current.get(tabId);
+    if (existingHandle) {
+      return Promise.resolve(existingHandle);
+    }
+
+    return new Promise((resolve, reject) => {
+      let timeoutHandle: number;
+      const waiters = webviewHandleWaitersRef.current.get(tabId) ?? new Set<BrowserHandleWaiter>();
+      const waiter: BrowserHandleWaiter = (handle) => {
+        window.clearTimeout(timeoutHandle);
+        waiters.delete(waiter);
+        if (waiters.size === 0) {
+          webviewHandleWaitersRef.current.delete(tabId);
+        }
+        resolve(handle);
+      };
+      waiters.add(waiter);
+      webviewHandleWaitersRef.current.set(tabId, waiters);
+      timeoutHandle = window.setTimeout(() => {
+        waiters.delete(waiter);
+        if (waiters.size === 0) {
+          webviewHandleWaitersRef.current.delete(tabId);
+        }
+        reject(new Error("Ace browser tab did not become ready in time."));
+      }, BROWSER_BRIDGE_TARGET_WAIT_MS);
+    });
+  }, []);
+
   const resolveBridgeTarget = useCallback(
-    (args: Record<string, unknown>) => {
+    async (args: Record<string, unknown>) => {
       const tabId = readStringArgAny(args, ["tabId", "tab_id"]) ?? browserSession.activeTabId;
       const tab = browserSession.tabs.find((item) => item.id === tabId);
       if (!tab) {
@@ -905,9 +977,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       if (isBrowserInternalTabUrl(tab.url)) {
         throw new Error("Ace browser tab is still on an internal page. Open a URL first.");
       }
-      const handle = webviewHandlesRef.current.get(tab.id);
+      let handle = webviewHandlesRef.current.get(tab.id);
       if (!handle) {
-        throw new Error("Ace browser tab is not ready yet.");
+        updateBrowserSession((current) => setActiveBrowserTab(current, tab.id));
+        handle = await waitForWebviewHandle(tab.id);
       }
       const snapshot = handle.getSnapshot() ?? {
         canGoBack: false,
@@ -919,13 +992,34 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       };
       return { handle, snapshot, tab };
     },
-    [browserSession.activeTabId, browserSession.tabs],
+    [browserSession.activeTabId, browserSession.tabs, updateBrowserSession, waitForWebviewHandle],
   );
 
   const runBridgeRequest = useCallback(
     async (request: BrowserBridgeRequest): Promise<Record<string, unknown>> => {
       const args = request.args as Record<string, unknown>;
       const operation = request.operation;
+      const buildBridgeReadCacheKey = (tabId: string) =>
+        `${tabId}:${operation}:${JSON.stringify(args)}`;
+      const readCachedBridgeResult = (tabId: string): Record<string, unknown> | null => {
+        const key = buildBridgeReadCacheKey(tabId);
+        const cached = bridgeReadCacheRef.current.get(key);
+        if (!cached) {
+          return null;
+        }
+        if (Date.now() - cached.cachedAt > BROWSER_BRIDGE_READ_CACHE_TTL_MS) {
+          bridgeReadCacheRef.current.delete(key);
+          return null;
+        }
+        return cached.result;
+      };
+      const writeCachedBridgeResult = (tabId: string, result: Record<string, unknown>) => {
+        bridgeReadCacheRef.current.set(buildBridgeReadCacheKey(tabId), {
+          cachedAt: Date.now(),
+          result,
+        });
+        return result;
+      };
       const readBridgeTabSnapshot = (tab: BrowserTabState) => {
         const handle = webviewHandlesRef.current.get(tab.id);
         const snapshot = handle?.getSnapshot() ?? {
@@ -944,6 +1038,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       };
       const activateBridgeTab = (tab: BrowserTabState) => {
         dismissAddressBarSuggestionOverlay();
+        clearBridgeReadCache(tab.id);
         updateBrowserSession((current) => setActiveBrowserTab(current, tab.id));
         return {
           ok: true,
@@ -959,6 +1054,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         options?: { activate?: boolean },
       ) => {
         dismissAddressBarSuggestionOverlay();
+        clearBridgeReadCache(tab.id);
         updateBrowserSession((current) => {
           const nextState = updateBrowserTab(current, tab.id, { url });
           return options?.activate === false ? nextState : setActiveBrowserTab(nextState, tab.id);
@@ -1062,6 +1158,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (requestedUrl && activeTab && shouldReuseActiveInitialBlankTabForUrl(requestedUrl)) {
             return replaceBridgeTabUrl(activeTab, nextUrl);
           }
+          clearBridgeReadCache();
           const nextTab = createBrowserTabState(nextUrl);
           updateBrowserSession((current) => ({
             ...current,
@@ -1086,6 +1183,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!tabId) {
             throw new Error("close_tab requires an open tab.");
           }
+          clearBridgeReadCache(tabId);
           closeTab(tabId);
           return { ok: true, tabId };
         }
@@ -1099,6 +1197,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (activeTab && shouldReuseActiveInitialBlankTabForUrl(url)) {
             return replaceBridgeTabUrl(activeTab, normalizedUrl);
           }
+          clearBridgeReadCache();
           openUrl(url, newTab === undefined ? undefined : { newTab });
           return {
             ok: true,
@@ -1117,6 +1216,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
             if (activeTab && shouldReuseActiveInitialBlankTabForUrl(url)) {
               return replaceBridgeTabUrl(activeTab, normalizedUrl);
             }
+            clearBridgeReadCache();
             openUrl(url, newTab === undefined ? undefined : { newTab });
             return { ok: true, url: normalizedUrl };
           }
@@ -1125,6 +1225,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
             throw new Error("Ace browser tab was not found.");
           }
           dismissAddressBarSuggestionOverlay();
+          clearBridgeReadCache(targetTabId);
           updateBrowserSession((current) =>
             updateBrowserTab(current, targetTabId, { url: normalizedUrl }),
           );
@@ -1163,6 +1264,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
             ...(requestedWidth !== undefined ? { width: requestedWidth } : {}),
           });
           if (requestedWidth !== undefined || requestedPanelWidth !== undefined) {
+            if (activeTab) {
+              clearBridgeReadCache(activeTab.id);
+            }
             await sleep(120);
           }
 
@@ -1185,7 +1289,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "set_browser_zoom":
         case "reset_browser_zoom":
         case "zoom_browser": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           if (operation === "reset_browser_zoom") {
             handle.setZoomFactor(1);
           } else if (operation === "set_browser_zoom") {
@@ -1206,6 +1310,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
             }
           }
           if (operation !== "get_browser_zoom") {
+            clearBridgeReadCache(tab.id);
             await sleep(80);
           }
 
@@ -1225,39 +1330,51 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           };
         }
         case "playwright_dom_snapshot": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          const cached = readCachedBridgeResult(tab.id);
+          if (cached) {
+            return cached;
+          }
           const domSnapshot = await handle.executeJavaScript(
             buildBrowserPlaywrightDomSnapshotScript(),
           );
-          return {
+          return writeCachedBridgeResult(tab.id, {
             domSnapshot,
             tab: {
               id: tab.id,
               ...snapshot,
             },
-          };
+          });
         }
         case "dom_cua_get_visible_dom":
         case "dom_snapshot": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          const cached = readCachedBridgeResult(tab.id);
+          if (cached) {
+            return cached;
+          }
           const dom = await handle.executeJavaScript(buildBrowserDomSnapshotScript());
-          return {
+          return writeCachedBridgeResult(tab.id, {
             dom,
             tab: {
               id: tab.id,
               ...snapshot,
             },
-          };
+          });
         }
         case "cua_get_visible_screenshot":
         case "playwright_screenshot":
         case "screenshot": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          const cached = readCachedBridgeResult(tab.id);
+          if (cached) {
+            return cached;
+          }
           const imageDataUrl = await handle.captureVisiblePage();
           const pageViewport = normalizePageViewportSize(
             await handle.executeJavaScript(BROWSER_VIEWPORT_SIZE_SCRIPT).catch(() => null),
           );
-          return {
+          return writeCachedBridgeResult(tab.id, {
             browserZoomFactor: handle.getZoomFactor(),
             coordinateSpace: "css-pixels",
             imageDataUrl,
@@ -1267,7 +1384,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
               id: tab.id,
               ...snapshot,
             },
-          };
+          });
         }
         case "cua_click":
         case "cua_double_click":
@@ -1277,7 +1394,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "cua_scroll":
         case "cua_type": {
           const action = operation.replace(/^cua_/u, "").replace("double_click", "double_click");
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           await handle.animateAgentPointer(
             buildBrowserAgentPointerEffectFromArgs(
               action as BrowserAgentPointerEffect["type"],
@@ -1297,7 +1415,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "dom_cua_scroll":
         case "dom_cua_type": {
           const action = operation.replace(/^dom_cua_/u, "");
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           const target = await handle.executeJavaScript(
             buildBrowserDomCuaTargetScript(action, args),
           );
@@ -1318,7 +1437,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!selector) {
             throw new Error("click requires a selector argument.");
           }
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           const target = await handle.executeJavaScript(buildBrowserSelectorTargetScript(selector));
           await handle.animateAgentPointer(
             buildBrowserAgentPointerEffectFromResult("click", target),
@@ -1339,7 +1459,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!selector) {
             throw new Error("fill requires a selector argument.");
           }
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           const target = await handle.executeJavaScript(buildBrowserSelectorTargetScript(selector));
           await handle.animateAgentPointer(
             buildBrowserAgentPointerEffectFromResult("type", target),
@@ -1371,7 +1492,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!action) {
             throw new Error(`Unsupported locator operation: ${operation}`);
           }
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           const animatedAction =
             action === "click" ||
             action === "dblclick" ||
@@ -1388,6 +1509,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
                     : "click"
               : null;
           if (animatedAction) {
+            clearBridgeReadCache(tab.id);
             const target = await handle.executeJavaScript(buildBrowserLocatorTargetScript(args));
             await handle.animateAgentPointer(
               buildBrowserAgentPointerEffectFromResult(animatedAction, target, args),
@@ -1396,10 +1518,20 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           const result = await handle.executeJavaScript(
             buildBrowserLocatorActionScript(action, args),
           );
+          if (
+            action === "click" ||
+            action === "dblclick" ||
+            action === "fill" ||
+            action === "press" ||
+            action === "select_option" ||
+            action === "set_checked"
+          ) {
+            clearBridgeReadCache(tab.id);
+          }
           return { ok: true, result, tab: { id: tab.id, ...snapshot } };
         }
         case "playwright_wait_for_load_state": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
           const timeoutMs = readTimeoutMs(args);
           const startedAt = Date.now();
           while (Date.now() - startedAt <= timeoutMs) {
@@ -1420,7 +1552,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!expectedUrl) {
             throw new Error("playwright_wait_for_url requires a url argument.");
           }
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
           const timeoutMs = readTimeoutMs(args);
           const startedAt = Date.now();
           while (Date.now() - startedAt <= timeoutMs) {
@@ -1433,21 +1565,22 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           throw new Error("Timed out waiting for browser URL.");
         }
         case "tab_clipboard_read_text": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           const result = await handle.executeJavaScript(
             buildBrowserClipboardActionScript("read_text", args),
           );
           return { ok: true, result, tab: { id: tab.id, ...snapshot } };
         }
         case "tab_clipboard_write_text": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           const result = await handle.executeJavaScript(
             buildBrowserClipboardActionScript("write_text", args),
           );
           return { ok: true, result, tab: { id: tab.id, ...snapshot } };
         }
         case "tab_dev_logs": {
-          const { handle, snapshot, tab } = resolveBridgeTarget(args);
+          const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           const levels = Array.isArray(args.levels)
             ? args.levels.map(normalizeBrowserBridgeLogLevel)
             : undefined;
@@ -1469,32 +1602,38 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           };
         }
         case "back": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           handle.goBack();
           return { ok: true, tabId: tab.id };
         }
         case "navigate_tab_back": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           handle.goBack();
           return { ok: true, tabId: tab.id };
         }
         case "forward": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           handle.goForward();
           return { ok: true, tabId: tab.id };
         }
         case "navigate_tab_forward": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           handle.goForward();
           return { ok: true, tabId: tab.id };
         }
         case "reload": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           handle.reload();
           return { ok: true, tabId: tab.id };
         }
         case "navigate_tab_reload": {
-          const { handle, tab } = resolveBridgeTarget(args);
+          const { handle, tab } = await resolveBridgeTarget(args);
+          clearBridgeReadCache(tab.id);
           handle.reload();
           return { ok: true, tabId: tab.id };
         }
@@ -1504,9 +1643,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     },
     [
       activeTab,
+      activeTabIsNewTab,
       browserSearchEngine,
       browserSession.activeTabId,
       browserSession.tabs,
+      clearBridgeReadCache,
       closeTab,
       dismissAddressBarSuggestionOverlay,
       onResizeViewport,
@@ -1834,17 +1975,29 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     ],
   );
 
-  const registerWebviewHandle = useCallback((tabId: string, handle: BrowserTabHandle | null) => {
-    if (handle) {
-      webviewHandlesRef.current.set(tabId, handle);
-      return;
-    }
-    webviewHandlesRef.current.delete(tabId);
-    lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
-  }, []);
+  const registerWebviewHandle = useCallback(
+    (tabId: string, handle: BrowserTabHandle | null) => {
+      clearBridgeReadCache(tabId);
+      if (handle) {
+        webviewHandlesRef.current.set(tabId, handle);
+        const waiters = webviewHandleWaitersRef.current.get(tabId);
+        if (waiters) {
+          webviewHandleWaitersRef.current.delete(tabId);
+          for (const waiter of waiters) {
+            waiter(handle);
+          }
+        }
+        return;
+      }
+      webviewHandlesRef.current.delete(tabId);
+      lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
+    },
+    [clearBridgeReadCache],
+  );
 
   const handleTabSnapshotChange = useCallback(
     (tabId: string, snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
+      clearBridgeReadCache(tabId);
       const persistTab = options?.persistTab ?? true;
       const recordHistoryEntry = options?.recordHistory === true;
       setTabRuntimeById((current) => {
@@ -1887,7 +2040,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         );
       }
     },
-    [setBrowserHistory, updateBrowserSession],
+    [clearBridgeReadCache, setBrowserHistory, updateBrowserSession],
   );
 
   const browserShellStyle = useMemo<CSSProperties | undefined>(() => {
