@@ -7,6 +7,7 @@ import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
 
 const ComboboxContext = React.createContext<{
   chipsRef: React.RefObject<Element | null> | null;
@@ -19,11 +20,23 @@ const ComboboxContext = React.createContext<{
 function Combobox<Value, Multiple extends boolean | undefined = false>(
   props: ComboboxPrimitive.Root.Props<Value, Multiple>,
 ) {
+  const { defaultOpen, onOpenChange, open, ...rootProps } = props;
   const chipsRef = React.useRef<Element | null>(null);
-  const value = React.useMemo(() => ({ chipsRef, multiple: !!props.multiple }), [props.multiple]);
+  const value = React.useMemo(
+    () => ({ chipsRef, multiple: !!rootProps.multiple }),
+    [rootProps.multiple],
+  );
+  const boundaryDismissedOpen = useBoundaryDismissedOpen<ComboboxPrimitive.Root.ChangeEventDetails>(
+    {
+      defaultOpen,
+      onOpenChange,
+      open,
+    },
+  );
+
   return (
     <ComboboxContext.Provider value={value}>
-      <ComboboxPrimitive.Root {...props} />
+      <ComboboxPrimitive.Root {...boundaryDismissedOpen} {...rootProps} />
     </ComboboxContext.Provider>
   );
 }
