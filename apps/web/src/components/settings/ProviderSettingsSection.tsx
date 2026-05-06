@@ -810,7 +810,7 @@ export function ProviderSettingsSection({
                     "group flex min-w-0 items-center gap-2 rounded-[var(--control-radius)] border px-2 py-2 text-left transition-colors",
                     isSelected
                       ? "border-border/60 bg-foreground/[0.06] text-foreground"
-                      : "border-transparent bg-transparent text-muted-foreground hover:border-border/45 hover:bg-foreground/[0.04] hover:text-foreground",
+                      : "border-transparent bg-transparent text-muted-foreground",
                   )}
                   onClick={() => setSelectedEntryKey(entry.key)}
                 >
@@ -819,7 +819,7 @@ export function ProviderSettingsSection({
                       "relative flex size-7 shrink-0 items-center justify-center rounded-[var(--control-radius)] border transition-colors",
                       isSelected
                         ? "border-border/55 bg-background text-foreground"
-                        : "border-border/35 bg-background/45 text-muted-foreground group-hover:text-foreground",
+                        : "border-border/35 bg-background/45 text-muted-foreground",
                     )}
                   >
                     <RailLogo className="size-3.5" />
@@ -1405,7 +1405,7 @@ export function ProviderSettingsSection({
                         "flex min-w-0 items-center gap-3 rounded-[var(--control-radius)] border px-3 py-2.5 text-left transition-colors",
                         isSelected
                           ? "border-primary/55 bg-primary/10 text-foreground"
-                          : "border-border/40 bg-background/40 text-muted-foreground hover:border-border/70 hover:bg-foreground/[0.04] hover:text-foreground",
+                          : "border-border/40 bg-background/40 text-muted-foreground",
                       )}
                       onClick={() => selectAddProvider(candidate.provider)}
                     >

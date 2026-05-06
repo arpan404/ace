@@ -112,7 +112,7 @@ describe("PlanSummaryPanel", () => {
     expect(html).toContain('aria-label="Generate summary"');
   });
 
-  it("renders only one active in-progress todo when multiple rows are marked in progress", () => {
+  it("renders todos without generated status labels", () => {
     const html = renderToStaticMarkup(
       <PlanSummaryPanel
         activePlan={{
@@ -134,8 +134,10 @@ describe("PlanSummaryPanel", () => {
       />,
     );
 
-    expect(html).toContain(">In progress<");
-    expect(html.match(/>In progress</g)?.length ?? 0).toBe(1);
+    expect(html).toContain("Create todo doc");
+    expect(html).toContain("Wire persistence");
+    expect(html).not.toContain(">In progress<");
     expect(html).not.toContain(">Ready<");
+    expect(html).not.toContain(">Done<");
   });
 });
