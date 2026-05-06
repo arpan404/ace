@@ -18,14 +18,32 @@ const EMPTY_CAPABILITIES: ModelCapabilities = {
 export function getProviderModels(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
+  providerInstanceId?: string | null,
 ): ReadonlyArray<ServerProviderModel> {
-  return providers.find((candidate) => candidate.provider === provider)?.models ?? [];
+  return getProviderSnapshot(providers, provider, providerInstanceId)?.models ?? [];
 }
 
 export function getProviderSnapshot(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
+  providerInstanceId?: string | null,
 ): ServerProvider | undefined {
+  const normalizedProviderInstanceId =
+    providerInstanceId && providerInstanceId !== "default" ? providerInstanceId : undefined;
+  const exactMatch = providers.find(
+    (candidate) =>
+      candidate.provider === provider &&
+      candidate.providerInstanceId === normalizedProviderInstanceId,
+  );
+  if (exactMatch) {
+    return exactMatch;
+  }
+  if (normalizedProviderInstanceId === undefined) {
+    return providers.find(
+      (candidate) =>
+        candidate.provider === provider && candidate.isDefaultProviderInstance === true,
+    );
+  }
   return providers.find((candidate) => candidate.provider === provider);
 }
 

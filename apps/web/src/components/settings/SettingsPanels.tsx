@@ -1162,9 +1162,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 
   const providerCards: ProviderCard[] = PROVIDER_SETTINGS.map((providerSettings) => {
-    const liveProvider = serverProviders.find(
+    const liveProviderSnapshots = serverProviders.filter(
       (candidate) => candidate.provider === providerSettings.provider,
     );
+    const liveProvider =
+      liveProviderSnapshots.find((candidate) => candidate.isDefaultProviderInstance === true) ??
+      liveProviderSnapshots.find((candidate) => !candidate.providerInstanceId) ??
+      liveProviderSnapshots[0];
     const providerConfig = settings.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
@@ -1190,6 +1194,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       cliUrlPlaceholder: providerSettings.cliUrlPlaceholder,
       cliUrlDescription: providerSettings.cliUrlDescription,
       models,
+      providerSnapshots: liveProviderSnapshots,
       runtimes: liveProvider?.runtimes,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,

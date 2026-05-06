@@ -523,11 +523,23 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("changes the selected provider account", async () => {
+  it("shows provider accounts as provider rail entries", async () => {
+    const personalModel = buildCodexModel(77);
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider([personalModel]),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
     const mounted = await mountPicker({
       provider: "codex",
       model: "gpt-5-codex",
       lockedProvider: null,
+      providers,
       providerInstancesByProvider: {
         codex: [
           { id: "work", label: "Work", enabled: true },
@@ -538,13 +550,48 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("button", { name: "Personal" }).click();
+      expect(document.body.textContent ?? "").not.toContain("Account");
+      expect(document.body.textContent ?? "").not.toContain("Default");
+      await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
+      await page.getByRole("button", { name: "Codex Personal" }).click();
 
       expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
         "codex",
-        "gpt-5-codex",
+        personalModel.slug,
         "personal",
       );
+      const popupText = document.body.textContent ?? "";
+      expect(popupText).toContain("Personal");
+      expect(popupText).toContain("1 model");
+      expect(popupText).toContain(personalModel.name);
+      expect(popupText).not.toContain("GPT-5.3 Codex");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps enabled provider accounts selectable when the default entry is disabled", async () => {
+    const disabledDefaultCodex = {
+      ...buildCodexProvider([buildCodexModel(1)]),
+      enabled: false,
+      status: "disabled" as const,
+      isDefaultProviderInstance: true,
+    };
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+      providers: [disabledDefaultCodex, TEST_PROVIDERS[1]!],
+      providerInstancesByProvider: {
+        codex: [{ id: "personal", label: "Personal", enabled: true }],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
+      expect(document.querySelector("button[aria-label='Codex']")).toBeNull();
     } finally {
       await mounted.cleanup();
     }
