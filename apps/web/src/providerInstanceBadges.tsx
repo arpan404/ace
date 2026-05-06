@@ -110,12 +110,12 @@ export function ProviderInstanceBadge({
       aria-hidden="true"
       data-provider-instance-badge="true"
       className={cn(
-        "inline-flex size-3.5 items-center justify-center rounded-full border border-background text-white shadow-[0_0_0_1px_hsl(var(--border))]",
+        "inline-flex size-4 items-center justify-center rounded-full border border-background p-[2px] text-white shadow-[0_0_0_1px_hsl(var(--border))]",
         className,
       )}
       style={{ backgroundColor: getProviderInstanceBadgeColorHex(color) }}
     >
-      <ProviderInstanceBadgeIconGlyph icon={icon} className="size-2.5" />
+      <ProviderInstanceBadgeIconGlyph icon={icon} className="size-full" />
     </span>
   );
 }

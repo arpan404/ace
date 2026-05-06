@@ -6,7 +6,11 @@ import { useMemo } from "react";
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
 import { deriveEffectiveComposerModelState } from "../../composerDraftStore";
 import { getCustomModelOptionsByProvider } from "../../modelSelection";
-import { getProviderModels, resolveSelectableProvider } from "../../providerModels";
+import {
+  getProviderModels,
+  getProviderSnapshot,
+  resolveSelectableProvider,
+} from "../../providerModels";
 import { AVAILABLE_PROVIDER_OPTIONS } from "./ProviderModelPicker";
 import { getComposerProviderState } from "./composerProviderRegistry";
 
@@ -71,7 +75,6 @@ export function deriveChatViewProviderSelectionState(
     projectModelSelection: input.projectModelSelection,
     settings: input.modelSettings,
   });
-  const selectedProviderModels = getProviderModels(input.providers, selectedProvider);
   const selectedProviderInstanceId =
     input.draft?.modelSelectionByProvider?.[selectedProvider]?.providerInstanceId ??
     (input.threadModelSelection?.provider === selectedProvider
@@ -80,6 +83,11 @@ export function deriveChatViewProviderSelectionState(
     (input.projectModelSelection?.provider === selectedProvider
       ? input.projectModelSelection.providerInstanceId
       : undefined);
+  const selectedProviderModels = getProviderModels(
+    input.providers,
+    selectedProvider,
+    selectedProviderInstanceId,
+  );
   const composerProviderState = getComposerProviderState({
     provider: selectedProvider,
     model: selectedModel,
@@ -98,6 +106,7 @@ export function deriveChatViewProviderSelectionState(
     input.providers,
     selectedProvider,
     selectedModel,
+    selectedProviderInstanceId,
   );
   const selectedModelForPickerWithCustomFallback = (() => {
     const currentOptions = modelOptionsByProvider[selectedProvider];
@@ -122,7 +131,7 @@ export function deriveChatViewProviderSelectionState(
     );
   })();
   const activeProviderStatus =
-    input.providers.find((status) => status.provider === selectedProvider) ?? null;
+    getProviderSnapshot(input.providers, selectedProvider, selectedProviderInstanceId) ?? null;
 
   return {
     activeProviderStatus,

@@ -124,8 +124,9 @@ export function getAppModelOptions(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
   selectedModel?: string | null,
+  providerInstanceId?: string | null,
 ): AppModelOption[] {
-  const serverModels = getProviderModels(providers, provider);
+  const serverModels = getProviderModels(providers, provider, providerInstanceId);
   const options: AppModelOption[] = serverModels.map(({ slug, name, isCustom }) => ({
     slug,
     name: formatProviderModelDisplayName(provider, slug, name),
@@ -175,12 +176,19 @@ export function resolveAppModelSelection(
   settings: Pick<UnifiedSettings, "providers">,
   providers: ReadonlyArray<ServerProvider>,
   selectedModel: string | null | undefined,
+  providerInstanceId?: string | null,
 ): string {
   const resolvedProvider = resolveSelectableProvider(providers, provider);
-  const options = getAppModelOptions(settings, providers, resolvedProvider, selectedModel);
+  const options = getAppModelOptions(
+    settings,
+    providers,
+    resolvedProvider,
+    selectedModel,
+    providerInstanceId,
+  );
   if (resolvedProvider === "cursor") {
     const exactCursorModel = resolveExactCursorModelSelection({
-      models: getProviderModels(providers, resolvedProvider),
+      models: getProviderModels(providers, resolvedProvider, providerInstanceId),
       model: selectedModel,
     });
     if (exactCursorModel) {
@@ -189,7 +197,7 @@ export function resolveAppModelSelection(
   }
   return (
     resolveSelectableModel(resolvedProvider, selectedModel, options) ??
-    getDefaultServerModel(providers, resolvedProvider)
+    getDefaultServerModel(providers, resolvedProvider, providerInstanceId)
   );
 }
 
@@ -198,6 +206,7 @@ export function getCustomModelOptionsByProvider(
   providers: ReadonlyArray<ServerProvider>,
   selectedProvider?: ProviderKind | null,
   selectedModel?: string | null,
+  selectedProviderInstanceId?: string | null,
 ): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions(
@@ -205,42 +214,49 @@ export function getCustomModelOptionsByProvider(
       providers,
       "codex",
       selectedProvider === "codex" ? selectedModel : undefined,
+      selectedProvider === "codex" ? selectedProviderInstanceId : undefined,
     ),
     claudeAgent: getAppModelOptions(
       settings,
       providers,
       "claudeAgent",
       selectedProvider === "claudeAgent" ? selectedModel : undefined,
+      selectedProvider === "claudeAgent" ? selectedProviderInstanceId : undefined,
     ),
     githubCopilot: getAppModelOptions(
       settings,
       providers,
       "githubCopilot",
       selectedProvider === "githubCopilot" ? selectedModel : undefined,
+      selectedProvider === "githubCopilot" ? selectedProviderInstanceId : undefined,
     ),
     cursor: getAppModelOptions(
       settings,
       providers,
       "cursor",
       selectedProvider === "cursor" ? selectedModel : undefined,
+      selectedProvider === "cursor" ? selectedProviderInstanceId : undefined,
     ),
     pi: getAppModelOptions(
       settings,
       providers,
       "pi",
       selectedProvider === "pi" ? selectedModel : undefined,
+      selectedProvider === "pi" ? selectedProviderInstanceId : undefined,
     ),
     gemini: getAppModelOptions(
       settings,
       providers,
       "gemini",
       selectedProvider === "gemini" ? selectedModel : undefined,
+      selectedProvider === "gemini" ? selectedProviderInstanceId : undefined,
     ),
     opencode: getAppModelOptions(
       settings,
       providers,
       "opencode",
       selectedProvider === "opencode" ? selectedModel : undefined,
+      selectedProvider === "opencode" ? selectedProviderInstanceId : undefined,
     ),
   };
 }
@@ -261,10 +277,17 @@ export function resolveAppModelSelectionState(
   if (provider === "cursor") {
     const exactCursorModel =
       resolveExactCursorModelSelection({
-        models: getProviderModels(providers, provider),
+        models: getProviderModels(providers, provider, selection.providerInstanceId),
         model: selectedModel,
         options: provider === selection.provider ? selection.options : undefined,
-      }) ?? resolveAppModelSelection(provider, settings, providers, selectedModel);
+      }) ??
+      resolveAppModelSelection(
+        provider,
+        settings,
+        providers,
+        selectedModel,
+        selection.providerInstanceId,
+      );
     return buildProviderModelSelection(
       provider,
       exactCursorModel,
@@ -272,11 +295,17 @@ export function resolveAppModelSelectionState(
       selection.providerInstanceId,
     );
   }
-  const model = resolveAppModelSelection(provider, settings, providers, selectedModel);
+  const model = resolveAppModelSelection(
+    provider,
+    settings,
+    providers,
+    selectedModel,
+    selection.providerInstanceId,
+  );
   const { modelOptionsForDispatch } = getComposerProviderState({
     provider,
     model,
-    models: getProviderModels(providers, provider),
+    models: getProviderModels(providers, provider, selection.providerInstanceId),
     prompt: "",
     modelOptions: {
       [provider]: provider === selection.provider ? selection.options : undefined,

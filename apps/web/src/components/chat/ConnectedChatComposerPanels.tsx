@@ -864,6 +864,7 @@ export const ConnectedChatComposerPanels = memo(
             props.modelSettings,
             props.providers,
             model,
+            providerInstanceId,
           );
           const nextModelSelection: ModelSelection = {
             provider: resolvedProvider,

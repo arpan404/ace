@@ -850,19 +850,28 @@ export function deriveEffectiveComposerModelState(input: {
       : input.projectModelSelection?.provider === input.selectedProvider
         ? input.projectModelSelection.model
         : null;
+  const baseProviderInstanceId =
+    input.threadModelSelection?.provider === input.selectedProvider
+      ? input.threadModelSelection.providerInstanceId
+      : input.projectModelSelection?.provider === input.selectedProvider
+        ? input.projectModelSelection.providerInstanceId
+        : undefined;
+  const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
+  const selectedProviderInstanceId = activeSelection?.providerInstanceId ?? baseProviderInstanceId;
   const baseModel = resolveAppModelSelection(
     input.selectedProvider,
     input.settings,
     input.providers,
     baseModelCandidate,
+    baseProviderInstanceId,
   );
-  const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
   const selectedModel = activeSelection?.model
     ? resolveAppModelSelection(
         input.selectedProvider,
         input.settings,
         input.providers,
         activeSelection.model,
+        selectedProviderInstanceId,
       )
     : baseModel;
   const modelOptions = deriveEffectiveProviderModelOptions({
