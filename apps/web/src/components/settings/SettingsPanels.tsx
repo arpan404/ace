@@ -1,4 +1,16 @@
-import { ArchiveIcon, ArchiveX, ChevronDownIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  Code2Icon,
+  DownloadIcon,
+  PackageIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  TerminalIcon,
+  WrenchIcon,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -2283,19 +2295,24 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               title="Language server tools"
               description="Install the core bundle, browse a curated LSP catalog, and keep custom servers inside ace."
               status={
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" size="sm">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex h-5 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/42 px-1.5 text-[10px] font-medium text-muted-foreground">
+                    <Code2Icon className="size-3" />
                     {lspCoreTools.filter((tool) => tool.installed).length}/{lspCoreTools.length}{" "}
                     core
-                  </Badge>
-                  <Badge variant="outline" size="sm">
+                  </span>
+                  <span className="inline-flex h-5 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/42 px-1.5 text-[10px] font-medium text-muted-foreground">
+                    <PackageIcon className="size-3" />
                     {lspCatalogTools.filter((tool) => tool.installed).length}/
-                    {lspCatalogTools.length} curated
-                  </Badge>
-                  <Badge variant="outline" size="sm">
+                    {lspCatalogTools.length} catalog
+                  </span>
+                  <span className="inline-flex h-5 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/42 px-1.5 text-[10px] font-medium text-muted-foreground">
+                    <WrenchIcon className="size-3" />
                     {lspCustomTools.length} custom
-                  </Badge>
-                  {lspToolsError ? <div className="text-destructive">{lspToolsError}</div> : null}
+                  </span>
+                  {lspToolsError ? (
+                    <span className="text-[11px] text-destructive">{lspToolsError}</span>
+                  ) : null}
                 </div>
               }
               control={
@@ -2306,6 +2323,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     onClick={refreshLspToolsStatus}
                     disabled={isInstallingLspTools}
                   >
+                    <RefreshCwIcon className="size-3.5" />
                     Refresh
                   </Button>
                   <Button
@@ -2313,6 +2331,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     onClick={() => installLspToolsFromSettings(lspCoreToolsInstalled)}
                     disabled={isInstallingLspTools}
                   >
+                    <DownloadIcon className="size-3.5" />
                     {isInstallingLspTools
                       ? "Installing..."
                       : lspCoreToolsInstalled
@@ -2323,126 +2342,182 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               }
             >
               <div className="mt-3 space-y-3">
-                <div className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="text-[13px] font-medium text-foreground/90">
-                        Curated marketplace for ace’s editor runtime
-                      </div>
-                      <div className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
-                        Built-ins cover the common web stack. The catalog below adds popular config,
-                        schema, shell, infra, and component-file servers without leaving the app.
+                <div className="grid overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35 text-[11px] sm:grid-cols-3">
+                  <div className="flex min-w-0 items-center gap-2 border-b border-border/35 px-3 py-2 sm:border-r sm:border-b-0">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/40 bg-background/55 text-muted-foreground">
+                      <Code2Icon className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground/90">Core bundle</div>
+                      <div className="text-muted-foreground/62">
+                        {lspCoreTools.filter((tool) => tool.installed).length} of{" "}
+                        {lspCoreTools.length} installed
                       </div>
                     </div>
-                    {lspToolsStatus?.installDir ? (
-                      <div className="rounded-[var(--control-radius)] border border-border/50 bg-background/55 px-3 py-2 text-[11px] text-muted-foreground">
-                        Install root
-                        <div className="mt-1 font-mono text-[10px] text-foreground">
-                          {lspToolsStatus.installDir}
-                        </div>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 border-b border-border/35 px-3 py-2 sm:border-r sm:border-b-0">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/40 bg-background/55 text-muted-foreground">
+                      <PackageIcon className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground/90">Catalog</div>
+                      <div className="text-muted-foreground/62">
+                        {filteredLspCatalogTools.length} shown from {lspCatalogTools.length}
                       </div>
-                    ) : null}
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 px-3 py-2">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/40 bg-background/55 text-muted-foreground">
+                      <TerminalIcon className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground/90">Install root</div>
+                      <div className="truncate font-mono text-[10px] text-muted-foreground/62">
+                        {lspToolsStatus?.installDir ?? "Not loaded"}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-3 rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
-                  <Input
-                    value={lspCatalogQuery}
-                    onChange={(event) => setLspCatalogQuery(event.target.value)}
-                    placeholder="Search languages, frameworks, commands, or packages"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant={lspCatalogCategory === "all" ? "default" : "outline"}
-                      onClick={() => setLspCatalogCategory("all")}
-                    >
-                      All
-                    </Button>
-                    {lspCatalogCategories.map((category) => (
+                <div className="rounded-[var(--control-radius)] border border-border/45 bg-background/35 p-2.5">
+                  <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                    <div className="relative min-w-0">
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+                      <Input
+                        className="pl-8"
+                        value={lspCatalogQuery}
+                        onChange={(event) => setLspCatalogQuery(event.target.value)}
+                        placeholder="Search language, package, command, or file type"
+                      />
+                    </div>
+                    <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
                       <Button
-                        key={category}
                         size="sm"
-                        variant={lspCatalogCategory === category ? "default" : "outline"}
-                        onClick={() => setLspCatalogCategory(category)}
+                        variant={lspCatalogCategory === "all" ? "default" : "ghost"}
+                        onClick={() => setLspCatalogCategory("all")}
+                        className="shrink-0"
                       >
-                        {LSP_CATEGORY_LABELS[category]}
+                        All
                       </Button>
-                    ))}
+                      {lspCatalogCategories.map((category) => (
+                        <Button
+                          key={category}
+                          size="sm"
+                          variant={lspCatalogCategory === category ? "default" : "ghost"}
+                          onClick={() => setLspCatalogCategory(category)}
+                          className="shrink-0"
+                        >
+                          {LSP_CATEGORY_LABELS[category]}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                {filteredLspCatalogTools.length === 0 ? (
-                  <div className="rounded-[var(--panel-radius)] border border-dashed border-border/60 px-4 py-6 text-center text-[13px] text-muted-foreground">
-                    No curated language servers match this filter.
+                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                  <div className="flex items-center justify-between gap-3 border-b border-border/35 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-medium text-foreground/90">
+                        Curated language servers
+                      </div>
+                      <div className="text-[11px] text-muted-foreground/60">
+                        Install only what this workspace needs.
+                      </div>
+                    </div>
+                    <Badge variant="outline" size="sm">
+                      {filteredLspCatalogTools.length}
+                    </Badge>
                   </div>
-                ) : (
-                  <div className="grid gap-2 lg:grid-cols-2">
-                    {filteredLspCatalogTools.map((tool) => (
-                      <div
-                        key={tool.id}
-                        className={cn(
-                          "rounded-[var(--panel-radius)] border p-3 transition-colors",
-                          tool.installed
-                            ? "border-emerald-500/25 bg-emerald-500/[0.05]"
-                            : "border-border/50 bg-background/35",
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-[13px] font-medium text-foreground/90">
-                                {tool.label}
-                              </div>
-                              <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
-                                {tool.installed
-                                  ? tool.version
-                                    ? `Installed · ${tool.version}`
-                                    : "Installed"
-                                  : "Not installed"}
-                              </Badge>
-                              <Badge variant="outline" size="sm">
-                                {tool.builtin ? "Core" : LSP_CATEGORY_LABELS[tool.category]}
-                              </Badge>
-                              <Badge variant="outline" size="sm">
-                                {LSP_INSTALLER_LABELS[tool.installer]}
-                              </Badge>
-                            </div>
-                            <p className="text-[12px] leading-relaxed text-muted-foreground">
-                              {tool.description}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant={tool.installed ? "outline" : "default"}
-                            onClick={() => installCatalogTool(tool)}
-                            disabled={isInstallingCustomLsp}
-                          >
-                            {isInstallingCustomLsp && lspInstallTargetId === tool.id
-                              ? "Installing..."
-                              : tool.installed
-                                ? "Reinstall"
-                                : "Install"}
-                          </Button>
-                        </div>
 
-                        <div className="mt-3 space-y-2.5 text-[11px] text-muted-foreground">
-                          <div className="space-y-1">
-                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
-                              Package
+                  {filteredLspCatalogTools.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
+                      No curated language servers match this filter.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border/32">
+                      {filteredLspCatalogTools.map((tool) => (
+                        <div
+                          key={tool.id}
+                          className={cn(
+                            "px-3 py-3 transition-colors",
+                            tool.installed && "bg-success/4",
+                          )}
+                        >
+                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                            <div className="flex min-w-0 gap-3">
+                              <span
+                                className={cn(
+                                  "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border",
+                                  tool.installed
+                                    ? "border-success/25 bg-success/8 text-success"
+                                    : "border-border/40 bg-background/55 text-muted-foreground",
+                                )}
+                              >
+                                {tool.installed ? (
+                                  <CheckCircle2Icon className="size-4" />
+                                ) : (
+                                  <Code2Icon className="size-4" />
+                                )}
+                              </span>
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                  <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
+                                    {tool.label}
+                                  </div>
+                                  <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
+                                    {tool.installed
+                                      ? tool.version
+                                        ? `Installed ${tool.version}`
+                                        : "Installed"
+                                      : "Missing"}
+                                  </Badge>
+                                  <Badge variant="outline" size="sm">
+                                    {tool.builtin ? "Core" : LSP_CATEGORY_LABELS[tool.category]}
+                                  </Badge>
+                                  <Badge variant="outline" size="sm">
+                                    {LSP_INSTALLER_LABELS[tool.installer]}
+                                  </Badge>
+                                </div>
+                                <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/68">
+                                  {tool.description}
+                                </p>
+                              </div>
                             </div>
-                            <div className="font-mono text-foreground">{tool.packageName}</div>
+                            <Button
+                              size="sm"
+                              variant={tool.installed ? "outline" : "default"}
+                              onClick={() => installCatalogTool(tool)}
+                              disabled={isInstallingCustomLsp}
+                              className="justify-self-start lg:justify-self-end"
+                            >
+                              {isInstallingCustomLsp && lspInstallTargetId === tool.id
+                                ? "Installing..."
+                                : tool.installed
+                                  ? "Reinstall"
+                                  : "Install"}
+                            </Button>
                           </div>
-                          <div className="space-y-1">
-                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
-                              Command
+
+                          <div className="mt-2.5 grid gap-2 pl-11 text-[11px] text-muted-foreground sm:grid-cols-2">
+                            <div className="min-w-0 rounded-[var(--control-radius)] border border-border/30 bg-background/36 px-2 py-1.5">
+                              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
+                                Package
+                              </div>
+                              <div className="truncate font-mono text-foreground/84">
+                                {tool.packageName}
+                              </div>
                             </div>
-                            <div className="font-mono text-foreground">
-                              {tool.command}
-                              {tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}
+                            <div className="min-w-0 rounded-[var(--control-radius)] border border-border/30 bg-background/36 px-2 py-1.5">
+                              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
+                                Command
+                              </div>
+                              <div className="truncate font-mono text-foreground/84">
+                                {tool.command}
+                                {tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}
+                              </div>
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="mt-2 flex flex-wrap gap-1.5 pl-11">
                             {tool.languageIds.map((languageId) => (
                               <Badge key={`${tool.id}-${languageId}`} variant="secondary" size="sm">
                                 {languageId}
@@ -2460,61 +2535,64 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             ))}
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {lspCustomTools.length > 0 ? (
-                  <div className="space-y-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Custom servers
+                  <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                    <div className="border-b border-border/35 px-3 py-2">
+                      <div className="text-[12px] font-medium text-foreground/90">
+                        Custom servers
+                      </div>
+                      <div className="text-[11px] text-muted-foreground/60">
+                        Saved package definitions outside the curated catalog.
+                      </div>
                     </div>
-                    <div className="grid gap-2 lg:grid-cols-2">
+                    <div className="divide-y divide-border/32">
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3"
+                          className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-[13px] font-medium text-foreground/90">
-                                  {tool.label}
-                                </div>
-                                <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
-                                  {tool.installed ? "Installed" : "Missing"}
-                                </Badge>
-                                <Badge variant="outline" size="sm">
-                                  {LSP_INSTALLER_LABELS[tool.installer]}
-                                </Badge>
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                              <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
+                                {tool.label}
                               </div>
-                              <p className="text-[12px] leading-relaxed text-muted-foreground">
-                                {tool.description}
-                              </p>
+                              <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
+                                {tool.installed ? "Installed" : "Missing"}
+                              </Badge>
+                              <Badge variant="outline" size="sm">
+                                {LSP_INSTALLER_LABELS[tool.installer]}
+                              </Badge>
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => seedCustomLspForm(tool)}
-                            >
-                              Edit copy
-                            </Button>
+                            <p className="text-[12px] leading-relaxed text-muted-foreground/68">
+                              {tool.description}
+                            </p>
                           </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => seedCustomLspForm(tool)}
+                          >
+                            Edit copy
+                          </Button>
                         </div>
                       ))}
                     </div>
                   </div>
                 ) : null}
 
-                <div className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-[13px] font-medium text-foreground/90">
-                        Custom package
+                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                  <div className="flex flex-col gap-2 border-b border-border/35 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-medium text-foreground/90">
+                        Register custom server
                       </div>
-                      <div className="text-[12px] text-muted-foreground">
-                        Register npm or uv-backed language servers with explicit file associations.
+                      <div className="text-[11px] text-muted-foreground/60">
+                        Add package-backed language servers with explicit file associations.
                       </div>
                     </div>
                     <Button
@@ -2522,108 +2600,131 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       variant="outline"
                       onClick={() => setIsLspCustomFormOpen((open) => !open)}
                     >
-                      {isLspCustomFormOpen ? "Hide form" : "Install custom LSP"}
+                      <WrenchIcon className="size-3.5" />
+                      {isLspCustomFormOpen ? "Hide form" : "Install custom"}
                     </Button>
                   </div>
 
                   {isLspCustomFormOpen ? (
-                    <div className="mt-3 space-y-3">
-                      <div className="flex flex-wrap gap-2">
+                    <div className="space-y-3 px-3 py-3">
+                      <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
                         {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
                           <Button
                             key={installer}
                             size="sm"
-                            variant={lspCustomForm.installer === installer ? "default" : "outline"}
+                            variant={lspCustomForm.installer === installer ? "default" : "ghost"}
                             onClick={() =>
                               setLspCustomForm((current) => ({
                                 ...current,
                                 installer,
                               }))
                             }
+                            className="shrink-0"
                           >
                             {LSP_INSTALLER_LABELS[installer]}
                           </Button>
                         ))}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <Input
-                          value={lspCustomForm.packageName}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              packageName: event.target.value,
-                            }))
-                          }
-                          placeholder={
-                            lspCustomForm.installer === "uv-tool"
-                              ? "Package name (e.g. basedpyright)"
-                              : lspCustomForm.installer === "go-install"
-                                ? "Package name (e.g. golang.org/x/tools/gopls)"
-                                : lspCustomForm.installer === "rustup"
-                                  ? "Package name (e.g. rust-analyzer)"
-                                  : "Package name (e.g. @tailwindcss/language-server)"
-                          }
-                        />
-                        <Input
-                          value={lspCustomForm.command}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              command: event.target.value,
-                            }))
-                          }
-                          placeholder="Command"
-                        />
-                        <Input
-                          value={lspCustomForm.label}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              label: event.target.value,
-                            }))
-                          }
-                          placeholder="Display label"
-                        />
-                        <Input
-                          value={lspCustomForm.args}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              args: event.target.value,
-                            }))
-                          }
-                          placeholder="Args (comma-separated, optional)"
-                        />
-                        <Input
-                          value={lspCustomForm.languageIds}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              languageIds: event.target.value,
-                            }))
-                          }
-                          placeholder="Language IDs (comma-separated)"
-                        />
-                        <Input
-                          value={lspCustomForm.fileExtensions}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              fileExtensions: event.target.value,
-                            }))
-                          }
-                          placeholder="File extensions (comma-separated)"
-                        />
-                        <Input
-                          value={lspCustomForm.fileNames}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              fileNames: event.target.value,
-                            }))
-                          }
-                          placeholder="File names (comma-separated, optional)"
-                        />
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Package
+                          <Input
+                            value={lspCustomForm.packageName}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                packageName: event.target.value,
+                              }))
+                            }
+                            placeholder={
+                              lspCustomForm.installer === "uv-tool"
+                                ? "basedpyright"
+                                : lspCustomForm.installer === "go-install"
+                                  ? "golang.org/x/tools/gopls"
+                                  : lspCustomForm.installer === "rustup"
+                                    ? "rust-analyzer"
+                                    : "@tailwindcss/language-server"
+                            }
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Command
+                          <Input
+                            value={lspCustomForm.command}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                command: event.target.value,
+                              }))
+                            }
+                            placeholder="language-server-command"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Display label
+                          <Input
+                            value={lspCustomForm.label}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                label: event.target.value,
+                              }))
+                            }
+                            placeholder="Tailwind CSS"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Args
+                          <Input
+                            value={lspCustomForm.args}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                args: event.target.value,
+                              }))
+                            }
+                            placeholder="comma-separated, optional"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Language IDs
+                          <Input
+                            value={lspCustomForm.languageIds}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                languageIds: event.target.value,
+                              }))
+                            }
+                            placeholder="typescript, javascript"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          File extensions
+                          <Input
+                            value={lspCustomForm.fileExtensions}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                fileExtensions: event.target.value,
+                              }))
+                            }
+                            placeholder=".ts, .tsx"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2">
+                          File names
+                          <Input
+                            value={lspCustomForm.fileNames}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                fileNames: event.target.value,
+                              }))
+                            }
+                            placeholder="comma-separated, optional"
+                          />
+                        </label>
                       </div>
                       <div className="flex justify-end">
                         <Button
@@ -2631,6 +2732,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                           onClick={submitCustomLspInstall}
                           disabled={isInstallingCustomLsp}
                         >
+                          <DownloadIcon className="size-3.5" />
                           {isInstallingCustomLsp && lspInstallTargetId === "custom-form"
                             ? "Installing..."
                             : "Install custom LSP"}
@@ -3266,7 +3368,7 @@ export function ArchivedThreadsPanel() {
               <div key={project.id} className="border-t border-border/45 first:border-t-0">
                 <button
                   type="button"
-                  className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-150 hover:bg-accent/25 sm:px-4"
+                  className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-150 sm:px-4"
                   aria-expanded={isOpen}
                   onClick={() => setGroupOpen(project.id, !isOpen)}
                 >
