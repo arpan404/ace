@@ -56,7 +56,7 @@ export function resolveProviderSettings<TProvider extends ProviderKind>(
   const merged = {
     ...providerSettings,
     ...instance,
-    enabled: providerSettings.enabled && instance.enabled,
+    enabled: instance.enabled,
     instances: providerSettings.instances,
   };
   return merged as ProviderSettingsFor<TProvider>;

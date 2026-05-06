@@ -7,16 +7,18 @@ import {
   Undo2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
+  type ServerProvider,
   type ServerProviderModel,
   type ServerProviderRuntime,
 } from "@ace/contracts";
 import { type UnifiedSettings, DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import { formatProviderModelDisplayName, normalizeModelSlug } from "@ace/shared/model";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { cn } from "../../lib/utils";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
@@ -29,6 +31,15 @@ import {
   normalizeProviderInstanceBadgeIcon,
 } from "../../providerInstanceBadges";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -58,6 +69,17 @@ interface ProviderSummary {
   detail: string | null;
 }
 
+type ProviderSettingsEntry = Readonly<{
+  accountLabel: string | null;
+  badgeColor?: string | undefined;
+  badgeIcon?: string | undefined;
+  enabled: boolean;
+  instanceId?: string | undefined;
+  key: string;
+  provider: ProviderKind;
+  title: string;
+}>;
+
 const PROVIDER_LOGO_BY_PROVIDER: Record<ProviderKind, Icon> = {
   codex: OpenAI,
   claudeAgent: ClaudeAI,
@@ -80,11 +102,35 @@ export interface ProviderCard {
   homePlaceholder?: string | undefined;
   homeDescription?: ReactNode | undefined;
   models: ReadonlyArray<ServerProviderModel>;
+  providerSnapshots?: ReadonlyArray<ServerProvider> | undefined;
   runtimes?: ReadonlyArray<ServerProviderRuntime> | undefined;
   statusStyle: ProviderStatusStyle;
   summary: ProviderSummary;
   versionLabel: string | null;
 }
+
+type AddProviderStep = "provider" | "setup" | "review";
+
+interface AddProviderDraft {
+  badgeColor: string;
+  badgeIcon: string;
+  binaryPath: string;
+  cliUrl: string;
+  enabled: boolean;
+  label: string;
+  launchEnvText: string;
+  pathValue: string;
+  provider: ProviderKind;
+}
+
+const ADD_PROVIDER_STEPS: ReadonlyArray<{
+  id: AddProviderStep;
+  label: string;
+}> = [
+  { id: "provider", label: "Provider" },
+  { id: "setup", label: "Setup" },
+  { id: "review", label: "Review" },
+];
 
 function resolveCustomModelPlaceholder(provider: ProviderKind): string {
   switch (provider) {
@@ -163,6 +209,121 @@ function allProviderSettingsFingerprint(value: UnifiedSettings["providers"]): st
   return JSON.stringify(stableJsonValue(value));
 }
 
+function providerEntryKey(provider: ProviderKind, instanceId?: string | null): string {
+  return `${provider}:${instanceId && instanceId !== "default" ? instanceId : "default"}`;
+}
+
+function createProviderInstanceId(provider: ProviderKind): string {
+  return `${provider}-${Date.now().toString(36)}`;
+}
+
+function getProviderCardDisplayName(providerCard: ProviderCard): string {
+  return PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
+}
+
+function getNextProviderInstanceLabel(
+  provider: ProviderKind,
+  draftProviders: UnifiedSettings["providers"],
+): string {
+  const instanceCount = draftProviders[provider].instances.length;
+  return instanceCount === 0 ? "Personal" : `Account ${instanceCount + 1}`;
+}
+
+function createAddProviderDraft(
+  provider: ProviderKind,
+  draftProviders: UnifiedSettings["providers"],
+): AddProviderDraft {
+  return {
+    provider,
+    label: getNextProviderInstanceLabel(provider, draftProviders),
+    enabled: true,
+    badgeColor: "slate",
+    badgeIcon: "circle",
+    binaryPath: draftProviders[provider].binaryPath,
+    pathValue: "",
+    cliUrl: "",
+    launchEnvText: "",
+  };
+}
+
+function getProviderPathPatch(
+  provider: ProviderKind,
+  value: string,
+): Record<string, string> | null {
+  switch (provider) {
+    case "codex":
+    case "githubCopilot":
+      return { homePath: value };
+    case "claudeAgent":
+    case "cursor":
+    case "opencode":
+      return { configDir: value };
+    case "pi":
+      return { agentDir: value };
+    case "gemini":
+      return null;
+  }
+}
+
+function buildProviderSettingsEntries(
+  providerCards: ReadonlyArray<ProviderCard>,
+  draftProviders: UnifiedSettings["providers"],
+): ReadonlyArray<ProviderSettingsEntry> {
+  return providerCards.flatMap((providerCard) => {
+    const provider = providerCard.provider;
+    const providerConfig = draftProviders[provider];
+    const providerDisplayName = getProviderCardDisplayName(providerCard);
+    return [
+      {
+        provider,
+        key: providerEntryKey(provider),
+        title: providerDisplayName,
+        accountLabel: null,
+        enabled: providerConfig.enabled,
+      },
+      ...providerConfig.instances.map((instance) => ({
+        provider,
+        instanceId: instance.id,
+        key: providerEntryKey(provider, instance.id),
+        title: `${providerDisplayName} ${instance.label}`,
+        accountLabel: instance.label,
+        enabled: instance.enabled,
+        badgeColor: instance.badgeColor,
+        badgeIcon: instance.badgeIcon,
+      })),
+    ];
+  });
+}
+
+function resolveProviderCardSnapshot(
+  providerCard: ProviderCard,
+  providerInstanceId?: string | null,
+): ServerProvider | undefined {
+  const snapshots = providerCard.providerSnapshots;
+  if (!snapshots || snapshots.length === 0) return undefined;
+  const normalizedInstanceId =
+    providerInstanceId && providerInstanceId !== "default" ? providerInstanceId : undefined;
+  return (
+    snapshots.find(
+      (candidate) =>
+        candidate.provider === providerCard.provider &&
+        candidate.providerInstanceId === normalizedInstanceId,
+    ) ??
+    (normalizedInstanceId
+      ? undefined
+      : snapshots.find(
+          (candidate) =>
+            candidate.provider === providerCard.provider &&
+            candidate.isDefaultProviderInstance === true,
+        )) ??
+    snapshots.find(
+      (candidate) =>
+        candidate.provider === providerCard.provider &&
+        candidate.providerInstanceId === normalizedInstanceId,
+    )
+  );
+}
+
 export function ProviderSettingsSection({
   customModelErrorByProvider,
   customModelInputByProvider,
@@ -199,21 +360,30 @@ export function ProviderSettingsSection({
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
   const [draftProviders, setDraftProviders] = useState(() => settings.providers);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>(
-    () => providerCards[0]?.provider ?? "codex",
+  const [selectedEntryKey, setSelectedEntryKey] = useState(() =>
+    providerEntryKey(providerCards[0]?.provider ?? "codex"),
+  );
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [addProviderStep, setAddProviderStep] = useState<AddProviderStep>("provider");
+  const [addProviderDraft, setAddProviderDraft] = useState(() =>
+    createAddProviderDraft(providerCards[0]?.provider ?? "codex", settings.providers),
   );
   useEffect(() => {
     setDraftProviders(settings.providers);
   }, [settings.providers]);
+  const providerEntries = useMemo(
+    () => buildProviderSettingsEntries(providerCards, draftProviders),
+    [draftProviders, providerCards],
+  );
   useEffect(() => {
-    if (providerCards.some((providerCard) => providerCard.provider === selectedProvider)) {
+    if (providerEntries.some((entry) => entry.key === selectedEntryKey)) {
       return;
     }
-    const firstProvider = providerCards[0]?.provider;
-    if (firstProvider) {
-      setSelectedProvider(firstProvider);
+    const firstEntry = providerEntries[0];
+    if (firstEntry) {
+      setSelectedEntryKey(firstEntry.key);
     }
-  }, [providerCards, selectedProvider]);
+  }, [providerEntries, selectedEntryKey]);
 
   const hasProviderDraftChanges =
     allProviderSettingsFingerprint(draftProviders) !==
@@ -230,9 +400,14 @@ export function ProviderSettingsSection({
   };
 
   const saveProviderDraft = () => {
+    const textGenerationProviderSettings = resolveProviderSettings(
+      { providers: draftProviders },
+      textGenProvider,
+      settings.textGenerationModelSelection.providerInstanceId,
+    );
     updateSettings({
       providers: draftProviders,
-      ...(!draftProviders[textGenProvider].enabled
+      ...(!textGenerationProviderSettings.enabled
         ? { textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection }
         : {}),
     });
@@ -242,35 +417,42 @@ export function ProviderSettingsSection({
     setDraftProviders(settings.providers);
   };
 
-  const addProviderInstance = (providerCard: ProviderCard) => {
-    const provider = providerCard.provider;
+  const addProviderInstance = (draft: AddProviderDraft) => {
+    const provider = draft.provider;
     const providerConfig = draftProviders[provider];
-    const instanceId = `${provider}-${Date.now().toString(36)}`;
+    const instanceId = createProviderInstanceId(provider);
+    const label = draft.label.trim() || getNextProviderInstanceLabel(provider, draftProviders);
+    const binaryPath = draft.binaryPath.trim() || providerConfig.binaryPath;
+    const pathValue = draft.pathValue.trim();
+    const cliUrl = draft.cliUrl.trim();
     const base = {
       id: instanceId,
-      label: `Account ${providerConfig.instances.length + 1}`,
-      enabled: true,
-      badgeColor: "slate",
-      badgeIcon: "circle",
-      binaryPath: providerConfig.binaryPath,
+      label,
+      enabled: draft.enabled,
+      badgeColor: normalizeProviderInstanceBadgeColor(draft.badgeColor),
+      badgeIcon: normalizeProviderInstanceBadgeIcon(draft.badgeIcon),
+      binaryPath,
       customModels: [],
-      launchEnv: {},
+      launchEnv: parseLaunchEnv(draft.launchEnvText),
     };
+    const pathPatch = getProviderPathPatch(provider, pathValue);
     const nextInstance =
       provider === "codex"
-        ? { ...base, homePath: "" }
+        ? { ...base, homePath: pathValue }
         : provider === "githubCopilot"
-          ? { ...base, homePath: "", cliUrl: "" }
+          ? { ...base, homePath: pathPatch?.homePath ?? "", cliUrl }
           : provider === "claudeAgent" || provider === "cursor" || provider === "opencode"
-            ? { ...base, configDir: "" }
+            ? { ...base, configDir: pathPatch?.configDir ?? "" }
             : provider === "pi"
-              ? { ...base, agentDir: "" }
+              ? { ...base, agentDir: pathPatch?.agentDir ?? "" }
               : base;
 
     updateProviderConfig(provider, {
       ...providerConfig,
       instances: [...providerConfig.instances, nextInstance],
     } as UnifiedSettings["providers"][typeof provider]);
+    setSelectedEntryKey(providerEntryKey(provider, instanceId));
+    setAddProviderOpen(false);
   };
 
   const updateProviderInstance = (
@@ -297,11 +479,14 @@ export function ProviderSettingsSection({
     } as UnifiedSettings["providers"][typeof provider]);
   };
 
-  const addDraftCustomModel = (providerCard: ProviderCard) => {
+  const addDraftCustomModel = (providerCard: ProviderCard, providerInstanceId?: string) => {
     const provider = providerCard.provider;
     const customModelInput = customModelInputByProvider[provider];
     const providerConfig = draftProviders[provider];
-    const customModels = providerConfig.customModels;
+    const providerInstance = providerInstanceId
+      ? providerConfig.instances.find((instance) => instance.id === providerInstanceId)
+      : undefined;
+    const customModels = providerInstance?.customModels ?? providerConfig.customModels;
     const normalized = normalizeModelSlug(customModelInput, provider);
     if (!normalized) {
       setCustomModelErrorByProvider((existing) => ({
@@ -332,10 +517,16 @@ export function ProviderSettingsSection({
       return;
     }
 
-    updateProviderConfig(provider, {
-      ...providerConfig,
-      customModels: [...customModels, normalized],
-    } as UnifiedSettings["providers"][typeof provider]);
+    if (providerInstance) {
+      updateProviderInstance(providerCard, providerInstance.id, {
+        customModels: [...customModels, normalized],
+      });
+    } else {
+      updateProviderConfig(provider, {
+        ...providerConfig,
+        customModels: [...customModels, normalized],
+      } as UnifiedSettings["providers"][typeof provider]);
+    }
     setCustomModelInputByProvider((existing) => ({
       ...existing,
       [provider]: "",
@@ -357,22 +548,37 @@ export function ProviderSettingsSection({
     setTimeout(() => observer.disconnect(), 2_000);
   };
 
-  const removeDraftCustomModel = (providerCard: ProviderCard, slug: string) => {
+  const removeDraftCustomModel = (
+    providerCard: ProviderCard,
+    slug: string,
+    providerInstanceId?: string,
+  ) => {
     const provider = providerCard.provider;
     const providerConfig = draftProviders[provider];
-    updateProviderConfig(provider, {
-      ...providerConfig,
-      customModels: providerConfig.customModels.filter((model) => model !== slug),
-    } as UnifiedSettings["providers"][typeof provider]);
+    const providerInstance = providerInstanceId
+      ? providerConfig.instances.find((instance) => instance.id === providerInstanceId)
+      : undefined;
+    if (providerInstance) {
+      updateProviderInstance(providerCard, providerInstance.id, {
+        customModels: providerInstance.customModels.filter((model) => model !== slug),
+      });
+    } else {
+      updateProviderConfig(provider, {
+        ...providerConfig,
+        customModels: providerConfig.customModels.filter((model) => model !== slug),
+      } as UnifiedSettings["providers"][typeof provider]);
+    }
     setCustomModelErrorByProvider((existing) => ({
       ...existing,
       [provider]: null,
     }));
   };
 
-  const selectedProviderCard =
-    providerCards.find((providerCard) => providerCard.provider === selectedProvider) ??
-    providerCards[0];
+  const selectedEntry =
+    providerEntries.find((entry) => entry.key === selectedEntryKey) ?? providerEntries[0];
+  const selectedProviderCard = selectedEntry
+    ? providerCards.find((providerCard) => providerCard.provider === selectedEntry.provider)
+    : providerCards[0];
 
   if (!selectedProviderCard) {
     return (
@@ -386,19 +592,66 @@ export function ProviderSettingsSection({
   }
 
   const providerCard = selectedProviderCard;
+  const selectedProviderEntry =
+    selectedEntry && selectedEntry.provider === providerCard.provider
+      ? selectedEntry
+      : {
+          provider: providerCard.provider,
+          key: providerEntryKey(providerCard.provider),
+          title: getProviderCardDisplayName(providerCard),
+          accountLabel: null,
+          enabled: draftProviders[providerCard.provider].enabled,
+        };
   const customModelInput = customModelInputByProvider[providerCard.provider];
   const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
-  const providerDisplayName = PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
+  const providerDisplayName = getProviderCardDisplayName(providerCard);
   const ProviderLogo = PROVIDER_LOGO_BY_PROVIDER[providerCard.provider];
   const isUpgrading = isUpgradingProvider(providerCard.provider);
   const draftConfig = draftProviders[providerCard.provider];
+  const selectedInstance = selectedProviderEntry.instanceId
+    ? draftConfig.instances.find((instance) => instance.id === selectedProviderEntry.instanceId)
+    : undefined;
   const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerCard.provider];
   const isDraftDefaultDirty =
     providerSettingsFingerprint(draftConfig) !== providerSettingsFingerprint(defaultProviderConfig);
-  const displayedModels = providerCard.models.filter(
-    (model) => !model.isCustom || draftConfig.customModels.includes(model.slug),
+  const selectedSnapshot = resolveProviderCardSnapshot(
+    providerCard,
+    selectedProviderEntry.instanceId,
   );
-  for (const slug of draftConfig.customModels) {
+  const selectedCustomModels = selectedInstance?.customModels ?? draftConfig.customModels;
+  const selectedEntryConfig = (selectedInstance ?? draftConfig) as Record<string, unknown>;
+  const selectedPathLabel = instancePathLabel(providerCard.provider);
+  const selectedPathValue =
+    typeof selectedEntryConfig.homePath === "string"
+      ? selectedEntryConfig.homePath
+      : typeof selectedEntryConfig.configDir === "string"
+        ? selectedEntryConfig.configDir
+        : typeof selectedEntryConfig.agentDir === "string"
+          ? selectedEntryConfig.agentDir
+          : "";
+  const selectedCliUrlValue =
+    typeof selectedEntryConfig.cliUrl === "string" ? selectedEntryConfig.cliUrl : "";
+  const selectedLaunchEnv =
+    selectedEntryConfig.launchEnv &&
+    typeof selectedEntryConfig.launchEnv === "object" &&
+    !Array.isArray(selectedEntryConfig.launchEnv)
+      ? (selectedEntryConfig.launchEnv as Record<string, string>)
+      : {};
+  const updateSelectedEntryConfig = (patch: Record<string, unknown>) => {
+    if (selectedInstance) {
+      updateProviderInstance(providerCard, selectedInstance.id, patch);
+      return;
+    }
+    updateProviderConfig(providerCard.provider, {
+      ...draftConfig,
+      ...patch,
+    } as UnifiedSettings["providers"][typeof providerCard.provider]);
+  };
+  const baseModels = selectedSnapshot?.models ?? providerCard.models;
+  const displayedModels = baseModels.filter(
+    (model) => !model.isCustom || selectedCustomModels.includes(model.slug),
+  );
+  for (const slug of selectedCustomModels) {
     if (displayedModels.some((model) => model.slug === slug)) continue;
     displayedModels.push({
       slug,
@@ -407,6 +660,50 @@ export function ProviderSettingsSection({
       capabilities: null,
     });
   }
+  const addProviderCard =
+    providerCards.find((candidate) => candidate.provider === addProviderDraft.provider) ??
+    providerCards[0];
+  const AddProviderLogo = addProviderCard
+    ? PROVIDER_LOGO_BY_PROVIDER[addProviderCard.provider]
+    : PROVIDER_LOGO_BY_PROVIDER.codex;
+  const addProviderDisplayName = addProviderCard
+    ? getProviderCardDisplayName(addProviderCard)
+    : PROVIDER_DISPLAY_NAMES[addProviderDraft.provider];
+  const addProviderPathLabel = instancePathLabel(addProviderDraft.provider);
+  const addProviderLaunchEnvCount = Object.keys(
+    parseLaunchEnv(addProviderDraft.launchEnvText),
+  ).length;
+  const addProviderCurrentStepIndex = ADD_PROVIDER_STEPS.findIndex(
+    (step) => step.id === addProviderStep,
+  );
+  const canCreateProviderDraft = addProviderDraft.label.trim().length > 0;
+  const resetAddProviderDialog = (provider: ProviderKind) => {
+    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
+    setAddProviderStep("provider");
+  };
+  const openAddProviderDialog = () => {
+    resetAddProviderDialog(selectedProviderEntry.provider);
+    setAddProviderOpen(true);
+  };
+  const closeAddProviderDialog = () => {
+    setAddProviderOpen(false);
+  };
+  const selectAddProvider = (provider: ProviderKind) => {
+    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
+  };
+  const goToPreviousAddProviderStep = () => {
+    const previousStep = ADD_PROVIDER_STEPS[Math.max(0, addProviderCurrentStepIndex - 1)];
+    if (previousStep) {
+      setAddProviderStep(previousStep.id);
+    }
+  };
+  const goToNextAddProviderStep = () => {
+    const nextStep =
+      ADD_PROVIDER_STEPS[Math.min(ADD_PROVIDER_STEPS.length - 1, addProviderCurrentStepIndex + 1)];
+    if (nextStep) {
+      setAddProviderStep(nextStep.id);
+    }
+  };
 
   return (
     <SettingsSection
@@ -482,19 +779,32 @@ export function ProviderSettingsSection({
         </div>
       }
     >
-      <div className="grid min-h-[34rem] overflow-hidden rounded-[var(--panel-radius)] border border-border/45 bg-background/20 md:grid-cols-[12rem_minmax(0,1fr)]">
+      <div className="grid min-h-[34rem] overflow-hidden rounded-[var(--panel-radius)] border border-border/45 bg-background/20 md:grid-cols-[13.5rem_minmax(0,1fr)]">
         <div className="border-b border-border/45 bg-background/25 p-2 md:border-r md:border-b-0">
+          <Button
+            size="sm"
+            variant="outline"
+            className="mb-2 h-8 w-full rounded-[var(--control-radius)] justify-start gap-1.5 px-2 text-xs"
+            onClick={openAddProviderDialog}
+            aria-label="Add provider instance"
+            data-provider-settings-add-provider="true"
+          >
+            <PlusIcon className="size-3" />
+            Add provider
+          </Button>
+
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-1">
-            {providerCards.map((railProviderCard) => {
-              const RailLogo = PROVIDER_LOGO_BY_PROVIDER[railProviderCard.provider];
-              const railConfig = draftProviders[railProviderCard.provider];
-              const isSelected = railProviderCard.provider === providerCard.provider;
-              const railDisplayName =
-                PROVIDER_DISPLAY_NAMES[railProviderCard.provider] ?? railProviderCard.title;
-              const railInstanceCount = railConfig.instances.length;
+            {providerEntries.map((entry) => {
+              const railProviderCard =
+                providerCards.find((candidate) => candidate.provider === entry.provider) ??
+                providerCards[0];
+              if (!railProviderCard) return null;
+              const RailLogo = PROVIDER_LOGO_BY_PROVIDER[entry.provider];
+              const isSelected = entry.key === selectedProviderEntry.key;
+              const railSubtitle = entry.accountLabel ?? "Default";
               return (
                 <button
-                  key={railProviderCard.provider}
+                  key={entry.key}
                   type="button"
                   className={cn(
                     "group flex min-w-0 items-center gap-2 rounded-[var(--control-radius)] border px-2 py-2 text-left transition-colors",
@@ -502,35 +812,38 @@ export function ProviderSettingsSection({
                       ? "border-border/60 bg-foreground/[0.06] text-foreground"
                       : "border-transparent bg-transparent text-muted-foreground hover:border-border/45 hover:bg-foreground/[0.04] hover:text-foreground",
                   )}
-                  onClick={() => setSelectedProvider(railProviderCard.provider)}
+                  onClick={() => setSelectedEntryKey(entry.key)}
                 >
                   <span
                     className={cn(
-                      "flex size-7 shrink-0 items-center justify-center rounded-[var(--control-radius)] border transition-colors",
+                      "relative flex size-7 shrink-0 items-center justify-center rounded-[var(--control-radius)] border transition-colors",
                       isSelected
                         ? "border-border/55 bg-background text-foreground"
                         : "border-border/35 bg-background/45 text-muted-foreground group-hover:text-foreground",
                     )}
                   >
                     <RailLogo className="size-3.5" />
+                    {entry.instanceId ? (
+                      <ProviderInstanceBadge
+                        color={entry.badgeColor}
+                        icon={entry.badgeIcon}
+                        className="absolute -bottom-1 -right-1 size-3 border-[1.5px]"
+                      />
+                    ) : null}
                   </span>
                   <span
                     className={cn(
                       "size-1.5 shrink-0 rounded-full",
-                      railProviderCard.statusStyle.dot,
+                      entry.enabled ? railProviderCard.statusStyle.dot : "bg-muted-foreground/35",
                     )}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block min-w-0 truncate text-xs font-medium">
-                      {railDisplayName}
+                      {getProviderCardDisplayName(railProviderCard)}
                     </span>
-                    {railInstanceCount > 0 || !railConfig.enabled ? (
-                      <span className="mt-0.5 block truncate text-[10px] text-muted-foreground/55">
-                        {railInstanceCount > 0
-                          ? `${railInstanceCount} ${railInstanceCount === 1 ? "account" : "accounts"}`
-                          : "Off"}
-                      </span>
-                    ) : null}
+                    <span className="mt-0.5 block truncate text-[10px] text-muted-foreground/55">
+                      {entry.enabled ? railSubtitle : `${railSubtitle} · Off`}
+                    </span>
                   </span>
                 </button>
               );
@@ -550,6 +863,11 @@ export function ProviderSettingsSection({
                     <h3 className="truncate text-[14px] font-semibold tracking-tight text-foreground">
                       {providerDisplayName}
                     </h3>
+                    {selectedProviderEntry.accountLabel ? (
+                      <span className="rounded-full border border-border/45 bg-background/55 px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {selectedProviderEntry.accountLabel}
+                      </span>
+                    ) : null}
                     {providerCard.versionLabel ? (
                       <code className="rounded border border-border/40 bg-background/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
                         {providerCard.versionLabel}
@@ -581,6 +899,20 @@ export function ProviderSettingsSection({
               </div>
 
               <div className="flex shrink-0 items-center gap-2 md:justify-end">
+                {selectedInstance ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 rounded-[var(--control-radius)] text-muted-foreground/60 hover:text-foreground"
+                    onClick={() => {
+                      removeProviderInstance(providerCard, selectedInstance.id);
+                      setSelectedEntryKey(providerEntryKey(providerCard.provider));
+                    }}
+                    aria-label={`Remove ${selectedInstance.label}`}
+                  >
+                    <XIcon className="size-3.5" />
+                  </Button>
+                ) : null}
                 {providerCard.canUpgradeCli ? (
                   <Button
                     size="sm"
@@ -598,20 +930,119 @@ export function ProviderSettingsSection({
                   </Button>
                 ) : null}
                 <Switch
-                  checked={draftConfig.enabled}
+                  checked={selectedInstance?.enabled ?? draftConfig.enabled}
                   onCheckedChange={(checked) => {
-                    updateProviderConfig(providerCard.provider, {
-                      ...draftConfig,
-                      enabled: Boolean(checked),
-                    } as UnifiedSettings["providers"][typeof providerCard.provider]);
+                    updateSelectedEntryConfig({ enabled: Boolean(checked) });
                   }}
-                  aria-label={`Enable ${providerDisplayName}`}
+                  aria-label={`Enable ${selectedProviderEntry.title}`}
                 />
               </div>
             </div>
           </div>
 
           <div className="space-y-3 p-3">
+            {selectedInstance ? (
+              <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
+                <div className="border-b border-border/35 px-3 py-2">
+                  <div className="text-xs font-semibold text-foreground/90">Identity</div>
+                </div>
+                <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+                  <label className="block">
+                    <span className="text-[11px] font-medium text-foreground/75">Name</span>
+                    <Input
+                      className="mt-1"
+                      value={selectedInstance.label}
+                      onChange={(event) =>
+                        updateProviderInstance(providerCard, selectedInstance.id, {
+                          label: event.target.value,
+                        })
+                      }
+                      placeholder="Personal"
+                    />
+                  </label>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <div className="mb-1 text-[11px] font-medium text-foreground/75">Icon</div>
+                      <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                        {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
+                          const selectedIcon =
+                            normalizeProviderInstanceBadgeIcon(selectedInstance.badgeIcon) ===
+                            badgeIcon.value;
+                          return (
+                            <Tooltip key={badgeIcon.value}>
+                              <TooltipTrigger
+                                render={
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "flex size-6 items-center justify-center rounded-[calc(var(--control-radius)-3px)] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+                                      selectedIcon && "bg-foreground/[0.08] text-foreground",
+                                    )}
+                                    onClick={() =>
+                                      updateProviderInstance(providerCard, selectedInstance.id, {
+                                        badgeIcon: badgeIcon.value,
+                                      })
+                                    }
+                                    aria-label={`Use ${badgeIcon.label} badge icon`}
+                                  >
+                                    <ProviderInstanceBadgeIconGlyph
+                                      icon={badgeIcon.value}
+                                      className="size-3.5"
+                                    />
+                                  </button>
+                                }
+                              />
+                              <TooltipPopup side="top">{badgeIcon.label}</TooltipPopup>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
+                      <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                        {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
+                          const selectedColor =
+                            normalizeProviderInstanceBadgeColor(selectedInstance.badgeColor) ===
+                            badgeColor.value;
+                          return (
+                            <Tooltip key={badgeColor.value}>
+                              <TooltipTrigger
+                                render={
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "flex size-6 items-center justify-center rounded-full border border-transparent transition-colors hover:border-border/70",
+                                      selectedColor && "border-foreground/75",
+                                    )}
+                                    onClick={() =>
+                                      updateProviderInstance(providerCard, selectedInstance.id, {
+                                        badgeColor: badgeColor.value,
+                                      })
+                                    }
+                                    aria-label={`Use ${badgeColor.label} badge color`}
+                                  >
+                                    <span
+                                      aria-hidden="true"
+                                      className="size-3.5 rounded-full"
+                                      style={{ backgroundColor: badgeColor.hex }}
+                                    />
+                                  </button>
+                                }
+                              />
+                              <TooltipPopup side="top">{badgeColor.label}</TooltipPopup>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
             <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
               <div className="border-b border-border/35 px-3 py-2">
                 <div className="text-xs font-semibold text-foreground/90">Launch</div>
@@ -622,12 +1053,11 @@ export function ProviderSettingsSection({
                   <Input
                     id={`provider-install-${providerCard.provider}-binary-path`}
                     className="mt-1"
-                    value={draftConfig.binaryPath}
+                    value={String(selectedEntryConfig.binaryPath ?? "")}
                     onChange={(event) =>
-                      updateProviderConfig(providerCard.provider, {
-                        ...draftConfig,
+                      updateSelectedEntryConfig({
                         binaryPath: event.target.value,
-                      } as UnifiedSettings["providers"][typeof providerCard.provider])
+                      })
                     }
                     placeholder={providerCard.binaryPlaceholder}
                     spellCheck={false}
@@ -644,10 +1074,9 @@ export function ProviderSettingsSection({
                     </span>
                     <Input
                       className="mt-1"
-                      value={"cliUrl" in draftConfig ? draftConfig.cliUrl : ""}
+                      value={selectedCliUrlValue}
                       onChange={(event) =>
-                        updateProviderConfig("githubCopilot", {
-                          ...draftProviders.githubCopilot,
+                        updateSelectedEntryConfig({
                           cliUrl: event.target.value,
                         })
                       }
@@ -662,20 +1091,24 @@ export function ProviderSettingsSection({
                   </label>
                 ) : null}
 
-                {providerCard.homePathKey ? (
+                {selectedPathLabel ? (
                   <label className="block">
                     <span className="text-[11px] font-medium text-foreground/75">
-                      CODEX_HOME path
+                      {selectedPathLabel}
                     </span>
                     <Input
                       className="mt-1"
-                      value={"homePath" in draftConfig ? draftConfig.homePath : ""}
-                      onChange={(event) =>
-                        updateProviderConfig("codex", {
-                          ...draftProviders.codex,
-                          homePath: event.target.value,
-                        })
-                      }
+                      value={selectedPathValue}
+                      onChange={(event) => {
+                        const pathKey =
+                          providerCard.provider === "codex" ||
+                          providerCard.provider === "githubCopilot"
+                            ? "homePath"
+                            : providerCard.provider === "pi"
+                              ? "agentDir"
+                              : "configDir";
+                        updateSelectedEntryConfig({ [pathKey]: event.target.value });
+                      }}
                       placeholder={providerCard.homePlaceholder}
                       spellCheck={false}
                     />
@@ -686,6 +1119,24 @@ export function ProviderSettingsSection({
                     ) : null}
                   </label>
                 ) : null}
+
+                <label className="block md:col-span-2">
+                  <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
+                  <Textarea
+                    className="mt-1"
+                    size="sm"
+                    value={formatLaunchEnv(selectedLaunchEnv)}
+                    onChange={(event) =>
+                      updateSelectedEntryConfig({
+                        launchEnv: parseLaunchEnv(event.target.value),
+                      })
+                    }
+                    placeholder={
+                      providerCard.provider === "gemini" ? "GEMINI_API_KEY=..." : "KEY=value"
+                    }
+                    spellCheck={false}
+                  />
+                </label>
               </div>
 
               {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
@@ -746,263 +1197,9 @@ export function ProviderSettingsSection({
             <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
               <div className="flex items-center justify-between gap-3 border-b border-border/35 px-3 py-2">
                 <div>
-                  <div className="text-xs font-semibold text-foreground/90">Accounts</div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                  onClick={() => addProviderInstance(providerCard)}
-                >
-                  <PlusIcon className="size-3" />
-                  Add
-                </Button>
-              </div>
-
-              {draftConfig.instances.length > 0 ? (
-                <div className="divide-y divide-border/35">
-                  {draftConfig.instances.map((instance) => {
-                    const pathLabel = instancePathLabel(providerCard.provider);
-                    const normalizedBadgeColor = normalizeProviderInstanceBadgeColor(
-                      instance.badgeColor,
-                    );
-                    const normalizedBadgeIcon = normalizeProviderInstanceBadgeIcon(
-                      instance.badgeIcon,
-                    );
-                    const launchEnvCount = Object.keys(instance.launchEnv).length;
-                    const pathValue =
-                      "homePath" in instance
-                        ? instance.homePath
-                        : "configDir" in instance
-                          ? instance.configDir
-                          : "agentDir" in instance
-                            ? instance.agentDir
-                            : "";
-                    return (
-                      <div key={`${providerCard.provider}:${instance.id}`} className="p-3">
-                        <div className="rounded-[var(--control-radius)] border border-border/35 bg-background/35 p-3">
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-                            <div className="flex min-w-0 flex-1 items-center gap-2">
-                              <ProviderInstanceBadge
-                                color={instance.badgeColor}
-                                icon={instance.badgeIcon}
-                                className="size-5 shrink-0"
-                              />
-                              <Input
-                                className="h-8 min-w-0 max-w-56 border-input/60 bg-background/70 text-sm font-medium"
-                                value={instance.label}
-                                onChange={(event) =>
-                                  updateProviderInstance(providerCard, instance.id, {
-                                    label: event.target.value,
-                                  })
-                                }
-                                placeholder="Account name"
-                              />
-                              <Switch
-                                checked={instance.enabled}
-                                onCheckedChange={(checked) =>
-                                  updateProviderInstance(providerCard, instance.id, {
-                                    enabled: Boolean(checked),
-                                  })
-                                }
-                                aria-label={`Enable ${instance.label}`}
-                              />
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="size-7 rounded-[var(--control-radius)] text-muted-foreground/55 hover:text-foreground"
-                                onClick={() => removeProviderInstance(providerCard, instance.id)}
-                                aria-label={`Remove ${instance.label}`}
-                              >
-                                <XIcon className="size-3.5" />
-                              </Button>
-                            </div>
-
-                            <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
-                              <div className="flex items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
-                                {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => (
-                                  <Tooltip key={badgeIcon.value}>
-                                    <TooltipTrigger
-                                      render={
-                                        <button
-                                          type="button"
-                                          className={cn(
-                                            "flex size-6 items-center justify-center rounded-[calc(var(--control-radius)-3px)] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-                                            normalizedBadgeIcon === badgeIcon.value &&
-                                              "bg-foreground/[0.08] text-foreground",
-                                          )}
-                                          onClick={() =>
-                                            updateProviderInstance(providerCard, instance.id, {
-                                              badgeIcon: badgeIcon.value,
-                                            })
-                                          }
-                                          aria-label={`Use ${badgeIcon.label} badge icon`}
-                                        >
-                                          <ProviderInstanceBadgeIconGlyph
-                                            icon={badgeIcon.value}
-                                            className="size-3.5"
-                                          />
-                                        </button>
-                                      }
-                                    />
-                                    <TooltipPopup side="top">{badgeIcon.label}</TooltipPopup>
-                                  </Tooltip>
-                                ))}
-                              </div>
-
-                              <div className="flex items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
-                                {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => (
-                                  <Tooltip key={badgeColor.value}>
-                                    <TooltipTrigger
-                                      render={
-                                        <button
-                                          type="button"
-                                          className={cn(
-                                            "flex size-6 items-center justify-center rounded-full border border-transparent transition-colors hover:border-border/70",
-                                            normalizedBadgeColor === badgeColor.value &&
-                                              "border-foreground/75",
-                                          )}
-                                          onClick={() =>
-                                            updateProviderInstance(providerCard, instance.id, {
-                                              badgeColor: badgeColor.value,
-                                            })
-                                          }
-                                          aria-label={`Use ${badgeColor.label} badge color`}
-                                        >
-                                          <span
-                                            aria-hidden="true"
-                                            className="size-3.5 rounded-full"
-                                            style={{ backgroundColor: badgeColor.hex }}
-                                          />
-                                        </button>
-                                      }
-                                    />
-                                    <TooltipPopup side="top">{badgeColor.label}</TooltipPopup>
-                                  </Tooltip>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 grid gap-2 md:grid-cols-2">
-                            <label className="block">
-                              <span className="text-[11px] font-medium text-foreground/75">
-                                Binary path
-                              </span>
-                              <Input
-                                className="mt-1"
-                                value={instance.binaryPath}
-                                onChange={(event) =>
-                                  updateProviderInstance(providerCard, instance.id, {
-                                    binaryPath: event.target.value,
-                                  })
-                                }
-                                placeholder={providerCard.binaryPlaceholder}
-                                spellCheck={false}
-                              />
-                            </label>
-                            {pathLabel ? (
-                              <label className="block">
-                                <span className="text-[11px] font-medium text-foreground/75">
-                                  {pathLabel}
-                                </span>
-                                <Input
-                                  className="mt-1"
-                                  value={pathValue}
-                                  onChange={(event) => {
-                                    const pathKey =
-                                      providerCard.provider === "codex" ||
-                                      providerCard.provider === "githubCopilot"
-                                        ? "homePath"
-                                        : providerCard.provider === "pi"
-                                          ? "agentDir"
-                                          : "configDir";
-                                    updateProviderInstance(providerCard, instance.id, {
-                                      [pathKey]: event.target.value,
-                                    });
-                                  }}
-                                  spellCheck={false}
-                                />
-                              </label>
-                            ) : null}
-                            {providerCard.provider === "githubCopilot" && "cliUrl" in instance ? (
-                              <label className="block md:col-span-2">
-                                <span className="text-[11px] font-medium text-foreground/75">
-                                  CLI server URL
-                                </span>
-                                <Input
-                                  className="mt-1"
-                                  value={instance.cliUrl}
-                                  onChange={(event) =>
-                                    updateProviderInstance(providerCard, instance.id, {
-                                      cliUrl: event.target.value,
-                                    })
-                                  }
-                                  placeholder={providerCard.cliUrlPlaceholder}
-                                  spellCheck={false}
-                                />
-                              </label>
-                            ) : null}
-                            <details className="md:col-span-2 rounded-[var(--control-radius)] border border-border/35 bg-background/35">
-                              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-medium text-foreground/75 marker:hidden">
-                                <span>Env</span>
-                                <span className="text-[10px] font-normal text-muted-foreground/55">
-                                  {launchEnvCount === 0
-                                    ? "None"
-                                    : `${launchEnvCount} ${launchEnvCount === 1 ? "var" : "vars"}`}
-                                </span>
-                              </summary>
-                              <div className="border-t border-border/35 p-2">
-                                <Textarea
-                                  size="sm"
-                                  value={formatLaunchEnv(instance.launchEnv)}
-                                  onChange={(event) =>
-                                    updateProviderInstance(providerCard, instance.id, {
-                                      launchEnv: parseLaunchEnv(event.target.value),
-                                    })
-                                  }
-                                  placeholder={
-                                    providerCard.provider === "gemini"
-                                      ? "GEMINI_API_KEY=..."
-                                      : "KEY=value"
-                                  }
-                                  spellCheck={false}
-                                />
-                              </div>
-                            </details>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="p-6">
-                  <div className="rounded-[var(--control-radius)] border border-dashed border-border/55 bg-background/30 px-4 py-6 text-center">
-                    <div className="text-sm font-medium text-foreground/85">No accounts</div>
-                    <div className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground/60">
-                      Add one for separate credentials, config paths, or a composer badge.
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-3 h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                      onClick={() => addProviderInstance(providerCard)}
-                    >
-                      <PlusIcon className="size-3" />
-                      Add
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
-              <div className="flex items-center justify-between gap-3 border-b border-border/35 px-3 py-2">
-                <div>
                   <div className="text-xs font-semibold text-foreground/90">Models</div>
                   <div className="text-[11px] text-muted-foreground/55">
-                    {displayedModels.length} available, {draftConfig.customModels.length} custom.
+                    {displayedModels.length} available, {selectedCustomModels.length} custom.
                   </div>
                 </div>
               </div>
@@ -1064,7 +1261,13 @@ export function ProviderSettingsSection({
                             type="button"
                             className="rounded-full border border-border/35 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
                             aria-label={`Remove ${model.slug}`}
-                            onClick={() => removeDraftCustomModel(providerCard, model.slug)}
+                            onClick={() =>
+                              removeDraftCustomModel(
+                                providerCard,
+                                model.slug,
+                                selectedProviderEntry.instanceId,
+                              )
+                            }
                           >
                             custom
                           </button>
@@ -1099,7 +1302,7 @@ export function ProviderSettingsSection({
                     onKeyDown={(event) => {
                       if (event.key !== "Enter") return;
                       event.preventDefault();
-                      addDraftCustomModel(providerCard);
+                      addDraftCustomModel(providerCard, selectedProviderEntry.instanceId);
                     }}
                     placeholder={resolveCustomModelPlaceholder(providerCard.provider)}
                     spellCheck={false}
@@ -1107,7 +1310,9 @@ export function ProviderSettingsSection({
                   <Button
                     className="mt-2 h-8 w-full rounded-[var(--control-radius)] gap-1.5 text-xs"
                     variant="outline"
-                    onClick={() => addDraftCustomModel(providerCard)}
+                    onClick={() =>
+                      addDraftCustomModel(providerCard, selectedProviderEntry.instanceId)
+                    }
                   >
                     <PlusIcon className="size-3.5" />
                     Add model
@@ -1121,6 +1326,386 @@ export function ProviderSettingsSection({
           </div>
         </div>
       </div>
+      <Dialog
+        onOpenChange={(open) => {
+          setAddProviderOpen(open);
+          if (!open) {
+            setAddProviderStep("provider");
+          }
+        }}
+        open={addProviderOpen}
+      >
+        <DialogPopup className="max-w-2xl" data-provider-settings-add-provider-modal="true">
+          <DialogHeader className="gap-2 border-b border-border/45 px-4 py-3 sm:px-5 sm:py-4">
+            <div className="flex items-center gap-2">
+              <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/55">
+                <AddProviderLogo className="size-4" />
+                {addProviderStep !== "provider" ? (
+                  <ProviderInstanceBadge
+                    color={addProviderDraft.badgeColor}
+                    icon={addProviderDraft.badgeIcon}
+                    className="absolute -bottom-1 -right-1 size-3.5 border-[1.5px]"
+                  />
+                ) : null}
+              </span>
+              <div className="min-w-0">
+                <DialogTitle>Add provider</DialogTitle>
+                <DialogDescription className="text-xs">
+                  {addProviderStep === "provider"
+                    ? "Choose a provider type."
+                    : addProviderStep === "setup"
+                      ? "Set up the account."
+                      : "Create a draft account."}
+                </DialogDescription>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
+              {ADD_PROVIDER_STEPS.map((step, index) => {
+                const isActive = step.id === addProviderStep;
+                const isComplete = index < addProviderCurrentStepIndex;
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    className={cn(
+                      "h-7 rounded-[calc(var(--control-radius)-2px)] px-2 text-xs transition-colors",
+                      isActive
+                        ? "bg-foreground/[0.08] text-foreground"
+                        : isComplete
+                          ? "text-foreground/80 hover:bg-foreground/[0.04]"
+                          : "text-muted-foreground/60",
+                    )}
+                    onClick={() => {
+                      if (index <= addProviderCurrentStepIndex) {
+                        setAddProviderStep(step.id);
+                      }
+                    }}
+                    disabled={index > addProviderCurrentStepIndex}
+                  >
+                    {step.label}
+                  </button>
+                );
+              })}
+            </div>
+          </DialogHeader>
+
+          <DialogPanel className="p-4 sm:p-5">
+            {addProviderStep === "provider" ? (
+              <div className="grid gap-2 sm:grid-cols-2" data-provider-setup-step="provider">
+                {providerCards.map((candidate) => {
+                  const CandidateLogo = PROVIDER_LOGO_BY_PROVIDER[candidate.provider];
+                  const candidateName = getProviderCardDisplayName(candidate);
+                  const isSelected = candidate.provider === addProviderDraft.provider;
+                  const instanceCount = draftProviders[candidate.provider].instances.length;
+                  return (
+                    <button
+                      key={`provider-setup:${candidate.provider}`}
+                      type="button"
+                      className={cn(
+                        "flex min-w-0 items-center gap-3 rounded-[var(--control-radius)] border px-3 py-2.5 text-left transition-colors",
+                        isSelected
+                          ? "border-primary/55 bg-primary/10 text-foreground"
+                          : "border-border/40 bg-background/40 text-muted-foreground hover:border-border/70 hover:bg-foreground/[0.04] hover:text-foreground",
+                      )}
+                      onClick={() => selectAddProvider(candidate.provider)}
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">
+                        <CandidateLogo className="size-4.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{candidateName}</span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground/60">
+                          {instanceCount === 0
+                            ? "Default only"
+                            : `${instanceCount} account${instanceCount === 1 ? "" : "s"}`}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {addProviderStep === "setup" ? (
+              <div className="space-y-4" data-provider-setup-step="setup">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="block">
+                    <span className="text-[11px] font-medium text-foreground/75">Name</span>
+                    <Input
+                      className="mt-1"
+                      value={addProviderDraft.label}
+                      onChange={(event) =>
+                        setAddProviderDraft((draft) => ({
+                          ...draft,
+                          label: event.target.value,
+                        }))
+                      }
+                      placeholder="Personal"
+                      autoFocus
+                    />
+                  </label>
+                  <label className="flex items-end justify-between gap-3 rounded-[var(--control-radius)] border border-border/35 bg-background/45 px-3 py-2">
+                    <span className="text-xs font-medium text-foreground/80">Enabled</span>
+                    <Switch
+                      checked={addProviderDraft.enabled}
+                      onCheckedChange={(checked) =>
+                        setAddProviderDraft((draft) => ({
+                          ...draft,
+                          enabled: Boolean(checked),
+                        }))
+                      }
+                      aria-label="Enable new provider account"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="mb-1 text-[11px] font-medium text-foreground/75">Badge</div>
+                    <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                      {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
+                        const selectedIcon =
+                          normalizeProviderInstanceBadgeIcon(addProviderDraft.badgeIcon) ===
+                          badgeIcon.value;
+                        return (
+                          <Tooltip key={badgeIcon.value}>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "flex size-7 items-center justify-center rounded-[calc(var(--control-radius)-3px)] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+                                    selectedIcon && "bg-foreground/[0.08] text-foreground",
+                                  )}
+                                  onClick={() =>
+                                    setAddProviderDraft((draft) => ({
+                                      ...draft,
+                                      badgeIcon: badgeIcon.value,
+                                    }))
+                                  }
+                                  aria-label={`Use ${badgeIcon.label} badge icon`}
+                                >
+                                  <ProviderInstanceBadgeIconGlyph
+                                    icon={badgeIcon.value}
+                                    className="size-3.5"
+                                  />
+                                </button>
+                              }
+                            />
+                            <TooltipPopup side="top">{badgeIcon.label}</TooltipPopup>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
+                    <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                      {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
+                        const selectedColor =
+                          normalizeProviderInstanceBadgeColor(addProviderDraft.badgeColor) ===
+                          badgeColor.value;
+                        return (
+                          <Tooltip key={badgeColor.value}>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "flex size-7 items-center justify-center rounded-full border border-transparent transition-colors hover:border-border/70",
+                                    selectedColor && "border-foreground/75",
+                                  )}
+                                  onClick={() =>
+                                    setAddProviderDraft((draft) => ({
+                                      ...draft,
+                                      badgeColor: badgeColor.value,
+                                    }))
+                                  }
+                                  aria-label={`Use ${badgeColor.label} badge color`}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    className="size-3.5 rounded-full"
+                                    style={{ backgroundColor: badgeColor.hex }}
+                                  />
+                                </button>
+                              }
+                            />
+                            <TooltipPopup side="top">{badgeColor.label}</TooltipPopup>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
+                    <Input
+                      className="mt-1"
+                      value={addProviderDraft.binaryPath}
+                      onChange={(event) =>
+                        setAddProviderDraft((draft) => ({
+                          ...draft,
+                          binaryPath: event.target.value,
+                        }))
+                      }
+                      placeholder={addProviderCard?.binaryPlaceholder}
+                      spellCheck={false}
+                    />
+                  </label>
+
+                  {addProviderPathLabel ? (
+                    <label className="block">
+                      <span className="text-[11px] font-medium text-foreground/75">
+                        {addProviderPathLabel}
+                      </span>
+                      <Input
+                        className="mt-1"
+                        value={addProviderDraft.pathValue}
+                        onChange={(event) =>
+                          setAddProviderDraft((draft) => ({
+                            ...draft,
+                            pathValue: event.target.value,
+                          }))
+                        }
+                        placeholder={addProviderCard?.homePlaceholder}
+                        spellCheck={false}
+                      />
+                    </label>
+                  ) : null}
+
+                  {addProviderDraft.provider === "githubCopilot" ? (
+                    <label className="block">
+                      <span className="text-[11px] font-medium text-foreground/75">
+                        CLI server URL
+                      </span>
+                      <Input
+                        className="mt-1"
+                        value={addProviderDraft.cliUrl}
+                        onChange={(event) =>
+                          setAddProviderDraft((draft) => ({
+                            ...draft,
+                            cliUrl: event.target.value,
+                          }))
+                        }
+                        placeholder={addProviderCard?.cliUrlPlaceholder}
+                        spellCheck={false}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+
+                <label className="block">
+                  <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
+                  <Textarea
+                    className="mt-1"
+                    size="sm"
+                    value={addProviderDraft.launchEnvText}
+                    onChange={(event) =>
+                      setAddProviderDraft((draft) => ({
+                        ...draft,
+                        launchEnvText: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      addProviderDraft.provider === "gemini" ? "GEMINI_API_KEY=..." : "KEY=value"
+                    }
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {addProviderStep === "review" ? (
+              <div className="space-y-3" data-provider-setup-step="review">
+                <div className="flex items-center gap-3 rounded-[var(--control-radius)] border border-border/45 bg-background/45 px-3 py-3">
+                  <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">
+                    <AddProviderLogo className="size-5" />
+                    <ProviderInstanceBadge
+                      color={addProviderDraft.badgeColor}
+                      icon={addProviderDraft.badgeIcon}
+                      className="absolute -bottom-1 -right-1 size-4 border-[1.5px]"
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {addProviderDisplayName}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground/65">
+                      {addProviderDraft.label.trim() || "Unnamed account"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid overflow-hidden rounded-[var(--control-radius)] border border-border/40 bg-background/35 text-xs sm:grid-cols-2">
+                  <div className="border-b border-border/30 px-3 py-2 sm:border-r sm:border-b-0">
+                    <div className="text-muted-foreground/60">Binary</div>
+                    <div className="mt-0.5 truncate text-foreground/90">
+                      {addProviderDraft.binaryPath.trim() || addProviderCard?.binaryPlaceholder}
+                    </div>
+                  </div>
+                  <div className="border-b border-border/30 px-3 py-2 sm:border-b-0">
+                    <div className="text-muted-foreground/60">State path</div>
+                    <div className="mt-0.5 truncate text-foreground/90">
+                      {addProviderPathLabel
+                        ? addProviderDraft.pathValue.trim() || "Default"
+                        : "Provider default"}
+                    </div>
+                  </div>
+                  <div className="border-b border-border/30 px-3 py-2 sm:border-r sm:border-b-0">
+                    <div className="text-muted-foreground/60">Env</div>
+                    <div className="mt-0.5 truncate text-foreground/90">
+                      {addProviderLaunchEnvCount === 0
+                        ? "None"
+                        : `${addProviderLaunchEnvCount} variable${
+                            addProviderLaunchEnvCount === 1 ? "" : "s"
+                          }`}
+                    </div>
+                  </div>
+                  <div className="px-3 py-2">
+                    <div className="text-muted-foreground/60">Status</div>
+                    <div className="mt-0.5 truncate text-foreground/90">
+                      {addProviderDraft.enabled ? "Enabled" : "Off"}
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground/65">
+                  This adds a draft account. Use Save on the Providers page to keep it.
+                </p>
+              </div>
+            ) : null}
+          </DialogPanel>
+
+          <DialogFooter className="border-t border-border/45 bg-muted/18 px-4 py-3 sm:px-5">
+            <Button type="button" variant="ghost" onClick={closeAddProviderDialog}>
+              Cancel
+            </Button>
+            {addProviderStep !== "provider" ? (
+              <Button type="button" variant="outline" onClick={goToPreviousAddProviderStep}>
+                Back
+              </Button>
+            ) : null}
+            {addProviderStep === "review" ? (
+              <Button
+                type="button"
+                onClick={() => addProviderInstance(addProviderDraft)}
+                disabled={!canCreateProviderDraft}
+                data-provider-settings-add-provider-create="true"
+              >
+                Create draft
+              </Button>
+            ) : (
+              <Button type="button" onClick={goToNextAddProviderStep}>
+                Next
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </SettingsSection>
   );
 }

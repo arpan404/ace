@@ -74,6 +74,14 @@ type ProviderInstancePickerOption = Readonly<{
   id: string;
   label: string;
 }>;
+type ProviderPickerEntry = Readonly<{
+  accountLabel: string;
+  badgeColor?: string | undefined;
+  badgeIcon?: string | undefined;
+  instanceId?: string | undefined;
+  label: string;
+  provider: ProviderKind;
+}>;
 
 interface ModelPickerRow {
   readonly favoriteKey: string;
@@ -185,6 +193,49 @@ function buildProviderRows(
   ];
 }
 
+function makeProviderEntryKey(provider: ProviderKind, instanceId: string | undefined): string {
+  return `${provider}:${instanceId ?? "default"}`;
+}
+
+function normalizeProviderInstanceId(providerInstanceId: string | null | undefined): string {
+  return providerInstanceId && providerInstanceId !== "default" ? providerInstanceId : "default";
+}
+
+function buildProviderPickerEntries(input: {
+  readonly defaultProviderSelectableByProvider?: Partial<Record<ProviderKind, boolean>> | undefined;
+  readonly options: ReadonlyArray<(typeof AVAILABLE_PROVIDER_OPTIONS)[number]>;
+  readonly providerInstancesByProvider:
+    | Partial<Record<ProviderKind, ReadonlyArray<ProviderInstancePickerOption>>>
+    | undefined;
+}): ReadonlyArray<ProviderPickerEntry> {
+  return input.options.flatMap((option) => {
+    const includeDefault = input.defaultProviderSelectableByProvider?.[option.value] ?? true;
+    const instances =
+      input.providerInstancesByProvider?.[option.value]?.filter((instance) => instance.enabled) ??
+      [];
+    const entries: Array<ProviderPickerEntry> = includeDefault
+      ? [
+          {
+            provider: option.value,
+            accountLabel: "Default",
+            label: option.label,
+          },
+        ]
+      : [];
+    for (const instance of instances) {
+      entries.push({
+        provider: option.value,
+        instanceId: instance.id,
+        accountLabel: instance.label,
+        label: `${option.label} ${instance.label}`,
+        badgeColor: instance.badgeColor,
+        badgeIcon: instance.badgeIcon,
+      });
+    }
+    return entries;
+  });
+}
+
 function buildStandardModelRows(
   provider: ProviderKind,
   options: ReadonlyArray<ProviderModelOption>,
@@ -203,6 +254,15 @@ function buildStandardModelRows(
       slug: option.slug,
     };
   });
+}
+
+function modelOptionsFromServerModels(
+  models: ReadonlyArray<ServerProviderModel>,
+): ReadonlyArray<ProviderModelOption> {
+  return models.map((model) => ({
+    slug: model.slug,
+    name: model.name,
+  }));
 }
 
 function buildCursorModelRows(input: {
@@ -276,7 +336,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   };
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [focusedProvider, setFocusedProvider] = useState<ProviderKind | null>(null);
+  const [focusedProviderEntryKey, setFocusedProviderEntryKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [prefs, setPrefs] = useLocalStorage(
     PROVIDER_PICKER_PREFS_STORAGE_KEY,
@@ -284,10 +344,25 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     ProviderModelPickerPrefsSchema,
   );
   const activeProvider = props.lockedProvider ?? props.provider;
-  const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
+  const selectedProviderSnapshot = props.providers
+    ? getProviderSnapshot(props.providers, activeProvider, props.providerInstanceId)
+    : undefined;
+  const selectedProviderOptions =
+    selectedProviderSnapshot?.models.length === 0
+      ? props.modelOptionsByProvider[activeProvider]
+      : selectedProviderSnapshot
+        ? modelOptionsFromServerModels(selectedProviderSnapshot.models)
+        : props.modelOptionsByProvider[activeProvider];
   const cursorModels = useMemo(
-    () => (props.providers ? (getProviderSnapshot(props.providers, "cursor")?.models ?? []) : []),
-    [props.providers],
+    () =>
+      props.providers
+        ? (getProviderSnapshot(
+            props.providers,
+            "cursor",
+            activeProvider === "cursor" ? props.providerInstanceId : undefined,
+          )?.models ?? [])
+        : [],
+    [activeProvider, props.providerInstanceId, props.providers],
   );
   const selectedCursorModel = useMemo(
     () =>
@@ -318,43 +393,114 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           (instance) => instance.id === props.providerInstanceId,
         )
       : undefined;
-  const selectedProviderInstanceLabel = selectedProviderInstance?.label;
 
   const selectableProviderOptions = useMemo(() => {
     const providers = props.providers;
     const options = !providers
       ? AVAILABLE_PROVIDER_OPTIONS
-      : AVAILABLE_PROVIDER_OPTIONS.filter((option) =>
-          isSelectableLiveProvider(getProviderSnapshot(providers, option.value)),
+      : AVAILABLE_PROVIDER_OPTIONS.filter(
+          (option) =>
+            isSelectableLiveProvider(getProviderSnapshot(providers, option.value)) ||
+            (props.providerInstancesByProvider?.[option.value]?.some(
+              (instance) => instance.enabled,
+            ) ??
+              false),
         );
     return buildProviderRows(options, prefs.pinnedProviders);
-  }, [prefs.pinnedProviders, props.providers]);
+  }, [prefs.pinnedProviders, props.providerInstancesByProvider, props.providers]);
+  const selectableProviderEntries = useMemo(() => {
+    const providers = props.providers;
+    return buildProviderPickerEntries({
+      defaultProviderSelectableByProvider: providers
+        ? Object.fromEntries(
+            AVAILABLE_PROVIDER_OPTIONS.map((option) => [
+              option.value,
+              isSelectableLiveProvider(getProviderSnapshot(providers, option.value)),
+            ]),
+          )
+        : undefined,
+      options: selectableProviderOptions,
+      providerInstancesByProvider: props.providerInstancesByProvider,
+    });
+  }, [props.providerInstancesByProvider, props.providers, selectableProviderOptions]);
+  const activeProviderEntryKey = makeProviderEntryKey(activeProvider, props.providerInstanceId);
 
-  const pickerProvider = useMemo(() => {
+  const pickerProviderEntry = useMemo(() => {
     if (props.lockedProvider !== null) {
-      return props.lockedProvider;
+      return {
+        provider: props.lockedProvider,
+        instanceId:
+          props.provider === props.lockedProvider && props.providerInstanceId !== "default"
+            ? props.providerInstanceId
+            : undefined,
+        accountLabel:
+          props.provider === props.lockedProvider && props.providerInstanceId
+            ? (props.providerInstancesByProvider?.[props.lockedProvider]?.find(
+                (instance) => instance.id === props.providerInstanceId,
+              )?.label ?? props.providerInstanceId)
+            : "Default",
+        label:
+          AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === props.lockedProvider)
+            ?.label ?? props.lockedProvider,
+      } satisfies ProviderPickerEntry;
     }
-    if (
-      focusedProvider &&
-      selectableProviderOptions.some((option) => option.value === focusedProvider)
-    ) {
-      return focusedProvider;
+    const focusedEntry = focusedProviderEntryKey
+      ? selectableProviderEntries.find(
+          (entry) =>
+            makeProviderEntryKey(entry.provider, entry.instanceId) === focusedProviderEntryKey,
+        )
+      : undefined;
+    if (focusedEntry) {
+      return focusedEntry;
     }
-    if (selectableProviderOptions.some((option) => option.value === props.provider)) {
-      return props.provider;
+    const selectedEntry = selectableProviderEntries.find(
+      (entry) => makeProviderEntryKey(entry.provider, entry.instanceId) === activeProviderEntryKey,
+    );
+    if (selectedEntry) {
+      return selectedEntry;
     }
-    return selectableProviderOptions[0]?.value ?? props.provider;
-  }, [focusedProvider, props.lockedProvider, props.provider, selectableProviderOptions]);
+    return (
+      selectableProviderEntries[0] ?? {
+        provider: props.provider,
+        instanceId: props.providerInstanceId,
+        accountLabel:
+          props.providerInstanceId && props.providerInstanceId !== "default"
+            ? (props.providerInstancesByProvider?.[props.provider]?.find(
+                (instance) => instance.id === props.providerInstanceId,
+              )?.label ?? props.providerInstanceId)
+            : "Default",
+        label:
+          AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === props.provider)?.label ??
+          props.provider,
+      }
+    );
+  }, [
+    activeProviderEntryKey,
+    focusedProviderEntryKey,
+    props.lockedProvider,
+    props.provider,
+    props.providerInstanceId,
+    props.providerInstancesByProvider,
+    selectableProviderEntries,
+  ]);
+  const pickerProvider = pickerProviderEntry.provider;
+  const pickerProviderInstanceId = pickerProviderEntry.instanceId;
+  const pickerProviderEntryKey = makeProviderEntryKey(pickerProvider, pickerProviderInstanceId);
 
   const pickerProviderOption =
     AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === pickerProvider) ??
     AVAILABLE_PROVIDER_OPTIONS[0]!;
   const PickerProviderIcon = PROVIDER_ICON_BY_PROVIDER[pickerProvider];
   const pickerProviderSnapshot = props.providers
-    ? getProviderSnapshot(props.providers, pickerProvider)
+    ? getProviderSnapshot(props.providers, pickerProvider, pickerProviderInstanceId)
     : undefined;
   const pickerProviderModels = pickerProviderSnapshot?.models ?? EMPTY_SERVER_PROVIDER_MODELS;
-  const pickerModelOptions = props.modelOptionsByProvider[pickerProvider];
+  const pickerModelOptions =
+    pickerProviderSnapshot?.models.length === 0
+      ? props.modelOptionsByProvider[pickerProvider]
+      : pickerProviderSnapshot
+        ? modelOptionsFromServerModels(pickerProviderSnapshot.models)
+        : props.modelOptionsByProvider[pickerProvider];
   const pickerRows = useMemo(
     () =>
       pickerProvider === "cursor" && pickerProviderModels.length > 0
@@ -380,9 +526,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const handleModelChange = (
     provider: ProviderKind,
     value: string,
-    options: ReadonlyArray<{ slug: string; name: string }> = props.modelOptionsByProvider[provider],
+    options: ReadonlyArray<{ slug: string; name: string }> = provider === pickerProvider
+      ? pickerModelOptions
+      : props.modelOptionsByProvider[provider],
     closeMenu = true,
-    providerInstanceId = props.provider === provider ? props.providerInstanceId : undefined,
+    providerInstanceId = pickerProvider === provider ? pickerProviderInstanceId : undefined,
   ) => {
     if (props.disabled) return;
     if (!value) return;
@@ -398,15 +546,32 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       setIsMenuOpen(false);
     }
   };
-  const handleProviderInstanceChange = (provider: ProviderKind, providerInstanceId: string) => {
+  const handleProviderEntryFocus = (entry: ProviderPickerEntry) => {
     if (props.disabled) return;
-    const options = props.modelOptionsByProvider[provider];
-    const model = props.provider === provider ? props.model : options[0]?.slug;
+    const entryKey = makeProviderEntryKey(entry.provider, entry.instanceId);
+    setFocusedProviderEntryKey(entryKey);
+    setQuery("");
+    const entrySnapshot = props.providers
+      ? getProviderSnapshot(props.providers, entry.provider, entry.instanceId)
+      : undefined;
+    const options =
+      entrySnapshot?.models.length === 0
+        ? props.modelOptionsByProvider[entry.provider]
+        : entrySnapshot
+          ? modelOptionsFromServerModels(entrySnapshot.models)
+          : props.modelOptionsByProvider[entry.provider];
+    const currentModel =
+      props.provider === entry.provider &&
+      resolveSelectableModel(entry.provider, props.model, options) !== null
+        ? props.model
+        : undefined;
+    const model = currentModel ?? options[0]?.slug;
     if (!model) return;
     const resolvedModel =
-      provider === "cursor" ? model : (resolveSelectableModel(provider, model, options) ?? model);
-    props.onProviderModelChange(provider, resolvedModel, providerInstanceId);
-    setIsMenuOpen(false);
+      entry.provider === "cursor"
+        ? model
+        : (resolveSelectableModel(entry.provider, model, options) ?? model);
+    props.onProviderModelChange(entry.provider, resolvedModel, entry.instanceId ?? "default");
   };
   const togglePinnedProvider = (provider: ProviderKind) => {
     setPrefs((previous) => ({
@@ -421,72 +586,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     }));
   };
 
-  const renderAccountPicker = () => {
-    const instances = props.providerInstancesByProvider?.[pickerProvider]?.filter(
-      (instance) => instance.enabled,
-    );
-    if (!instances?.length) {
-      return null;
-    }
-    const selectedInstance =
-      props.provider === pickerProvider ? (props.providerInstanceId ?? "default") : "default";
-    return (
-      <div className="border-b border-border/60 px-2.5 py-1.5">
-        <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-          Account
-        </div>
-        <div className="flex min-w-0 flex-wrap gap-1">
-          {[{ id: "default", label: "Default" }, ...instances].map(
-            (instance: { id: string; label: string } & Partial<ProviderInstancePickerOption>) => {
-              const selected = selectedInstance === instance.id;
-              return (
-                <button
-                  key={`${pickerProvider}:account:${instance.id}`}
-                  type="button"
-                  className={cn(
-                    "inline-flex h-7 max-w-full items-center gap-1.5 rounded-[var(--chip-radius)] border px-2 text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    selected
-                      ? "border-primary/35 bg-primary/10 text-foreground"
-                      : "border-border/60 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  onPointerDownCapture={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    handleProviderInstanceChange(pickerProvider, instance.id);
-                  }}
-                  onClickCapture={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    handleProviderInstanceChange(pickerProvider, instance.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    handleProviderInstanceChange(pickerProvider, instance.id);
-                  }}
-                >
-                  {selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
-                  {instance.id !== "default" ? (
-                    <ProviderInstanceBadge
-                      color={instance.badgeColor}
-                      icon={instance.badgeIcon}
-                      className="size-4 shrink-0"
-                    />
-                  ) : null}
-                  <span className="truncate">{instance.label}</span>
-                </button>
-              );
-            },
-          )}
-        </div>
-      </div>
-    );
-  };
-
   const renderModelRow = (row: ModelPickerRow, section: "favorite" | "all") => {
     const selected =
-      props.provider === pickerProvider && isRowSelected(pickerProvider, row, props.model);
+      props.provider === pickerProvider &&
+      normalizeProviderInstanceId(props.providerInstanceId) ===
+        normalizeProviderInstanceId(pickerProviderInstanceId) &&
+      isRowSelected(pickerProvider, row, props.model);
     const favorited = favoriteModelSet.has(row.favoriteKey);
     return (
       <div
@@ -546,7 +651,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           return;
         }
         if (open) {
-          setFocusedProvider(activeProvider);
+          setFocusedProviderEntryKey(activeProviderEntryKey);
         }
         setIsMenuOpen(open);
       }}
@@ -589,55 +694,65 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               />
             ) : null}
           </span>
-          <span className="min-w-0 flex-1 truncate">
-            {selectedProviderInstanceLabel
-              ? `${selectedModelLabel} / ${selectedProviderInstanceLabel}`
-              : selectedModelLabel}
-          </span>
+          <span className="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
       <MenuPopup
         align="start"
         className="w-[min(calc(100vw-1rem),30rem)]"
+        listClassName="overflow-hidden"
+        listHeight={MODEL_MENU_MAX_HEIGHT}
         listMaxHeight={MODEL_MENU_MAX_HEIGHT}
       >
-        {props.lockedProvider === null && selectableProviderOptions.length === 0 ? (
+        {props.lockedProvider === null && selectableProviderEntries.length === 0 ? (
           <MenuItem disabled>No providers available.</MenuItem>
         ) : (
           <div
             className={cn(
-              "grid min-h-52 w-full overflow-hidden",
+              "grid h-full min-h-0 w-full overflow-hidden",
               props.lockedProvider === null ? "grid-cols-[2.75rem_minmax(0,1fr)]" : "grid-cols-1",
             )}
           >
             {props.lockedProvider === null ? (
-              <div className="border-r border-border/60 bg-muted/20 p-1">
-                <div className="space-y-0.5">
-                  {selectableProviderOptions.map((option) => {
-                    const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-                    const selected = pickerProvider === option.value;
+              <div className="min-h-0 overflow-hidden border-r border-border/60 bg-muted/20 p-1">
+                <div
+                  className="h-full space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  data-provider-model-picker-provider-rail="true"
+                >
+                  {selectableProviderEntries.map((entry) => {
+                    const OptionIcon = PROVIDER_ICON_BY_PROVIDER[entry.provider];
+                    const selected =
+                      pickerProviderEntryKey ===
+                      makeProviderEntryKey(entry.provider, entry.instanceId);
                     return (
                       <button
-                        key={option.value}
+                        key={makeProviderEntryKey(entry.provider, entry.instanceId)}
                         type="button"
-                        aria-label={option.label}
-                        title={option.label}
+                        aria-label={entry.label}
+                        title={entry.label}
                         className={cn(
-                          "flex size-8 items-center justify-center rounded-[var(--chip-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                          "relative flex size-8 items-center justify-center rounded-[var(--chip-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                           selected
                             ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
                         )}
-                        onClick={() => setFocusedProvider(option.value)}
+                        onClick={() => handleProviderEntryFocus(entry)}
                       >
                         <OptionIcon
                           aria-hidden="true"
                           className={cn(
                             "size-4 shrink-0",
-                            providerIconClassName(option.value, "text-muted-foreground"),
+                            providerIconClassName(entry.provider, "text-muted-foreground"),
                           )}
                         />
+                        {entry.instanceId ? (
+                          <ProviderInstanceBadge
+                            color={entry.badgeColor}
+                            icon={entry.badgeIcon}
+                            className="absolute bottom-0.5 right-0.5 size-3 border-[1.5px]"
+                          />
+                        ) : null}
                       </button>
                     );
                   })}
@@ -657,8 +772,16 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-medium">{pickerProviderOption.label}</div>
-                    <div className="truncate text-[10px] text-muted-foreground">
-                      {pickerRows.length} {pickerRows.length === 1 ? "model" : "models"}
+                    <div className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+                      {pickerProviderEntry.instanceId ? (
+                        <>
+                          <span className="truncate">{pickerProviderEntry.accountLabel}</span>
+                          <span className="shrink-0 text-muted-foreground/50">/</span>
+                        </>
+                      ) : null}
+                      <span className="shrink-0">
+                        {pickerRows.length} {pickerRows.length === 1 ? "model" : "models"}
+                      </span>
                     </div>
                   </div>
                   <button
@@ -682,7 +805,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   </button>
                 </div>
               </div>
-              {renderAccountPicker()}
               <div className="border-b border-border/60 px-2.5 py-1.5">
                 <div className="flex h-7 items-center gap-1.5 rounded-[var(--chip-radius)] border border-border/60 bg-background/50 px-2">
                   <SearchIcon
@@ -704,7 +826,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   />
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-1">
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1"
+                data-provider-model-picker-model-list="true"
+              >
                 {favoriteRows.length > 0 ? (
                   <>
                     <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
