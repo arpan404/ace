@@ -40,6 +40,8 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 export const BrowserSearchEngine = Schema.Literals(["duckduckgo", "google", "brave", "startpage"]);
 export type BrowserSearchEngine = typeof BrowserSearchEngine.Type;
 export const DEFAULT_BROWSER_SEARCH_ENGINE: BrowserSearchEngine = "duckduckgo";
+export const DEFAULT_BROWSER_MAX_MOUNTED_INSTANCES = 2;
+export const BROWSER_MAX_MOUNTED_INSTANCES_LIMIT = 5;
 
 export const WorkspaceEditorOpenMode = Schema.Literals(["split", "full"]);
 export type WorkspaceEditorOpenMode = typeof WorkspaceEditorOpenMode.Type;
@@ -85,6 +87,9 @@ export const ClientSettingsSchema = Schema.Struct({
   browserSearchEngine: BrowserSearchEngine.pipe(
     Schema.withDecodingDefault(() => DEFAULT_BROWSER_SEARCH_ENGINE),
   ),
+  browserMaxMountedInstances: PositiveInt.check(
+    Schema.isLessThanOrEqualTo(BROWSER_MAX_MOUNTED_INSTANCES_LIMIT),
+  ).pipe(Schema.withDecodingDefault(() => DEFAULT_BROWSER_MAX_MOUNTED_INSTANCES)),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),

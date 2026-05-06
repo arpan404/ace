@@ -349,22 +349,26 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.activePendingResolvedAnswers,
     ],
   );
-  const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(
-    () =>
-      props.isServerThread
-        ? {
-            providers: props.handoffTargetProviders,
-            disabled: props.handoffDisabled,
-            onSelect: props.onHandoffToProvider,
-          }
-        : undefined,
-    [
-      props.handoffDisabled,
-      props.handoffTargetProviders,
-      props.isServerThread,
-      props.onHandoffToProvider,
-    ],
-  );
+  const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(() => {
+    if (
+      !props.isServerThread ||
+      props.handoffDisabled ||
+      props.handoffTargetProviders.length === 0
+    ) {
+      return undefined;
+    }
+
+    return {
+      providers: props.handoffTargetProviders,
+      disabled: false,
+      onSelect: props.onHandoffToProvider,
+    };
+  }, [
+    props.handoffDisabled,
+    props.handoffTargetProviders,
+    props.isServerThread,
+    props.onHandoffToProvider,
+  ]);
 
   const isUltrathinkFrame =
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";

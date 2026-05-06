@@ -1,6 +1,7 @@
 export type SettingsNavGroup = "workspace" | "ai" | "system" | "data";
 export type SettingsSectionPath =
   | "/settings/general"
+  | "/settings/browser"
   | "/settings/chat"
   | "/settings/editor"
   | "/settings/providers"
@@ -30,8 +31,14 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     group: "workspace",
     label: "General",
-    description: "Appearance, time, thread defaults, and browser search",
+    description: "Appearance, time, and thread defaults",
     to: "/settings/general",
+  },
+  {
+    group: "workspace",
+    label: "Browser",
+    description: "Search engine and mounted browser limits",
+    to: "/settings/browser",
   },
   {
     group: "workspace",
