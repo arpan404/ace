@@ -47,6 +47,7 @@ import {
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
 import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { discoverCodexExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
 import {
@@ -1532,7 +1533,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       }
 
       const codexSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+        Effect.map((settings) =>
+          resolveProviderSettings(settings, "codex", input.providerInstanceId),
+        ),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -1558,8 +1561,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         runtimeMode: input.runtimeMode,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         binaryPath,
         ...(homePath ? { homePath } : {}),
+        ...(Object.keys(codexSettings.launchEnv).length > 0
+          ? { launchEnv: codexSettings.launchEnv }
+          : {}),
         ...(input.modelSelection?.provider === "codex"
           ? { model: input.modelSelection.model }
           : {}),
@@ -1587,7 +1594,10 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         replayTurns,
         pendingBootstrapReset: replayTurns.length > 0,
       });
-      return session;
+      return {
+        ...session,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
+      };
     },
   );
 

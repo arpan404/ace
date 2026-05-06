@@ -88,6 +88,10 @@
       "types": "./src/providerSlashCommands.ts",
       "import": "./src/providerSlashCommands.ts"
     },
+    "./providerInstances": {
+      "types": "./src/providerInstances.ts",
+      "import": "./src/providerInstances.ts"
+    },
     "./hostConnections": {
       "types": "./src/hostConnections.ts",
       "import": "./src/hostConnections.ts"

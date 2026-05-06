@@ -3,10 +3,11 @@ import { Effect, Layer, Schema } from "effect";
 import { approveAll } from "@github/copilot-sdk";
 import {
   type ChatAttachment,
-  type GitHubCopilotModelOptions,
+  type GitHubCopilotModelSelection,
   TextGenerationError,
 } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -101,15 +102,13 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
     cwd: string;
     prompt: string;
     outputSchema: S;
-    modelSelection: {
-      provider: "githubCopilot";
-      model: string;
-      options?: GitHubCopilotModelOptions | undefined;
-    };
+    modelSelection: GitHubCopilotModelSelection;
     attachments?: ReadonlyArray<ChatAttachment> | undefined;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const settings = yield* serverSettingsService.getSettings.pipe(
-      Effect.map((value) => value.providers.githubCopilot),
+      Effect.map((value) =>
+        resolveProviderSettings(value, "githubCopilot", modelSelection.providerInstanceId),
+      ),
       Effect.mapError((cause) =>
         normalizeCliError(
           "copilot",

@@ -38,6 +38,8 @@ function MenuTrigger({ className, children, ...props }: MenuPrimitive.Trigger.Pr
 function MenuPopup({
   children,
   className,
+  listClassName,
+  listHeight,
   sideOffset = 4,
   align = "center",
   alignOffset,
@@ -51,9 +53,13 @@ function MenuPopup({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
+  listClassName?: string;
+  listHeight?: string;
   listMaxHeight?: string;
 }) {
+  const resolvedListHeight = listHeight ? `min(var(--available-height), ${listHeight})` : undefined;
   const listStyle: React.CSSProperties = {
+    ...(resolvedListHeight ? { height: resolvedListHeight } : {}),
     maxHeight: listMaxHeight
       ? `min(var(--available-height), ${listMaxHeight})`
       : "var(--available-height)",
@@ -78,7 +84,7 @@ function MenuPopup({
           data-slot="menu-popup"
           {...props}
         >
-          <div className="w-full overflow-y-auto p-1.5" style={listStyle}>
+          <div className={cn("w-full overflow-y-auto p-1.5", listClassName)} style={listStyle}>
             {children}
           </div>
         </MenuPrimitive.Popup>

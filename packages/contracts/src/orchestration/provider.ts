@@ -54,6 +54,10 @@ export const ProviderSandboxMode = Schema.Literals([
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 
 export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
+export const DEFAULT_PROVIDER_INSTANCE_ID = "default";
+
+export const ProviderInstanceId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
+export type ProviderInstanceId = typeof ProviderInstanceId.Type;
 
 export const ProviderSessionModelSwitchMode = Schema.Literals([
   "in-session",
@@ -133,6 +137,7 @@ export type ProviderIntegrationCapabilities = typeof ProviderIntegrationCapabili
 
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(CodexModelOptions),
 });
@@ -140,6 +145,7 @@ export type CodexModelSelection = typeof CodexModelSelection.Type;
 
 export const ClaudeModelSelection = Schema.Struct({
   provider: Schema.Literal("claudeAgent"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(ClaudeModelOptions),
 });
@@ -147,6 +153,7 @@ export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 
 export const GitHubCopilotModelSelection = Schema.Struct({
   provider: Schema.Literal("githubCopilot"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(GitHubCopilotModelOptions),
 });
@@ -154,6 +161,7 @@ export type GitHubCopilotModelSelection = typeof GitHubCopilotModelSelection.Typ
 
 export const CursorModelSelection = Schema.Struct({
   provider: Schema.Literal("cursor"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(CursorModelOptions),
 });
@@ -161,6 +169,7 @@ export type CursorModelSelection = typeof CursorModelSelection.Type;
 
 export const PiModelSelection = Schema.Struct({
   provider: Schema.Literal("pi"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(PiModelOptions),
 });
@@ -168,6 +177,7 @@ export type PiModelSelection = typeof PiModelSelection.Type;
 
 export const GeminiModelSelection = Schema.Struct({
   provider: Schema.Literal("gemini"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(GeminiModelOptions),
 });
@@ -175,6 +185,7 @@ export type GeminiModelSelection = typeof GeminiModelSelection.Type;
 
 export const OpenCodeModelSelection = Schema.Struct({
   provider: Schema.Literal("opencode"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(OpenCodeModelOptions),
 });

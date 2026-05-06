@@ -1699,6 +1699,18 @@ export default function ChatView({
     sessionProvider: activeThread?.session?.provider ?? null,
     threadModelSelection: activeThread?.modelSelection,
   });
+  const providerInstancesByProvider = useMemo(
+    () => ({
+      codex: modelSettings.providers.codex.instances,
+      claudeAgent: modelSettings.providers.claudeAgent.instances,
+      githubCopilot: modelSettings.providers.githubCopilot.instances,
+      cursor: modelSettings.providers.cursor.instances,
+      pi: modelSettings.providers.pi.instances,
+      gemini: modelSettings.providers.gemini.instances,
+      opencode: modelSettings.providers.opencode.instances,
+    }),
+    [modelSettings.providers],
+  );
   const composerProviderCommands = useMemo(() => {
     const commandProvider = activeThread?.session?.provider ?? selectedProvider;
     const selectedProviderCommands =
@@ -7474,6 +7486,7 @@ export default function ChatView({
                     threadInteractionMode={activeThread.interactionMode}
                     composerModelOptions={composerModelOptions}
                     selectedProvider={selectedProvider}
+                    selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
                     selectedModel={selectedModel}
                     selectedProviderModels={selectedProviderModels}
                     selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
@@ -7484,6 +7497,7 @@ export default function ChatView({
                     }
                     lockedProvider={lockedProvider}
                     modelOptionsByProvider={modelOptionsByProvider}
+                    providerInstancesByProvider={providerInstancesByProvider}
                     handoffTargetProviders={handoffTargetProviders}
                     handoffDisabled={handoffDisabled}
                     interactionModeShortcutLabel={togglePlanModeShortcutLabel}

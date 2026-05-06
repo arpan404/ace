@@ -265,7 +265,12 @@ export function resolveAppModelSelectionState(
         model: selectedModel,
         options: provider === selection.provider ? selection.options : undefined,
       }) ?? resolveAppModelSelection(provider, settings, providers, selectedModel);
-    return buildProviderModelSelection(provider, exactCursorModel);
+    return buildProviderModelSelection(
+      provider,
+      exactCursorModel,
+      undefined,
+      selection.providerInstanceId,
+    );
   }
   const model = resolveAppModelSelection(provider, settings, providers, selectedModel);
   const { modelOptionsForDispatch } = getComposerProviderState({
@@ -278,5 +283,10 @@ export function resolveAppModelSelectionState(
     },
   });
 
-  return buildProviderModelSelection(provider, model, modelOptionsForDispatch);
+  return buildProviderModelSelection(
+    provider,
+    model,
+    modelOptionsForDispatch,
+    selection.providerInstanceId,
+  );
 }

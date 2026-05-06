@@ -5092,6 +5092,8 @@ export default function Sidebar() {
       </div>
     </div>
   );
+  const shouldUseDesktopHeaderChrome =
+    isElectron && typeof window !== "undefined" && window.desktopBridge !== undefined;
 
   return (
     <>
@@ -5604,7 +5606,7 @@ export default function Sidebar() {
         </CommandDialogPopup>
       </CommandDialog>
 
-      {isElectron ? (
+      {shouldUseDesktopHeaderChrome ? (
         <SidebarHeader
           className={cn("drag-region", DESKTOP_HEADER_CHROME_CLASS_NAME)}
           style={MAC_TITLEBAR_LEFT_INSET_STYLE}
@@ -5612,9 +5614,7 @@ export default function Sidebar() {
           {sidebarHeaderChrome}
         </SidebarHeader>
       ) : (
-        <SidebarHeader className={DESKTOP_HEADER_CHROME_CLASS_NAME}>
-          {sidebarHeaderChrome}
-        </SidebarHeader>
+        <SidebarHeader>{sidebarHeaderChrome}</SidebarHeader>
       )}
 
       {isOnSettings ? (
