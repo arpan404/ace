@@ -4,6 +4,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  DiffIcon,
   EllipsisIcon,
   LoaderIcon,
   RotateCwIcon,
@@ -119,10 +120,7 @@ function summaryGeneratedAfterRequest(summaryCreatedAt: string | null, requested
 
 function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: boolean }) {
   return (
-    <div
-      className="flex items-center gap-2 rounded-lg border border-blue-500/25 bg-blue-500/8 px-3 py-2 text-xs text-blue-200"
-      role="status"
-    >
+    <div className="flex items-center gap-2 text-xs text-blue-300" role="status">
       <Spinner aria-hidden="true" className="size-3.5 text-blue-300" role="presentation" />
       <span>{hasExistingSummary ? "Updating AI summary..." : "Generating AI summary..."}</span>
     </div>
@@ -131,7 +129,7 @@ function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: b
 
 function DiffMetric(props: { label: string; value: ReactNode; className?: string }) {
   return (
-    <div className="min-w-0 rounded-md border border-border/55 bg-background/80 px-3 py-2">
+    <div className="min-w-0">
       <p className="text-[10px] font-medium text-muted-foreground uppercase">{props.label}</p>
       <p className={cn("mt-1 text-sm font-semibold tabular-nums text-foreground", props.className)}>
         {props.value}
@@ -148,7 +146,7 @@ function DiffSummaryOverview({
   actions: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-background/75 p-4 shadow-sm shadow-black/5">
+    <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -166,7 +164,7 @@ function DiffSummaryOverview({
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-4">
         <DiffMetric label="Files" value={formatDiffCount(workspaceDiffSummary.fileCount)} />
         <DiffMetric
           label="Added"
@@ -179,7 +177,7 @@ function DiffSummaryOverview({
           className="text-destructive"
         />
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Current diff:{" "}
         <span className="font-medium text-foreground">
           <DiffStatLabel
@@ -373,15 +371,17 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const regenerateSummaryLabel = generatedWorkspaceSummary
     ? "Regenerate summary"
     : "Generate summary";
+  const regenerateSummaryTooltipLabel = isRegeneratingSummary
+    ? "Generating summary"
+    : regenerateSummaryLabel;
   const regenerateSummaryButton = onRegenerateSummary ? (
     <Tooltip>
       <TooltipTrigger
         render={
           <Button
             type="button"
-            size="sm"
+            size="icon-sm"
             variant="outline"
-            className="min-w-[6.75rem]"
             onClick={handleRegenerateSummary}
             disabled={isRegeneratingSummary}
             aria-busy={isRegeneratingSummary}
@@ -390,22 +390,14 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
         }
       >
         {isRegeneratingSummary ? (
-          <>
-            <Spinner className="size-3.5" />
-            <span>Generating</span>
-          </>
+          <Spinner className="size-3.5" />
         ) : (
           <>
-            {generatedWorkspaceSummary ? (
-              <RotateCwIcon className="size-3" />
-            ) : (
-              <SparklesIcon className="size-3" />
-            )}
-            <span>{generatedWorkspaceSummary ? "Refresh" : "Generate"}</span>
+            {generatedWorkspaceSummary ? <RotateCwIcon className="size-3" /> : <SparklesIcon className="size-3" />}
           </>
         )}
       </TooltipTrigger>
-      <TooltipPopup side="top">{regenerateSummaryLabel}</TooltipPopup>
+      <TooltipPopup side="top">{regenerateSummaryTooltipLabel}</TooltipPopup>
     </Tooltip>
   ) : null;
   const hasDiffSummaryActions = Boolean(regenerateSummaryButton || onOpenDiffPanel);
@@ -413,9 +405,22 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
     <>
       {regenerateSummaryButton}
       {onOpenDiffPanel ? (
-        <Button type="button" size="sm" variant="outline" onClick={onOpenDiffPanel}>
-          Open review
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                onClick={onOpenDiffPanel}
+                aria-label="Open review"
+              />
+            }
+          >
+            <DiffIcon className="size-3" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Open review</TooltipPopup>
+        </Tooltip>
       ) : null}
     </>
   ) : null;
@@ -438,7 +443,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         actions={diffSummaryActions}
                       />
                     ) : null}
-                    <div className="rounded-lg border border-border/60 bg-background/75 p-4 shadow-sm shadow-black/5">
+                    <div>
                       <div className="flex items-start justify-between gap-3">
                         <button
                           type="button"
@@ -474,7 +479,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         </div>
                       ) : null}
                       {summaryDetailsExpanded ? (
-                        <div className="mt-4 border-t border-border/50 pt-4">
+                        <div className="mt-4 pb-1 pt-1">
                           <ChatMarkdown
                             text={generatedWorkspaceSummary.markdown}
                             cwd={markdownCwd}
@@ -502,7 +507,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                 ) : null}
 
                 {!generatedWorkspaceSummary && !workspaceDiffSummary ? (
-                  <div className="rounded-lg border border-border/60 bg-background/75 p-4 shadow-sm shadow-black/5">
+                  <div>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-2">
                         <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
