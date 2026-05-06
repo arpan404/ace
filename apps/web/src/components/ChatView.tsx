@@ -529,7 +529,6 @@ function ConnectedRetainedThreadTerminalDrawers({
     />
   );
 }
-const MAX_CACHED_BROWSER_INSTANCES = 2;
 const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
 const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
 
@@ -689,6 +688,7 @@ export default function ChatView({
   const enableToolStreaming = useSetting("enableToolStreaming");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
+  const browserMaxMountedInstances = useSetting("browserMaxMountedInstances");
   const {
     activeDraftThread: currentRouteDraftThread,
     activeThread: currentRouteThread,
@@ -2529,9 +2529,25 @@ export default function ChatView({
       return;
     }
     setMountedBrowserInstances((current) =>
-      touchRecentBrowserInstance(current, activeThreadId, Date.now(), MAX_CACHED_BROWSER_INSTANCES),
+      touchRecentBrowserInstance(current, activeThreadId, Date.now(), browserMaxMountedInstances),
     );
-  }, [activeThreadId, browserOpen, resetBrowserCacheState, rightSidePanelInteractive]);
+  }, [
+    activeThreadId,
+    browserMaxMountedInstances,
+    browserOpen,
+    resetBrowserCacheState,
+    rightSidePanelInteractive,
+  ]);
+  useEffect(() => {
+    if (!rightSidePanelInteractive) {
+      return;
+    }
+    setMountedBrowserInstances((current) =>
+      current.length <= browserMaxMountedInstances
+        ? current
+        : current.slice(0, browserMaxMountedInstances),
+    );
+  }, [browserMaxMountedInstances, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -7209,7 +7225,7 @@ export default function ChatView({
             ...mountedBrowserThreadIds.filter(
               (browserThreadId) => browserThreadId !== activeThreadId,
             ),
-          ].slice(0, MAX_CACHED_BROWSER_INSTANCES);
+          ].slice(0, browserMaxMountedInstances);
           if (orderedBrowserThreadIds.length === 0) {
             return null;
           }

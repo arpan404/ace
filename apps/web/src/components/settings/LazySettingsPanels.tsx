@@ -54,6 +54,10 @@ export const ArchivedThreadsPanelRoute = createLazySettingsPanel(() =>
   import("./SettingsPanels").then((module) => ({ default: module.ArchivedThreadsPanel })),
 );
 
+export const BrowserSettingsPanelRoute = createLazySettingsPanel(() =>
+  import("./SettingsPanels").then((module) => ({ default: module.BrowserSettingsPanel })),
+);
+
 export const ChatSettingsPanelRoute = createLazySettingsPanel(() =>
   import("./SettingsPanels").then((module) => ({ default: module.ChatSettingsPanel })),
 );
