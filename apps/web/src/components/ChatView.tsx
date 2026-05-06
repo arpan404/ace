@@ -6648,7 +6648,7 @@ export default function ChatView({
   });
 
   const onHandoffToProvider = useEffectEvent(
-    async (provider: ProviderKind, mode: ThreadHandoffMode) => {
+    async (provider: ProviderKind, _mode: ThreadHandoffMode) => {
       if (handoffDisabledReason) {
         toastManager.add({
           type: "error",
@@ -6715,7 +6715,7 @@ export default function ChatView({
             sourceThreadId: activeThread.id,
             fromProvider: activeThread.modelSelection.provider,
             toProvider: resolvedProvider,
-            mode,
+            mode: "best",
             createdAt,
           },
           createdAt,
