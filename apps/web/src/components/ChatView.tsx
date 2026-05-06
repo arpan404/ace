@@ -2396,6 +2396,9 @@ export default function ChatView({
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
   const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
+  const browserSessionChangeHandlerByThreadRef = useRef(
+    new Map<ThreadId, (session: BrowserSessionStorage) => void>(),
+  );
   const browserControllerChangeHandlerByThreadRef = useRef(
     new Map<ThreadId, (controller: InAppBrowserController | null) => void>(),
   );
@@ -2455,6 +2458,7 @@ export default function ChatView({
     (browserThreadId: ThreadId, options?: { resetVisibleState?: boolean }) => {
       browserControllerByThreadRef.current.delete(browserThreadId);
       browserRuntimeStateByThreadRef.current.delete(browserThreadId);
+      browserSessionChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
       deleteBrowserSession(browserThreadId);
@@ -2472,6 +2476,7 @@ export default function ChatView({
   const resetBrowserCacheState = useCallback((options?: { resetVisibleState?: boolean }) => {
     browserControllerByThreadRef.current.clear();
     browserRuntimeStateByThreadRef.current.clear();
+    browserSessionChangeHandlerByThreadRef.current.clear();
     browserControllerChangeHandlerByThreadRef.current.clear();
     browserRuntimeStateChangeHandlerByThreadRef.current.clear();
     clearBrowserSessions();
@@ -3775,6 +3780,20 @@ export default function ChatView({
       setBrowserSession(browserThreadId, session);
     },
     [],
+  );
+  const getBrowserSessionChangeHandler = useCallback(
+    (browserThreadId: ThreadId) => {
+      const existingHandler = browserSessionChangeHandlerByThreadRef.current.get(browserThreadId);
+      if (existingHandler) {
+        return existingHandler;
+      }
+      const handler = (session: BrowserSessionStorage) => {
+        onBrowserSessionChange(browserThreadId, session);
+      };
+      browserSessionChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      return handler;
+    },
+    [onBrowserSessionChange],
   );
   const setBrowserController = useCallback(
     (browserThreadId: ThreadId, controller: InAppBrowserController | null) => {
@@ -7278,9 +7297,7 @@ export default function ChatView({
                   visible: isActiveBrowserThread && browserOpen,
                   mode: browserViewMode,
                   onClose: closeBrowser,
-                  onBrowserSessionChange: (session: BrowserSessionStorage) => {
-                    onBrowserSessionChange(browserThreadId, session);
-                  },
+                  onBrowserSessionChange: getBrowserSessionChangeHandler(browserThreadId),
                   onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
                   onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
                   onResizeViewport: resizeBrowserViewportForBridge,
