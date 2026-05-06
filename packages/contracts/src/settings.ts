@@ -149,6 +149,8 @@ const makeBinaryPathSetting = (fallback: string) =>
   );
 
 const ProviderInstanceLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(80));
+const ProviderInstanceBadgeColor = TrimmedString.check(Schema.isMaxLength(32));
+const ProviderInstanceBadgeIcon = TrimmedString.check(Schema.isMaxLength(32));
 const ProviderLaunchEnvKey = Schema.String.check(
   Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
 ).check(Schema.isMaxLength(128));
@@ -161,6 +163,8 @@ const ProviderInstanceBaseSettings = Schema.Struct({
   id: ProviderInstanceId,
   label: ProviderInstanceLabel,
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  badgeColor: Schema.optionalKey(ProviderInstanceBadgeColor),
+  badgeIcon: Schema.optionalKey(ProviderInstanceBadgeIcon),
   launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
 });
 
@@ -438,6 +442,8 @@ const ProviderInstanceBaseSettingsPatch = Schema.Struct({
   id: ProviderInstanceId,
   label: TrimmedNonEmptyString,
   enabled: Schema.optionalKey(Schema.Boolean),
+  badgeColor: Schema.optionalKey(ProviderInstanceBadgeColor),
+  badgeIcon: Schema.optionalKey(ProviderInstanceBadgeIcon),
   launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
 });
 

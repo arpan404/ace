@@ -32,6 +32,7 @@ import {
 } from "../../cursorModelSelector";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { HandoffMenuButton } from "./HandoffMenu";
+import { ProviderInstanceBadge } from "../../providerInstanceBadges";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderKind;
@@ -66,6 +67,13 @@ const EMPTY_PROVIDER_MODEL_PICKER_PREFS: ProviderModelPickerPrefs = {
 const EMPTY_SERVER_PROVIDER_MODELS: ReadonlyArray<ServerProviderModel> = [];
 
 type ProviderModelOption = Readonly<{ slug: string; name: string }>;
+type ProviderInstancePickerOption = Readonly<{
+  badgeColor?: string | undefined;
+  badgeIcon?: string | undefined;
+  enabled: boolean;
+  id: string;
+  label: string;
+}>;
 
 interface ModelPickerRow {
   readonly favoriteKey: string;
@@ -248,7 +256,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   providerInstancesByProvider?: Partial<
-    Record<ProviderKind, ReadonlyArray<{ id: string; label: string; enabled: boolean }>>
+    Record<ProviderKind, ReadonlyArray<ProviderInstancePickerOption>>
   >;
   activeProviderIconClassName?: string;
   compact?: boolean;
@@ -304,12 +312,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : (selectedProviderOptions.find((option) => option.slug === props.model)?.name ??
         props.model);
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
-  const selectedProviderInstanceLabel =
+  const selectedProviderInstance =
     props.providerInstanceId && props.providerInstanceId !== "default"
       ? props.providerInstancesByProvider?.[activeProvider]?.find(
           (instance) => instance.id === props.providerInstanceId,
-        )?.label
+        )
       : undefined;
+  const selectedProviderInstanceLabel = selectedProviderInstance?.label;
 
   const selectableProviderOptions = useMemo(() => {
     const providers = props.providers;
@@ -390,12 +399,14 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     }
   };
   const handleProviderInstanceChange = (provider: ProviderKind, providerInstanceId: string) => {
+    if (props.disabled) return;
     const options = props.modelOptionsByProvider[provider];
     const model = props.provider === provider ? props.model : options[0]?.slug;
     if (!model) return;
     const resolvedModel =
       provider === "cursor" ? model : (resolveSelectableModel(provider, model, options) ?? model);
     props.onProviderModelChange(provider, resolvedModel, providerInstanceId);
+    setIsMenuOpen(false);
   };
   const togglePinnedProvider = (provider: ProviderKind) => {
     setPrefs((previous) => ({
@@ -425,25 +436,49 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           Account
         </div>
         <div className="flex min-w-0 flex-wrap gap-1">
-          {[{ id: "default", label: "Default" }, ...instances].map((instance) => {
-            const selected = selectedInstance === instance.id;
-            return (
-              <button
-                key={`${pickerProvider}:account:${instance.id}`}
-                type="button"
-                className={cn(
-                  "inline-flex h-6 max-w-full items-center gap-1 rounded-[var(--chip-radius)] border px-1.5 text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                  selected
-                    ? "border-primary/35 bg-primary/10 text-foreground"
-                    : "border-border/60 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                onClick={() => handleProviderInstanceChange(pickerProvider, instance.id)}
-              >
-                {selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
-                <span className="truncate">{instance.label}</span>
-              </button>
-            );
-          })}
+          {[{ id: "default", label: "Default" }, ...instances].map(
+            (instance: { id: string; label: string } & Partial<ProviderInstancePickerOption>) => {
+              const selected = selectedInstance === instance.id;
+              return (
+                <button
+                  key={`${pickerProvider}:account:${instance.id}`}
+                  type="button"
+                  className={cn(
+                    "inline-flex h-7 max-w-full items-center gap-1.5 rounded-[var(--chip-radius)] border px-2 text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    selected
+                      ? "border-primary/35 bg-primary/10 text-foreground"
+                      : "border-border/60 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                  onPointerDownCapture={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleProviderInstanceChange(pickerProvider, instance.id);
+                  }}
+                  onClickCapture={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleProviderInstanceChange(pickerProvider, instance.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleProviderInstanceChange(pickerProvider, instance.id);
+                  }}
+                >
+                  {selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
+                  {instance.id !== "default" ? (
+                    <ProviderInstanceBadge
+                      color={instance.badgeColor}
+                      icon={instance.badgeIcon}
+                      className="size-4 shrink-0"
+                    />
+                  ) : null}
+                  <span className="truncate">{instance.label}</span>
+                </button>
+              );
+            },
+          )}
         </div>
       </div>
     );
@@ -537,14 +572,23 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             props.compact ? "max-w-36 sm:pl-1" : undefined,
           )}
         >
-          <ProviderIcon
-            aria-hidden="true"
-            className={cn(
-              "size-4 shrink-0",
-              providerIconClassName(activeProvider, "text-muted-foreground"),
-              props.activeProviderIconClassName,
-            )}
-          />
+          <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+            <ProviderIcon
+              aria-hidden="true"
+              className={cn(
+                "size-4 shrink-0",
+                providerIconClassName(activeProvider, "text-muted-foreground"),
+                props.activeProviderIconClassName,
+              )}
+            />
+            {selectedProviderInstance ? (
+              <ProviderInstanceBadge
+                color={selectedProviderInstance.badgeColor}
+                icon={selectedProviderInstance.badgeIcon}
+                className="absolute -bottom-1 -right-1 size-3 border-[1.5px]"
+              />
+            ) : null}
+          </span>
           <span className="min-w-0 flex-1 truncate">
             {selectedProviderInstanceLabel
               ? `${selectedModelLabel} / ${selectedProviderInstanceLabel}`
