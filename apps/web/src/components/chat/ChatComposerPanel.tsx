@@ -19,7 +19,7 @@ import {
   type RefObject,
 } from "react";
 
-import type { ComposerImageAttachment } from "../../composerDraftStore";
+import type { ComposerImageAttachment, ModelSelectionByProvider } from "../../composerDraftStore";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
@@ -103,6 +103,7 @@ interface ChatComposerPanelProps {
   readonly modelOptionsByProvider: ComponentProps<
     typeof ProviderModelPicker
   >["modelOptionsByProvider"];
+  readonly modelSelectionByProvider?: ModelSelectionByProvider | undefined;
   readonly providerInstancesByProvider?: ComponentProps<
     typeof ProviderModelPicker
   >["providerInstancesByProvider"];
@@ -549,6 +550,9 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     lockedProvider={props.lockedProvider}
                     providers={props.providers}
                     modelOptionsByProvider={props.modelOptionsByProvider}
+                    {...(props.modelSelectionByProvider
+                      ? { modelSelectionByProvider: props.modelSelectionByProvider }
+                      : {})}
                     {...(props.providerInstancesByProvider
                       ? { providerInstancesByProvider: props.providerInstancesByProvider }
                       : {})}

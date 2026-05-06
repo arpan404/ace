@@ -775,6 +775,25 @@ describe("composerDraftStore modelSelection", () => {
     expect(
       useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
     ).toEqual(modelSelection("codex", "gpt-5.5", undefined, "personal"));
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider[
+        "codex:personal"
+      ],
+    ).toEqual(modelSelection("codex", "gpt-5.5", undefined, "personal"));
+  });
+
+  it("keeps separate model memory for provider instances", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4"));
+    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.5", undefined, "personal"));
+
+    const selections =
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider;
+    expect(selections?.["codex:default"]).toEqual(modelSelection("codex", "gpt-5.4"));
+    expect(selections?.["codex:personal"]).toEqual(
+      modelSelection("codex", "gpt-5.5", undefined, "personal"),
+    );
+    expect(selections?.codex).toEqual(modelSelection("codex", "gpt-5.5", undefined, "personal"));
   });
 
   it("replaces only the targeted provider options on the current model selection", () => {

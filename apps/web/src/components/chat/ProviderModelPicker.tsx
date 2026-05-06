@@ -1,4 +1,5 @@
 import {
+  type ModelSelection,
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
@@ -329,6 +330,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  modelSelectionByProvider?: Record<string, ModelSelection | undefined>;
   providerInstancesByProvider?: Partial<
     Record<ProviderKind, ReadonlyArray<ProviderInstancePickerOption>>
   >;
@@ -590,7 +592,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   );
   const favoriteModelSet = useMemo(() => new Set(prefs.favoriteModels), [prefs.favoriteModels]);
   const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
-  const pickerProviderEntryPinned = isProviderEntryPinned(prefs.pinnedProviders, pickerProviderEntry);
+  const pickerProviderEntryPinned = isProviderEntryPinned(
+    prefs.pinnedProviders,
+    pickerProviderEntry,
+  );
 
   const handleModelChange = (
     provider: ProviderKind,
@@ -620,27 +625,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     const entryKey = makeProviderEntryKey(entry.provider, entry.instanceId);
     setFocusedProviderEntryKey(entryKey);
     setQuery("");
-    const entrySnapshot = props.providers
-      ? getProviderSnapshot(props.providers, entry.provider, entry.instanceId)
-      : undefined;
-    const options =
-      entrySnapshot?.models.length === 0
-        ? props.modelOptionsByProvider[entry.provider]
-        : entrySnapshot
-          ? modelOptionsFromServerModels(entrySnapshot.models)
-          : props.modelOptionsByProvider[entry.provider];
-    const currentModel =
-      props.provider === entry.provider &&
-      resolveSelectableModel(entry.provider, props.model, options) !== null
-        ? props.model
-        : undefined;
-    const model = currentModel ?? options[0]?.slug;
-    if (!model) return;
-    const resolvedModel =
-      entry.provider === "cursor"
-        ? model
-        : (resolveSelectableModel(entry.provider, model, options) ?? model);
-    props.onProviderModelChange(entry.provider, resolvedModel, entry.instanceId ?? "default");
   };
   const togglePinnedProvider = (providerEntryKey: string) => {
     setPrefs((previous) => ({
