@@ -3586,12 +3586,30 @@ export default function Sidebar() {
   const localProjectThreadGroupById = useMemo(
     () =>
       new Map(
-        filteredLocalProjectIds.map((projectId, index) => [
+        sortedLocalProjectIds.map((projectId) => [
           projectId,
-          localProjectThreadGroups[index],
+          deriveSidebarLocalProjectThreadGroup({
+            activeThreadId,
+            projectExpanded: projectExpandedById[projectId] ?? true,
+            projectListThreads:
+              projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+            revealStep: THREAD_REVEAL_STEP,
+            unsortedProjectThreads:
+              visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+            visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
+            threadSortOrder: sidebarThreadSortOrder,
+          }),
         ]),
       ),
-    [filteredLocalProjectIds, localProjectThreadGroups],
+    [
+      activeThreadId,
+      projectExpandedById,
+      projectListThreadsByProjectId,
+      sidebarThreadSortOrder,
+      sortedLocalProjectIds,
+      threadRevealCountByProject,
+      visibleProjectThreadsByProjectId,
+    ],
   );
   const renderedPinnedItems = useMemo<
     Array<{ kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }>
