@@ -161,6 +161,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  type ModelSelectionByProvider,
   deriveEffectiveComposerExecutionModeState,
   deriveEffectiveComposerModelState,
   getComposerThreadDraft,
@@ -351,8 +352,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
-const EMPTY_COMPOSER_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> =
-  Object.freeze({});
+const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
@@ -1678,6 +1678,26 @@ export default function ChatView({
     serverThread?.id,
   ]);
 
+  useEffect(() => {
+    if (!activeForSideEffects) return;
+    if (!activeThread?.id) return;
+    if (!latestTurnSettled) return;
+    if (!activeLatestTurn?.completedAt) return;
+
+    const key = `${activeThread.id}:${activeLatestTurn.turnId}:${activeLatestTurn.completedAt}`;
+    if (lastBrowserPointerClearedTurnRef.current === key) {
+      return;
+    }
+    lastBrowserPointerClearedTurnRef.current = key;
+    browserControllerByThreadRef.current.get(activeThread.id)?.clearAgentPointers();
+  }, [
+    activeLatestTurn?.completedAt,
+    activeLatestTurn?.turnId,
+    activeForSideEffects,
+    activeThread?.id,
+    latestTurnSettled,
+  ]);
+
   const hasThreadStarted = threadHasStarted(activeThread);
   const {
     composerModelOptions,
@@ -1699,6 +1719,18 @@ export default function ChatView({
     sessionProvider: activeThread?.session?.provider ?? null,
     threadModelSelection: activeThread?.modelSelection,
   });
+  const providerInstancesByProvider = useMemo(
+    () => ({
+      codex: modelSettings.providers.codex.instances,
+      claudeAgent: modelSettings.providers.claudeAgent.instances,
+      githubCopilot: modelSettings.providers.githubCopilot.instances,
+      cursor: modelSettings.providers.cursor.instances,
+      pi: modelSettings.providers.pi.instances,
+      gemini: modelSettings.providers.gemini.instances,
+      opencode: modelSettings.providers.opencode.instances,
+    }),
+    [modelSettings.providers],
+  );
   const composerProviderCommands = useMemo(() => {
     const commandProvider = activeThread?.session?.provider ?? selectedProvider;
     const selectedProviderCommands =
@@ -2318,6 +2350,7 @@ export default function ChatView({
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
+  const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
   const [browserSessionByThreadId, setBrowserSessionByThreadId] = useState<
     Record<string, BrowserSessionStorage>
   >({});
@@ -4926,6 +4959,8 @@ export default function ChatView({
         input.modelSelection !== undefined &&
         (input.modelSelection.model !== serverThread.modelSelection.model ||
           input.modelSelection.provider !== serverThread.modelSelection.provider ||
+          (input.modelSelection.providerInstanceId ?? null) !==
+            (serverThread.modelSelection.providerInstanceId ?? null) ||
           JSON.stringify(input.modelSelection.options ?? null) !==
             JSON.stringify(serverThread.modelSelection.options ?? null))
       ) {
@@ -5613,6 +5648,7 @@ export default function ChatView({
       const submissionProviderModels = getProviderModels(
         providerStatuses,
         submission.modelSelection.provider,
+        submission.modelSelection.providerInstanceId,
       );
       const submissionProviderState = getComposerProviderState({
         provider: submission.modelSelection.provider,
@@ -5738,6 +5774,7 @@ export default function ChatView({
             activeProject.defaultModelSelection?.model ||
             DEFAULT_MODEL_BY_PROVIDER[submission.modelSelection.provider],
           submission.modelSelection.options,
+          submission.modelSelection.providerInstanceId,
         );
 
         if (isLocalDraftThread) {
@@ -6858,6 +6895,7 @@ export default function ChatView({
           const providerModels = getProviderModels(
             providerStatuses,
             selectedModelSelection.provider,
+            selectedModelSelection.providerInstanceId,
           );
           const outgoingIssuePrompt = formatOutgoingPrompt({
             provider: selectedModelSelection.provider,
@@ -7474,6 +7512,7 @@ export default function ChatView({
                     threadInteractionMode={activeThread.interactionMode}
                     composerModelOptions={composerModelOptions}
                     selectedProvider={selectedProvider}
+                    selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
                     selectedModel={selectedModel}
                     selectedProviderModels={selectedProviderModels}
                     selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
@@ -7484,6 +7523,8 @@ export default function ChatView({
                     }
                     lockedProvider={lockedProvider}
                     modelOptionsByProvider={modelOptionsByProvider}
+                    modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
+                    providerInstancesByProvider={providerInstancesByProvider}
                     handoffTargetProviders={handoffTargetProviders}
                     handoffDisabled={handoffDisabled}
                     interactionModeShortcutLabel={togglePlanModeShortcutLabel}

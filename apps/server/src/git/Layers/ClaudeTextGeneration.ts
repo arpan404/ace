@@ -13,6 +13,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { ClaudeModelSelection } from "@ace/contracts";
 import { resolveApiModelId } from "@ace/shared/model";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { TextGenerationError } from "@ace/contracts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
@@ -101,9 +102,8 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       ...(normalizedOptions?.fastMode ? { fastMode: true } : {}),
     };
 
-    const claudeSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.claudeAgent,
+    const claudeSettings = yield* Effect.map(serverSettingsService.getSettings, (settings) =>
+      resolveProviderSettings(settings, "claudeAgent", modelSelection.providerInstanceId),
     ).pipe(Effect.catch(() => Effect.undefined));
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
@@ -122,6 +122,11 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
           "--dangerously-skip-permissions",
         ],
         {
+          env: {
+            ...process.env,
+            ...claudeSettings?.launchEnv,
+            ...(claudeSettings?.configDir ? { CLAUDE_CONFIG_DIR: claudeSettings.configDir } : {}),
+          },
           cwd,
           shell: process.platform === "win32",
           stdin: {

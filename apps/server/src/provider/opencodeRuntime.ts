@@ -24,6 +24,7 @@ const PARENT_CLEANUP_EVENTS = [
 type ParentCleanupEvent = (typeof PARENT_CLEANUP_EVENTS)[number];
 type OpenCodeProcessOptions = {
   readonly processGroup?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
 };
 
 export type OpenCodeServerHandle = {
@@ -310,13 +311,16 @@ async function closeSpawnedOpenCodeServer(input: {
   }
 }
 
-async function spawnOpenCodeServer(binaryPath: string): Promise<OpenCodeSpawnedServerHandle> {
+async function spawnOpenCodeServer(
+  binaryPath: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<OpenCodeSpawnedServerHandle> {
   const port = await getFreePort();
   const args = ["serve", `--hostname=${DEFAULT_HOST}`, `--port=${String(port)}`];
   const processOptions = { processGroup: process.platform !== "win32" } as const;
   const child = openCodeRuntimeDependencies.spawn(binaryPath, args, {
     detached: processOptions.processGroup,
-    env: { ...process.env },
+    env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const unregisterParentCleanup = registerParentProcessCleanup(child, process, processOptions);
@@ -466,8 +470,9 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
  */
 export async function startOpenCodeServerIsolated(
   binaryPath: string,
+  env: NodeJS.ProcessEnv = {},
 ): Promise<OpenCodeServerHandle> {
-  const server = await spawnOpenCodeServer(binaryPath);
+  const server = await spawnOpenCodeServer(binaryPath, env);
   let closed = false;
   return {
     url: server.url,

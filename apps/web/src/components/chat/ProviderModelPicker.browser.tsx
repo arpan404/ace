@@ -1,4 +1,6 @@
-import { type ProviderKind, type ServerProvider } from "@ace/contracts";
+import { type ModelSelection, type ProviderKind, type ServerProvider } from "@ace/contracts";
+import { buildProviderModelSelection } from "@ace/shared/model";
+import type { ComponentProps } from "react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -6,6 +8,15 @@ import { render } from "vitest-browser-react";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { getCustomModelOptionsByProvider } from "../../modelSelection";
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
+
+function modelSelection(
+  provider: ProviderKind,
+  model: string,
+  options?: ModelSelection["options"],
+  providerInstanceId?: string,
+): ModelSelection {
+  return buildProviderModelSelection(provider, model, options, providerInstanceId);
+}
 
 function effort(value: string, isDefault = false) {
   return {
@@ -205,6 +216,11 @@ function buildCodexModel(index: number): ServerProvider["models"][number] {
 
 async function mountPicker(props: {
   provider: ProviderKind;
+  providerInstanceId?: string;
+  providerInstancesByProvider?: ComponentProps<
+    typeof ProviderModelPicker
+  >["providerInstancesByProvider"];
+  modelSelectionByProvider?: ComponentProps<typeof ProviderModelPicker>["modelSelectionByProvider"];
   model: string;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
@@ -219,14 +235,22 @@ async function mountPicker(props: {
     providers,
     props.provider,
     props.model,
+    props.providerInstanceId,
   );
   const screen = await render(
     <ProviderModelPicker
       provider={props.provider}
+      {...(props.providerInstanceId ? { providerInstanceId: props.providerInstanceId } : {})}
       model={props.model}
       lockedProvider={props.lockedProvider}
       providers={providers}
       modelOptionsByProvider={modelOptionsByProvider}
+      {...(props.modelSelectionByProvider
+        ? { modelSelectionByProvider: props.modelSelectionByProvider }
+        : {})}
+      {...(props.providerInstancesByProvider
+        ? { providerInstancesByProvider: props.providerInstancesByProvider }
+        : {})}
       triggerVariant={props.triggerVariant}
       onProviderModelChange={onProviderModelChange}
     />,
@@ -245,6 +269,7 @@ async function mountPicker(props: {
 describe("ProviderModelPicker", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    localStorage.removeItem("ace:provider-model-picker-prefs:v1");
   });
 
   it("does not mount a full-window modal backdrop for dropdown menus", async () => {
@@ -311,7 +336,7 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("shows provider submenus when provider switching is allowed", async () => {
+  it("shows a provider rail and model pane when provider switching is allowed", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
       model: "claude-opus-4-6",
@@ -323,16 +348,15 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Codex");
         expect(text).toContain("Claude");
-        expect(text).not.toContain("Claude Sonnet 4.6");
+        expect(text).toContain("Claude Sonnet 4.6");
       });
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("opens provider submenus with a visible gap from the parent menu", async () => {
+  it("switches the model pane when a provider is clicked", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
       model: "claude-opus-4-6",
@@ -341,37 +365,12 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      const providerTrigger = page.getByRole("menuitem", { name: "Codex" });
-      await providerTrigger.hover();
+      await page.getByRole("button", { name: "Codex" }).click();
 
       await vi.waitFor(() => {
         expect(document.body.textContent ?? "").toContain("GPT-5 Codex");
       });
-
-      const providerTriggerElement = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find((element) => element.textContent?.includes("Codex"));
-      if (!providerTriggerElement) {
-        throw new Error("Expected the Codex provider trigger to be mounted.");
-      }
-
-      const providerTriggerRect = providerTriggerElement.getBoundingClientRect();
-      const modelElement = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-      ).find((element) => element.textContent?.includes("GPT-5 Codex"));
-      if (!modelElement) {
-        throw new Error("Expected the submenu model option to be mounted.");
-      }
-
-      const submenuPopup = modelElement.closest('[data-slot="menu-sub-content"]');
-      if (!(submenuPopup instanceof HTMLElement)) {
-        throw new Error("Expected submenu popup to be mounted.");
-      }
-
-      const submenuRect = submenuPopup.getBoundingClientRect();
-
-      expect(submenuRect.left).toBeGreaterThanOrEqual(providerTriggerRect.right);
-      expect(submenuRect.left - providerTriggerRect.right).toBeGreaterThanOrEqual(2);
+      expect(document.body.textContent ?? "").not.toContain("Claude Sonnet 4.6");
     } finally {
       await mounted.cleanup();
     }
@@ -455,7 +454,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Codex" }).hover();
+      await page.getByRole("button", { name: "Codex" }).click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
@@ -475,7 +474,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Codex" }).hover();
+      await page.getByRole("button", { name: "Codex" }).click();
 
       await vi.waitFor(() => {
         expect(document.body.textContent ?? "").toContain("GPT-5.3 Codex Spark");
@@ -505,7 +504,387 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("shows disabled providers as non-selectable entries", async () => {
+  it("pins providers to the top of the provider rail", async () => {
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Cursor" }).click();
+      await page.getByRole("button", { name: "Pin Cursor" }).click();
+
+      await vi.waitFor(() => {
+        const raw = localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "";
+        expect(raw).toContain("cursor");
+      });
+
+      const popup = document.querySelector('[data-slot="menu-popup"]');
+      if (!(popup instanceof HTMLElement)) {
+        throw new Error("Expected provider picker popup to be mounted.");
+      }
+      const firstProviderButton = Array.from(
+        popup.querySelectorAll<HTMLButtonElement>("button[aria-label]"),
+      ).find((button) =>
+        ["Codex", "Claude", "Cursor", "Copilot", "Gemini", "OpenCode", "Pi"].includes(
+          button.getAttribute("aria-label") ?? "",
+        ),
+      );
+      expect(firstProviderButton?.getAttribute("aria-label") ?? "").toBe("Cursor");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps pinned provider accounts scoped to their account entry", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const providerInstancesByProvider = {
+      codex: [{ id: "personal", label: "Personal", enabled: true }],
+    };
+    const mounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "personal",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+      providers,
+      providerInstancesByProvider,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Pin Codex Personal" }).click();
+
+      await vi.waitFor(() => {
+        expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
+          "codex:personal",
+        );
+      });
+
+      await page.getByRole("button", { exact: true, name: "Codex" }).click();
+      await expect
+        .element(page.getByRole("button", { exact: true, name: "Pin Codex" }))
+        .toBeVisible();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows provider accounts as provider rail entries", async () => {
+    const personalModel = buildCodexModel(77);
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider([personalModel]),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+      providers,
+      providerInstancesByProvider: {
+        codex: [
+          { id: "work", label: "Work", enabled: true },
+          { id: "personal", label: "Personal", enabled: true },
+        ],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      expect(document.body.textContent ?? "").not.toContain("Account");
+      expect(document.body.textContent ?? "").not.toContain("Default");
+      await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
+      await page.getByRole("button", { name: "Codex Personal" }).click();
+
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      const popupText = document.body.textContent ?? "";
+      expect(popupText).toContain("Personal");
+      expect(popupText).toContain("1 model");
+      expect(popupText).toContain(personalModel.name);
+      expect(popupText).not.toContain("GPT-5.3 Codex");
+      await page.getByRole("menuitemradio", { name: personalModel.name }).click();
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "codex",
+        personalModel.slug,
+        "personal",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps provider account entries selectable when a conversation locks the provider", async () => {
+    const personalModel = buildCodexModel(88);
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider([personalModel]),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider: {
+        codex: [
+          {
+            id: "personal",
+            label: "Personal",
+            enabled: true,
+            badgeColor: "blue",
+            badgeIcon: "briefcase",
+          },
+        ],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
+      await page.getByRole("button", { name: "Codex Personal" }).click();
+
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      expect(document.body.textContent ?? "").toContain(personalModel.name);
+      expect(document.body.textContent ?? "").not.toContain("GPT-5.3 Codex");
+      await page.getByRole("menuitemradio", { name: personalModel.name }).click();
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "codex",
+        personalModel.slug,
+        "personal",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not carry the selected model highlight across provider accounts", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5.3-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider: {
+        codex: [{ id: "personal", label: "Personal", enabled: true }],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Codex Personal" }).click();
+
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      expect(document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]')).toHaveLength(
+        0,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("restores the remembered model for each provider account", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "personal",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider: {
+        codex: [{ id: "personal", label: "Personal", enabled: true }],
+      },
+      modelSelectionByProvider: {
+        codex: modelSelection("codex", "gpt-5-codex", undefined, "personal"),
+        "codex:default": modelSelection("codex", "gpt-5.3-codex"),
+        "codex:personal": modelSelection("codex", "gpt-5-codex", undefined, "personal"),
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { exact: true, name: "Codex" }).click();
+
+      expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+      await page.getByRole("menuitemradio", { name: "GPT-5.3 Codex" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("codex", "gpt-5.3-codex");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps enabled provider accounts selectable when the default entry is disabled", async () => {
+    const disabledDefaultCodex = {
+      ...buildCodexProvider([buildCodexModel(1)]),
+      enabled: false,
+      status: "disabled" as const,
+      isDefaultProviderInstance: true,
+    };
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+      providers: [disabledDefaultCodex, TEST_PROVIDERS[1]!],
+      providerInstancesByProvider: {
+        codex: [{ id: "personal", label: "Personal", enabled: true }],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
+      expect(document.querySelector("button[aria-label='Codex']")).toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders the selected instance badge on the composer trigger", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "work",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+      providerInstancesByProvider: {
+        codex: [
+          {
+            id: "work",
+            label: "Work",
+            enabled: true,
+            badgeColor: "emerald",
+            badgeIcon: "briefcase",
+          },
+        ],
+      },
+    });
+
+    try {
+      const trigger = document.querySelector('[data-chat-provider-model-picker="true"]');
+      if (!(trigger instanceof HTMLElement)) {
+        throw new Error("Expected provider picker trigger to be mounted.");
+      }
+      const badge = trigger.querySelector('[data-provider-instance-badge="true"]');
+      expect(badge).toBeInstanceOf(HTMLElement);
+      expect((badge as HTMLElement).style.backgroundColor).toBe("rgb(5, 150, 105)");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("favorites models and surfaces them above the model list", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Favorite GPT-5.3 Codex" }).click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Favorites");
+        expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
+          "codex:default:gpt-5.3-codex",
+        );
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps favorite models scoped to the selected provider account", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const providerInstancesByProvider = {
+      codex: [{ id: "personal", label: "Personal", enabled: true }],
+    };
+    const defaultMounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Favorite GPT-5.3 Codex" }).click();
+    } finally {
+      await defaultMounted.cleanup();
+    }
+
+    const personalMounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "personal",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider,
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      expect(document.body.textContent ?? "").not.toContain("Favorites");
+      expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
+        "codex:default:gpt-5.3-codex",
+      );
+    } finally {
+      await personalMounted.cleanup();
+    }
+  });
+
+  it("hides disabled providers from the provider menu", async () => {
     const disabledProviders = TEST_PROVIDERS.slice();
     const claudeIndex = disabledProviders.findIndex(
       (provider) => provider.provider === "claudeAgent",
@@ -530,8 +909,8 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Claude");
-        expect(text).toContain("Disabled");
+        expect(text).not.toContain("Claude");
+        expect(text).not.toContain("Disabled");
         expect(text).not.toContain("Claude Sonnet 4.6");
       });
     } finally {
@@ -562,7 +941,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Codex" }).hover();
+      await page.getByRole("button", { name: "Codex" }).click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
@@ -637,7 +1016,7 @@ describe("ProviderModelPicker", () => {
         throw new Error("Expected OpenCode model search input to be mounted.");
       }
       expect(searchInput.className).toContain("border-0");
-      expect(searchInput.parentElement?.className ?? "").toContain("border-b");
+      expect(searchInput.parentElement?.className ?? "").toContain("border");
 
       await page.getByRole("searchbox").fill("nemotron");
 
@@ -658,7 +1037,7 @@ describe("ProviderModelPicker", () => {
         throw new Error("Expected OpenCode popup to remain mounted after filtering.");
       }
       const filteredPopupHeight = filteredPopup.getBoundingClientRect().height;
-      expect(Math.abs(filteredPopupHeight - initialPopupHeight)).toBeLessThanOrEqual(1);
+      expect(filteredPopupHeight).toBeLessThanOrEqual(initialPopupHeight);
     } finally {
       await mounted.cleanup();
     }

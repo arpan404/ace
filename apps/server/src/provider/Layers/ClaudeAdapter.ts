@@ -46,6 +46,7 @@ import {
   resolveEffort,
   trimOrNull,
 } from "@ace/shared/model";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import {
   Cause,
   DateTime,
@@ -2715,7 +2716,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
 
       const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.claudeAgent),
+        Effect.map((settings) =>
+          resolveProviderSettings(settings, "claudeAgent", input.providerInstanceId),
+        ),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -2762,7 +2765,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
         canUseTool,
-        env: process.env,
+        env: {
+          ...process.env,
+          ...claudeSettings.launchEnv,
+          ...(claudeSettings.configDir ? { CLAUDE_CONFIG_DIR: claudeSettings.configDir } : {}),
+        },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
       };
 
@@ -2786,6 +2793,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const session: ProviderSession = {
         threadId,
         provider: PROVIDER,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         status: "ready",
         runtimeMode: input.runtimeMode,
         ...(input.cwd ? { cwd: input.cwd } : {}),

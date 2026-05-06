@@ -138,6 +138,7 @@ export type BrowserConsoleLogEntry = {
 export type BrowserTabHandle = {
   animateAgentPointer: (effect: BrowserAgentPointerEffect) => Promise<void>;
   captureVisiblePage: () => Promise<string>;
+  clearAgentPointer: () => void;
   closeDevTools: () => void;
   executeJavaScript: <T = unknown>(code: string) => Promise<T>;
   getZoomFactor: () => number;
