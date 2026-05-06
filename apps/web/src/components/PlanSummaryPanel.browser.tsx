@@ -102,7 +102,7 @@ describe("PlanSummaryPanel", () => {
     }
   });
 
-  it("shows a visible loading state while an AI summary is being generated", async () => {
+  it("shows a visible loading state while a summary is being generated", async () => {
     let resolveSummaryRequest: ((value?: void | PromiseLike<void>) => void) | undefined;
     const onRegenerateSummary = vi.fn(
       () =>
@@ -135,7 +135,7 @@ describe("PlanSummaryPanel", () => {
       await vi.waitFor(() => {
         expect(onRegenerateSummary).toHaveBeenCalledTimes(1);
         expect(document.body.textContent).toContain("Generating");
-        expect(document.body.textContent).toContain("Generating AI summary...");
+        expect(document.body.textContent).toContain("Generating summary...");
         expect(document.querySelector('[role="status"]')).toBeTruthy();
       });
     } finally {

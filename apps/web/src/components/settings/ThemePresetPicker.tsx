@@ -41,9 +41,8 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                 onChange(option.id);
               }}
               className={cn(
-                "group relative flex h-[68px] w-full min-w-0 flex-col overflow-hidden rounded-[var(--control-radius)] border p-1.5 text-left outline-none transition-[border-color,box-shadow,background-color,transform] duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                !active &&
-                  "border-pill-border/55 bg-background/34 hover:border-muted-foreground/35 hover:bg-foreground/[0.035]",
+                "group relative flex h-[68px] w-full min-w-0 flex-col overflow-hidden rounded-[var(--control-radius)] border p-1.5 text-left outline-none transition-[border-color,box-shadow,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                !active && "border-pill-border/55 bg-background/34",
                 active && "border-transparent",
               )}
               style={

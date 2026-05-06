@@ -105,7 +105,7 @@ function SortableQueuedMessageRow(props: {
             className={cn(
               "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
               isSteered
-                ? "border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
+                ? "animate-pulse border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
                 : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
             )}
             onClick={() => {

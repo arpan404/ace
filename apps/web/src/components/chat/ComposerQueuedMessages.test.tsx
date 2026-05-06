@@ -28,6 +28,7 @@ describe("ComposerQueuedMessages", () => {
     );
 
     expect(markup).toContain('aria-label="Steering message"');
+    expect(markup).toContain("animate-pulse");
     expect(markup).toContain(">Steering</button>");
     expect(markup).not.toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
