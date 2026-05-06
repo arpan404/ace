@@ -1,6 +1,7 @@
 import {
   type ProviderKind,
   type ProviderModelOptions,
+  type ProviderSessionConfigOption,
   type ServerProviderModel,
   type ThreadId,
 } from "@ace/contracts";
@@ -20,6 +21,7 @@ import {
   normalizeCursorModelOptionsWithCapabilities,
   normalizeGitHubCopilotModelOptionsWithCapabilities,
   normalizeOpenCodeModelOptionsWithCapabilities,
+  normalizePiModelOptionsWithCapabilities,
 } from "@ace/shared/model";
 
 export type ComposerProviderStateInput = {
@@ -48,6 +50,7 @@ type ProviderRegistryEntry = {
     modelOptions: ProviderModelOptions[ProviderKind] | undefined;
     prompt: string;
     onPromptChange: (prompt: string) => void;
+    sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   }) => ReactNode;
   renderTraitsPicker: (input: {
     threadId: ThreadId;
@@ -57,6 +60,7 @@ type ProviderRegistryEntry = {
     prompt: string;
     onPromptChange: (prompt: string) => void;
     showFastInTriggerLabel?: boolean;
+    sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   }) => ReactNode;
 };
 
@@ -68,13 +72,26 @@ function getProviderStateFromCapabilities(
   const providerOptions = modelOptions?.[provider];
 
   // Resolve effort
-  const rawEffort = providerOptions
-    ? "effort" in providerOptions
-      ? providerOptions.effort
-      : "reasoningEffort" in providerOptions
-        ? providerOptions.reasoningEffort
+  const rawEffort =
+    provider === "claudeAgent"
+      ? providerOptions && "effort" in providerOptions
+        ? providerOptions.effort
         : null
-    : null;
+      : provider === "pi"
+        ? providerOptions && typeof providerOptions === "object"
+          ? "thoughtLevel" in providerOptions &&
+            typeof providerOptions.thoughtLevel === "string" &&
+            providerOptions.thoughtLevel.trim().length > 0
+            ? providerOptions.thoughtLevel
+            : "reasoningEffort" in providerOptions &&
+                typeof providerOptions.reasoningEffort === "string" &&
+                providerOptions.reasoningEffort.trim().length > 0
+              ? providerOptions.reasoningEffort
+              : null
+          : null
+        : providerOptions && "reasoningEffort" in providerOptions
+          ? providerOptions.reasoningEffort
+          : null;
 
   const promptEffort = resolveEffort(caps, rawEffort) ?? null;
 
@@ -88,11 +105,14 @@ function getProviderStateFromCapabilities(
           ? normalizeGitHubCopilotModelOptionsWithCapabilities(caps, modelOptions?.githubCopilot)
           : provider === "cursor"
             ? normalizeCursorModelOptionsWithCapabilities(caps, modelOptions?.cursor)
-            : provider === "gemini"
-              ? undefined
-              : provider === "opencode"
-                ? normalizeOpenCodeModelOptionsWithCapabilities(caps, modelOptions?.opencode)
-                : undefined;
+            : provider === "pi"
+              ? (normalizePiModelOptionsWithCapabilities(caps, modelOptions?.pi) ??
+                modelOptions?.pi)
+              : provider === "gemini"
+                ? undefined
+                : provider === "opencode"
+                  ? normalizeOpenCodeModelOptionsWithCapabilities(caps, modelOptions?.opencode)
+                  : undefined;
 
   // Ultrathink styling (driven by capabilities data, not provider identity)
   const ultrathinkActive =
@@ -254,6 +274,49 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       />
     ),
   },
+  pi: {
+    getState: (input) => getProviderStateFromCapabilities(input),
+    renderTraitsMenuContent: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      sessionConfigOptions,
+    }) => (
+      <TraitsMenuContent
+        provider="pi"
+        models={models}
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
+      />
+    ),
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      sessionConfigOptions,
+    }) => (
+      <TraitsPicker
+        provider="pi"
+        models={models}
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
+      />
+    ),
+  },
   gemini: {
     getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
@@ -350,6 +413,7 @@ export function renderProviderTraitsMenuContent(input: {
   modelOptions: ProviderModelOptions[ProviderKind] | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
+  sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
 }): ReactNode {
   if (
     !shouldRenderTraitsPicker({
@@ -358,6 +422,7 @@ export function renderProviderTraitsMenuContent(input: {
       model: input.model,
       modelOptions: input.modelOptions,
       prompt: input.prompt,
+      sessionConfigOptions: input.sessionConfigOptions,
     })
   ) {
     return null;
@@ -370,6 +435,7 @@ export function renderProviderTraitsMenuContent(input: {
     modelOptions: input.modelOptions,
     prompt: input.prompt,
     onPromptChange: input.onPromptChange,
+    sessionConfigOptions: input.sessionConfigOptions,
   });
 }
 
@@ -382,6 +448,7 @@ export function renderProviderTraitsPicker(input: {
   prompt: string;
   onPromptChange: (prompt: string) => void;
   showFastInTriggerLabel?: boolean;
+  sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
 }): ReactNode {
   if (
     !shouldRenderTraitsPicker({
@@ -390,6 +457,7 @@ export function renderProviderTraitsPicker(input: {
       model: input.model,
       modelOptions: input.modelOptions,
       prompt: input.prompt,
+      sessionConfigOptions: input.sessionConfigOptions,
     })
   ) {
     return null;
@@ -402,6 +470,7 @@ export function renderProviderTraitsPicker(input: {
     modelOptions: input.modelOptions,
     prompt: input.prompt,
     onPromptChange: input.onPromptChange,
+    sessionConfigOptions: input.sessionConfigOptions,
     ...(typeof input.showFastInTriggerLabel === "boolean"
       ? { showFastInTriggerLabel: input.showFastInTriggerLabel }
       : {}),

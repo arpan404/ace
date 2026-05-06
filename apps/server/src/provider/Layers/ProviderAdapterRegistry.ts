@@ -21,6 +21,7 @@ import { CursorAdapter } from "../Services/CursorAdapter.ts";
 import { GeminiAdapter } from "../Services/GeminiAdapter.ts";
 import { GitHubCopilotAdapter } from "../Services/GitHubCopilotAdapter.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
+import { PiAdapter } from "../Services/PiAdapter.ts";
 import { withStartupTiming } from "../../startupDiagnostics.ts";
 
 export interface ProviderAdapterRegistryLiveOptions {
@@ -53,6 +54,11 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
             "providers",
             "Initializing Cursor adapter",
             Effect.service(CursorAdapter),
+          ),
+          yield* withStartupTiming(
+            "providers",
+            "Initializing Pi adapter",
+            Effect.service(PiAdapter),
           ),
           yield* withStartupTiming(
             "providers",

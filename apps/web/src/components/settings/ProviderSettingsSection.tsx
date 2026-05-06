@@ -11,6 +11,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type ServerProviderModel,
+  type ServerProviderRuntime,
 } from "@ace/contracts";
 import { type UnifiedSettings, DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 
@@ -51,6 +52,7 @@ export interface ProviderCard {
   isDirty: boolean;
   models: ReadonlyArray<ServerProviderModel>;
   providerConfig: UnifiedSettings["providers"][ProviderKind];
+  runtimes?: ReadonlyArray<ServerProviderRuntime> | undefined;
   statusStyle: ProviderStatusStyle;
   summary: ProviderSummary;
   versionLabel: string | null;
@@ -78,6 +80,7 @@ export function ProviderSettingsSection({
   customModelInputByProvider,
   isRefreshingProviders,
   isUpgradingProvider,
+  isUpgradingRuntime,
   lastCheckedAt,
   modelListRefs,
   openProviderDetails,
@@ -98,6 +101,7 @@ export function ProviderSettingsSection({
   customModelInputByProvider: Record<ProviderKind, string>;
   isRefreshingProviders: boolean;
   isUpgradingProvider: (provider: ProviderKind) => boolean;
+  isUpgradingRuntime: (provider: ProviderKind, runtimeId: string) => boolean;
   lastCheckedAt: string | null;
   modelListRefs: MutableRefObject<Partial<Record<ProviderKind, HTMLDivElement | null>>>;
   openProviderDetails: Record<ProviderKind, boolean>;
@@ -111,7 +115,7 @@ export function ProviderSettingsSection({
   setOpenProviderDetails: Dispatch<SetStateAction<Record<ProviderKind, boolean>>>;
   settings: UnifiedSettings;
   textGenProvider: ProviderKind;
-  upgradeProviderCli: (provider: ProviderKind) => void;
+  upgradeProviderCli: (provider: ProviderKind, runtimeId: string) => void;
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
   return (
@@ -205,7 +209,9 @@ export function ProviderSettingsSection({
                             variant="outline"
                             className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
                             disabled={isUpgrading}
-                            onClick={() => upgradeProviderCli(providerCard.provider)}
+                            onClick={() =>
+                              upgradeProviderCli(providerCard.provider, providerCard.provider)
+                            }
                             aria-label={`Upgrade ${providerDisplayName} CLI`}
                           >
                             {isUpgrading ? (
@@ -309,6 +315,60 @@ export function ProviderSettingsSection({
                       </span>
                     </label>
                   </div>
+
+                  {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
+                    <div className="border-t border-border/45 px-3 py-3 sm:px-4">
+                      <div className="text-[12px] font-medium text-foreground/85">Runtimes</div>
+                      <div className="mt-2 space-y-2">
+                        {providerCard.runtimes.map((runtime) => {
+                          const upgradingRuntime = isUpgradingRuntime(
+                            providerCard.provider,
+                            runtime.id,
+                          );
+                          return (
+                            <div
+                              key={`${providerCard.provider}:${runtime.id}`}
+                              className="flex items-center justify-between gap-3 rounded-[var(--control-radius)] border border-border/40 px-3 py-2"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-foreground/90">
+                                    {runtime.label}
+                                  </span>
+                                  {runtime.version ? (
+                                    <code className="text-[11px] text-muted-foreground/60">
+                                      {runtime.version}
+                                    </code>
+                                  ) : null}
+                                </div>
+                                <div className="truncate text-[11px] text-muted-foreground/60">
+                                  {runtime.binaryPath}
+                                </div>
+                              </div>
+                              {runtime.upgradeable ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
+                                  disabled={upgradingRuntime}
+                                  onClick={() =>
+                                    upgradeProviderCli(providerCard.provider, runtime.id)
+                                  }
+                                >
+                                  {upgradingRuntime ? (
+                                    <LoaderIcon className="size-3 animate-spin" />
+                                  ) : (
+                                    <RefreshCwIcon className="size-3" />
+                                  )}
+                                  {upgradingRuntime ? "Upgrading" : "Upgrade"}
+                                </Button>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {providerCard.provider === "githubCopilot" ? (
                     <div className="border-t border-border/45 px-3 py-3 sm:px-4">

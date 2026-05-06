@@ -2,6 +2,7 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   ProviderModelOptions,
+  ProviderSessionConfigOption,
   ServerProvider,
   ServerProviderModel,
   ThreadHandoffMode,
@@ -94,6 +95,7 @@ interface ChatComposerPanelProps {
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  readonly sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
   readonly providers: ReadonlyArray<ServerProvider>;
@@ -257,6 +259,7 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
 });
 
 export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComposerPanelProps) {
+  const interactionModeDisabledReason = null;
   const providerTraitsMenuContent = useMemo(
     () =>
       renderProviderTraitsMenuContent({
@@ -267,6 +270,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         modelOptions: props.selectedProviderModelOptions,
         prompt: props.prompt,
         onPromptChange: props.onPromptChangeFromTraits,
+        sessionConfigOptions: props.sessionConfigOptions,
       }),
     [
       props.onPromptChangeFromTraits,
@@ -275,6 +279,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.selectedProvider,
       props.selectedProviderModelOptions,
       props.selectedProviderModels,
+      props.sessionConfigOptions,
       props.threadId,
     ],
   );
@@ -289,6 +294,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         prompt: props.prompt,
         onPromptChange: props.onPromptChangeFromTraits,
         showFastInTriggerLabel: false,
+        sessionConfigOptions: props.sessionConfigOptions,
       }),
     [
       props.onPromptChangeFromTraits,
@@ -297,6 +303,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.selectedProvider,
       props.selectedProviderModelOptions,
       props.selectedProviderModels,
+      props.sessionConfigOptions,
       props.threadId,
     ],
   );
@@ -546,6 +553,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                       interactionMode={props.interactionMode}
                       runtimeMode={props.runtimeMode}
                       interactionModeShortcutLabel={props.interactionModeShortcutLabel}
+                      interactionModeDisabledReason={interactionModeDisabledReason}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={props.onToggleInteractionMode}
                       onRuntimeModeChange={props.onRuntimeModeChange}
@@ -576,6 +584,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                               size="sm"
                               type="button"
                               onClick={props.onToggleInteractionMode}
+                              disabled={Boolean(interactionModeDisabledReason)}
                               aria-label={
                                 props.interactionMode === "plan"
                                   ? "Switch to agent mode"
@@ -594,10 +603,11 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                           </span>
                         </TooltipTrigger>
                         <TooltipPopup side="top" sideOffset={4}>
-                          {renderInteractionModeTooltipContent(
-                            props.interactionMode,
-                            props.interactionModeShortcutLabel,
-                          )}
+                          {interactionModeDisabledReason ??
+                            renderInteractionModeTooltipContent(
+                              props.interactionMode,
+                              props.interactionModeShortcutLabel,
+                            )}
                         </TooltipPopup>
                       </Tooltip>
                     </>

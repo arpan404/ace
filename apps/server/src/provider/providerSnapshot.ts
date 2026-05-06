@@ -186,6 +186,7 @@ export function buildServerProvider(input: {
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
   probe: ProviderProbeResult;
+  runtimes?: ServerProvider["runtimes"];
 }): ServerProvider {
   return {
     provider: input.provider,
@@ -199,6 +200,7 @@ export function buildServerProvider(input: {
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
+    ...(input.runtimes ? { runtimes: input.runtimes } : {}),
   };
 }
 
@@ -208,12 +210,14 @@ export function buildPendingServerProvider(input: {
   models: ReadonlyArray<ServerProviderModel>;
   message: string;
   checkedAt?: string;
+  runtimes?: ServerProvider["runtimes"];
 }): ServerProvider {
   return buildServerProvider({
     provider: input.provider,
     enabled: input.enabled,
     checkedAt: input.checkedAt ?? new Date().toISOString(),
     models: input.models,
+    ...(input.runtimes ? { runtimes: input.runtimes } : {}),
     probe: {
       installed: false,
       version: null,

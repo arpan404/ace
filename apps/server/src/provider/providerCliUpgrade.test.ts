@@ -6,6 +6,7 @@ describe("providerCliUpgrade", () => {
   it("uses bun when the resolved provider binary is installed in the bun global bin dir", () => {
     const plan = buildProviderCliUpgradePlan({
       provider: "gemini",
+      runtimeId: "gemini",
       resolvedBinaryPath: "/Users/example/.bun/bin/gemini",
     });
 
@@ -17,6 +18,7 @@ describe("providerCliUpgrade", () => {
   it("falls back to npm global install for generic PATH installs", () => {
     const plan = buildProviderCliUpgradePlan({
       provider: "codex",
+      runtimeId: "codex",
       resolvedBinaryPath: "/opt/homebrew/bin/codex",
     });
 
@@ -29,8 +31,21 @@ describe("providerCliUpgrade", () => {
     expect(() =>
       buildProviderCliUpgradePlan({
         provider: "cursor",
+        runtimeId: "cursor",
         resolvedBinaryPath: "/usr/local/bin/cursor-agent",
       }),
     ).toThrow("One-click upgrade is not supported for this provider.");
+  });
+
+  it("builds a deterministic runtime-specific upgrade plan for Pi", () => {
+    const plan = buildProviderCliUpgradePlan({
+      provider: "pi",
+      runtimeId: "pi",
+      resolvedBinaryPath: "/Users/example/.bun/bin/pi",
+    });
+
+    expect(plan.packageManager).toBe("bun");
+    expect(plan.command).toBe("/Users/example/.bun/bin/bun");
+    expect(plan.args).toEqual(["add", "-g", "@mariozechner/pi-coding-agent@latest"]);
   });
 });

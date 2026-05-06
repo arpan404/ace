@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   ProviderModelOptions,
+  ProviderSessionConfigOption,
   ProviderSlashCommand,
   RuntimeMode,
   ServerProvider,
@@ -197,6 +198,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  readonly sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   readonly providerCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
@@ -1391,6 +1393,7 @@ export const ConnectedChatComposerPanels = memo(
             selectedModel={props.selectedModel}
             selectedProviderModels={props.selectedProviderModels}
             selectedProviderModelOptions={props.selectedProviderModelOptions}
+            sessionConfigOptions={props.sessionConfigOptions}
             selectedModelForPickerWithCustomFallback={
               props.selectedModelForPickerWithCustomFallback
             }
@@ -1496,6 +1499,7 @@ export const ConnectedChatComposerPanels = memo(
             selectedModel={props.selectedModel}
             selectedProviderModels={props.selectedProviderModels}
             selectedProviderModelOptions={props.selectedProviderModelOptions}
+            sessionConfigOptions={props.sessionConfigOptions}
             selectedModelForPickerWithCustomFallback={
               props.selectedModelForPickerWithCustomFallback
             }

@@ -1,7 +1,11 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Schema, Struct } from "effect";
-import { ProviderIntegrationCapabilities, ProviderSlashCommand } from "@ace/contracts";
+import {
+  ProviderIntegrationCapabilities,
+  ProviderSessionConfigOption,
+  ProviderSlashCommand,
+} from "@ace/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 
@@ -16,6 +20,7 @@ import {
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession.mapFields(
   Struct.assign({
     capabilities: Schema.NullOr(Schema.fromJsonString(ProviderIntegrationCapabilities)),
+    configOptions: Schema.fromJsonString(Schema.Array(ProviderSessionConfigOption)),
     commands: Schema.fromJsonString(Schema.Array(ProviderSlashCommand)),
   }),
 );
@@ -32,6 +37,7 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
           status,
           provider_name,
           capabilities_json,
+          config_options_json,
           commands_json,
           runtime_mode,
           active_turn_id,
@@ -43,6 +49,7 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
           ${row.status},
           ${row.providerName},
           ${row.capabilities === null ? null : JSON.stringify(row.capabilities)},
+          ${JSON.stringify(row.configOptions)},
           ${JSON.stringify(row.commands)},
           ${row.runtimeMode},
           ${row.activeTurnId},
@@ -54,6 +61,7 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
           status = excluded.status,
           provider_name = excluded.provider_name,
           capabilities_json = excluded.capabilities_json,
+          config_options_json = excluded.config_options_json,
           commands_json = excluded.commands_json,
           runtime_mode = excluded.runtime_mode,
           active_turn_id = excluded.active_turn_id,
@@ -72,6 +80,7 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
           status,
           provider_name AS "providerName",
           capabilities_json AS "capabilities",
+          COALESCE(config_options_json, '[]') AS "configOptions",
           COALESCE(commands_json, '[]') AS "commands",
           runtime_mode AS "runtimeMode",
           active_turn_id AS "activeTurnId",

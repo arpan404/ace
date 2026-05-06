@@ -16,6 +16,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   interactionModeShortcutLabel: string | null;
+  interactionModeDisabledReason?: string | null;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -46,6 +47,13 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           value={props.interactionMode}
           onValueChange={(value) => {
             if (!value || value === props.interactionMode) return;
+            if (
+              value === "plan" &&
+              props.interactionModeDisabledReason &&
+              props.interactionMode !== "plan"
+            ) {
+              return;
+            }
             props.onToggleInteractionMode();
           }}
         >
@@ -55,8 +63,20 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               <MenuShortcut>{props.interactionModeShortcutLabel}</MenuShortcut>
             ) : null}
           </MenuRadioItem>
-          <MenuRadioItem value="plan">Plan</MenuRadioItem>
+          <MenuRadioItem
+            value="plan"
+            disabled={Boolean(
+              props.interactionModeDisabledReason && props.interactionMode !== "plan",
+            )}
+          >
+            Plan
+          </MenuRadioItem>
         </MenuRadioGroup>
+        {props.interactionModeDisabledReason ? (
+          <div className="px-2 pb-1.5 pt-1 text-muted-foreground/75 text-xs">
+            {props.interactionModeDisabledReason}
+          </div>
+        ) : null}
       </MenuPopup>
     </Menu>
   );

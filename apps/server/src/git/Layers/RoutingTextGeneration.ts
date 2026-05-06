@@ -73,6 +73,11 @@ export function normalizeTextGenerationModelSelection(
     case "cursor":
     case "gemini":
       return selection;
+    case "pi":
+      return {
+        provider: "codex",
+        model: selection.model,
+      };
     case "opencode":
       return selection;
   }

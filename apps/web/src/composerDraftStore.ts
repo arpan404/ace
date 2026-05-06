@@ -43,6 +43,7 @@ const ALL_PROVIDER_KINDS = [
   "claudeAgent",
   "githubCopilot",
   "cursor",
+  "pi",
   "gemini",
   "opencode",
 ] as const satisfies ReadonlyArray<ProviderKind>;
@@ -658,6 +659,34 @@ function normalizeProviderModelOptions(
         }
       : undefined;
 
+  const piCandidate =
+    candidate?.pi && typeof candidate.pi === "object"
+      ? (candidate.pi as Record<string, unknown>)
+      : null;
+  const piThoughtLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined =
+    piCandidate?.thoughtLevel === "off" ||
+    piCandidate?.thoughtLevel === "minimal" ||
+    piCandidate?.thoughtLevel === "low" ||
+    piCandidate?.thoughtLevel === "medium" ||
+    piCandidate?.thoughtLevel === "high" ||
+    piCandidate?.thoughtLevel === "xhigh"
+      ? piCandidate.thoughtLevel
+      : undefined;
+  const piReasoningEffort: CodexReasoningEffort | undefined =
+    piCandidate?.reasoningEffort === "low" ||
+    piCandidate?.reasoningEffort === "medium" ||
+    piCandidate?.reasoningEffort === "high" ||
+    piCandidate?.reasoningEffort === "xhigh"
+      ? piCandidate.reasoningEffort
+      : undefined;
+  const pi =
+    piThoughtLevel !== undefined || piReasoningEffort !== undefined
+      ? {
+          ...(piThoughtLevel !== undefined ? { thoughtLevel: piThoughtLevel } : {}),
+          ...(piReasoningEffort !== undefined ? { reasoningEffort: piReasoningEffort } : {}),
+        }
+      : undefined;
+
   const opencodeCandidate =
     candidate?.opencode && typeof candidate.opencode === "object"
       ? (candidate.opencode as Record<string, unknown>)
@@ -680,7 +709,7 @@ function normalizeProviderModelOptions(
         }
       : undefined;
 
-  if (!codex && !claude && !githubCopilot && !cursor && !opencode) {
+  if (!codex && !claude && !githubCopilot && !cursor && !pi && !opencode) {
     return null;
   }
   return {
@@ -688,6 +717,7 @@ function normalizeProviderModelOptions(
     ...(claude ? { claudeAgent: claude } : {}),
     ...(githubCopilot ? { githubCopilot } : {}),
     ...(cursor ? { cursor } : {}),
+    ...(pi ? { pi } : {}),
     ...(opencode ? { opencode } : {}),
   };
 }

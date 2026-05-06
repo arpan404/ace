@@ -488,6 +488,12 @@ export function discoverProviderExtensionSlashCommands(
         providerHomeDirName: ".gemini",
         pluginManifestDirName: ".gemini-plugin",
       });
+    case "pi":
+      return discoverGenericProviderExtensionSlashCommands({
+        cwd: input.cwd,
+        providerHomeDirName: ".pi",
+        pluginManifestDirName: ".pi-plugin",
+      });
     case "githubCopilot":
       return discoverGenericProviderExtensionSlashCommands({
         cwd: input.cwd,
