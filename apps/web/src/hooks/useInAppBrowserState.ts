@@ -1,7 +1,6 @@
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  useDeferredValue,
   useCallback,
   useEffect,
   useMemo,
@@ -576,8 +575,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     isAddressBarFocused,
     suggestionsDismissed: addressBarSuggestionsDismissed,
   });
-  const suggestionInput = activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl;
-  const deferredSuggestionInput = useDeferredValue(suggestionInput);
+  const suggestionInput = draftUrl;
   const openTabs = useMemo(
     () => browserSession.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url)),
     [browserSession.tabs],
@@ -587,7 +585,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       return EMPTY_BROWSER_SUGGESTIONS;
     }
 
-    return buildBrowserSuggestions(deferredSuggestionInput, {
+    return buildBrowserSuggestions(suggestionInput, {
       ...(activeTabId ? { activeTabId } : {}),
       ...(activeTabUrl ? { activePageUrl: activeTabUrl } : {}),
       history: browserHistory,
@@ -599,9 +597,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     activeTabUrl,
     browserHistory,
     browserSearchEngine,
-    deferredSuggestionInput,
     openTabs,
     showAddressBarSuggestions,
+    suggestionInput,
   ]);
 
   const focusAddressBar = useCallback(() => {
