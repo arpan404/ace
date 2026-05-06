@@ -175,6 +175,19 @@ function buildOpenCodeProvider(models: ServerProvider["models"]): ServerProvider
   };
 }
 
+function buildPiProvider(models: ServerProvider["models"]): ServerProvider {
+  return {
+    provider: "pi",
+    enabled: true,
+    installed: true,
+    version: "1.2.3",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: new Date().toISOString(),
+    models,
+  };
+}
+
 function buildCodexModel(index: number): ServerProvider["models"][number] {
   return {
     slug: `codex-model-${index}`,
@@ -602,7 +615,9 @@ describe("ProviderModelPicker", () => {
       await page.getByRole("button").click();
 
       await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("Codex Model 32");
+        expect(document.querySelectorAll('[role="menuitemradio"]').length).toBe(
+          manyCodexModels.length,
+        );
       });
 
       const popup = document.querySelector('[data-slot="menu-popup"]');
@@ -636,8 +651,8 @@ describe("ProviderModelPicker", () => {
       if (!(button instanceof HTMLButtonElement)) {
         throw new Error("Expected picker trigger button to be rendered.");
       }
-      expect(button.className).toContain("border-input");
-      expect(button.className).toContain("bg-popover");
+      expect(button.dataset.variant).toBe("outline");
+      expect(button.className).toContain("border-border");
     } finally {
       await mounted.cleanup();
     }
@@ -658,6 +673,77 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Cursor Opus");
         expect(text).toContain("Cursor Sonnet");
         expect(text).not.toContain("Model Family");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("groups Pi models by upstream provider and filters via the top search field", async () => {
+    const mounted = await mountPicker({
+      provider: "pi",
+      model: "openai/gpt-5.5",
+      lockedProvider: "pi",
+      providers: [
+        buildPiProvider([
+          {
+            slug: "openai/gpt-5.5",
+            name: "GPT-5.5",
+            isCustom: false,
+            capabilities: null,
+          },
+          {
+            slug: "anthropic/claude-sonnet-4-6",
+            name: "Claude Sonnet 4.6",
+            isCustom: false,
+            capabilities: null,
+          },
+          {
+            slug: "google/gemini-2.5-pro",
+            name: "Gemini 2.5 Pro",
+            isCustom: false,
+            capabilities: null,
+          },
+          {
+            slug: "google/gemini-2.5-flash",
+            name: "Gemini 2.5 Flash",
+            isCustom: false,
+            capabilities: null,
+          },
+        ]),
+      ],
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        const popup = document.querySelector('[data-slot="menu-popup"]');
+        if (!(popup instanceof HTMLElement)) {
+          throw new Error("Expected Pi popup to be mounted.");
+        }
+        const text = popup.textContent ?? "";
+        expect(text).toContain("OpenAI");
+        expect(text).toContain("Anthropic");
+        expect(text).toContain("Google");
+        expect(text).toContain("GPT-5.5");
+        expect(text).toContain("Claude Sonnet 4.6");
+        expect(text).toContain("Gemini 2.5 Pro");
+        expect(text).toContain("Gemini 2.5 Flash");
+      });
+
+      await page.getByRole("searchbox").fill("flash");
+
+      await vi.waitFor(() => {
+        const popup = document.querySelector('[data-slot="menu-popup"]');
+        if (!(popup instanceof HTMLElement)) {
+          throw new Error("Expected Pi popup to remain mounted.");
+        }
+        const text = popup.textContent ?? "";
+        expect(text).toContain("Google");
+        expect(text).toContain("Gemini 2.5 Flash");
+        expect(text).not.toContain("GPT-5.5");
+        expect(text).not.toContain("Claude Sonnet 4.6");
       });
     } finally {
       await mounted.cleanup();

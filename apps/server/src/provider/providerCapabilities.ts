@@ -51,6 +51,18 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     historyAuthority: "project-local",
     sessionResumeMode: "local-replay",
   },
+  pi: {
+    sessionModelSwitch: "in-session",
+    sessionModelOptionsSwitch: "in-session",
+    liveTurnDiffMode: "workspace",
+    reviewChangesMode: "git",
+    reviewSurface: "git-worktree",
+    approvalRequestsMode: "none",
+    turnSteeringMode: "native",
+    transcriptAuthority: "local",
+    historyAuthority: "local-server-session",
+    sessionResumeMode: "local-replay",
+  },
   githubCopilot: {
     sessionModelSwitch: "restart-session",
     sessionModelOptionsSwitch: "restart-session",

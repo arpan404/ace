@@ -3,6 +3,7 @@ import { type ProviderKind } from "@ace/contracts";
 export const TRANSCRIPT_REBUILD_PROVIDERS = new Set<ProviderKind>([
   "githubCopilot",
   "cursor",
+  "pi",
   "gemini",
   "opencode",
 ]);

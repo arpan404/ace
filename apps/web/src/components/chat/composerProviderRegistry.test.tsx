@@ -194,6 +194,25 @@ const CURSOR_MODELS: ReadonlyArray<ServerProviderModel> = [
   },
 ];
 
+const PI_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "openai/gpt-5.5",
+    name: "GPT-5.5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "minimal", label: "Minimal" },
+        { value: "medium", label: "Medium", isDefault: true },
+        { value: "high", label: "High" },
+      ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
 describe("getComposerProviderState", () => {
   it("returns codex defaults when no codex draft options exist", () => {
     const state = getComposerProviderState({
@@ -561,6 +580,51 @@ describe("getComposerProviderState", () => {
       provider: "cursor",
       promptEffort: null,
       modelOptionsForDispatch: undefined,
+    });
+  });
+
+  it("normalizes Pi reasoning effort into Pi thought-level dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "pi",
+      model: "openai/gpt-5.5",
+      models: PI_MODELS,
+      prompt: "",
+      modelOptions: {
+        pi: {
+          reasoningEffort: "high",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "pi",
+      promptEffort: "high",
+      modelOptionsForDispatch: {
+        thoughtLevel: "high",
+        reasoningEffort: "high",
+      },
+    });
+  });
+
+  it("preserves Pi minimal thought level in the composer provider state", () => {
+    const state = getComposerProviderState({
+      provider: "pi",
+      model: "openai/gpt-5.5",
+      models: PI_MODELS,
+      prompt: "",
+      modelOptions: {
+        pi: {
+          thoughtLevel: "minimal",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "pi",
+      promptEffort: "minimal",
+      modelOptionsForDispatch: {
+        thoughtLevel: "minimal",
+      },
     });
   });
 });

@@ -55,6 +55,25 @@ const OPENCODE_WITH_VARIANTS: ReadonlyArray<ServerProviderModel> = [
   },
 ];
 
+const PI_WITH_REASONING: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "openai/gpt-5.5",
+    name: "OpenAI: GPT-5.5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "minimal", label: "Minimal" },
+        { value: "medium", label: "Medium", isDefault: true },
+        { value: "high", label: "High" },
+      ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
 describe("TraitsPicker", () => {
   it("hides the Copilot selector when the model exposes no selectable traits", () => {
     const html = renderToStaticMarkup(
@@ -102,5 +121,20 @@ describe("TraitsPicker", () => {
 
     expect(html).toContain("High");
     expect(html).not.toContain("Variant");
+  });
+
+  it("renders Pi reasoning traits from model capabilities before a session starts", () => {
+    const html = renderToStaticMarkup(
+      <TraitsPicker
+        provider="pi"
+        models={PI_WITH_REASONING}
+        model="openai/gpt-5.5"
+        prompt=""
+        onPromptChange={() => undefined}
+        onModelOptionsChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Medium");
   });
 });

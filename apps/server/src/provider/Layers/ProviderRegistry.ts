@@ -13,6 +13,7 @@ import { CursorProviderLive } from "./CursorProvider";
 import { GeminiProviderLive } from "./GeminiProvider";
 import { GitHubCopilotProviderLive } from "./GitHubCopilotProvider";
 import { OpenCodeProviderLive } from "./OpenCodeProvider";
+import { PiProviderLive } from "./PiProvider";
 import type { ClaudeProviderShape } from "../Services/ClaudeProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import type { CodexProviderShape } from "../Services/CodexProvider";
@@ -25,6 +26,8 @@ import type { GitHubCopilotProviderShape } from "../Services/GitHubCopilotProvid
 import { GitHubCopilotProvider } from "../Services/GitHubCopilotProvider";
 import type { OpenCodeProviderShape } from "../Services/OpenCodeProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
+import type { PiProviderShape } from "../Services/PiProvider";
+import { PiProvider } from "../Services/PiProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
 import { withStartupTiming } from "../../startupDiagnostics";
 
@@ -33,6 +36,7 @@ const PROVIDER_LABEL_BY_KIND: Record<ProviderKind, string> = {
   claudeAgent: "Claude",
   githubCopilot: "GitHub Copilot",
   cursor: "Cursor",
+  pi: "Pi",
   gemini: "Gemini",
   opencode: "OpenCode",
 };
@@ -97,6 +101,7 @@ const loadProviders = (
   claudeProvider: ClaudeProviderShape,
   gitHubCopilotProvider: GitHubCopilotProviderShape,
   cursorProvider: CursorProviderShape,
+  piProvider: PiProviderShape,
   geminiProvider: GeminiProviderShape,
   openCodeProvider: OpenCodeProviderShape,
   previousProviders: ReadonlyArray<ServerProvider> = [],
@@ -127,6 +132,7 @@ const loadProviders = (
         cursorProvider.getSnapshot,
         previousProviderByKind.get("cursor"),
       ),
+      loadProviderSnapshotSafely("pi", piProvider.getSnapshot, previousProviderByKind.get("pi")),
       loadProviderSnapshotSafely(
         "gemini",
         geminiProvider.getSnapshot,
@@ -157,6 +163,7 @@ export const ProviderRegistryLive = Layer.effect(
       claudeProvider,
       gitHubCopilotProvider,
       cursorProvider,
+      piProvider,
       geminiProvider,
       openCodeProvider,
     ] = yield* withStartupTiming(
@@ -183,6 +190,11 @@ export const ProviderRegistryLive = Layer.effect(
             "providers",
             "Initializing Cursor provider service",
             Effect.service(CursorProvider),
+          ),
+          withStartupTiming(
+            "providers",
+            "Initializing Pi provider service",
+            Effect.service(PiProvider),
           ),
           withStartupTiming(
             "providers",
@@ -218,6 +230,7 @@ export const ProviderRegistryLive = Layer.effect(
           claudeProvider,
           gitHubCopilotProvider,
           cursorProvider,
+          piProvider,
           geminiProvider,
           openCodeProvider,
         ),
@@ -242,6 +255,7 @@ export const ProviderRegistryLive = Layer.effect(
         claudeProvider,
         gitHubCopilotProvider,
         cursorProvider,
+        piProvider,
         geminiProvider,
         openCodeProvider,
         previousProviders,
@@ -267,6 +281,9 @@ export const ProviderRegistryLive = Layer.effect(
     yield* Stream.runForEach(cursorProvider.streamChanges, () => syncProviders()).pipe(
       Effect.forkScoped,
     );
+    yield* Stream.runForEach(piProvider.streamChanges, () => syncProviders()).pipe(
+      Effect.forkScoped,
+    );
     yield* Stream.runForEach(geminiProvider.streamChanges, () => syncProviders()).pipe(
       Effect.forkScoped,
     );
@@ -288,6 +305,9 @@ export const ProviderRegistryLive = Layer.effect(
         case "cursor":
           yield* cursorProvider.refresh;
           break;
+        case "pi":
+          yield* piProvider.refresh;
+          break;
         case "gemini":
           yield* geminiProvider.refresh;
           break;
@@ -303,6 +323,7 @@ export const ProviderRegistryLive = Layer.effect(
                 claudeProvider.refresh,
                 gitHubCopilotProvider.refresh,
                 cursorProvider.refresh,
+                piProvider.refresh,
                 geminiProvider.refresh,
                 openCodeProvider.refresh,
               ],
@@ -336,6 +357,7 @@ export const ProviderRegistryLive = Layer.effect(
   Layer.provideMerge(ClaudeProviderLive),
   Layer.provideMerge(GitHubCopilotProviderLive),
   Layer.provideMerge(CursorProviderLive),
+  Layer.provideMerge(PiProviderLive),
   Layer.provideMerge(GeminiProviderLive),
   Layer.provideMerge(OpenCodeProviderLive),
 );

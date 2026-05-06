@@ -19,7 +19,16 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
-import { ClaudeAI, CursorIcon, Gemini, GitHubIcon, Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import {
+  ClaudeAI,
+  CursorIcon,
+  Gemini,
+  GitHubIcon,
+  Icon,
+  OpenAI,
+  OpenCodeIcon,
+  PiIcon,
+} from "../Icons";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -43,6 +52,7 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   claudeAgent: ClaudeAI,
   githubCopilot: GitHubIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
   gemini: Gemini,
   opencode: OpenCodeIcon,
 };
@@ -50,12 +60,32 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
 export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
 const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
 const MODEL_MENU_MAX_HEIGHT = "24rem";
-const OPENCODE_MODEL_MENU_STABLE_HEIGHT_STYLE = {
+const GROUPED_PROVIDER_MODEL_MENU_STABLE_HEIGHT_STYLE = {
   minHeight: `min(var(--available-height), ${MODEL_MENU_MAX_HEIGHT})`,
 };
 type ProviderModelOption = Readonly<{ slug: string; name: string }>;
+const GROUPED_PROVIDER_MODEL_PROVIDERS = new Set<ProviderKind>(["opencode", "pi"]);
 
-function toOpenCodeProviderLabel(providerId: string): string {
+function toProviderBackedModelGroupLabel(providerId: string): string {
+  const normalizedId = providerId.trim().toLowerCase();
+  switch (normalizedId) {
+    case "openai":
+      return "OpenAI";
+    case "anthropic":
+      return "Anthropic";
+    case "google":
+      return "Google";
+    case "github-copilot":
+    case "githubcopilot":
+      return "GitHub Copilot";
+    case "lmstudio":
+      return "LMStudio";
+    case "opencode-go":
+    case "opencodego":
+      return "OpenCode Go";
+    default:
+      break;
+  }
   return providerId
     .split(/[-_]/g)
     .filter((part) => part.length > 0)
@@ -72,7 +102,7 @@ function toOpenCodeProviderLabel(providerId: string): string {
     .join(" ");
 }
 
-function splitOpenCodeModelOption(option: ProviderModelOption): {
+function splitProviderBackedModelOption(option: ProviderModelOption): {
   providerId: string;
   providerLabel: string;
   modelLabel: string;
@@ -84,7 +114,7 @@ function splitOpenCodeModelOption(option: ProviderModelOption): {
   const slashIndex = option.slug.indexOf("/");
   const providerId = slashIndex > 0 ? option.slug.slice(0, slashIndex).trim() : "";
   const providerLabel =
-    providerLabelFromName || (providerId ? toOpenCodeProviderLabel(providerId) : "Other");
+    providerLabelFromName || (providerId ? toProviderBackedModelGroupLabel(providerId) : "Other");
   return {
     providerId: providerId || providerLabel.toLowerCase(),
     providerLabel,
@@ -92,7 +122,8 @@ function splitOpenCodeModelOption(option: ProviderModelOption): {
   };
 }
 
-const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
+const GroupedProviderModelMenuContent = memo(function GroupedProviderModelMenuContent(props: {
+  provider: ProviderKind;
   options: ReadonlyArray<ProviderModelOption>;
   selectedModel: string;
   onModelChange: (value: string) => void;
@@ -109,7 +140,7 @@ const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
     >();
 
     for (const option of props.options) {
-      const parsed = splitOpenCodeModelOption(option);
+      const parsed = splitProviderBackedModelOption(option);
       const searchText =
         `${parsed.providerLabel} ${parsed.modelLabel} ${option.slug} ${option.name}`.toLowerCase();
       if (normalizedQuery.length > 0 && !searchText.includes(normalizedQuery)) {
@@ -160,13 +191,16 @@ const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
         </MenuItem>
       ) : (
         groupedOptions.map((group) => (
-          <MenuGroup key={`opencode-group:${group.providerId}`}>
+          <MenuGroup key={`${props.provider}-group:${group.providerId}`}>
             <MenuGroupLabel className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
               {group.providerLabel}
             </MenuGroupLabel>
             <MenuRadioGroup value={props.selectedModel} onValueChange={props.onModelChange}>
               {group.options.map((modelOption) => (
-                <MenuRadioItem key={`opencode-model:${modelOption.slug}`} value={modelOption.slug}>
+                <MenuRadioItem
+                  key={`${props.provider}-model:${modelOption.slug}`}
+                  value={modelOption.slug}
+                >
                   {modelOption.modelLabel}
                 </MenuRadioItem>
               ))}
@@ -337,9 +371,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     if (options.length === 0) {
       return <MenuItem disabled>No models available.</MenuItem>;
     }
-    if (provider === "opencode") {
+    if (GROUPED_PROVIDER_MODEL_PROVIDERS.has(provider)) {
       return (
-        <OpenCodeModelMenuContent
+        <GroupedProviderModelMenuContent
+          provider={provider}
           options={options}
           selectedModel={value}
           onModelChange={(nextValue) => handleModelChange(provider, nextValue, options)}
@@ -413,8 +448,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       <MenuPopup
         align="start"
         listMaxHeight={MODEL_MENU_MAX_HEIGHT}
-        {...(props.lockedProvider === "opencode"
-          ? { style: OPENCODE_MODEL_MENU_STABLE_HEIGHT_STYLE }
+        {...(props.lockedProvider !== null &&
+        GROUPED_PROVIDER_MODEL_PROVIDERS.has(props.lockedProvider)
+          ? { style: GROUPED_PROVIDER_MODEL_MENU_STABLE_HEIGHT_STYLE }
           : {})}
       >
         {props.lockedProvider !== null ? (
@@ -471,8 +507,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   <MenuSubPopup
                     listMaxHeight={MODEL_MENU_MAX_HEIGHT}
                     sideOffset={4}
-                    {...(option.value === "opencode"
-                      ? { style: OPENCODE_MODEL_MENU_STABLE_HEIGHT_STYLE }
+                    {...(GROUPED_PROVIDER_MODEL_PROVIDERS.has(option.value)
+                      ? { style: GROUPED_PROVIDER_MODEL_MENU_STABLE_HEIGHT_STYLE }
                       : {})}
                   >
                     {option.value === "cursor"

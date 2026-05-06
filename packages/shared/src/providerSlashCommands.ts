@@ -321,6 +321,20 @@ const CURSOR_SLASH_COMMANDS = [
   providerCommand("generate-rule", "Generate a Cursor rule"),
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
+const PI_SLASH_COMMANDS = [
+  providerCommand("help", "Show Pi help"),
+  providerCommand("model", "Switch model"),
+  providerCommand("session", "Manage sessions"),
+  providerCommand("new", "Start a new session"),
+  providerCommand("resume", "Resume a saved session"),
+  providerCommand("plan", "Switch to plan mode when supported", "<prompt>"),
+  providerCommand("diff", "Review current changes"),
+  providerCommand("undo", "Revert the last turn"),
+  providerCommand("mcp", "Manage MCP servers"),
+  providerCommand("login", "Configure provider authentication"),
+  providerCommand("logout", "Clear provider authentication"),
+] as const satisfies ReadonlyArray<ProviderSlashCommand>;
+
 const GEMINI_SLASH_COMMANDS = [
   providerCommand("about", "Show version information"),
   providerCommand("agents", "Manage local and remote subagents"),
@@ -389,6 +403,7 @@ const FALLBACK_COMMANDS_BY_PROVIDER: Record<ProviderKind, ReadonlyArray<Provider
   claudeAgent: CLAUDE_SLASH_COMMANDS,
   githubCopilot: GITHUB_COPILOT_SLASH_COMMANDS,
   cursor: CURSOR_SLASH_COMMANDS,
+  pi: PI_SLASH_COMMANDS,
   gemini: GEMINI_SLASH_COMMANDS,
   opencode: OPENCODE_SLASH_COMMANDS,
 };
