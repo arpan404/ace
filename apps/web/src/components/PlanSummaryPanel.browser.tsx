@@ -101,4 +101,46 @@ describe("PlanSummaryPanel", () => {
       await screen.unmount();
     }
   });
+
+  it("shows a visible loading state while an AI summary is being generated", async () => {
+    let resolveSummaryRequest: ((value?: void | PromiseLike<void>) => void) | undefined;
+    const onRegenerateSummary = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSummaryRequest = resolve;
+        }),
+    );
+    const screen = await render(
+      <div style={{ display: "flex", height: "320px", width: "360px" }}>
+        <PlanSummaryPanel
+          activePlan={null}
+          activeProposedPlan={null}
+          generatedWorkspaceSummary={null}
+          activeProvider="codex"
+          markdownCwd={undefined}
+          onRegenerateSummary={onRegenerateSummary}
+          workspaceDiffSummary={{ additions: 12, deletions: 4, fileCount: 2 }}
+          workspaceRoot={undefined}
+        />
+      </div>,
+    );
+
+    try {
+      const generateButton = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Generate summary"]',
+      );
+      expect(generateButton).toBeTruthy();
+      generateButton?.click();
+
+      await vi.waitFor(() => {
+        expect(onRegenerateSummary).toHaveBeenCalledTimes(1);
+        expect(document.body.textContent).toContain("Generating");
+        expect(document.body.textContent).toContain("Generating AI summary...");
+        expect(document.querySelector('[role="status"]')).toBeTruthy();
+      });
+    } finally {
+      resolveSummaryRequest?.();
+      await screen.unmount();
+    }
+  });
 });
