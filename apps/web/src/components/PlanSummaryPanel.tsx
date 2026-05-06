@@ -147,18 +147,22 @@ function DiffSummaryOverview({
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
       <p className="text-sm text-muted-foreground">
-        <span className="font-semibold tabular-nums text-success">
-          +{formatDiffCount(workspaceDiffSummary.additions)}
+        <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="inline-flex items-baseline gap-x-1.5">
+            <span className="font-semibold tabular-nums text-success">
+              +{formatDiffCount(workspaceDiffSummary.additions)}
+            </span>
+            <span className="tabular-nums">/</span>
+            <span className="font-semibold tabular-nums text-destructive">
+              -{formatDiffCount(workspaceDiffSummary.deletions)}
+            </span>
+          </span>
+          <span>changes across</span>
+          <span className="inline-flex items-baseline gap-x-1">
+            <span className="tabular-nums">{formatDiffCount(workspaceDiffSummary.fileCount)}</span>
+            <span>{workspaceDiffSummary.fileCount === 1 ? "file" : "files"}</span>
+          </span>
         </span>
-        <span className="font-semibold tabular-nums text-foreground">/</span>
-        <span className="font-semibold tabular-nums text-destructive">
-          -{formatDiffCount(workspaceDiffSummary.deletions)}
-        </span>{" "}
-        changes across{" "}
-        <span className="font-semibold tabular-nums text-foreground">
-          {formatDiffCount(workspaceDiffSummary.fileCount)}
-        </span>{" "}
-        {workspaceDiffSummary.fileCount === 1 ? "file" : "files"}
       </p>
     </div>
   );
