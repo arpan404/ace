@@ -2,11 +2,25 @@
 
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
+import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
 import { cn } from "~/lib/utils";
 
 const PopoverCreateHandle = PopoverPrimitive.createHandle;
 
-const Popover = PopoverPrimitive.Root;
+function Popover<Payload = unknown>({
+  defaultOpen,
+  onOpenChange,
+  open,
+  ...props
+}: PopoverPrimitive.Root.Props<Payload>) {
+  const boundaryDismissedOpen = useBoundaryDismissedOpen<PopoverPrimitive.Root.ChangeEventDetails>({
+    defaultOpen,
+    onOpenChange,
+    open,
+  });
+
+  return <PopoverPrimitive.Root {...boundaryDismissedOpen} {...props} />;
+}
 
 function PopoverTrigger({ className, children, ...props }: PopoverPrimitive.Trigger.Props) {
   return (

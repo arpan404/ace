@@ -247,6 +247,70 @@ describe("ProviderModelPicker", () => {
     document.body.innerHTML = "";
   });
 
+  it("does not mount a full-window modal backdrop for dropdown menus", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-slot="menu-popup"]')).toBeInstanceOf(HTMLElement);
+      });
+
+      const internalBackdrop = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-base-ui-inert]"),
+      ).find(
+        (element) =>
+          element.getAttribute("role") === "presentation" &&
+          element.style.position === "fixed" &&
+          element.style.inset === "0px",
+      );
+      expect(internalBackdrop).toBeUndefined();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("closes an open dropdown before native resize or app deactivation", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-slot="menu-popup"]')).toBeInstanceOf(HTMLElement);
+      });
+
+      window.dispatchEvent(new CustomEvent("ace:native-window-resize-start"));
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-slot="menu-popup"]')).toBeNull();
+      });
+
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-slot="menu-popup"]')).toBeInstanceOf(HTMLElement);
+      });
+
+      window.dispatchEvent(new FocusEvent("blur"));
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-slot="menu-popup"]')).toBeNull();
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("shows provider submenus when provider switching is allowed", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
