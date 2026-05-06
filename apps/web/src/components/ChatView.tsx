@@ -529,7 +529,7 @@ function ConnectedRetainedThreadTerminalDrawers({
     />
   );
 }
-const MAX_CACHED_BROWSER_INSTANCES = 3;
+const MAX_CACHED_BROWSER_INSTANCES = 2;
 const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
 const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
 
@@ -2597,6 +2597,21 @@ export default function ChatView({
       window.removeEventListener("blur", trimBackgroundBrowserCache);
       document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
     };
+  }, [activeThreadId, rightSidePanelInteractive]);
+  useEffect(() => {
+    if (!rightSidePanelInteractive || !isElectron || !activeThreadId) {
+      return;
+    }
+
+    return subscribeToMemoryPressure((snapshot) => {
+      if (snapshot === null || !isMemoryPressureAtLeast("high", snapshot)) {
+        return;
+      }
+      setMountedBrowserInstances((current) => {
+        const activeEntry = current.find((entry) => entry.instanceId === activeThreadId);
+        return activeEntry ? [activeEntry] : current.slice(0, 1);
+      });
+    });
   }, [activeThreadId, rightSidePanelInteractive]);
   useEffect(() => {
     const previousThreadIds = previousMountedBrowserInstancesRef.current.map(

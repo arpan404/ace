@@ -144,6 +144,22 @@ const BROWSER_SHELL_TRANSITION = {
   ease: [0.16, 1, 0.3, 1],
 } as const;
 
+export function resolveMountedBrowserTabs(input: {
+  activeTabId: string | null | undefined;
+  lastActiveTabId: string | null | undefined;
+  tabs: BrowserSessionStorage["tabs"];
+}): BrowserSessionStorage["tabs"] {
+  const mountedTabIds = new Set(
+    [input.activeTabId ?? null, input.lastActiveTabId ?? null].filter(
+      (tabId): tabId is string => typeof tabId === "string" && tabId.length > 0,
+    ),
+  );
+  if (mountedTabIds.size === 0) {
+    return [];
+  }
+  return input.tabs.filter((tab) => mountedTabIds.has(tab.id) && !isBrowserInternalTabUrl(tab.url));
+}
+
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   accent: string;
   collapsedLabel: string;
@@ -247,6 +263,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
+  const previousActiveTabIdRef = useRef<string | null>(activeTab?.id ?? null);
+  const [lastActiveTabId, setLastActiveTabId] = useState<string | null>(null);
   const {
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
@@ -300,6 +318,23 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   useEffect(() => {
     setAddressFieldExpanded(false);
   }, [activeTab?.id]);
+  useEffect(() => {
+    const nextActiveTabId = activeTab?.id ?? null;
+    const previousActiveTabId = previousActiveTabIdRef.current;
+    if (previousActiveTabId && nextActiveTabId && previousActiveTabId !== nextActiveTabId) {
+      setLastActiveTabId(previousActiveTabId);
+    }
+    previousActiveTabIdRef.current = nextActiveTabId;
+  }, [activeTab?.id]);
+  const mountedBrowserTabs = useMemo(
+    () =>
+      resolveMountedBrowserTabs({
+        activeTabId: activeTab?.id ?? null,
+        lastActiveTabId,
+        tabs: browserSession.tabs,
+      }),
+    [activeTab?.id, browserSession.tabs, lastActiveTabId],
+  );
 
   useEffect(() => {
     if (!window.desktopBridge?.onMenuAction) {
@@ -955,48 +990,43 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           {activeTabIsNewTab ? (
             <BrowserNewTabPanel browserSearchEngine={browserSearchEngine} onSubmitQuery={openUrl} />
           ) : null}
-          {browserSession.tabs
-            .filter((tab) => !isBrowserInternalTabUrl(tab.url))
-            .map((tab) => (
-              <BrowserTabWebview
-                key={`${browserResetKey}:${tab.id}`}
-                active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
-                connectionUrl={connectionUrl}
-                designerModeActive={
-                  visible &&
-                  designerState.active &&
-                  !activeTabIsInternal &&
-                  activeTab?.id === tab.id
-                }
-                designerTool={designerState.tool}
-                onBrowserLoadError={(message) => {
-                  toastManager.add({
-                    type: "error",
-                    title: "Browser load failed.",
-                    description: message,
-                  });
-                }}
-                onDesignCaptureCancel={() => {
-                  return;
-                }}
-                onDesignCaptureError={(message) => {
-                  toastManager.add({
-                    type: "error",
-                    title: "Comment failed.",
-                    description: message,
-                  });
-                }}
-                {...(onQueueDesignRequest
-                  ? {
-                      onDesignCaptureSubmit: queueDesignRequest,
-                    }
-                  : {})}
-                onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
-                tab={tab}
-                onHandleChange={registerWebviewHandle}
-                onSnapshotChange={handleTabSnapshotChange}
-              />
-            ))}
+          {mountedBrowserTabs.map((tab) => (
+            <BrowserTabWebview
+              key={`${browserResetKey}:${tab.id}`}
+              active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
+              connectionUrl={connectionUrl}
+              designerModeActive={
+                visible && designerState.active && !activeTabIsInternal && activeTab?.id === tab.id
+              }
+              designerTool={designerState.tool}
+              onBrowserLoadError={(message) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Browser load failed.",
+                  description: message,
+                });
+              }}
+              onDesignCaptureCancel={() => {
+                return;
+              }}
+              onDesignCaptureError={(message) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Comment failed.",
+                  description: message,
+                });
+              }}
+              {...(onQueueDesignRequest
+                ? {
+                    onDesignCaptureSubmit: queueDesignRequest,
+                  }
+                : {})}
+              onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+              tab={tab}
+              onHandleChange={registerWebviewHandle}
+              onSnapshotChange={handleTabSnapshotChange}
+            />
+          ))}
         </div>
       </section>
     </motion.div>

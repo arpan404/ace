@@ -2125,6 +2125,19 @@ export function BrowserTabWebview(props: {
   }, [animateAgentPointer, clearAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
 
   useEffect(() => {
+    if (active) {
+      return;
+    }
+    clearAgentPointer();
+    const webview = webviewRef.current;
+    if (!readyRef.current || !webview?.isLoading()) {
+      return;
+    }
+    webview.stop();
+    scheduleEmitSnapshot({ persistTab: false });
+  }, [active, clearAgentPointer, scheduleEmitSnapshot]);
+
+  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
