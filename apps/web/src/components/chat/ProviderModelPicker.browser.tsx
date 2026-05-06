@@ -224,6 +224,7 @@ async function mountPicker(props: {
     providers,
     props.provider,
     props.model,
+    props.providerInstanceId,
   );
   const screen = await render(
     <ProviderModelPicker
@@ -570,6 +571,53 @@ describe("ProviderModelPicker", () => {
     }
   });
 
+  it("keeps provider account entries selectable when a conversation locks the provider", async () => {
+    const personalModel = buildCodexModel(88);
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider([personalModel]),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider: {
+        codex: [
+          {
+            id: "personal",
+            label: "Personal",
+            enabled: true,
+            badgeColor: "blue",
+            badgeIcon: "briefcase",
+          },
+        ],
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await expect.element(page.getByRole("button", { name: "Codex Personal" })).toBeVisible();
+      await page.getByRole("button", { name: "Codex Personal" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "codex",
+        personalModel.slug,
+        "personal",
+      );
+      expect(document.body.textContent ?? "").toContain(personalModel.name);
+      expect(document.body.textContent ?? "").not.toContain("GPT-5.3 Codex");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps enabled provider accounts selectable when the default entry is disabled", async () => {
     const disabledDefaultCodex = {
       ...buildCodexProvider([buildCodexModel(1)]),
@@ -644,11 +692,61 @@ describe("ProviderModelPicker", () => {
         const text = document.body.textContent ?? "";
         expect(text).toContain("Favorites");
         expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
-          "codex:gpt-5.3-codex",
+          "codex:default:gpt-5.3-codex",
         );
       });
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("keeps favorite models scoped to the selected provider account", async () => {
+    const providers = TEST_PROVIDERS.map((provider) =>
+      provider.provider === "codex" ? { ...provider, isDefaultProviderInstance: true } : provider,
+    ).concat([
+      {
+        ...buildCodexProvider(TEST_PROVIDERS[0]!.models),
+        providerInstanceId: "personal",
+        providerInstanceLabel: "Personal",
+        isDefaultProviderInstance: false,
+      },
+    ]);
+    const providerInstancesByProvider = {
+      codex: [{ id: "personal", label: "Personal", enabled: true }],
+    };
+    const defaultMounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Favorite GPT-5.3 Codex" }).click();
+    } finally {
+      await defaultMounted.cleanup();
+    }
+
+    const personalMounted = await mountPicker({
+      provider: "codex",
+      providerInstanceId: "personal",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      providers,
+      providerInstancesByProvider,
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      expect(document.body.textContent ?? "").not.toContain("Favorites");
+      expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
+        "codex:default:gpt-5.3-codex",
+      );
+    } finally {
+      await personalMounted.cleanup();
     }
   });
 

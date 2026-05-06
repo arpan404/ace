@@ -827,7 +827,7 @@ export function ProviderSettingsSection({
                       <ProviderInstanceBadge
                         color={entry.badgeColor}
                         icon={entry.badgeIcon}
-                        className="absolute -bottom-1 -right-1 size-3 border-[1.5px]"
+                        className="absolute -bottom-1 -right-1 size-3.5 border-[1.5px] p-[2px]"
                       />
                     ) : null}
                   </span>
@@ -1344,7 +1344,7 @@ export function ProviderSettingsSection({
                   <ProviderInstanceBadge
                     color={addProviderDraft.badgeColor}
                     icon={addProviderDraft.badgeIcon}
-                    className="absolute -bottom-1 -right-1 size-3.5 border-[1.5px]"
+                    className="absolute -bottom-1 -right-1 size-4 border-[1.5px] p-[2px]"
                   />
                 ) : null}
               </span>

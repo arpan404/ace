@@ -4938,6 +4938,8 @@ export default function ChatView({
         input.modelSelection !== undefined &&
         (input.modelSelection.model !== serverThread.modelSelection.model ||
           input.modelSelection.provider !== serverThread.modelSelection.provider ||
+          (input.modelSelection.providerInstanceId ?? null) !==
+            (serverThread.modelSelection.providerInstanceId ?? null) ||
           JSON.stringify(input.modelSelection.options ?? null) !==
             JSON.stringify(serverThread.modelSelection.options ?? null))
       ) {
@@ -5625,6 +5627,7 @@ export default function ChatView({
       const submissionProviderModels = getProviderModels(
         providerStatuses,
         submission.modelSelection.provider,
+        submission.modelSelection.providerInstanceId,
       );
       const submissionProviderState = getComposerProviderState({
         provider: submission.modelSelection.provider,
@@ -5750,6 +5753,7 @@ export default function ChatView({
             activeProject.defaultModelSelection?.model ||
             DEFAULT_MODEL_BY_PROVIDER[submission.modelSelection.provider],
           submission.modelSelection.options,
+          submission.modelSelection.providerInstanceId,
         );
 
         if (isLocalDraftThread) {
@@ -6870,6 +6874,7 @@ export default function ChatView({
           const providerModels = getProviderModels(
             providerStatuses,
             selectedModelSelection.provider,
+            selectedModelSelection.providerInstanceId,
           );
           const outgoingIssuePrompt = formatOutgoingPrompt({
             provider: selectedModelSelection.provider,

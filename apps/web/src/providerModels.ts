@@ -77,8 +77,9 @@ export function getProviderModelCapabilities(
 export function getDefaultServerModel(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
+  providerInstanceId?: string | null,
 ): string {
-  const models = getProviderModels(providers, provider);
+  const models = getProviderModels(providers, provider, providerInstanceId);
   return (
     models.find((model) => !model.isCustom)?.slug ??
     models[0]?.slug ??
