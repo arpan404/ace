@@ -248,7 +248,7 @@ it.effect("decodes thread.created handoff metadata when present", () =>
         sourceThreadId: "thread-1",
         fromProvider: "codex",
         toProvider: "claudeAgent",
-        mode: "transcript",
+        mode: "best",
         createdAt: "2026-01-01T00:00:00.000Z",
       },
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -259,7 +259,7 @@ it.effect("decodes thread.created handoff metadata when present", () =>
       sourceThreadId: "thread-1",
       fromProvider: "codex",
       toProvider: "claudeAgent",
-      mode: "transcript",
+      mode: "best",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
   }),

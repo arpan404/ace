@@ -1274,7 +1274,7 @@ describe("ProviderCommandReactor", () => {
           sourceThreadId: ThreadId.makeUnsafe("thread-1"),
           fromProvider: "codex",
           toProvider: "codex",
-          mode: "transcript",
+          mode: "best",
           createdAt: now,
         },
         createdAt: now,
@@ -1303,7 +1303,7 @@ describe("ProviderCommandReactor", () => {
       | undefined;
     expect(startInput?.replayTurns?.length).toBeGreaterThan(0);
     expect(startInput?.replayTurns?.[0]?.prompt).toContain(
-      "Handoff context from a prior provider session.",
+      "Best-effort handoff context from a prior provider session.",
     );
     expect(
       startInput?.replayTurns?.some((turn) => turn.prompt.includes("source thread context")),

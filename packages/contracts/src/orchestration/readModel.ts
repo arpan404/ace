@@ -130,7 +130,7 @@ export const SourceProposedPlanReference = Schema.Struct({
 });
 export type SourceProposedPlanReference = typeof SourceProposedPlanReference.Type;
 
-export const ThreadHandoffMode = Schema.Literals(["transcript", "compact"]);
+export const ThreadHandoffMode = Schema.Literals(["best", "transcript", "compact"]);
 export type ThreadHandoffMode = typeof ThreadHandoffMode.Type;
 
 export const ThreadHandoff = Schema.Struct({

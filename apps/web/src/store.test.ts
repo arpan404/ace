@@ -1090,7 +1090,7 @@ describe("incremental orchestration updates", () => {
       sourceThreadId,
       fromProvider: "codex" as const,
       toProvider: "claudeAgent" as const,
-      mode: "transcript" as const,
+      mode: "best" as const,
       createdAt: "2026-02-27T00:00:01.000Z",
     };
 

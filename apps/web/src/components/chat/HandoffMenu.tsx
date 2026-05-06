@@ -3,15 +3,7 @@ import { IconTransfer } from "@tabler/icons-react";
 import { memo } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { Button, buttonVariants } from "../ui/button";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 
 function formatProviderLabel(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
@@ -38,15 +30,9 @@ export const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Handoff to</div>
       )}
       {props.providers.map((provider) => (
-        <MenuSub key={provider}>
-          <MenuSubTrigger>{formatProviderLabel(provider)}</MenuSubTrigger>
-          <MenuSubPopup>
-            <MenuItem onClick={() => props.onSelect(provider, "transcript")}>
-              Full transcript
-            </MenuItem>
-            <MenuItem onClick={() => props.onSelect(provider, "compact")}>Compact summary</MenuItem>
-          </MenuSubPopup>
-        </MenuSub>
+        <MenuItem key={provider} onClick={() => props.onSelect(provider, "best")}>
+          {formatProviderLabel(provider)}
+        </MenuItem>
       ))}
     </>
   );
