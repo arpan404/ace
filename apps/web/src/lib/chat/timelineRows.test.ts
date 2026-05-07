@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageId } from "@ace/contracts";
+import { MessageId, TurnId } from "@ace/contracts";
 
 import {
   buildTimelineRows,
@@ -96,6 +96,121 @@ describe("timelineRows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.kind).toBe("message");
     expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
+  });
+
+  it("hides completed work rows while keeping active turn work visible", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "completed-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "completed-tool",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            label: "Read file",
+            detail: "README.md",
+            tone: "tool",
+          },
+        },
+        {
+          id: "assistant-complete",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-complete"),
+            role: "assistant",
+            text: "done",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            completedAt: "2025-01-01T00:00:03.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "active-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:11.000Z",
+          entry: {
+            id: "active-tool",
+            createdAt: "2025-01-01T00:00:11.000Z",
+            label: "Run command",
+            detail: "bun typecheck",
+            tone: "tool",
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:10.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: true,
+    });
+
+    expect(rows.some((row) => row.id === "completed-tool")).toBe(false);
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "completed-work-summary",
+        toolCallCount: 1,
+        startedAt: "2025-01-01T00:00:01.000Z",
+        endedAt: "2025-01-01T00:00:03.000Z",
+      }),
+    );
+    expect(rows.some((row) => row.id === "active-tool")).toBe(true);
+    expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
+  });
+
+  it("hides non-final completed assistant messages when completed work details are hidden", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "assistant-draft",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-draft"),
+            role: "assistant",
+            turnId: TurnId.makeUnsafe("turn-1"),
+            text: "I am checking this first.",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            completedAt: "2025-01-01T00:00:02.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-final",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-final"),
+            role: "assistant",
+            turnId: TurnId.makeUnsafe("turn-1"),
+            text: "Done.",
+            createdAt: "2025-01-01T00:00:03.000Z",
+            completedAt: "2025-01-01T00:00:04.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    expect(rows.some((row) => row.id === "assistant-draft")).toBe(false);
+    expect(rows.some((row) => row.id === "assistant-final")).toBe(true);
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "completed-work-summary",
+        hiddenMessageCount: 1,
+        startedAt: "2025-01-01T00:00:01.000Z",
+        endedAt: "2025-01-01T00:00:04.000Z",
+      }),
+    );
+    expect(rows).toHaveLength(2);
   });
 
   it("workerizes large settled timelines only", () => {

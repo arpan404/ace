@@ -27,6 +27,15 @@ export type TimelineMetaGroupEntry =
 
 export type TimelineRow =
   | {
+      kind: "completed-work-summary";
+      id: string;
+      createdAt: string;
+      startedAt: string;
+      endedAt: string;
+      hiddenMessageCount: number;
+      toolCallCount: number;
+    }
+  | {
       kind: "work";
       id: string;
       createdAt: string;
@@ -80,6 +89,7 @@ export interface BuildTimelineRowsInput {
   readonly activeTurnStartedAt: string | null;
   readonly completionDividerBeforeEntryId: string | null;
   readonly completionSummary: string | null;
+  readonly hideCompletedWorkMessages?: boolean;
   readonly isWorking: boolean;
 }
 
@@ -168,6 +178,27 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   return message.text.trim().length === 0 && (message.attachments?.length ?? 0) === 0;
 }
 
+type HiddenCompletedWorkAccumulator = {
+  id: string;
+  createdAt: string;
+  startedAt: string;
+  endedAt: string;
+  hiddenMessageCount: number;
+  toolCallCount: number;
+};
+
+function latestIso(firstIso: string, secondIso: string): string {
+  const firstMs = Date.parse(firstIso);
+  const secondMs = Date.parse(secondIso);
+  if (!Number.isFinite(firstMs)) {
+    return secondIso;
+  }
+  if (!Number.isFinite(secondMs)) {
+    return firstIso;
+  }
+  return secondMs >= firstMs ? secondIso : firstIso;
+}
+
 export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
   const terminalAssistantMessageIds = new Set<string>();
@@ -235,6 +266,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
   let pendingIntentEntries: Array<Extract<TimelineMetaGroupEntry, { kind: "intent" }>> = [];
   let activeLiveIntentText: string | null = null;
+  let hiddenCompletedWork: HiddenCompletedWorkAccumulator | null = null;
 
   const resetPendingMetaEntries = () => {
     pendingMetaEntries = [];
@@ -258,6 +290,81 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     pendingIntentEntries = [];
   };
 
+  const recordHiddenCompletedWork = (input: {
+    id: string;
+    startedAt: string;
+    endedAt: string;
+    hiddenMessageCount: number;
+    toolCallCount: number;
+  }) => {
+    if (!hiddenCompletedWork) {
+      hiddenCompletedWork = {
+        id: `completed-work-summary:${input.id}`,
+        createdAt: input.startedAt,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        hiddenMessageCount: input.hiddenMessageCount,
+        toolCallCount: input.toolCallCount,
+      };
+      return;
+    }
+
+    hiddenCompletedWork = {
+      ...hiddenCompletedWork,
+      endedAt: latestIso(hiddenCompletedWork.endedAt, input.endedAt),
+      hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount + input.hiddenMessageCount,
+      toolCallCount: hiddenCompletedWork.toolCallCount + input.toolCallCount,
+    };
+  };
+
+  const recordHiddenMetaEntries = (
+    entries: ReadonlyArray<TimelineMetaGroupEntry>,
+    nextEventCreatedAt: string | null,
+  ) => {
+    const firstEntry = entries[0];
+    if (!firstEntry) {
+      return;
+    }
+    const fallbackEndAt = entries.at(-1)?.createdAt ?? firstEntry.createdAt;
+    const endedAt = nextEventCreatedAt ?? fallbackEndAt;
+    const toolCallCount = entries.filter(
+      (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
+    ).length;
+    recordHiddenCompletedWork({
+      id: firstEntry.id,
+      startedAt: firstEntry.createdAt,
+      endedAt,
+      hiddenMessageCount: 0,
+      toolCallCount,
+    });
+  };
+
+  const recordHiddenAssistantMessage = (message: TimelineMessage) => {
+    recordHiddenCompletedWork({
+      id: String(message.id),
+      startedAt: message.createdAt,
+      endedAt: message.completedAt ?? message.createdAt,
+      hiddenMessageCount: 1,
+      toolCallCount: 0,
+    });
+  };
+
+  const flushHiddenCompletedWorkSummary = (endedAt: string | null) => {
+    if (!hiddenCompletedWork) {
+      return;
+    }
+    nextRows.push({
+      kind: "completed-work-summary",
+      id: hiddenCompletedWork.id,
+      createdAt: hiddenCompletedWork.createdAt,
+      startedAt: hiddenCompletedWork.startedAt,
+      endedAt: endedAt ?? hiddenCompletedWork.endedAt,
+      hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount,
+      toolCallCount: hiddenCompletedWork.toolCallCount,
+    });
+    hiddenCompletedWork = null;
+  };
+
   const consumeLatestPendingIntentText = () => {
     const latestIntentText = pendingIntentEntries.at(-1)?.text ?? null;
     pendingIntentEntries = [];
@@ -273,6 +380,15 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
 
     if (pendingMetaEntries.length === 0 || !pendingMetaRowId || !pendingMetaCreatedAt) {
+      resetPendingMetaEntries();
+      return;
+    }
+
+    const pendingMetaIsInActiveTurn =
+      input.activeTurnInProgress &&
+      isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
+    if (input.hideCompletedWorkMessages === true && !pendingMetaIsInActiveTurn) {
+      recordHiddenMetaEntries(pendingMetaEntries, nextEventCreatedAt);
       resetPendingMetaEntries();
       return;
     }
@@ -393,7 +509,11 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
-    if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+    const messageIsInActiveTurn = isEventInActiveTurn(
+      timelineEntry.createdAt,
+      activeTurnStartedAtMs,
+    );
+    if (messageIsInActiveTurn) {
       hasRenderableCurrentTurnOutput = true;
     }
 
@@ -407,6 +527,30 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       ) {
         activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
       }
+    }
+
+    if (
+      input.hideCompletedWorkMessages === true &&
+      timelineEntry.message.role === "assistant" &&
+      !timelineEntry.message.streaming &&
+      !terminalAssistantMessageIds.has(timelineEntry.id) &&
+      !(input.activeTurnInProgress && messageIsInActiveTurn)
+    ) {
+      recordHiddenAssistantMessage(timelineEntry.message);
+      if (timelineEntry.message.completedAt) {
+        lastMessageBoundaryAt = timelineEntry.message.completedAt;
+      }
+      continue;
+    }
+
+    if (
+      input.hideCompletedWorkMessages === true &&
+      timelineEntry.message.role === "assistant" &&
+      !timelineEntry.message.streaming &&
+      terminalAssistantMessageIds.has(timelineEntry.id) &&
+      !(input.activeTurnInProgress && messageIsInActiveTurn)
+    ) {
+      flushHiddenCompletedWorkSummary(timelineEntry.message.completedAt ?? timelineEntry.createdAt);
     }
 
     nextRows.push({

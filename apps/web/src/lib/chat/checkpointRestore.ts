@@ -18,17 +18,14 @@ export function buildCheckpointRestoreConfirmation(
 ): string {
   if (usesTranscriptRebuildRestore(provider)) {
     return [
-      `Restore this thread to checkpoint ${turnCount}?`,
-      "This will discard newer messages and turn diffs in this thread.",
-      "Files will be restored to that checkpoint, and the next provider turn will rebuild context from the saved transcript instead of rewinding remote history.",
-      "This action cannot be undone.",
+      `Restore to checkpoint ${turnCount}?`,
+      "Newer messages, turn diffs, and file changes will be discarded.",
     ].join("\n");
   }
 
   return [
-    `Revert this thread to checkpoint ${turnCount}?`,
-    "This will discard newer messages and turn diffs in this thread.",
-    "This action cannot be undone.",
+    `Revert to checkpoint ${turnCount}?`,
+    "Newer messages, turn diffs, and file changes will be discarded.",
   ].join("\n");
 }
 

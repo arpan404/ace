@@ -2002,6 +2002,143 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
   });
 
+  it("shows compact changed-files actions with assistant revert when available", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-with-revertable-diff");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-with-revertable-diff",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "Updated the files.",
+              turnId: TurnId.makeUnsafe("turn-revertable-diff"),
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={
+          new Map([
+            [
+              assistantMessageId,
+              {
+                turnId: TurnId.makeUnsafe("turn-revertable-diff"),
+                completedAt: "2026-03-17T19:12:33.500Z",
+                checkpointTurnCount: 2,
+                files: [
+                  {
+                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+                    additions: 10,
+                    deletions: 2,
+                  },
+                ],
+              },
+            ],
+          ])
+        }
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        revertTurnCountByAssistantMessageId={new Map([[assistantMessageId, 1]])}
+        onRevertAssistantMessage={() => {}}
+        revertActionTitle="Revert changes"
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Revert changes"');
+    expect(markup).not.toContain(">Revert</button>");
+    expect(markup).toContain("View diff");
+    expect(markup).toContain('aria-label="Expand all"');
+    expect(markup).not.toContain("<span>Expand all</span>");
+  });
+
+  it("hides the changed-files expand action when there are no directories", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-with-flat-diff");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-with-flat-diff",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "Updated the files.",
+              turnId: TurnId.makeUnsafe("turn-flat-diff"),
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={
+          new Map([
+            [
+              assistantMessageId,
+              {
+                turnId: TurnId.makeUnsafe("turn-flat-diff"),
+                completedAt: "2026-03-17T19:12:33.500Z",
+                checkpointTurnCount: 2,
+                files: [
+                  {
+                    path: "README.md",
+                    additions: 1,
+                    deletions: 0,
+                  },
+                ],
+              },
+            ],
+          ])
+        }
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("View diff");
+    expect(markup).not.toContain('aria-label="Expand all"');
+    expect(markup).not.toContain('aria-label="Collapse all"');
+  });
+
   it("hides changed-files summaries while the latest turn is still active", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-active-diff");
@@ -2134,6 +2271,67 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup.indexOf("Running format and checks")).toBeLessThan(
       markup.indexOf("bun fmt &amp;&amp; bun lint"),
     );
+  });
+
+  it("shows a compact worked-for pill when completed work details are hidden", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        hideCompletedWorkMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "hidden-tool",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "hidden-tool",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Read file",
+              toolTitle: "Read file",
+              detail: "README.md",
+              tone: "tool",
+            },
+          },
+          {
+            id: "assistant-final",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:34.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-final"),
+              role: "assistant",
+              text: "Done.",
+              createdAt: "2026-03-17T19:12:34.000Z",
+              completedAt: "2026-03-17T19:12:35.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-completed-work-summary="true"');
+    expect(markup).toContain("Worked for 4s");
+    expect(markup).not.toContain("1 tool call");
+    expect(markup).not.toContain("README.md");
   });
 
   it("shows completed image-view tool calls", async () => {
