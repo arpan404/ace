@@ -183,6 +183,7 @@ const buildAppUnderTest = (options?: {
       authToken: undefined,
       autoBootstrapProjectFromCwd: false,
       logWebSocketEvents: false,
+      telemetryEnabled: false,
       ...options?.config,
     } satisfies ServerConfigShape;
     const layerConfig = Layer.succeed(ServerConfig, config);

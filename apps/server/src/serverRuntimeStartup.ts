@@ -29,6 +29,7 @@ import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReac
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { logStartupEvent, withStartupTiming } from "./startupDiagnostics";
+import { ProviderSessionDirectory } from "./provider/Services/ProviderSessionDirectory";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 
 const isWildcardHost = (host: string | undefined): boolean =>
@@ -122,6 +123,7 @@ export const makeCommandGate = Effect.gen(function* () {
 export const recordStartupHeartbeat = Effect.gen(function* () {
   const analytics = yield* AnalyticsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const providerSessionDirectory = yield* ProviderSessionDirectory;
 
   const { threadCount, projectCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
@@ -136,9 +138,43 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
     ),
   );
 
+  const persistedProviderCounts = yield* providerSessionDirectory.listThreadIds().pipe(
+    Effect.flatMap((threadIds) =>
+      Effect.forEach(
+        threadIds,
+        (threadId) =>
+          providerSessionDirectory.getBinding(threadId).pipe(
+            Effect.map(Option.getOrUndefined),
+            Effect.orElseSucceed(() => undefined),
+          ),
+        { concurrency: "unbounded" },
+      ).pipe(
+        Effect.map((bindings) => {
+          const providerCounts = new Map<string, number>();
+          for (const binding of bindings) {
+            if (!binding) continue;
+            const current = providerCounts.get(binding.provider) ?? 0;
+            providerCounts.set(binding.provider, current + 1);
+          }
+          return Object.fromEntries(
+            Array.from(providerCounts.entries()).toSorted(([left], [right]) =>
+              left.localeCompare(right),
+            ),
+          );
+        }),
+      ),
+    ),
+    Effect.catch((cause) =>
+      Effect.logWarning("failed to gather provider usage counts for telemetry", { cause }).pipe(
+        Effect.as({} as Record<string, number>),
+      ),
+    ),
+  );
+
   yield* analytics.record("server.boot.heartbeat", {
     threadCount,
     projectCount,
+    providerCounts: persistedProviderCounts,
   });
 });
 

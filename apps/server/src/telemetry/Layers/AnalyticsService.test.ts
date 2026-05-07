@@ -7,7 +7,7 @@ import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import { ServerConfig } from "../../config.ts";
-import { getTelemetryIdentifier } from "../Identify.ts";
+import { getTelemetryIdentity } from "../Identify.ts";
 import { AnalyticsService } from "../Services/AnalyticsService.ts";
 import { AnalyticsServiceLayerLive } from "./AnalyticsService.ts";
 
@@ -75,8 +75,8 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
 
       yield* Effect.gen(function* () {
         yield* Layer.launch(batchServerLayer).pipe(Effect.forkScoped);
-        const telemetryIdentifier = yield* getTelemetryIdentifier;
-        assert.equal(telemetryIdentifier !== null, true);
+        const telemetryIdentity = yield* getTelemetryIdentity;
+        assert.equal(telemetryIdentity !== null, true);
         const analytics = yield* AnalyticsService;
 
         for (let index = 0; index < 45; index += 1) {

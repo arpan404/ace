@@ -40,6 +40,41 @@ bun dev:web
 
 This starts the web app and local server together.
 
+## CLI
+
+The `ace` CLI can start/open the app, manage the daemon, diagnose provider setup, control telemetry, inspect terminals, and manage local/remote runtime state.
+
+Quick examples:
+
+```bash
+# Open the app (reuses or starts daemon)
+ace web
+
+# Check local setup
+ace doctor
+
+# Start daemon in background
+ace daemon start
+
+# Stop daemon (same as `ace daemon stop`)
+ace stop
+
+# Restart daemon
+ace daemon restart
+
+# Telemetry and runtime controls
+ace telemetry off
+ace telemetry status
+ace daemon start --telemetry on
+
+# Managed terminals
+ace terminal list
+```
+
+Full CLI guide with first-run setup, diagnostics, telemetry/privacy controls, terminal management, remote pairing, troubleshooting, and automation examples:
+
+- [docs/cli.md](./docs/cli.md)
+
 ## Development
 
 Requirements:
