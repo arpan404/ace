@@ -604,6 +604,29 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       recordRuntimeEventActivity(event);
     }).pipe(
       Effect.flatMap(() =>
+        Effect.gen(function* () {
+          if (event.type === "turn.completed") {
+            const completedPayload = event.payload;
+            yield* analytics.record("provider.turn.completed", {
+              provider: event.provider,
+              stopReason: completedPayload.stopReason ?? undefined,
+              totalCostUsd: completedPayload.totalCostUsd,
+              hasErrorMessage:
+                typeof completedPayload.errorMessage === "string" &&
+                completedPayload.errorMessage.length > 0,
+            });
+            return;
+          }
+          if (event.type === "turn.aborted") {
+            yield* analytics.record("provider.turn.failed", {
+              provider: event.provider,
+              failureClass: "aborted",
+              reason: event.payload.reason,
+            });
+          }
+        }),
+      ),
+      Effect.flatMap(() =>
         isTurnIdleEvent(event) ? completeActiveTurn(event.threadId) : Effect.void,
       ),
       Effect.flatMap(() => publishRuntimeEvent(event)),
@@ -768,6 +791,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         provider: parsed.provider ?? parsed.modelSelection?.provider ?? "codex",
         providerInstanceId: parsed.providerInstanceId ?? parsed.modelSelection?.providerInstanceId,
       };
+      const providerSelectionSource =
+        parsed.provider !== undefined
+          ? "explicit-provider"
+          : parsed.modelSelection?.provider !== undefined
+            ? "model-selection"
+            : "default-provider";
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.mapError((error) =>
           toValidationError(
@@ -828,6 +857,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       yield* upsertSessionBinding(session, threadId, {
         modelSelection: input.modelSelection,
       });
+      yield* analytics.record("provider.selected", {
+        provider: session.provider,
+        source: providerSelectionSource,
+      });
+      if (persistedBinding && persistedBinding.provider !== session.provider) {
+        yield* analytics.record("provider.switched", {
+          fromProvider: persistedBinding.provider,
+          toProvider: session.provider,
+          reason: "session-start",
+        });
+      }
       yield* analytics.record("provider.session.started", {
         provider: session.provider,
         runtimeMode: input.runtimeMode,
