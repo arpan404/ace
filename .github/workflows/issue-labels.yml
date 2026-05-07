@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
@@ -36,6 +37,61 @@ jobs:
                 name: "needs-triage",
                 color: "fbca04",
                 description: "Issue needs maintainer review and initial categorization.",
+              },
+              {
+                name: "area:web",
+                color: "54aeff",
+                description: "React/Vite web app, client state, and browser UX.",
+              },
+              {
+                name: "area:server",
+                color: "0969da",
+                description: "Node server, daemon, WebSocket API, and CLI runtime.",
+              },
+              {
+                name: "area:desktop",
+                color: "8250df",
+                description: "Electron shell, native desktop behavior, and updater flows.",
+              },
+              {
+                name: "area:mobile",
+                color: "bf3989",
+                description: "React Native / Expo mobile app.",
+              },
+              {
+                name: "area:relay",
+                color: "0a7f70",
+                description: "Remote relay, pairing, routing, and encrypted transport.",
+              },
+              {
+                name: "area:providers",
+                color: "fb8c00",
+                description: "Provider CLI integrations and runtime adapters.",
+              },
+              {
+                name: "area:release",
+                color: "6f42c1",
+                description: "Build, packaging, signing, publishing, and updater metadata.",
+              },
+              {
+                name: "area:docs",
+                color: "0075ca",
+                description: "Documentation, templates, and examples.",
+              },
+              {
+                name: "reliability",
+                color: "0e8a16",
+                description: "Correctness under restarts, reconnects, load, or partial failure.",
+              },
+              {
+                name: "cross-platform",
+                color: "5319e7",
+                description: "macOS, Windows, or Linux compatibility.",
+              },
+              {
+                name: "security",
+                color: "b60205",
+                description: "Security-sensitive behavior or dependency vulnerability work.",
               },
             ];
 
