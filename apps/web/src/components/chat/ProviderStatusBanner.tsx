@@ -2,6 +2,7 @@ import { PROVIDER_DISPLAY_NAMES, type ServerProvider } from "@ace/contracts";
 import { memo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { CircleAlertIcon } from "lucide-react";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   status,
@@ -24,12 +25,18 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       <Alert variant={status.status === "error" ? "error" : "warning"}>
         <CircleAlertIcon />
         <AlertTitle>{title}</AlertTitle>
-        <AlertDescription
-          className="line-clamp-3 text-[12px] leading-relaxed"
-          title={status.message ?? defaultMessage}
-        >
-          {status.message ?? defaultMessage}
-        </AlertDescription>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <AlertDescription className="line-clamp-3 text-[12px] leading-relaxed">
+                {status.message ?? defaultMessage}
+              </AlertDescription>
+            }
+          />
+          <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap">
+            {status.message ?? defaultMessage}
+          </TooltipPopup>
+        </Tooltip>
       </Alert>
     </div>
   );

@@ -13,6 +13,7 @@ import { PROVIDER_OPTIONS } from "../../session-logic";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -642,24 +643,32 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ) : null}
           </span>
         </button>
-        <button
-          type="button"
-          aria-label={`${favorited ? "Remove favorite" : "Favorite"} ${row.label}`}
-          title={favorited ? "Remove favorite" : "Favorite model"}
-          className={cn(
-            "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-            favorited ? "text-warning-foreground" : undefined,
-          )}
-          onClick={(event) => {
-            event.stopPropagation();
-            toggleFavoriteModel(row.favoriteKey);
-          }}
-        >
-          <StarIcon
-            aria-hidden="true"
-            className={cn("size-3", favorited ? "fill-current" : undefined)}
-          />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`${favorited ? "Remove favorite" : "Favorite"} ${row.label}`}
+                className={cn(
+                  "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  favorited ? "text-warning-foreground" : undefined,
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleFavoriteModel(row.favoriteKey);
+                }}
+              />
+            }
+          >
+            <StarIcon
+              aria-hidden="true"
+              className={cn("size-3", favorited ? "fill-current" : undefined)}
+            />
+          </TooltipTrigger>
+          <TooltipPopup side="left">
+            {favorited ? "Remove favorite" : "Favorite model"}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     );
   };
@@ -748,34 +757,39 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       pickerProviderEntryKey ===
                       makeProviderEntryKey(entry.provider, entry.instanceId);
                     return (
-                      <button
-                        key={makeProviderEntryKey(entry.provider, entry.instanceId)}
-                        type="button"
-                        aria-label={entry.label}
-                        title={entry.label}
-                        className={cn(
-                          "relative flex size-8 items-center justify-center rounded-[var(--control-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                          selected
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-                        )}
-                        onClick={() => handleProviderEntryFocus(entry)}
-                      >
-                        <OptionIcon
-                          aria-hidden="true"
-                          className={cn(
-                            "size-4 shrink-0",
-                            providerIconClassName(entry.provider, "text-muted-foreground"),
-                          )}
-                        />
-                        {entry.instanceId ? (
-                          <ProviderInstanceBadge
-                            color={entry.badgeColor}
-                            icon={entry.badgeIcon}
-                            className="absolute bottom-0 right-0 size-3.5 border-[1.5px] p-[2px]"
+                      <Tooltip key={makeProviderEntryKey(entry.provider, entry.instanceId)}>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label={entry.label}
+                              className={cn(
+                                "relative flex size-8 items-center justify-center rounded-[var(--control-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                                selected
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                              )}
+                              onClick={() => handleProviderEntryFocus(entry)}
+                            />
+                          }
+                        >
+                          <OptionIcon
+                            aria-hidden="true"
+                            className={cn(
+                              "size-4 shrink-0",
+                              providerIconClassName(entry.provider, "text-muted-foreground"),
+                            )}
                           />
-                        ) : null}
-                      </button>
+                          {entry.instanceId ? (
+                            <ProviderInstanceBadge
+                              color={entry.badgeColor}
+                              icon={entry.badgeIcon}
+                              className="absolute bottom-0 right-0 size-3.5 border-[1.5px] p-[2px]"
+                            />
+                          ) : null}
+                        </TooltipTrigger>
+                        <TooltipPopup side="right">{entry.label}</TooltipPopup>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -806,21 +820,29 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       </span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    aria-label={`${pickerProviderEntryPinned ? "Unpin" : "Pin"} ${pickerProviderEntry.label}`}
-                    title={pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
-                    className="inline-flex size-6 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => togglePinnedProvider(pickerProviderEntryKey)}
-                  >
-                    <PinIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-3",
-                        pickerProviderEntryPinned ? "fill-current text-foreground" : undefined,
-                      )}
-                    />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label={`${pickerProviderEntryPinned ? "Unpin" : "Pin"} ${pickerProviderEntry.label}`}
+                          className="inline-flex size-6 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => togglePinnedProvider(pickerProviderEntryKey)}
+                        />
+                      }
+                    >
+                      <PinIcon
+                        aria-hidden="true"
+                        className={cn(
+                          "size-3",
+                          pickerProviderEntryPinned ? "fill-current text-foreground" : undefined,
+                        )}
+                      />
+                    </TooltipTrigger>
+                    <TooltipPopup side="left">
+                      {pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
+                    </TooltipPopup>
+                  </Tooltip>
                 </div>
               </div>
               <div className="border-b border-border/60 px-2.5 py-1.5">

@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatQueuedComposerMessagePreview } from "~/lib/chat/queuedComposerPreview";
 
 export interface ComposerQueuedMessageItem {
@@ -65,17 +66,23 @@ function SortableQueuedMessageRow(props: {
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground/55 opacity-0 transition-opacity group-hover/queue-row:opacity-100 group-focus-within/queue-row:opacity-100 active:cursor-grabbing"
-          {...attributes}
-          {...listeners}
-          aria-label="Reorder queued message"
-          title="Reorder queued message"
-        >
-          <GripVerticalIcon className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                ref={setActivatorNodeRef}
+                className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground/55 opacity-0 transition-opacity group-hover/queue-row:opacity-100 group-focus-within/queue-row:opacity-100 active:cursor-grabbing"
+                {...attributes}
+                {...listeners}
+                aria-label="Reorder queued message"
+              />
+            }
+          >
+            <GripVerticalIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Reorder queued message</TooltipPopup>
+        </Tooltip>
         <span className="shrink-0 text-muted-foreground/62">↳</span>
         <span className="shrink-0 rounded-sm border border-border/55 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/72">
           {(() => {
@@ -104,48 +111,62 @@ function SortableQueuedMessageRow(props: {
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         {props.canSendNow ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 rounded-md bg-primary/10 px-2.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/16 hover:text-primary"
-            onClick={() => {
-              props.onSend(props.message.id);
-            }}
-            aria-label="Send queued message"
-            title="Send queued message"
-          >
-            <ArrowUpIcon className="mr-1 size-3.5" />
-            Send
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 rounded-md bg-primary/10 px-2.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/16 hover:text-primary"
+                  onClick={() => {
+                    props.onSend(props.message.id);
+                  }}
+                  aria-label="Send queued message"
+                />
+              }
+            >
+              <ArrowUpIcon className="mr-1 size-3.5" />
+              Send
+            </TooltipTrigger>
+            <TooltipPopup side="top">Send queued message</TooltipPopup>
+          </Tooltip>
         ) : null}
         {showSteerAction ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className={cn(
-              "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
-              isSteered
-                ? "animate-pulse border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
-                : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
-            )}
-            onClick={() => {
-              if (!isSteered) {
-                props.onOptimisticallySteer(props.message.id);
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
+                    isSteered
+                      ? "animate-pulse border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
+                      : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
+                  )}
+                  onClick={() => {
+                    if (!isSteered) {
+                      props.onOptimisticallySteer(props.message.id);
+                    }
+                    props.onSteer(props.message.id);
+                  }}
+                  aria-label={isSteered ? "Steering message" : "Steer queued message"}
+                />
               }
-              props.onSteer(props.message.id);
-            }}
-            aria-label={isSteered ? "Steering message" : "Steer queued message"}
-            title={isSteered ? "Click to move back to queue" : "Steer queued message"}
-          >
-            <span
-              className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}
             >
-              ↳
-            </span>
-            {isSteered ? "Steering" : "Steer"}
-          </Button>
+              <span
+                className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}
+              >
+                ↳
+              </span>
+              {isSteered ? "Steering" : "Steer"}
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {isSteered ? "Move back to queue" : "Steer queued message"}
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         <Button
           type="button"
@@ -276,18 +297,24 @@ export function ComposerQueuedMessages(props: {
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-45"
-            onClick={props.onClearAll}
-            disabled={!hasMessages}
-            aria-label="Clear queued messages"
-            title="Clear queue"
-          >
-            Clear all
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-45"
+                  onClick={props.onClearAll}
+                  disabled={!hasMessages}
+                  aria-label="Clear queued messages"
+                />
+              }
+            >
+              Clear all
+            </TooltipTrigger>
+            <TooltipPopup side="top">Clear queue</TooltipPopup>
+          </Tooltip>
         </div>
       </div>
       <div className="max-h-[126px] overflow-y-auto">

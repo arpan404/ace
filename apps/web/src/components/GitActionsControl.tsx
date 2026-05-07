@@ -970,12 +970,18 @@ export default function GitActionsControl({
                     Git actions
                   </div>
                   {gitStatusForActions?.branch ? (
-                    <div
-                      className="max-w-32 truncate rounded-md bg-muted/45 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-                      title={gitStatusForActions.branch}
-                    >
-                      {gitStatusForActions.branch}
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <div className="max-w-32 truncate rounded-md bg-muted/45 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                            {gitStatusForActions.branch}
+                          </div>
+                        }
+                      />
+                      <TooltipPopup side="top" align="end" className="max-w-80 whitespace-pre-wrap">
+                        {gitStatusForActions.branch}
+                      </TooltipPopup>
+                    </Tooltip>
                   ) : null}
                 </div>
               </div>

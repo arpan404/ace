@@ -461,8 +461,18 @@ function resolveToolItemType(toolName: string | undefined): PiToolItemKind {
     return "command_execution";
   }
   if (
-    normalized.includes("file") ||
     normalized.includes("read") ||
+    normalized.includes("open") ||
+    normalized.includes("view") ||
+    normalized.includes("grep") ||
+    normalized.includes("glob") ||
+    normalized.includes("search") ||
+    normalized.includes("find")
+  ) {
+    return "dynamic_tool_call";
+  }
+  if (
+    normalized.includes("file") ||
     normalized.includes("write") ||
     normalized.includes("edit") ||
     normalized.includes("delete") ||

@@ -98,44 +98,52 @@ function RightSidePanelBrowserTab(props: {
     useSortable({ id: props.tab.id });
 
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={props.className(props.active, isDragging, isOver)}
-      {...attributes}
-      aria-pressed={props.active}
-      title={props.tab.title}
-      onClick={() => {
-        if (props.suppressClickAfterDragRef.current) {
-          return;
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            ref={setNodeRef}
+            type="button"
+            style={{ transform: CSS.Translate.toString(transform), transition }}
+            className={props.className(props.active, isDragging, isOver)}
+            {...attributes}
+            aria-pressed={props.active}
+            onClick={() => {
+              if (props.suppressClickAfterDragRef.current) {
+                return;
+              }
+              props.onSelect(props.tab.id);
+            }}
+            {...listeners}
+          />
         }
-        props.onSelect(props.tab.id);
-      }}
-      {...listeners}
-    >
-      <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-        <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-        <span
-          role="button"
-          tabIndex={-1}
-          className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-          aria-label={`Close ${props.tab.title}`}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onClose(props.tab.id);
-          }}
-        >
-          <XIcon className="size-3.5" />
+      >
+        <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+          <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+          <span
+            role="button"
+            tabIndex={-1}
+            className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            aria-label={`Close ${props.tab.title}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onClose(props.tab.id);
+            }}
+          >
+            <XIcon className="size-3.5" />
+          </span>
         </span>
-      </span>
-      <span className="max-w-48 truncate">{props.tab.title}</span>
-    </button>
+        <span className="max-w-48 truncate">{props.tab.title}</span>
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+        {props.tab.title}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

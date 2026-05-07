@@ -275,6 +275,17 @@ function itemTitleForSource(
   if (normalizedType.includes("image generation")) {
     return "Image generation";
   }
+  if (itemType === "file_change") {
+    const detail = itemDetail(source, source)?.trim().toLowerCase();
+    if (
+      detail === "read" ||
+      detail === "read file" ||
+      detail === "open file" ||
+      detail === "view file"
+    ) {
+      return "Read file";
+    }
+  }
   return itemTitle(itemType);
 }
 

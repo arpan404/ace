@@ -23,6 +23,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "../ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SETTINGS_NAV_GROUPS, SETTINGS_NAV_ITEMS } from "./settingsNavigation";
 import type { SettingsSectionPath } from "./settingsNavigation";
 
@@ -63,22 +64,30 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   const Icon = SETTINGS_NAV_ICON_BY_PATH[item.to];
                   return (
                     <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton
-                        size="sm"
-                        title={item.description}
-                        aria-label={`${item.label} settings`}
-                        isActive={isActive}
-                        className={cn(
-                          "relative h-8 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium transition-colors duration-150 ease-out",
-                          isActive
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                        )}
-                        onClick={() => void navigate({ to: item.to, replace: true })}
-                      >
-                        <Icon className="size-4 shrink-0" strokeWidth={2.05} />
-                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                      </SidebarMenuButton>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <SidebarMenuButton
+                              size="sm"
+                              aria-label={`${item.label} settings`}
+                              isActive={isActive}
+                              className={cn(
+                                "relative h-8 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium transition-colors duration-150 ease-out",
+                                isActive
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                              )}
+                              onClick={() => void navigate({ to: item.to, replace: true })}
+                            >
+                              <Icon className="size-4 shrink-0" strokeWidth={2.05} />
+                              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                            </SidebarMenuButton>
+                          }
+                        />
+                        <TooltipPopup side="right" className="max-w-72 whitespace-pre-wrap">
+                          {item.description}
+                        </TooltipPopup>
+                      </Tooltip>
                     </SidebarMenuItem>
                   );
                 })}

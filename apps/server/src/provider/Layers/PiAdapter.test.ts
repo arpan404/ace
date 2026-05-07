@@ -193,6 +193,7 @@ describe("PiAdapterLive", () => {
           binaryPath: "pi",
           args: ["--mode", "rpc", "--no-session"],
           cwd: "/repo/pi-config",
+          env: {},
         });
         expect(client.request).toHaveBeenCalledWith(
           "set_model",

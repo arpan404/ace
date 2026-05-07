@@ -721,6 +721,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableThinkingStreaming !== DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming
         ? ["Thinking activity"]
         : []),
+      ...(settings.hideCompletedWorkMessages !== DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages
+        ? ["Completed work details"]
+        : []),
       ...(settings.notifyOnAgentCompletion !== DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion
         ? ["Completion notifications"]
         : []),
@@ -783,6 +786,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notifyOnUserInputRequired,
       settings.enableThinkingStreaming,
       settings.enableToolStreaming,
+      settings.hideCompletedWorkMessages,
       settings.threadHydrationCacheMemoryMb,
       settings.timestampFormat,
       settings.uiFontFamily,
@@ -1922,6 +1926,34 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 />
               }
             />
+
+            <SettingsRow
+              title="Hide completed work details"
+              description="After an assistant turn finishes, hide tool and thinking rows and keep only the worked-for time."
+              resetAction={
+                settings.hideCompletedWorkMessages !==
+                DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages ? (
+                  <SettingResetButton
+                    label="completed work details"
+                    onClick={() =>
+                      updateSettings({
+                        hideCompletedWorkMessages:
+                          DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.hideCompletedWorkMessages}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ hideCompletedWorkMessages: Boolean(checked) })
+                  }
+                  aria-label="Hide completed work details"
+                />
+              }
+            />
           </SettingsSection>
 
           <SettingsSection title="Comments">
@@ -2901,21 +2933,30 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           >
             <div className="mt-3 flex flex-wrap gap-2">
               {WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  size="sm"
-                  variant={
-                    settings.workspaceSummaryGenerationMode === option.value ? "default" : "outline"
-                  }
-                  onClick={() =>
-                    updateSettings({
-                      workspaceSummaryGenerationMode: option.value,
-                    })
-                  }
-                  title={option.description}
-                >
-                  {option.label}
-                </Button>
+                <Tooltip key={option.value}>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant={
+                          settings.workspaceSummaryGenerationMode === option.value
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() =>
+                          updateSettings({
+                            workspaceSummaryGenerationMode: option.value,
+                          })
+                        }
+                      >
+                        {option.label}
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
+                    {option.description}
+                  </TooltipPopup>
+                </Tooltip>
               ))}
             </div>
           </SettingsRow>

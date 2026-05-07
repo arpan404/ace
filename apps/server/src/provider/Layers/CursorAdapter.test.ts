@@ -270,6 +270,21 @@ describe("classifyCursorToolItemType", () => {
       }),
     ).toBe("collab_agent_tool_call");
   });
+
+  it("does not classify read-only file tools as file changes", () => {
+    expect(
+      classifyCursorToolItemType({
+        kind: "read",
+        title: "Read file",
+      }),
+    ).toBe("dynamic_tool_call");
+    expect(
+      classifyCursorToolItemType({
+        kind: "grep",
+        title: "Find references",
+      }),
+    ).toBe("web_search");
+  });
 });
 
 describe("requestTypeForCursorTool", () => {
@@ -1849,7 +1864,7 @@ describe("CursorAdapterLive", () => {
           return;
         }
         expect(toolEvent.payload).toMatchObject({
-          itemType: "file_change",
+          itemType: "dynamic_tool_call",
           data: {
             item: {
               toolCallId: "tool_nested",

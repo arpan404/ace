@@ -623,7 +623,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
           y: event.clientY,
         });
       }}
-      title={
+      aria-label={
         props.row.kind === "file"
           ? `${props.row.entry.path} • Option-click to open in a new window • Right-click for actions`
           : props.row.entry.path
@@ -741,25 +741,31 @@ function WorkspaceActivityButton(props: {
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={props.label}
-      title={props.label}
-      className={cn(
-        "relative my-0.5 flex size-8 items-center justify-center rounded-lg outline-none transition-colors focus-visible:outline-none focus-visible:ring-0",
-        props.active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
-      )}
-      onClick={props.onClick}
-    >
-      {props.icon}
-      {props.badge && props.badge > 0 ? (
-        <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-card bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground shadow-sm">
-          {props.badge > 9 ? "9+" : props.badge}
-        </span>
-      ) : null}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={props.label}
+            className={cn(
+              "relative my-0.5 flex size-8 items-center justify-center rounded-lg outline-none transition-colors focus-visible:outline-none focus-visible:ring-0",
+              props.active
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+            )}
+            onClick={props.onClick}
+          />
+        }
+      >
+        {props.icon}
+        {props.badge && props.badge > 0 ? (
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-card bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground shadow-sm">
+            {props.badge > 9 ? "9+" : props.badge}
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipPopup side="right">{props.label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -2930,13 +2936,19 @@ function ThreadWorkspaceEditor(inputProps: {
               <div className="flex h-12 items-center gap-2 border-b border-border bg-card/80 px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   {activeWorktreePath ? (
-                    <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[10.5px] font-medium text-foreground/76"
-                      title={activeWorktreePath}
-                    >
-                      <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
-                      <span>Worktree</span>
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[10.5px] font-medium text-foreground/76">
+                            <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
+                            <span>Worktree</span>
+                          </span>
+                        }
+                      />
+                      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                        {activeWorktreePath}
+                      </TooltipPopup>
+                    </Tooltip>
                   ) : null}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -2958,42 +2970,56 @@ function ThreadWorkspaceEditor(inputProps: {
                       <TooltipPopup side="bottom">Detach editor</TooltipPopup>
                     </Tooltip>
                   ) : null}
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                    onClick={() =>
-                      startInlineEntry({
-                        kind: "create-file",
-                        parentPath:
-                          focusedExplorerEntry?.kind === "directory"
-                            ? focusedExplorerEntry.path
-                            : (focusedExplorerEntry?.parentPath ?? null),
-                        value: "",
-                      })
-                    }
-                    title="New File"
-                  >
-                    <FilePlus2Icon className="size-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                    onClick={() =>
-                      startInlineEntry({
-                        kind: "create-folder",
-                        parentPath:
-                          focusedExplorerEntry?.kind === "directory"
-                            ? focusedExplorerEntry.path
-                            : (focusedExplorerEntry?.parentPath ?? null),
-                        value: "",
-                      })
-                    }
-                    title="New Folder"
-                  >
-                    <FolderPlusIcon className="size-3.5" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                          onClick={() =>
+                            startInlineEntry({
+                              kind: "create-file",
+                              parentPath:
+                                focusedExplorerEntry?.kind === "directory"
+                                  ? focusedExplorerEntry.path
+                                  : (focusedExplorerEntry?.parentPath ?? null),
+                              value: "",
+                            })
+                          }
+                          aria-label="New file"
+                        />
+                      }
+                    >
+                      <FilePlus2Icon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="bottom">New file</TooltipPopup>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                          onClick={() =>
+                            startInlineEntry({
+                              kind: "create-folder",
+                              parentPath:
+                                focusedExplorerEntry?.kind === "directory"
+                                  ? focusedExplorerEntry.path
+                                  : (focusedExplorerEntry?.parentPath ?? null),
+                              value: "",
+                            })
+                          }
+                          aria-label="New folder"
+                        />
+                      }
+                    >
+                      <FolderPlusIcon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="bottom">New folder</TooltipPopup>
+                  </Tooltip>
                 </div>
               </div>
               {sidebarMode === "explorer" ? (
@@ -3561,24 +3587,37 @@ function ThreadWorkspaceEditor(inputProps: {
                             chromeActions={
                               rowIndex === 0 && paneIndex === row.panes.length - 1 ? (
                                 <>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
-                                    onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
-                                    title={
-                                      explorerOpen
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon-xs"
+                                          className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
+                                          onClick={() =>
+                                            setExplorerOpen(props.threadId, !explorerOpen)
+                                          }
+                                          aria-label={
+                                            explorerOpen
+                                              ? "Collapse workspace explorer"
+                                              : "Expand workspace explorer"
+                                          }
+                                        />
+                                      }
+                                    >
+                                      {explorerOpen ? (
+                                        <IconLayoutSidebarFilled className="size-3.5" />
+                                      ) : (
+                                        <IconLayoutSidebar className="size-3.5" />
+                                      )}
+                                    </TooltipTrigger>
+                                    <TooltipPopup side="bottom">
+                                      {explorerOpen
                                         ? "Collapse workspace explorer"
-                                        : "Expand workspace explorer"
-                                    }
-                                  >
-                                    {explorerOpen ? (
-                                      <IconLayoutSidebarFilled className="size-3.5" />
-                                    ) : (
-                                      <IconLayoutSidebar className="size-3.5" />
-                                    )}
-                                  </Button>
+                                        : "Expand workspace explorer"}
+                                    </TooltipPopup>
+                                  </Tooltip>
                                 </>
                               ) : undefined
                             }

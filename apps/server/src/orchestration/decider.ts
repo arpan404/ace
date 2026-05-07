@@ -2,6 +2,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationThread,
 } from "@ace/contracts";
 import { Effect } from "effect";
 
@@ -45,6 +46,10 @@ function withEventBase(
     correlationId: input.commandId,
     metadata: input.metadata ?? {},
   };
+}
+
+function resolveHandoffSourceProvider(thread: OrchestrationThread) {
+  return thread.handoff?.toProvider ?? thread.modelSelection.provider;
 }
 
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
@@ -170,10 +175,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             detail: `Handoff source thread '${command.handoff.sourceThreadId}' belongs to a different project.`,
           });
         }
-        if (handoffSourceThread.modelSelection.provider !== command.handoff.fromProvider) {
+        const expectedHandoffSourceProvider = resolveHandoffSourceProvider(handoffSourceThread);
+        if (expectedHandoffSourceProvider !== command.handoff.fromProvider) {
           return yield* new OrchestrationCommandInvariantError({
             commandType: command.type,
-            detail: `Handoff source provider '${command.handoff.fromProvider}' does not match source thread provider '${handoffSourceThread.modelSelection.provider}'.`,
+            detail: `Handoff source provider '${command.handoff.fromProvider}' does not match source thread provider '${expectedHandoffSourceProvider}'.`,
           });
         }
         if (command.handoff.toProvider !== command.modelSelection.provider) {

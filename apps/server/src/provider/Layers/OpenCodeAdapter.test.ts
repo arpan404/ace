@@ -30,8 +30,13 @@ describe("classifyOpenCodeToolItemType", () => {
     expect(classifyOpenCodeToolItemType("write")).toBe("file_change");
   });
 
-  it("defaults unknown tools to dynamic tool calls", () => {
+  it("does not map read-only file tools to file change activities", () => {
+    expect(classifyOpenCodeToolItemType("read")).toBe("dynamic_tool_call");
     expect(classifyOpenCodeToolItemType("glob")).toBe("dynamic_tool_call");
+  });
+
+  it("defaults unknown tools to dynamic tool calls", () => {
+    expect(classifyOpenCodeToolItemType("inspect")).toBe("dynamic_tool_call");
   });
 });
 

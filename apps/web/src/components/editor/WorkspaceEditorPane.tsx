@@ -1848,75 +1848,84 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 {dropTargetIndex === props.pane.openFilePaths.indexOf(filePath) ? (
                   <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85" />
                 ) : null}
-                <button
-                  type="button"
-                  data-editor-tab="true"
-                  className={cn(
-                    "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
-                    isActive
-                      ? "border-border/70 bg-background text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-                  )}
-                  draggable
-                  onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    props.onSetActiveFile(props.pane.id, filePath);
-                    void openTabContextMenu(event, filePath);
-                  }}
-                  onMouseDown={(event) => {
-                    if (event.button !== 1) {
-                      return;
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-editor-tab="true"
+                        className={cn(
+                          "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
+                          isActive
+                            ? "border-border/70 bg-background text-foreground"
+                            : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                        )}
+                        draggable
+                        onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          props.onSetActiveFile(props.pane.id, filePath);
+                          void openTabContextMenu(event, filePath);
+                        }}
+                        onMouseDown={(event) => {
+                          if (event.button !== 1) {
+                            return;
+                          }
+                          event.preventDefault();
+                          props.onCloseFile(props.pane.id, filePath);
+                        }}
+                        onDragStart={(event) => {
+                          props.onFocusPane(props.pane.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          const payload = JSON.stringify({
+                            filePath,
+                            sourcePaneId: props.pane.id,
+                          });
+                          event.dataTransfer.setData(EDITOR_TAB_TRANSFER_TYPE, payload);
+                          event.dataTransfer.setData("text/plain", payload);
+                        }}
+                        onDragEnd={clearDropTarget}
+                        onDragOver={(event) =>
+                          handleTabDragOver(event, props.pane.openFilePaths.indexOf(filePath))
+                        }
+                        onDrop={(event) =>
+                          handleTabDrop(event, props.pane.openFilePaths.indexOf(filePath))
+                        }
+                        aria-label={filePath}
+                      />
                     }
-                    event.preventDefault();
-                    props.onCloseFile(props.pane.id, filePath);
-                  }}
-                  onDragStart={(event) => {
-                    props.onFocusPane(props.pane.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    const payload = JSON.stringify({
-                      filePath,
-                      sourcePaneId: props.pane.id,
-                    });
-                    event.dataTransfer.setData(EDITOR_TAB_TRANSFER_TYPE, payload);
-                    event.dataTransfer.setData("text/plain", payload);
-                  }}
-                  onDragEnd={clearDropTarget}
-                  onDragOver={(event) =>
-                    handleTabDragOver(event, props.pane.openFilePaths.indexOf(filePath))
-                  }
-                  onDrop={(event) =>
-                    handleTabDrop(event, props.pane.openFilePaths.indexOf(filePath))
-                  }
-                  title={filePath}
-                >
-                  <VscodeEntryIcon
-                    pathValue={filePath}
-                    kind="file"
-                    theme={props.resolvedTheme}
-                    className="size-[14px] shrink-0"
-                  />
-                  <span className="max-w-[150px] truncate font-medium">
-                    {basenameOfPath(filePath)}
-                  </span>
-                  {isDirty ? (
-                    <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
-                  ) : null}
-                  <span
-                    className={cn(
-                      "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
-                      isActive ? "opacity-100" : "group-hover/tab:opacity-100",
-                      "hover:bg-background/70",
-                      isDirty ? "hidden group-hover/tab:flex" : "",
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      props.onCloseFile(props.pane.id, filePath);
-                    }}
                   >
-                    <XIcon className="size-3" />
-                  </span>
-                </button>
+                    <VscodeEntryIcon
+                      pathValue={filePath}
+                      kind="file"
+                      theme={props.resolvedTheme}
+                      className="size-[14px] shrink-0"
+                    />
+                    <span className="max-w-[150px] truncate font-medium">
+                      {basenameOfPath(filePath)}
+                    </span>
+                    {isDirty ? (
+                      <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
+                    ) : null}
+                    <span
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
+                        isActive ? "opacity-100" : "group-hover/tab:opacity-100",
+                        "hover:bg-background/70",
+                        isDirty ? "hidden group-hover/tab:flex" : "",
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        props.onCloseFile(props.pane.id, filePath);
+                      }}
+                    >
+                      <XIcon className="size-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                    {filePath}
+                  </TooltipPopup>
+                </Tooltip>
               </div>
             );
           })}
@@ -1958,36 +1967,57 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               </TooltipPopup>
             </Tooltip>
           ) : null}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={() => props.onSplitPane(props.pane.id)}
-            disabled={!props.canSplitPane}
-            title="Split Editor Right"
-          >
-            <Columns2Icon className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={() => props.onSplitPaneDown(props.pane.id)}
-            disabled={!props.canSplitPane}
-            title="Split Editor Down"
-          >
-            <Rows2Icon className="size-3.5" />
-          </Button>
-          {props.canClosePane ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-              onClick={() => props.onClosePane(props.pane.id)}
-              title="Close Editor Group"
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => props.onSplitPane(props.pane.id)}
+                  disabled={!props.canSplitPane}
+                  aria-label="Split editor right"
+                />
+              }
             >
-              <XIcon className="size-3.5" />
-            </Button>
+              <Columns2Icon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Split editor right</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => props.onSplitPaneDown(props.pane.id)}
+                  disabled={!props.canSplitPane}
+                  aria-label="Split editor down"
+                />
+              }
+            >
+              <Rows2Icon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Split editor down</TooltipPopup>
+          </Tooltip>
+          {props.canClosePane ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                    onClick={() => props.onClosePane(props.pane.id)}
+                    aria-label="Close editor group"
+                  />
+                }
+              >
+                <XIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">Close editor group</TooltipPopup>
+            </Tooltip>
           ) : null}
         </div>
       </div>
@@ -2129,15 +2159,21 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 }}
               >
                 {!selectionActionsExpanded ? (
-                  <button
-                    type="button"
-                    className="inline-flex size-7 items-center justify-center rounded-full border border-border/70 bg-background/92 text-muted-foreground/75 shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
-                    onClick={() => setSelectionActionsExpanded((current) => !current)}
-                    aria-label="Open selection actions"
-                    title="Selection actions"
-                  >
-                    <SparklesIcon className="size-3 text-primary/85" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="inline-flex size-7 items-center justify-center rounded-full border border-border/70 bg-background/92 text-muted-foreground/75 shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
+                          onClick={() => setSelectionActionsExpanded((current) => !current)}
+                          aria-label="Open selection actions"
+                        />
+                      }
+                    >
+                      <SparklesIcon className="size-3 text-primary/85" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">Selection actions</TooltipPopup>
+                  </Tooltip>
                 ) : (
                   <form
                     className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl"
@@ -2160,15 +2196,23 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                       autoFocus
                     />
                     {props.onAddCodeCommentAndSend ? (
-                      <button
-                        type="submit"
-                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
-                        disabled={commentDraft.trim().length === 0 || selectionCommentSubmitting}
-                        aria-label="Submit comment"
-                        title="Submit comment"
-                      >
-                        <ArrowUpRightIcon className="size-4" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="submit"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
+                              disabled={
+                                commentDraft.trim().length === 0 || selectionCommentSubmitting
+                              }
+                              aria-label="Submit comment"
+                            />
+                          }
+                        >
+                          <ArrowUpRightIcon className="size-4" />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Submit comment</TooltipPopup>
+                      </Tooltip>
                     ) : null}
                   </form>
                 )}
@@ -2264,19 +2308,42 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
 
         <div className="flex shrink-0 items-center gap-2">
           {actionError ? (
-            <span className="max-w-[18rem] truncate text-destructive/80" title={actionError}>
-              {actionError}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="max-w-[18rem] truncate text-destructive/80">{actionError}</span>
+                }
+              />
+              <TooltipPopup side="top" align="end" className="max-w-96 whitespace-pre-wrap">
+                {actionError}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {previewError ? (
-            <span className="max-w-[18rem] truncate text-destructive/80" title={previewError}>
-              {previewError}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="max-w-[18rem] truncate text-destructive/80">{previewError}</span>
+                }
+              />
+              <TooltipPopup side="top" align="end" className="max-w-96 whitespace-pre-wrap">
+                {previewError}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {diagnosticError ? (
-            <span className="max-w-[18rem] truncate text-destructive/80" title={diagnosticError}>
-              {diagnosticError}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="max-w-[18rem] truncate text-destructive/80">
+                    {diagnosticError}
+                  </span>
+                }
+              />
+              <TooltipPopup side="top" align="end" className="max-w-96 whitespace-pre-wrap">
+                {diagnosticError}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {props.pane.activeFilePath && !isPreviewMode ? (
             <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
@@ -2289,20 +2356,31 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </span>
           ) : null}
           {props.pane.activeFilePath && !isPreviewMode ? (
-            <button
-              type="button"
-              className="rounded-md px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-accent hover:text-foreground"
-              onClick={() => {
-                setProblemsOpen((open) => !open);
-              }}
-              title={
-                diagnosticSummary
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="rounded-md px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      setProblemsOpen((open) => !open);
+                    }}
+                    aria-label={
+                      diagnosticSummary
+                        ? `${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`
+                        : `${problemsOpen ? "Hide" : "Show"} problems panel`
+                    }
+                  />
+                }
+              >
+                {diagnosticSummary ?? "No problems"}
+              </TooltipTrigger>
+              <TooltipPopup side="top" align="end">
+                {diagnosticSummary
                   ? `${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`
-                  : `${problemsOpen ? "Hide" : "Show"} problems panel`
-              }
-            >
-              {diagnosticSummary ?? "No problems"}
-            </button>
+                  : `${problemsOpen ? "Hide" : "Show"} problems panel`}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
