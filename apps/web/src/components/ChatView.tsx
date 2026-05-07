@@ -3107,6 +3107,16 @@ export default function ChatView({
       })),
     [dispatchQueuedComposerCommand],
   );
+  const dispatchQueuedComposerMessage = useCallback(
+    async (targetThreadId: ThreadId, messageId: MessageId) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.dispatch",
+        commandId,
+        threadId,
+        messageId,
+      })),
+    [dispatchQueuedComposerCommand],
+  );
   const ensureQueuedComposerThread = useCallback(
     async (options: {
       titleSeed: string;
@@ -5831,7 +5841,6 @@ export default function ChatView({
       },
       options?: {
         onFailure?: () => void;
-        restoreDraftOnFailure?: boolean;
         restorePrompt?: string;
       },
     ) => {
@@ -6072,7 +6081,6 @@ export default function ChatView({
             });
         }
         if (
-          (options?.restoreDraftOnFailure ?? true) &&
           !turnStartSucceeded &&
           promptRef.current.length === 0 &&
           composerImagesRef.current.length === 0 &&
@@ -6137,50 +6145,12 @@ export default function ChatView({
       if (sendInFlightRef.current) {
         return;
       }
-      const queuedMessage =
-        queuedComposerMessagesRef.current.find((message) => message.id === messageId) ?? null;
-      if (!queuedMessage) {
+      if (!queuedComposerMessagesRef.current.some((message) => message.id === messageId)) {
         return;
       }
-
-      const activeSteerRequest = queuedSteerRequestRef.current;
-      if (activeSteerRequest && !(await clearQueuedSteerRequest(serverThread.id))) {
-        return;
-      }
-
-      const dispatched = await dispatchComposerMessage(
-        {
-          prompt: queuedMessage.prompt,
-          images: queuedMessage.images,
-          terminalContexts: queuedMessage.terminalContexts.map((context) => ({
-            ...context,
-            threadId: serverThread.id,
-          })),
-          modelSelection: queuedMessage.modelSelection,
-          runtimeMode: queuedMessage.runtimeMode,
-          interactionMode: queuedMessage.interactionMode,
-        },
-        {
-          restoreDraftOnFailure: false,
-        },
-      );
-      if (!dispatched) {
-        return;
-      }
-      if (!(await deleteQueuedComposerMessage(serverThread.id, messageId))) {
-        return;
-      }
-      revokeComposerImagePreviewUrls(queuedMessage.images);
+      await dispatchQueuedComposerMessage(serverThread.id, messageId);
     },
-    [
-      clearQueuedSteerRequest,
-      deleteQueuedComposerMessage,
-      dispatchComposerMessage,
-      isConnecting,
-      isSendBusy,
-      liveTurnInProgress,
-      serverThread,
-    ],
+    [dispatchQueuedComposerMessage, isConnecting, isSendBusy, liveTurnInProgress, serverThread],
   );
   const submitWorkspaceAgentNote = useCallback(
     async (input: { mode: "queue" | "send"; prompt: string }) => {
@@ -7586,7 +7556,6 @@ export default function ChatView({
     queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue");
   }, [liveTurnInProgress, queueCurrentComposerMessage]);
   const canSendQueuedComposerMessages =
-    activeLatestTurn?.state === "interrupted" &&
     queuedComposerMessages.length > 0 &&
     !liveTurnInProgress &&
     !isSendBusy &&

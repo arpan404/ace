@@ -522,6 +522,98 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("dispatches an explicitly sent queued message after an interrupted turn", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-start-before-interrupt"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-before-interrupt"),
+          role: "user",
+          text: "start and interrupt",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-interrupt-before-queue-send"),
+        threadId,
+        turnId: asTurnId("turn-1"),
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.makeUnsafe("cmd-mark-interrupted-before-queue-send"),
+        threadId,
+        turnId: asTurnId("turn-1"),
+        completedAt: now,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-interrupted-before-queue-send"),
+        status: "missing",
+        source: "git-checkpoint",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-queue-after-interrupt"),
+        threadId,
+        position: "back",
+        message: {
+          id: asMessageId("queued-after-interrupt"),
+          prompt: "send queued after interrupt",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.dispatch",
+        commandId: CommandId.makeUnsafe("cmd-send-queued-after-interrupt"),
+        threadId,
+        messageId: asMessageId("queued-after-interrupt"),
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
+      input: "send queued after interrupt",
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.queuedSteerRequest).toBeNull();
+  });
+
   it("does not start a queued OpenCode steer turn while the live provider turn is still running", async () => {
     const harness = await createHarness({
       threadModelSelection: {
