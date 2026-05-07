@@ -93,6 +93,7 @@ const runGeminiCommand = Effect.fn("runGeminiCommand")(function* (args: Readonly
     shell: process.platform === "win32",
     env: {
       ...process.env,
+      ...geminiSettings.launchEnv,
     },
   });
   return yield* spawnAndCollect(geminiSettings.binaryPath, command);
