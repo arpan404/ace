@@ -204,25 +204,33 @@ export function SidebarBoardsSection(props: {
                     </form>
                   ) : (
                     <>
-                      <SidebarMenuButton
-                        render={<button type="button" />}
-                        size="sm"
-                        className={cn(
-                          "h-auto w-full cursor-pointer gap-2 px-2 py-1.5 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
-                          isActiveSplit
-                            ? "!bg-foreground/[0.06] !text-pill-foreground"
-                            : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
-                        )}
-                        title={split.title}
-                        onClick={() => {
-                          props.onRestoreSavedSplit(split);
-                        }}
-                      >
-                        <Columns2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/72" />
-                        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/92">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <SidebarMenuButton
+                              render={<button type="button" />}
+                              size="sm"
+                              className={cn(
+                                "h-auto w-full cursor-pointer gap-2 px-2 py-1.5 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
+                                isActiveSplit
+                                  ? "!bg-foreground/[0.06] !text-pill-foreground"
+                                  : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
+                              )}
+                              onClick={() => {
+                                props.onRestoreSavedSplit(split);
+                              }}
+                            >
+                              <Columns2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/72" />
+                              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/92">
+                                {split.title}
+                              </span>
+                            </SidebarMenuButton>
+                          }
+                        />
+                        <TooltipPopup side="right" className="max-w-80 whitespace-pre-wrap">
                           {split.title}
-                        </span>
-                      </SidebarMenuButton>
+                        </TooltipPopup>
+                      </Tooltip>
                       <SidebarMenuBadge className="rounded-full border border-border/45 px-1.5 py-0.5 text-[9px] text-muted-foreground/68 transition-opacity duration-150 group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0">
                         {split.panes.length}
                       </SidebarMenuBadge>

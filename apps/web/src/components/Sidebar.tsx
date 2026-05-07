@@ -897,6 +897,7 @@ export default function Sidebar() {
   );
   const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
   const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
+  const [projectPickerKeyboardNavigationId, setProjectPickerKeyboardNavigationId] = useState(0);
   const lastKeyboardNavigationTimeRef = useRef(0);
   const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
     string | null
@@ -908,6 +909,10 @@ export default function Sidebar() {
   });
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectPickerListRef = useRef<HTMLDivElement | null>(null);
+  const requestProjectPickerKeyboardScroll = useCallback(() => {
+    lastKeyboardNavigationTimeRef.current = Date.now();
+    setProjectPickerKeyboardNavigationId((current) => current + 1);
+  }, []);
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
   const browseRequestVersionRef = useRef(0);
@@ -2377,6 +2382,9 @@ export default function Sidebar() {
             }
             return Math.min(index + 1, filteredPickerEnvironments.length - 1);
           });
+          if (filteredPickerEnvironments.length > 0) {
+            requestProjectPickerKeyboardScroll();
+          }
           return;
         }
         if (event.key === "ArrowUp") {
@@ -2387,6 +2395,9 @@ export default function Sidebar() {
             }
             return index <= 0 ? 0 : index - 1;
           });
+          if (filteredPickerEnvironments.length > 0) {
+            requestProjectPickerKeyboardScroll();
+          }
           return;
         }
         if (event.key === "Enter") {
@@ -2425,6 +2436,9 @@ export default function Sidebar() {
           }
           return Math.min(index + 1, entryCount - 1);
         });
+        if ((currentProjectBrowseResult?.entries.length ?? 0) > 0) {
+          requestProjectPickerKeyboardScroll();
+        }
         return;
       }
       if (event.key === "ArrowUp") {
@@ -2436,6 +2450,9 @@ export default function Sidebar() {
           }
           return index <= 0 ? 0 : index - 1;
         });
+        if ((currentProjectBrowseResult?.entries.length ?? 0) > 0) {
+          requestProjectPickerKeyboardScroll();
+        }
         return;
       }
       if (event.key === "ArrowRight") {
@@ -2460,6 +2477,7 @@ export default function Sidebar() {
           setProjectPickerStep("environment");
           setProjectPickerEnvironmentQuery("");
           setActiveProjectBrowseIndex(0);
+          requestProjectPickerKeyboardScroll();
           return;
         }
         const target = event.currentTarget;
@@ -2494,6 +2512,7 @@ export default function Sidebar() {
       projectPickerStep,
       currentProjectBrowseResult,
       pickerEnvironments.length,
+      requestProjectPickerKeyboardScroll,
     ],
   );
 
@@ -2522,10 +2541,9 @@ export default function Sidebar() {
   ]);
 
   useEffect(() => {
-    if (!addingProject || activeProjectBrowseIndex < 0) {
+    if (!addingProject || activeProjectBrowseIndex < 0 || projectPickerKeyboardNavigationId === 0) {
       return;
     }
-    lastKeyboardNavigationTimeRef.current = Date.now();
     const listElement = projectPickerListRef.current;
     if (!listElement) {
       return;
@@ -2544,7 +2562,7 @@ export default function Sidebar() {
       block: "center",
       behavior: "auto",
     });
-  }, [activeProjectBrowseIndex, addingProject, projectPickerStep]);
+  }, [projectPickerKeyboardNavigationId]);
 
   const handleStartAddProject = useCallback(() => {
     setAddProjectError(null);
@@ -4206,6 +4224,7 @@ export default function Sidebar() {
     searchPaletteMode,
     searchPaletteQuery,
     searchPaletteActiveIndex,
+    searchPaletteKeyboardNavigationId,
     searchPaletteInputRef,
     normalizedSearchPaletteQuery,
     searchPaletteItems,
@@ -4910,10 +4929,10 @@ export default function Sidebar() {
     sidebarShortcutLabelOptions,
   );
 
-  // Auto-scroll search palette list when navigating with keyboard
+  // Auto-scroll search palette list only when navigating with keyboard.
   useEffect(() => {
     const listElement = searchPaletteListRef.current;
-    if (!listElement || searchPaletteActiveIndex < 0) {
+    if (!listElement || searchPaletteActiveIndex < 0 || searchPaletteKeyboardNavigationId === 0) {
       return;
     }
 
@@ -4928,7 +4947,7 @@ export default function Sidebar() {
       block: "center",
       behavior: "smooth",
     });
-  }, [searchPaletteActiveIndex]);
+  }, [searchPaletteKeyboardNavigationId]);
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;

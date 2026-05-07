@@ -450,6 +450,17 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
     return "command_execution";
   }
   if (
+    normalized.includes("grep") ||
+    normalized.includes("glob") ||
+    normalized.includes("search") ||
+    normalized.includes("find")
+  ) {
+    return "web_search";
+  }
+  if (normalized.includes("read") || normalized.includes("open") || normalized.includes("view")) {
+    return "dynamic_tool_call";
+  }
+  if (
     normalized.includes("edit") ||
     normalized.includes("write") ||
     normalized.includes("file") ||

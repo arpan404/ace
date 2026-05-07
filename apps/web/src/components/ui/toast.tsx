@@ -16,6 +16,7 @@ import {
 
 import { cn } from "~/lib/utils";
 import { buttonVariants } from "~/components/ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "~/lib/ui/toast";
 
@@ -68,18 +69,25 @@ function CopyErrorButton({ text }: { text: string }) {
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
   return (
-    <button
-      className="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
-      onClick={() => copyToClipboard(text)}
-      title="Copy error"
-      type="button"
-    >
-      {isCopied ? (
-        <CheckIcon className="size-3.5 text-success" />
-      ) : (
-        <CopyIcon className="size-3.5" />
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            className="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
+            onClick={() => copyToClipboard(text)}
+            type="button"
+            aria-label={isCopied ? "Copied" : "Copy error"}
+          />
+        }
+      >
+        {isCopied ? (
+          <CheckIcon className="size-3.5 text-success" />
+        ) : (
+          <CopyIcon className="size-3.5" />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{isCopied ? "Copied" : "Copy error"}</TooltipPopup>
+    </Tooltip>
   );
 }
 

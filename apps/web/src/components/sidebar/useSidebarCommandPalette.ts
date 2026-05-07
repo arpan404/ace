@@ -63,6 +63,7 @@ interface UseSidebarCommandPaletteResult {
   readonly searchPaletteMode: SearchPaletteMode;
   readonly searchPaletteQuery: string;
   readonly searchPaletteActiveIndex: number;
+  readonly searchPaletteKeyboardNavigationId: number;
   readonly searchPaletteInputRef: React.RefObject<HTMLInputElement | null>;
   readonly normalizedSearchPaletteQuery: string;
   readonly searchPaletteItems: ReadonlyArray<SearchPaletteItem>;
@@ -87,6 +88,7 @@ export function useSidebarCommandPalette(
   const [searchPaletteMode, setSearchPaletteMode] = useState<SearchPaletteMode>("root");
   const [searchPaletteQuery, setSearchPaletteQuery] = useState("");
   const [searchPaletteActiveIndex, setSearchPaletteActiveIndex] = useState(-1);
+  const [searchPaletteKeyboardNavigationId, setSearchPaletteKeyboardNavigationId] = useState(0);
   const searchPaletteInputRef = useRef<HTMLInputElement | null>(null);
 
   const combinedSidebarSnapshot = useMemo<CombinedSidebarSnapshot>(() => {
@@ -448,6 +450,9 @@ export function useSidebarCommandPalette(
           }
           return Math.min(currentIndex + 1, searchPaletteItems.length - 1);
         });
+        if (searchPaletteItems.length > 0) {
+          setSearchPaletteKeyboardNavigationId((current) => current + 1);
+        }
         return;
       }
       if (event.key === "ArrowUp") {
@@ -458,6 +463,9 @@ export function useSidebarCommandPalette(
           }
           return currentIndex <= 0 ? 0 : currentIndex - 1;
         });
+        if (searchPaletteItems.length > 0) {
+          setSearchPaletteKeyboardNavigationId((current) => current + 1);
+        }
         return;
       }
       if (event.key === "Enter") {
@@ -534,6 +542,7 @@ export function useSidebarCommandPalette(
     searchPaletteMode,
     searchPaletteQuery,
     searchPaletteActiveIndex,
+    searchPaletteKeyboardNavigationId,
     searchPaletteInputRef,
     normalizedSearchPaletteQuery,
     searchPaletteItems,

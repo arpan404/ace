@@ -1221,29 +1221,63 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
   it("collapses completed tool-only runs until expanded", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
-    const hiddenEntries = [
-      { label: "Read file", toolTitle: "Read file" },
-      { label: "Open file", toolTitle: "Open file" },
+    type ToolFixtureEntry = {
+      label: string;
+      toolTitle: string;
+      itemType?: "file_change";
+      changedFiles?: string[];
+    };
+    const hiddenEntries: ToolFixtureEntry[] = [
+      {
+        label: "Read file",
+        toolTitle: "Read file",
+        itemType: "file_change" as const,
+        changedFiles: ["README.md"],
+      },
+      {
+        label: "Open file",
+        toolTitle: "Open file",
+        itemType: "file_change" as const,
+        changedFiles: ["package.json"],
+      },
       { label: "Apply patch", toolTitle: "Apply patch" },
       { label: "Run command", toolTitle: "Run command" },
     ];
-    const visibleEntries = Array.from({ length: 6 }, (_, index) => ({
+    const visibleEntries: ToolFixtureEntry[] = Array.from({ length: 6 }, (_, index) => ({
       label: `Tool ${index + 5}`,
       toolTitle: `Tool ${index + 5}`,
     }));
-    const timelineEntries = [...hiddenEntries, ...visibleEntries].map((entry, index) => ({
-      id: `work-tool-${index + 1}`,
-      kind: "work" as const,
-      createdAt: `2026-03-17T19:12:${String(20 + index).padStart(2, "0")}.000Z`,
-      entry: {
+    const timelineEntries = [...hiddenEntries, ...visibleEntries].map((entry, index) => {
+      const workEntry: {
+        id: string;
+        createdAt: string;
+        label: string;
+        toolTitle: string;
+        detail: string;
+        tone: "tool";
+        itemType?: "file_change";
+        changedFiles?: string[];
+      } = {
         id: `work-tool-${index + 1}`,
         createdAt: `2026-03-17T19:12:${String(20 + index).padStart(2, "0")}.000Z`,
         label: entry.label,
         toolTitle: entry.toolTitle,
         detail: `detail ${index + 1}`,
-        tone: "tool" as const,
-      },
-    }));
+        tone: "tool",
+      };
+      if (entry.itemType) {
+        workEntry.itemType = entry.itemType;
+      }
+      if (entry.changedFiles) {
+        workEntry.changedFiles = entry.changedFiles;
+      }
+      return {
+        id: `work-tool-${index + 1}`,
+        kind: "work" as const,
+        createdAt: `2026-03-17T19:12:${String(20 + index).padStart(2, "0")}.000Z`,
+        entry: workEntry,
+      };
+    });
 
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1274,7 +1308,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-tool-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).toContain('data-meta-disclosure-elapsed="9s"');
-    expect(markup).toContain("10 tool calls");
+    expect(markup).toContain("Edited 1 file, explored 2 files, ran 1 command, used 6 other tools");
     expect(markup).not.toContain("rounded-xl border border-border/45 bg-background/70");
     expect(markup).not.toContain('data-work-entry-id="work-tool-1"');
     expect(markup).not.toContain('data-work-entry-id="work-tool-10"');
@@ -1323,7 +1357,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-tool-disclosure="true"');
     expect(markup).toContain('data-tool-disclosure-open="true"');
-    expect(markup).toContain("9 tool calls");
+    expect(markup).toContain("Used 9 tools");
     expect(markup).not.toContain('data-meta-disclosure-elapsed="');
     expect(markup).toContain('data-work-entry-id="live-work-tool-1"');
     expect(markup).toContain('data-work-entry-id="live-work-tool-10"');
@@ -1383,10 +1417,96 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("1 tool call");
+    expect(markup).toContain("Explored 1 file");
     expect(markup).not.toContain("README.md");
     expect(markup).toContain("bun lint");
-    expect(markup.indexOf("1 tool call")).toBeLessThan(markup.indexOf("bun lint"));
+    expect(markup.indexOf("Explored 1 file")).toBeLessThan(markup.indexOf("bun lint"));
+  });
+
+  it("summarizes mixed tool groups by activity type", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "read-config",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            entry: {
+              id: "read-config",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              label: "Read config",
+              tone: "tool",
+              requestKind: "file-read",
+            },
+          },
+          {
+            id: "run-tests",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "run-tests",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Run tests",
+              command: "bun run test",
+              tone: "tool",
+              requestKind: "command",
+            },
+          },
+          {
+            id: "search-code",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            entry: {
+              id: "search-code",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              label: "Find",
+              tone: "tool",
+              itemType: "dynamic_tool_call",
+            },
+          },
+          {
+            id: "patch-files",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "patch-files",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Edit files",
+              changedFiles: ["src/a.ts", "src/b.ts"],
+              tone: "tool",
+              requestKind: "file-change",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Edited 2 files, explored 1 file, 1 search, ran 1 command");
+    expect(markup).not.toContain("Used 4 tools");
+    expect(markup).toContain("ran 1 command");
+    expect(markup).toContain("Edited 2 files");
+    expect(markup).not.toContain("searched 1 search");
+    expect(markup).not.toContain("4 tool calls");
   });
 
   it("shows accumulated thinking text instead of a single truncated token line", async () => {
@@ -2285,6 +2405,18 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         getScrollContainer={() => null}
         timelineEntries={[
           {
+            id: "user-for-hidden-work",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-for-hidden-work"),
+              role: "user",
+              text: "Check the file",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
             id: "hidden-tool",
             kind: "work",
             createdAt: "2026-03-17T19:12:31.000Z",
@@ -2329,6 +2461,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
 
     expect(markup).toContain('data-completed-work-summary="true"');
+    expect(markup).toContain('aria-label="Show hidden work logs"');
     expect(markup).toContain("Worked for 4s");
     expect(markup).not.toContain("1 tool call");
     expect(markup).not.toContain("README.md");
@@ -2437,10 +2570,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).not.toContain('data-intent-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure="true"');
-    expect(markup).toContain('title="1 intent"');
-    expect(markup).toContain('title="1 reasoning step"');
+    expect(markup).toContain("Worked through plan");
+    expect(markup).toContain("Reasoned through 1 step");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
-    expect(markup).not.toContain('title="1 event"');
+    expect(markup).not.toContain("Logged 1 event");
     expect(markup).not.toContain("0 tool calls");
   });
 
@@ -2489,8 +2622,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain('title="1 intent"');
-    expect(markup).toContain('title="1 event"');
+    expect(markup).toContain("Worked through plan");
+    expect(markup).toContain("Logged 1 event");
   });
 
   it("keeps repeated completed intent bursts with tool calls in chronological order", async () => {

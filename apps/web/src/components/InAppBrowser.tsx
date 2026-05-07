@@ -818,25 +818,32 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    title={draftUrl}
                   />
                 ) : (
-                  <button
-                    type="button"
-                    className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
-                    onClick={() => {
-                      setAddressFieldExpanded(true);
-                      setIsAddressBarFocused(true);
-                      window.requestAnimationFrame(() => {
-                        addressInputRef.current?.focus();
-                        addressInputRef.current?.select();
-                      });
-                    }}
-                    aria-label="Expand address bar"
-                    title={activeTab?.url ?? draftUrl}
-                  >
-                    {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
+                          onClick={() => {
+                            setAddressFieldExpanded(true);
+                            setIsAddressBarFocused(true);
+                            window.requestAnimationFrame(() => {
+                              addressInputRef.current?.focus();
+                              addressInputRef.current?.select();
+                            });
+                          }}
+                          aria-label="Expand address bar"
+                        />
+                      }
+                    >
+                      {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
+                    </TooltipTrigger>
+                    <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                      {activeTab?.url ?? draftUrl}
+                    </TooltipPopup>
+                  </Tooltip>
                 )}
                 <Tooltip>
                   <TooltipTrigger
@@ -1044,10 +1051,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               <Icon className="size-4 stroke-[2.25]" />
                               {showDesignerToolShortcutHints &&
                               designerShortcutLabelByTool[tool] ? (
-                                <span
-                                  className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground "
-                                  title={designerShortcutLabelByTool[tool] ?? undefined}
-                                >
+                                <span className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground ">
                                   {resolveDesignerShortcutHintLabel(
                                     designerShortcutLabelByTool[tool] ?? "",
                                   )}

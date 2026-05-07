@@ -152,12 +152,113 @@ describe("timelineRows", () => {
       expect.objectContaining({
         kind: "completed-work-summary",
         toolCallCount: 1,
-        startedAt: "2025-01-01T00:00:01.000Z",
+        startedAt: "2025-01-01T00:00:02.000Z",
         endedAt: "2025-01-01T00:00:03.000Z",
       }),
     );
     expect(rows.some((row) => row.id === "active-tool")).toBe(true);
     expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
+  });
+
+  it("does not let hidden work before a user message inflate the next worked-for summary", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "old-hidden-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          entry: {
+            id: "old-hidden-tool",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            label: "Read old file",
+            tone: "tool",
+          },
+        },
+        {
+          id: "user-current",
+          kind: "message",
+          createdAt: "2025-01-01T00:06:40.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-current"),
+            role: "user",
+            text: "add one more readme file",
+            createdAt: "2025-01-01T00:06:40.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "current-hidden-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:06:45.000Z",
+          entry: {
+            id: "current-hidden-tool",
+            createdAt: "2025-01-01T00:06:45.000Z",
+            label: "Write file",
+            tone: "tool",
+          },
+        },
+        {
+          id: "assistant-current",
+          kind: "message",
+          createdAt: "2025-01-01T00:06:51.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-current"),
+            role: "assistant",
+            text: "Done.",
+            createdAt: "2025-01-01T00:06:51.000Z",
+            completedAt: "2025-01-01T00:06:54.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "completed-work-summary",
+        startedAt: "2025-01-01T00:06:45.000Z",
+        endedAt: "2025-01-01T00:06:54.000Z",
+        entries: [
+          expect.objectContaining({
+            kind: "work",
+            id: "current-hidden-tool",
+          }),
+        ],
+        detailRows: [
+          expect.objectContaining({
+            kind: "work-group",
+            id: "current-hidden-tool",
+            entries: [
+              expect.objectContaining({
+                kind: "work",
+                id: "current-hidden-tool",
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(rows).not.toContainEqual(
+      expect.objectContaining({
+        kind: "completed-work-summary",
+        startedAt: "2025-01-01T00:00:00.000Z",
+      }),
+    );
+    const summaryRow = rows.find((row) => row.kind === "completed-work-summary");
+    expect(
+      summaryRow?.kind === "completed-work-summary" ? summaryRow.entries : [],
+    ).not.toContainEqual(expect.objectContaining({ id: "old-hidden-tool" }));
+    expect(
+      summaryRow?.kind === "completed-work-summary"
+        ? summaryRow.detailRows.flatMap((row) => (row.kind === "work-group" ? row.entries : []))
+        : [],
+    ).not.toContainEqual(expect.objectContaining({ id: "old-hidden-tool" }));
   });
 
   it("hides non-final completed assistant messages when completed work details are hidden", () => {
@@ -206,8 +307,17 @@ describe("timelineRows", () => {
       expect.objectContaining({
         kind: "completed-work-summary",
         hiddenMessageCount: 1,
-        startedAt: "2025-01-01T00:00:01.000Z",
+        startedAt: "2025-01-01T00:00:03.000Z",
         endedAt: "2025-01-01T00:00:04.000Z",
+        detailRows: [
+          expect.objectContaining({
+            kind: "message",
+            id: "assistant-draft",
+            message: expect.objectContaining({
+              text: "I am checking this first.",
+            }),
+          }),
+        ],
       }),
     );
     expect(rows).toHaveLength(2);

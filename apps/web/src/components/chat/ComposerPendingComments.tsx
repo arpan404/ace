@@ -2,6 +2,7 @@ import { ImageIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface ComposerPendingCommentItem {
   readonly id: string;
@@ -37,18 +38,24 @@ export function ComposerPendingComments(props: {
             {props.comments.length}
           </span>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
-          onClick={props.onClearAll}
-          aria-label="Clear pending comments"
-          title="Clear pending comments"
-        >
-          <Trash2Icon className="mr-1 size-3" />
-          Clear
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
+                onClick={props.onClearAll}
+                aria-label="Clear pending comments"
+              />
+            }
+          >
+            <Trash2Icon className="mr-1 size-3" />
+            Clear
+          </TooltipTrigger>
+          <TooltipPopup side="top">Clear pending comments</TooltipPopup>
+        </Tooltip>
       </div>
       <div className="max-h-[128px] overflow-y-auto">
         {props.comments.map((comment) => (
