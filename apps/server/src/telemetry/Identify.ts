@@ -1,17 +1,6 @@
-import { Effect, FileSystem, Path, Random, Schema } from "effect";
+import { Config, Effect, FileSystem, Random, Schema } from "effect";
 import * as Crypto from "node:crypto";
-import { homedir } from "node:os";
 import { ServerConfig } from "../config";
-
-const CodexAuthJsonSchema = Schema.Struct({
-  tokens: Schema.Struct({
-    account_id: Schema.String,
-  }),
-});
-
-const ClaudeJsonSchema = Schema.Struct({
-  userID: Schema.String,
-});
 
 class IdentifyUserError extends Schema.TaggedErrorClass<IdentifyUserError>()("IdentifyUserError", {
   message: Schema.String,
@@ -28,30 +17,11 @@ const hash = (value: string) =>
       }),
   });
 
-const getCodexAccountId = Effect.gen(function* () {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  const authJsonPath = path.join(homedir(), ".codex", "auth.json");
-  const authJson = yield* Effect.flatMap(
-    fileSystem.readFileString(authJsonPath),
-    Schema.decodeEffect(Schema.fromJsonString(CodexAuthJsonSchema)),
-  );
-
-  return authJson.tokens.account_id;
-});
-
-const getClaudeUserId = Effect.gen(function* () {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  const claudeJsonPath = path.join(homedir(), ".claude.json");
-  const claudeJson = yield* Effect.flatMap(
-    fileSystem.readFileString(claudeJsonPath),
-    Schema.decodeEffect(Schema.fromJsonString(ClaudeJsonSchema)),
-  );
-
-  return claudeJson.userID;
+const IdentityEnvConfig = Config.all({
+  aceUserId: Config.string("ACE_TELEMETRY_USER_ID").pipe(Config.option),
+  providerIdentitiesJson: Config.string("ACE_TELEMETRY_PROVIDER_IDENTITIES_JSON").pipe(
+    Config.option,
+  ),
 });
 
 const upsertAnonymousId = Effect.gen(function* () {
@@ -71,30 +41,84 @@ const upsertAnonymousId = Effect.gen(function* () {
   return anonymousId;
 });
 
+const parseProviderIdentities = (
+  jsonValue: string,
+): Effect.Effect<Record<string, string>, IdentifyUserError> =>
+  Effect.try({
+    try: () => {
+      const parsed = JSON.parse(jsonValue);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {};
+      }
+      const identities: Record<string, string> = {};
+      for (const [provider, value] of Object.entries(parsed)) {
+        const normalizedProvider = provider.trim().toLowerCase();
+        if (!normalizedProvider) continue;
+        if (typeof value !== "string") continue;
+        const normalizedValue = value.trim();
+        if (!normalizedValue) continue;
+        identities[normalizedProvider] = normalizedValue;
+      }
+      return identities;
+    },
+    catch: (error) =>
+      new IdentifyUserError({
+        message: "Failed to parse ACE_TELEMETRY_PROVIDER_IDENTITIES_JSON",
+        cause: error,
+      }),
+  });
+
+export interface TelemetryIdentity {
+  readonly distinctId: string;
+  readonly traits: Readonly<Record<string, unknown>>;
+}
+
 /**
- * getTelemetryIdentifier - Users are "identified" by finding the first match of the following, then hashing the value.
- * 1. ~/.codex/auth.json tokens.account_id
- * 2. ~/.claude.json userID
- * 3. ~/.ace/telemetry/anonymous-id
+ * getTelemetryIdentity - Uses an explicit ace user id when provided, otherwise
+ * falls back to installation-scoped anonymous id. Optional provider-linked
+ * identities are emitted as namespaced hashed traits.
  */
-export const getTelemetryIdentifier = Effect.gen(function* () {
-  const codexAccountId = yield* Effect.result(getCodexAccountId);
-  if (codexAccountId._tag === "Success") {
-    return yield* hash(codexAccountId.success);
-  }
-
-  const claudeUserId = yield* Effect.result(getClaudeUserId);
-  if (claudeUserId._tag === "Success") {
-    return yield* hash(claudeUserId.success);
-  }
-
+export const getTelemetryIdentity = Effect.gen(function* () {
+  const envConfig = yield* IdentityEnvConfig.asEffect();
   const anonymousId = yield* Effect.result(upsertAnonymousId);
-  if (anonymousId._tag === "Success") {
-    return yield* hash(anonymousId.success);
+  if (anonymousId._tag === "Failure") {
+    return null;
   }
 
-  return null;
+  const anonymousDistinctId = yield* hash(anonymousId.success);
+  const aceUserIdValue =
+    envConfig.aceUserId._tag === "Some" ? envConfig.aceUserId.value.trim() : "";
+  const distinctId =
+    aceUserIdValue.length > 0 ? yield* hash(`ace-user:${aceUserIdValue}`) : anonymousDistinctId;
+
+  let providerIdentityTraits: Record<string, string> = {};
+  const providerIdentitiesJson = envConfig.providerIdentitiesJson;
+  if (providerIdentitiesJson._tag === "Some" && providerIdentitiesJson.value.trim().length > 0) {
+    const parsed = yield* parseProviderIdentities(providerIdentitiesJson.value);
+    const entries = yield* Effect.forEach(
+      Object.entries(parsed),
+      ([provider, providerId]) =>
+        hash(`${provider}:${providerId}`).pipe(
+          Effect.map(
+            (hashedProviderId) =>
+              [`providerIdentity.${provider}`, `${provider}:${hashedProviderId}`] as const,
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+    providerIdentityTraits = Object.fromEntries(entries);
+  }
+
+  return {
+    distinctId,
+    traits: {
+      identityType: aceUserIdValue.length > 0 ? "ace-user" : "anonymous-installation",
+      ...providerIdentityTraits,
+    },
+  } satisfies TelemetryIdentity;
 }).pipe(
-  Effect.tapError((error) => Effect.logWarning("Failed to get identifier", { cause: error })),
+  Effect.tapError((error) =>
+    Effect.logWarning("Failed to resolve telemetry identity", { cause: error }),
+  ),
   Effect.orElseSucceed(() => null),
 );

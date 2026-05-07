@@ -163,6 +163,12 @@ const relayUrlFlag = Flag.string("relay-url").pipe(
   ),
   Flag.optional,
 );
+const TelemetryMode = Schema.Literals(["on", "off"]);
+type TelemetryMode = typeof TelemetryMode.Type;
+const telemetryFlag = Flag.choice("telemetry", TelemetryMode.literals).pipe(
+  Flag.withDescription("Set anonymous telemetry mode (`on` or `off`)."),
+  Flag.optional,
+);
 
 const EnvServerConfig = Config.all({
   logLevel: Config.logLevel("ACE_LOG_LEVEL").pipe(Config.withDefault("Info")),
@@ -191,6 +197,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  telemetryEnabled: Config.boolean("ACE_TELEMETRY_ENABLED").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
 });
 
 interface CliServerFlags {
@@ -204,6 +214,7 @@ interface CliServerFlags {
   readonly bootstrapFd: Option.Option<number>;
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
+  readonly telemetry?: Option.Option<TelemetryMode>;
   readonly relayUrl?: Option.Option<string>;
 }
 
@@ -325,6 +336,10 @@ export const resolveServerConfig = (
         () => Boolean(devUrl),
       ),
     );
+    const telemetryEnabled = Option.match(flags.telemetry ?? Option.none(), {
+      onSome: (mode) => mode === "on",
+      onNone: () => Option.getOrElse(Option.fromUndefinedOr(env.telemetryEnabled), () => true),
+    });
     const staticDir = devUrl ? undefined : yield* resolveStaticDir();
     const host = Option.getOrElse(
       resolveOptionPrecedence(
@@ -363,6 +378,7 @@ export const resolveServerConfig = (
           ? autoBootstrapProjectFromCwd
           : Option.isSome(launchWorkspaceRoot),
       logWebSocketEvents,
+      telemetryEnabled,
     };
 
     return config;
@@ -397,6 +413,7 @@ const resolveDataConfig = (flags: CliDataFlags, cliLogLevel: Option.Option<LogLe
       authToken: undefined,
       autoBootstrapProjectFromCwd: false,
       logWebSocketEvents: false,
+      telemetryEnabled: false,
     } satisfies ServerConfigShape;
   });
 
@@ -411,6 +428,7 @@ const serveCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
+  telemetry: telemetryFlag,
   relayUrl: relayUrlFlag,
 } as const;
 
@@ -424,6 +442,7 @@ const webCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
+  telemetry: telemetryFlag,
   relayUrl: relayUrlFlag,
 } as const;
 
@@ -438,6 +457,11 @@ const applyRelayUrlProcessOverride = (relayUrl: Option.Option<string>) =>
     if (resolved && resolved.length > 0) {
       process.env.ACE_RELAY_URL = resolved;
     }
+  });
+
+const applyTelemetryProcessOverride = (enabled: boolean) =>
+  Effect.sync(() => {
+    process.env.ACE_TELEMETRY_ENABLED = enabled ? "true" : "false";
   });
 
 const profileIntervalMsFlag = Flag.integer("interval-ms").pipe(
@@ -1346,6 +1370,7 @@ const spawnDaemonServer = Effect.fn("spawnDaemonServer")(function* (input: {
   if (input.config.logWebSocketEvents) {
     daemonArgs.push("--log-websocket-events");
   }
+  daemonArgs.push("--telemetry", input.config.telemetryEnabled ? "on" : "off");
 
   const child = yield* Effect.try({
     try: () =>
@@ -1582,6 +1607,7 @@ const serveCommand = Command.make("serve", {
       yield* applyRelayUrlProcessOverride(flags.relayUrl);
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(flags, logLevel, workspaceRoot);
+      yield* applyTelemetryProcessOverride(config.telemetryEnabled);
       if (shouldRunServeInForeground()) {
         return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
       }
@@ -1622,6 +1648,7 @@ const webCommand = Command.make("web", {
         logLevel,
         workspaceRoot,
       );
+      yield* applyTelemetryProcessOverride(config.telemetryEnabled);
       const daemonResult = yield* ensureDaemonStarted({ config });
       const webUrl = buildDaemonWebAppUrl(daemonResult.daemon);
 
@@ -2188,6 +2215,7 @@ const daemonStartCommand = Command.make("start", {
         },
         logLevel,
       );
+      yield* applyTelemetryProcessOverride(config.telemetryEnabled);
       const result = yield* ensureDaemonStarted({ config });
       if (json) {
         return yield* writeJson(result);
@@ -2250,6 +2278,7 @@ const daemonRestartCommand = Command.make("restart", {
         ),
         logLevel,
       );
+      yield* applyTelemetryProcessOverride(config.telemetryEnabled);
 
       const stopResult = yield* stopDaemonIfPresent({
         baseDir: config.baseDir,
