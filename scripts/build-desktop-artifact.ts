@@ -457,6 +457,8 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
+const DEFAULT_DESKTOP_UPDATE_REPOSITORY = "arpan404/ace";
+
 function resolveGitHubPublishConfig():
   | {
       readonly provider: "github";
@@ -468,7 +470,7 @@ function resolveGitHubPublishConfig():
   const rawRepo =
     process.env.ACE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
     process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
+    DEFAULT_DESKTOP_UPDATE_REPOSITORY;
   if (!rawRepo) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
