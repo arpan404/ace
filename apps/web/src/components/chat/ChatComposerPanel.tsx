@@ -91,6 +91,7 @@ interface ChatComposerPanelProps {
   >["terminalContexts"];
   readonly queuedComposerMessages: ComponentProps<typeof ComposerQueuedMessages>["messages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
+  readonly canSendQueuedMessages: boolean;
   readonly pendingComposerComments: ComponentProps<typeof ComposerPendingComments>["comments"];
   readonly composerProviderState: ComposerProviderState;
   readonly selectedProvider: ProviderKind;
@@ -171,6 +172,9 @@ interface ChatComposerPanelProps {
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onReorder"];
+  readonly onSendQueuedComposerMessage: NonNullable<
+    ComponentProps<typeof ComposerQueuedMessages>["onSend"]
+  >;
   readonly onSteerQueuedComposerMessage: ComponentProps<typeof ComposerQueuedMessages>["onSteer"];
   readonly onPreviewComposerImage: (imageId: string) => void;
   readonly onRemoveComposerImage: (imageId: string) => void;
@@ -412,6 +416,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               onDelete={props.onDeleteQueuedComposerMessage}
               onClearAll={props.onClearQueuedComposerMessages}
               onReorder={props.onReorderQueuedComposerMessages}
+              canSendNow={props.canSendQueuedMessages}
+              onSend={props.onSendQueuedComposerMessage}
               onSteer={props.onSteerQueuedComposerMessage}
             />
           </>

@@ -16,12 +16,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconTerminal } from "@tabler/icons-react";
-import { GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpIcon, GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { type MessageId, type ModelSelection } from "@ace/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { formatQueuedComposerMessagePreview } from "~/lib/chat/queuedComposerPreview";
 
 export interface ComposerQueuedMessageItem {
   id: MessageId;
@@ -37,17 +38,22 @@ function SortableQueuedMessageRow(props: {
   draggedMessageId: MessageId | null;
   persistedPositionByMessageId: ReadonlyMap<MessageId, number>;
   steerMessageId: MessageId | null | undefined;
+  canSendNow: boolean;
   onEdit: (messageId: MessageId) => void;
   onDelete: (messageId: MessageId) => void;
+  onSend: (messageId: MessageId) => void;
   onSteer: (messageId: MessageId) => void;
   onOptimisticallySteer: (messageId: MessageId) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition } =
     useSortable({ id: props.message.id });
-  const textPreview = props.message.prompt.replace(/\s+/g, " ").trim();
-  const preview = textPreview.length > 0 ? textPreview : "Queue Message";
+  const preview = formatQueuedComposerMessagePreview({
+    prompt: props.message.prompt,
+    imageCount: props.message.images.length,
+    terminalContextCount: props.message.terminalContexts.length,
+  });
   const isSteered = props.steerMessageId === props.message.id;
-  const showSteerAction = props.steerMessageId == null || isSteered;
+  const showSteerAction = !props.canSendNow && (props.steerMessageId == null || isSteered);
 
   return (
     <div
@@ -97,6 +103,22 @@ function SortableQueuedMessageRow(props: {
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
+        {props.canSendNow ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 rounded-md bg-primary/10 px-2.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/16 hover:text-primary"
+            onClick={() => {
+              props.onSend(props.message.id);
+            }}
+            aria-label="Send queued message"
+            title="Send queued message"
+          >
+            <ArrowUpIcon className="mr-1 size-3.5" />
+            Send
+          </Button>
+        ) : null}
         {showSteerAction ? (
           <Button
             type="button"
@@ -162,6 +184,8 @@ export function ComposerQueuedMessages(props: {
   onDelete: (messageId: MessageId) => void;
   onClearAll: () => void;
   onReorder: (draggedMessageId: MessageId, targetMessageId: MessageId) => void;
+  canSendNow?: boolean;
+  onSend?: (messageId: MessageId) => void;
   onSteer: (messageId: MessageId) => void;
 }) {
   const hasMessages = props.messages.length > 0;
@@ -289,8 +313,10 @@ export function ComposerQueuedMessages(props: {
                   draggedMessageId={draggedMessageId}
                   persistedPositionByMessageId={persistedPositionByMessageId}
                   steerMessageId={props.steerMessageId}
+                  canSendNow={props.canSendNow === true}
                   onEdit={props.onEdit}
                   onDelete={props.onDelete}
+                  onSend={props.onSend ?? props.onSteer}
                   onSteer={props.onSteer}
                   onOptimisticallySteer={(messageId) => {
                     setOptimisticOrder((current) => {

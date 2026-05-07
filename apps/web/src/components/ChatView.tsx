@@ -5831,6 +5831,7 @@ export default function ChatView({
       },
       options?: {
         onFailure?: () => void;
+        restoreDraftOnFailure?: boolean;
         restorePrompt?: string;
       },
     ) => {
@@ -6071,6 +6072,7 @@ export default function ChatView({
             });
         }
         if (
+          (options?.restoreDraftOnFailure ?? true) &&
           !turnStartSucceeded &&
           promptRef.current.length === 0 &&
           composerImagesRef.current.length === 0 &&

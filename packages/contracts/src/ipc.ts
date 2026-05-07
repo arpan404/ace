@@ -62,6 +62,7 @@ import type {
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
+  ServerUninstallLspToolInput,
   ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -407,6 +408,7 @@ export interface NativeApi {
       input: ServerLspMarketplaceSearchInput,
     ) => Promise<ServerLspMarketplaceSearchResult>;
     installLspTool: (input: ServerInstallLspToolInput) => Promise<ServerLspToolsStatus>;
+    uninstallLspTool: (input: ServerUninstallLspToolInput) => Promise<ServerLspToolsStatus>;
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;

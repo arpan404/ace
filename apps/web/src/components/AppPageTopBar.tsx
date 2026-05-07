@@ -50,7 +50,7 @@ export function AppPageTopBar({
       <div
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1.5 transition-[padding] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:gap-2",
-          "pl-0",
+          showHeaderSidebarTrigger ? "pl-1.5" : "pl-0",
           contentClassName,
         )}
       >

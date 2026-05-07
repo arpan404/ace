@@ -133,6 +133,7 @@ export interface WsRpcClient {
     readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
     readonly searchLspMarketplace: RpcUnaryMethod<typeof WS_METHODS.serverSearchLspMarketplace>;
     readonly installLspTool: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTool>;
+    readonly uninstallLspTool: RpcUnaryMethod<typeof WS_METHODS.serverUninstallLspTool>;
     readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
@@ -300,6 +301,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.serverSearchLspMarketplace](input)),
       installLspTool: (input) =>
         transport.request((client) => client[WS_METHODS.serverInstallLspTool](input)),
+      uninstallLspTool: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUninstallLspTool](input)),
       searchOpenCodeModels: (input) =>
         transport.request((client) => client[WS_METHODS.serverSearchOpenCodeModels](input)),
       upsertKeybinding: (input) =>

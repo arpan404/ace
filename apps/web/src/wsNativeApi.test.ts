@@ -92,6 +92,7 @@ const rpcClientMock = {
     installLspTools: vi.fn(),
     searchLspMarketplace: vi.fn(),
     installLspTool: vi.fn(),
+    uninstallLspTool: vi.fn(),
     upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
