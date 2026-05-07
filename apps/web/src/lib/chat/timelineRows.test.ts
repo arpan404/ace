@@ -6,6 +6,7 @@ import {
   isCompletedAssistantMessageRow,
   shouldWorkerizeTimelineRows,
 } from "./timelineRows";
+import { createMarkedProviderCommandToken } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
 describe("timelineRows", () => {
@@ -33,6 +34,229 @@ describe("timelineRows", () => {
       isWorking: true,
     });
     expect(rows.at(-1)).toMatchObject({ kind: "working" });
+  });
+
+  it("marks active /goal turns with goal working activity when enabled", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({ kind: "working", activity: "goal" });
+  });
+
+  it("marks active decorated /goal turns with goal working activity when enabled", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-decorated",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-decorated"),
+            role: "user",
+            text: `${createMarkedProviderCommandToken("goal")} Ship the feature`,
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({ kind: "working", activity: "goal" });
+  });
+
+  it("preserves the original active prompt as the live working timer anchor after steering", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-original",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-original"),
+            role: "user",
+            text: "implement the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-progress",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:20.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-progress"),
+            role: "assistant",
+            text: "working",
+            createdAt: "2025-01-01T00:00:20.000Z",
+            streaming: true,
+          },
+        },
+        {
+          id: "user-steer",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:30.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-steer"),
+            role: "user",
+            text: "also update tests",
+            createdAt: "2025-01-01T00:00:30.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      createdAt: "2025-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("keeps a goal turn pursuing after a later steering message", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-original",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-original"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "user-goal-steer",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:30.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-steer"),
+            role: "user",
+            text: "include docs too",
+            createdAt: "2025-01-01T00:00:30.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      activity: "goal",
+      createdAt: "2025-01-01T00:00:00.000Z",
+      goalStartedAt: "2025-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("keeps the live Codex goal timer anchored to the goal prompt across assistant rounds", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-continuous",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-continuous"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-delta-1",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:05.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-delta-1"),
+            role: "assistant",
+            text: "First delta.",
+            createdAt: "2025-01-01T00:00:05.000Z",
+            completedAt: "2025-01-01T00:00:10.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-delta-2",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:15.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-delta-2"),
+            role: "assistant",
+            text: "Second delta.",
+            createdAt: "2025-01-01T00:00:15.000Z",
+            completedAt: "2025-01-01T00:00:20.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:21.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "message",
+        id: "assistant-goal-delta-1",
+        isAssistantTurnTerminal: true,
+      }),
+    );
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "message",
+        id: "assistant-goal-delta-2",
+        isAssistantTurnTerminal: true,
+      }),
+    );
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      activity: "goal",
+      createdAt: "2025-01-01T00:00:21.000Z",
+      goalStartedAt: "2025-01-01T00:00:00.000Z",
+    });
   });
 
   it("marks completed assistant message rows", () => {

@@ -2,7 +2,7 @@ import { type ProjectEntry, type ProviderKind } from "@ace/contracts";
 import { IconStack2 } from "@tabler/icons-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
-import { BotIcon, HashIcon, PlugIcon } from "lucide-react";
+import { BotIcon, HashIcon, PlugIcon, TargetIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } from "../ui/command";
@@ -225,13 +225,19 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         />
       ) : null}
       {props.item.type === "slash-command" ? (
-        <BotIcon className="size-4 shrink-0 text-muted-foreground/80" />
+        props.item.command === "goal" ? (
+          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/70 text-muted-foreground/85">
+            <TargetIcon className="size-3.5" />
+          </span>
+        ) : (
+          <BotIcon className="size-4 shrink-0 text-muted-foreground/80" />
+        )
       ) : null}
       {props.item.type === "provider-command" ? (
         props.item.commandKind === "plugin" ? (
-          <PlugIcon className="size-4 shrink-0 text-violet-400/90" />
+          <PlugIcon className="size-4 shrink-0 text-muted-foreground/80" />
         ) : (
-          <IconStack2 className="size-4 shrink-0 text-cyan-400/90" />
+          <IconStack2 className="size-4 shrink-0 text-muted-foreground/80" />
         )
       ) : null}
       {props.item.type === "model" ? (
