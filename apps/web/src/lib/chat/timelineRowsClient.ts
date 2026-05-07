@@ -131,6 +131,7 @@ export function buildTimelineRowsCacheKey(input: BuildTimelineRowsInput): string
     summaryHash,
     input.hideCompletedWorkMessages === true ? "1" : "0",
     input.isWorking ? "1" : "0",
+    input.enableGoalWorkingState === true ? "1" : "0",
   ].join(":");
 }
 

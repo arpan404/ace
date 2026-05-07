@@ -14,6 +14,8 @@ import {
   providerSkillSlashCommand,
 } from "@ace/shared/providerSlashCommands";
 
+import { CODEX_GOAL_SLASH_COMMAND, isCodexGoalsFeatureEnabled } from "./codexGoalFeature.ts";
+
 type CommandInput = {
   readonly cwd?: string | undefined;
   readonly codexHome?: string | undefined;
@@ -30,6 +32,7 @@ type ProviderCommandInput = {
   readonly provider: ProviderKind;
   readonly cwd?: string | undefined;
   readonly settings: ServerSettings;
+  readonly resolveCodexGoalsFeatureEnabled?: typeof isCodexGoalsFeatureEnabled;
 };
 
 type PluginManifest = {
@@ -468,10 +471,24 @@ export function discoverProviderExtensionSlashCommands(
 ): ReadonlyArray<ProviderSlashCommand> {
   switch (input.provider) {
     case "codex":
-      return discoverCodexExtensionSlashCommands({
-        cwd: input.cwd,
-        codexHome: input.settings.providers.codex.homePath,
-      });
+      return mergeProviderSlashCommands(
+        discoverCodexExtensionSlashCommands({
+          cwd: input.cwd,
+          codexHome: input.settings.providers.codex.homePath,
+        }),
+        (input.resolveCodexGoalsFeatureEnabled ?? isCodexGoalsFeatureEnabled)({
+          binaryPath: input.settings.providers.codex.binaryPath,
+          cwd: input.cwd ?? process.cwd(),
+          ...(input.settings.providers.codex.homePath
+            ? { homePath: input.settings.providers.codex.homePath }
+            : {}),
+          ...(Object.keys(input.settings.providers.codex.launchEnv).length > 0
+            ? { launchEnv: input.settings.providers.codex.launchEnv }
+            : {}),
+        })
+          ? [CODEX_GOAL_SLASH_COMMAND]
+          : [],
+      );
     case "claudeAgent":
       return discoverClaudeExtensionSlashCommands({
         cwd: input.cwd,
@@ -513,13 +530,22 @@ export function withProviderExtensionSlashCommands(input: {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly cwd: string;
   readonly settings: ServerSettings;
+  readonly resolveCodexGoalsFeatureEnabled?: typeof isCodexGoalsFeatureEnabled;
 }): ReadonlyArray<ServerProvider> {
   return input.providers.map((provider) => {
-    const extensionCommands = discoverProviderExtensionSlashCommands({
+    const commandInput: ProviderCommandInput = {
       provider: provider.provider,
       cwd: input.cwd,
       settings: input.settings,
-    });
+    };
+    const extensionCommands = discoverProviderExtensionSlashCommands(
+      input.resolveCodexGoalsFeatureEnabled
+        ? {
+            ...commandInput,
+            resolveCodexGoalsFeatureEnabled: input.resolveCodexGoalsFeatureEnabled,
+          }
+        : commandInput,
+    );
     const commands = mergeProviderSlashCommands(extensionCommands, provider.commands);
 
     if (commands.length === 0) {

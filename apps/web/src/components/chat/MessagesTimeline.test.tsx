@@ -295,6 +295,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         id: "working-indicator-row",
         createdAt: "2026-03-17T19:12:40.000Z",
         mode: "live" as const,
+        activity: "default" as const,
+        goalStartedAt: null,
         intentText: null,
       },
     ];
@@ -481,9 +483,103 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Frontend Design");
     expect(markup).toContain("Browser Use");
-    expect(markup).toContain("bg-sky-500/10");
+    expect(markup).toContain("bg-muted/70");
     expect(markup).toContain("tabler-icon-stack-2");
     expect(markup).toContain("lucide-plug");
+  });
+
+  it("highlights Codex goal command tokens in user messages", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "entry-goal-command",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-goal-command"),
+              role: "user",
+              text: "/goal hhh",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        providerCommands={[{ name: "goal", kind: "provider" }]}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Goal");
+    expect(markup).toContain("hhh");
+    expect(markup).toContain("bg-emerald-500/12");
+    expect(markup).toContain("lucide-target");
+  });
+
+  it("does not highlight Codex goal command tokens in the middle of user messages", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "entry-mid-goal-command",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-mid-goal-command"),
+              role: "user",
+              text: "jjhj /goal",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        providerCommands={[{ name: "goal", kind: "provider" }]}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("jjhj");
+    expect(markup).toContain("/goal");
+    expect(markup).not.toContain("lucide-target");
+    expect(markup).not.toContain("bg-emerald-500/12");
   });
 
   it("renders at-prefixed file mentions as mention chips", async () => {
@@ -3115,7 +3211,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("Thought");
   });
 
-  it("measures the live working timer from the latest user message in the active turn", async () => {
+  it("measures the live working timer from the original user message after steering", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
 
@@ -3126,18 +3222,18 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
           hasMessages
           isWorking
           activeTurnInProgress
-          activeTurnStartedAt="2026-03-17T19:00:00.000Z"
+          activeTurnStartedAt="2026-03-17T19:12:00.000Z"
           getScrollContainer={() => null}
           timelineEntries={[
             {
-              id: "user-current-turn",
+              id: "user-current-turn-original",
               kind: "message",
-              createdAt: "2026-03-17T19:12:30.000Z",
+              createdAt: "2026-03-17T19:12:00.000Z",
               message: {
-                id: MessageId.makeUnsafe("user-current-turn"),
+                id: MessageId.makeUnsafe("user-current-turn-original"),
                 role: "user",
-                text: "Follow up on the last change.",
-                createdAt: "2026-03-17T19:12:30.000Z",
+                text: "Implement the feature.",
+                createdAt: "2026-03-17T19:12:00.000Z",
                 streaming: false,
               },
             },
@@ -3151,6 +3247,18 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
                 text: "Still working through the remaining checks.",
                 createdAt: "2026-03-17T19:12:42.000Z",
                 completedAt: "2026-03-17T19:12:45.000Z",
+                streaming: false,
+              },
+            },
+            {
+              id: "user-current-turn-steer",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              message: {
+                id: MessageId.makeUnsafe("user-current-turn-steer"),
+                role: "user",
+                text: "Also update tests.",
+                createdAt: "2026-03-17T19:12:30.000Z",
                 streaming: false,
               },
             },
@@ -3172,8 +3280,75 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         />,
       );
 
-      expect(markup).toContain("Working for 30s");
+      expect(markup).toContain("Working for 1m");
+      expect(markup).not.toContain("Working for 30s");
       expect(markup).not.toContain('data-response-summary="true"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows separate working and pursuing-goal timers for active Codex goal turns", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
+
+    try {
+      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const markup = renderToStaticMarkup(
+        <MessagesTimeline
+          hasMessages
+          isWorking
+          enableGoalWorkingState
+          activeTurnInProgress
+          activeTurnStartedAt="2026-03-17T19:12:00.000Z"
+          getScrollContainer={() => null}
+          timelineEntries={[
+            {
+              id: "user-goal-current-turn",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:00.000Z",
+              message: {
+                id: MessageId.makeUnsafe("user-goal-current-turn"),
+                role: "user",
+                text: "/goal Ship the feature",
+                createdAt: "2026-03-17T19:12:00.000Z",
+                streaming: false,
+              },
+            },
+            {
+              id: "user-goal-current-turn-steer",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              message: {
+                id: MessageId.makeUnsafe("user-goal-current-turn-steer"),
+                role: "user",
+                text: "Keep it minimal.",
+                createdAt: "2026-03-17T19:12:30.000Z",
+                streaming: false,
+              },
+            },
+          ]}
+          completionDividerBeforeEntryId={null}
+          completionSummary={null}
+          turnDiffSummaryByAssistantMessageId={new Map()}
+          expandedWorkGroups={{}}
+          onToggleWorkGroup={() => {}}
+          onOpenTurnDiff={() => {}}
+          revertTurnCountByUserMessageId={new Map()}
+          onRevertUserMessage={() => {}}
+          isRevertingCheckpoint={false}
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          resolvedTheme="light"
+          timestampFormat="locale"
+          workspaceRoot={undefined}
+        />,
+      );
+
+      expect(markup).toContain("Working for 1m");
+      expect(markup).toContain("Pursuing goal for 1m");
+      expect(markup).toContain('data-goal-working-timer="true"');
+      expect(markup).not.toContain("Working for 30s");
     } finally {
       vi.useRealTimers();
     }

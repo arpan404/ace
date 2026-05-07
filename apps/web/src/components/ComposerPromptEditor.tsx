@@ -305,9 +305,12 @@ class ComposerProviderCommandNode extends TextNode {
 
   override createDOM(_config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
+    const isGoalCommand = this.__name.trim().toLowerCase() === "goal";
     dom.className = cn(
       COMPOSER_INLINE_CHIP_CLASS_NAME,
-      "border-sky-500/35 bg-sky-500/12 text-sky-700 dark:text-sky-300",
+      isGoalCommand
+        ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+        : "border-border/70 bg-muted/70 text-foreground/85",
     );
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
@@ -491,7 +494,7 @@ function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
   container.append(icon, label);
 }
 
-function createProviderCommandIconElement(): SVGSVGElement {
+function createProviderCommandIconElement(commandName: string): SVGSVGElement {
   const icon = document.createElementNS(SVG_NAMESPACE, "svg");
   icon.setAttribute("viewBox", "0 0 24 24");
   icon.setAttribute("fill", "none");
@@ -502,7 +505,19 @@ function createProviderCommandIconElement(): SVGSVGElement {
   icon.setAttribute("aria-hidden", "true");
   icon.setAttribute("class", COMPOSER_INLINE_CHIP_ICON_CLASS_NAME);
 
-  for (const pathData of ["M12 4l-8 4l8 4l8-4l-8-4", "M4 12l8 4l8-4", "M4 16l8 4l8-4"]) {
+  const pathDataList =
+    commandName.trim().toLowerCase() === "goal"
+      ? [
+          "M12 2v4",
+          "M12 18v4",
+          "M2 12h4",
+          "M18 12h4",
+          "M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8",
+          "M12 12h.01",
+        ]
+      : ["M12 4l-8 4l8 4l8-4l-8-4", "M4 12l8 4l8-4", "M4 16l8 4l8-4"];
+
+  for (const pathData of pathDataList) {
     const path = document.createElementNS(SVG_NAMESPACE, "path");
     path.setAttribute("d", pathData);
     icon.append(path);
@@ -520,7 +535,7 @@ function renderProviderCommandChipDom(container: HTMLElement, commandName: strin
   label.className = COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME;
   label.textContent = formatCommandDisplayLabel(commandName);
 
-  container.append(createProviderCommandIconElement(), label);
+  container.append(createProviderCommandIconElement(commandName), label);
 }
 
 function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft>): string {
