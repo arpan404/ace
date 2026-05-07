@@ -78,6 +78,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         authToken: "env-token",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
+        telemetryEnabled: true,
       });
     }),
   );
@@ -143,7 +144,101 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         authToken: "flag-token",
         autoBootstrapProjectFromCwd: true,
         logWebSocketEvents: true,
+        telemetryEnabled: true,
       });
+    }),
+  );
+
+  it.effect("uses stored telemetry preference when flag and env are omitted", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "ace-cli-config-telemetry-pref-",
+      });
+      const derivedPaths = yield* deriveServerPaths(baseDir, undefined, "web");
+      yield* fs.makeDirectory(path.dirname(derivedPaths.telemetryPreferencePath), {
+        recursive: true,
+      });
+      yield* fs.writeFileString(
+        derivedPaths.telemetryPreferencePath,
+        `${JSON.stringify({ enabled: false })}\n`,
+      );
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(4888),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      assert.equal(resolved.telemetryEnabled, false);
+    }),
+  );
+
+  it.effect("uses telemetry flag before env and stored preference", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "ace-cli-config-telemetry-flag-",
+      });
+      const derivedPaths = yield* deriveServerPaths(baseDir, undefined, "web");
+      yield* fs.makeDirectory(path.dirname(derivedPaths.telemetryPreferencePath), {
+        recursive: true,
+      });
+      yield* fs.writeFileString(
+        derivedPaths.telemetryPreferencePath,
+        `${JSON.stringify({ enabled: false })}\n`,
+      );
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(4888),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          telemetry: Option.some("on"),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  ACE_TELEMETRY_ENABLED: "false",
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      assert.equal(resolved.telemetryEnabled, true);
     }),
   );
 
@@ -161,6 +256,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         authToken: "bootstrap-token",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
+        telemetryEnabled: true,
       });
       const derivedPaths = yield* deriveServerPaths(
         baseDir,
@@ -211,6 +307,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         authToken: "bootstrap-token",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
+        telemetryEnabled: true,
       });
       assert.equal(join(baseDir, "desktop"), resolved.stateDir);
     }),
@@ -328,6 +425,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         authToken: "flag-token",
         autoBootstrapProjectFromCwd: true,
         logWebSocketEvents: true,
+        telemetryEnabled: true,
       });
     }),
   );
@@ -376,6 +474,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         authToken: undefined,
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
+        telemetryEnabled: true,
       });
     }),
   );
@@ -432,6 +531,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           authToken: undefined,
           autoBootstrapProjectFromCwd: true,
           logWebSocketEvents: false,
+          telemetryEnabled: true,
         });
       }),
   );

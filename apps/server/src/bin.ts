@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import { Command } from "effect/unstable/cli";
 
 import { NetService } from "@ace/shared/Net";
-import { cli, formatRootCliBanner } from "./cli";
+import { cli, formatCliHelp, formatRootCliBanner } from "./cli";
 import { version } from "../package.json" with { type: "json" };
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
@@ -63,6 +63,16 @@ const rewriteCliAliases = () => {
 rewriteCliAliases();
 
 const invocationArgs = process.argv.slice(2);
+const customHelp = formatCliHelp(invocationArgs);
+if (customHelp !== null) {
+  if (shouldRenderBootBanner(invocationArgs)) {
+    process.stdout.write(formatRootCliBanner());
+    process.stdout.write("\n");
+  }
+  process.stdout.write(`${customHelp}\n`);
+  process.exit(0);
+}
+
 if (shouldRenderBootBanner(invocationArgs)) {
   process.stdout.write(formatRootCliBanner());
   if (isHelpInvocation(invocationArgs)) {
