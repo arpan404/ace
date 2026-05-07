@@ -166,9 +166,13 @@ const relayUrlFlag = Flag.string("relay-url").pipe(
 const TelemetryMode = Schema.Literals(["on", "off"]);
 type TelemetryMode = typeof TelemetryMode.Type;
 const telemetryFlag = Flag.choice("telemetry", TelemetryMode.literals).pipe(
-  Flag.withDescription("Set anonymous telemetry mode (`on` or `off`)."),
+  Flag.withDescription(
+    "Set anonymous telemetry mode (`on` or `off`). Root command stores the preference.",
+  ),
   Flag.optional,
 );
+const telemetryModeToEnabled = (mode: TelemetryMode): boolean => mode === "on";
+const telemetryEnabledToMode = (enabled: boolean): TelemetryMode => (enabled ? "on" : "off");
 
 const EnvServerConfig = Config.all({
   logLevel: Config.logLevel("ACE_LOG_LEVEL").pipe(Config.withDefault("Info")),
@@ -234,6 +238,70 @@ const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
 const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
+
+const readTelemetryPreference = (preferencePath: string) =>
+  Effect.gen(function* () {
+    const fs = yield* Effect.promise(() => import("node:fs/promises"));
+    const raw = yield* Effect.tryPromise(() => fs.readFile(preferencePath, "utf8")).pipe(
+      Effect.catch(() => Effect.undefined),
+    );
+    if (typeof raw !== "string") {
+      return undefined;
+    }
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(raw) as unknown,
+      catch: () => undefined,
+    }).pipe(Effect.catch(() => Effect.undefined));
+    if (parsed === undefined) {
+      return undefined;
+    }
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "enabled" in parsed &&
+      typeof parsed.enabled === "boolean"
+    ) {
+      return parsed.enabled;
+    }
+    return undefined;
+  });
+
+const writeTelemetryPreference = (input: {
+  readonly preferencePath: string;
+  readonly enabled: boolean;
+}) =>
+  Effect.gen(function* () {
+    const fs = yield* Effect.promise(() => import("node:fs/promises"));
+    const path = yield* Effect.promise(() => import("node:path"));
+    yield* Effect.tryPromise({
+      try: () => fs.mkdir(path.dirname(input.preferencePath), { recursive: true }),
+      catch: (cause) =>
+        new DaemonCommandError({
+          message: "Failed to create telemetry preference directory.",
+          cause,
+        }),
+    });
+    yield* Effect.tryPromise({
+      try: () =>
+        fs.writeFile(
+          input.preferencePath,
+          `${JSON.stringify(
+            {
+              enabled: input.enabled,
+              updatedAt: new Date().toISOString(),
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        ),
+      catch: (cause) =>
+        new DaemonCommandError({
+          message: "Failed to write telemetry preference.",
+          cause,
+        }),
+    });
+  });
 
 export const resolveServerConfig = (
   flags: CliServerFlags,
@@ -336,10 +404,6 @@ export const resolveServerConfig = (
         () => Boolean(devUrl),
       ),
     );
-    const telemetryEnabled = Option.match(flags.telemetry ?? Option.none(), {
-      onSome: (mode) => mode === "on",
-      onNone: () => Option.getOrElse(Option.fromUndefinedOr(env.telemetryEnabled), () => true),
-    });
     const staticDir = devUrl ? undefined : yield* resolveStaticDir();
     const host = Option.getOrElse(
       resolveOptionPrecedence(
@@ -353,6 +417,17 @@ export const resolveServerConfig = (
     const cwd = yield* Option.match(launchWorkspaceRoot, {
       onNone: () => Effect.succeed(process.cwd()),
       onSome: normalizeCliWorkspaceRoot,
+    });
+    const persistedTelemetryEnabled = yield* readTelemetryPreference(
+      derivedPaths.telemetryPreferencePath,
+    );
+    const telemetryEnabled = Option.match(flags.telemetry ?? Option.none(), {
+      onSome: telemetryModeToEnabled,
+      onNone: () =>
+        Option.getOrElse(
+          Option.fromUndefinedOr(env.telemetryEnabled),
+          () => persistedTelemetryEnabled ?? true,
+        ),
     });
 
     const config: ServerConfigShape = {
@@ -481,6 +556,13 @@ const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDefault(false),
 );
 
+const rootCommandFlags = {
+  baseDir: baseDirFlag,
+  devUrl: devUrlFlag,
+  telemetry: telemetryFlag,
+  json: jsonFlag,
+} as const;
+
 const openWorkspaceArgument = Argument.string("workspace").pipe(
   Argument.withDescription("Workspace path to bootstrap on launch."),
   Argument.optional,
@@ -586,6 +668,100 @@ const formatRows = (
     columns.map((column, index) => column.padEnd(widths[index]!)).join("  ");
   return `${pc.bold(formatRow(headers))}\n${rows.map(formatRow).join("\n")}\n`;
 };
+
+type DoctorStatus = "ok" | "warn" | "info";
+
+interface DoctorCheck {
+  readonly area: string;
+  readonly status: DoctorStatus;
+  readonly detail: string;
+}
+
+interface DoctorCliProbe {
+  readonly label: string;
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+}
+
+const doctorCliProbes: ReadonlyArray<DoctorCliProbe> = [
+  { label: "Codex", command: "codex", args: ["--version"] },
+  { label: "Claude", command: "claude", args: ["--version"] },
+  { label: "Cursor", command: "cursor-agent", args: ["--version"] },
+  { label: "Gemini", command: "gemini", args: ["--version"] },
+  { label: "OpenCode", command: "opencode", args: ["--version"] },
+] as const;
+
+const probeCli = (probe: DoctorCliProbe) =>
+  Effect.promise(
+    () =>
+      new Promise<DoctorCheck>((resolve) => {
+        const child = ChildProcess.spawn(probe.command, probe.args, {
+          cwd: process.cwd(),
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+        let stdout = "";
+        let stderr = "";
+        const timeout = setTimeout(() => {
+          child.kill();
+          resolve({
+            area: probe.label,
+            status: "warn",
+            detail: `${probe.command} timed out while checking version`,
+          });
+        }, 1_500);
+        const finish = (check: DoctorCheck) => {
+          clearTimeout(timeout);
+          resolve(check);
+        };
+        child.stdout?.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString("utf8");
+        });
+        child.stderr?.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString("utf8");
+        });
+        child.once("error", () => {
+          finish({
+            area: probe.label,
+            status: "warn",
+            detail: `${probe.command} not found on PATH`,
+          });
+        });
+        child.once("exit", (code) => {
+          const output = (stdout || stderr).trim().split("\n")[0]?.trim();
+          if (code === 0) {
+            finish({
+              area: probe.label,
+              status: "ok",
+              detail: output ? `${probe.command}: ${output}` : `${probe.command} available`,
+            });
+            return;
+          }
+          finish({
+            area: probe.label,
+            status: "warn",
+            detail: `${probe.command} exited with code ${String(code ?? 0)}`,
+          });
+        });
+      }),
+  );
+
+const renderDoctorStatus = (status: DoctorStatus): string => {
+  switch (status) {
+    case "ok":
+      return pc.green(status);
+    case "warn":
+      return pc.yellow(status);
+    case "info":
+      return pc.cyan(status);
+  }
+};
+
+const formatDoctorRows = (checks: ReadonlyArray<DoctorCheck>): string =>
+  formatRows(
+    ["AREA", "STATUS", "DETAIL"],
+    checks.map((check) => [check.area, renderDoctorStatus(check.status), check.detail]),
+  );
 
 const formatProjectRows = (projects: ReadonlyArray<CliProjectSummary>): string => {
   if (projects.length === 0) {
@@ -1601,7 +1777,9 @@ const serveCommand = Command.make("serve", {
   ...serveCommandFlags,
   workspaceRoot: openWorkspaceArgument,
 }).pipe(
-  Command.withDescription("Run or attach to the persistent background ace server daemon."),
+  Command.withDescription(
+    "Follow the ace daemon in your terminal. Starts the daemon when one is not already running.",
+  ),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
       yield* applyRelayUrlProcessOverride(flags.relayUrl);
@@ -1635,7 +1813,9 @@ const webCommand = Command.make("web", {
   ...webCommandFlags,
   workspaceRoot: openWorkspaceArgument,
 }).pipe(
-  Command.withDescription("Open the ace web app by reusing or starting the background daemon."),
+  Command.withDescription(
+    "Open ace in your browser. Reuses the daemon or starts one in the background.",
+  ),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
       yield* applyRelayUrlProcessOverride(flags.relayUrl);
@@ -1689,6 +1869,163 @@ const updateCommand = Command.make("update", {
 
       yield* writeStdout(`${pc.green("Launching")} desktop updater...\n`);
       return yield* launchDesktopUpdate();
+    }),
+  ),
+);
+
+const runTelemetryPreferenceCommand = (input: {
+  readonly flags: CliDataFlags;
+  readonly mode: TelemetryMode | "status";
+  readonly json: boolean;
+}) =>
+  Effect.gen(function* () {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveDataConfig(input.flags, logLevel);
+    if (input.mode !== "status") {
+      const enabled = telemetryModeToEnabled(input.mode);
+      yield* writeTelemetryPreference({
+        preferencePath: config.telemetryPreferencePath,
+        enabled,
+      });
+      if (input.json) {
+        return yield* writeJson({
+          telemetry: telemetryEnabledToMode(enabled),
+          enabled,
+          source: "stored-preference",
+          path: config.telemetryPreferencePath,
+        });
+      }
+      return yield* writeStdout(
+        `${pc.green("Telemetry")} ${telemetryEnabledToMode(enabled)} ${pc.dim(`(${config.telemetryPreferencePath})`)}\n`,
+      );
+    }
+
+    const stored = yield* readTelemetryPreference(config.telemetryPreferencePath);
+    const enabled = stored ?? true;
+    const source = stored === undefined ? "default" : "stored-preference";
+    if (input.json) {
+      return yield* writeJson({
+        telemetry: telemetryEnabledToMode(enabled),
+        enabled,
+        source,
+        path: config.telemetryPreferencePath,
+      });
+    }
+    return yield* writeStdout(
+      `${pc.bold("Telemetry:")} ${telemetryEnabledToMode(enabled)} ${pc.dim(`source=${source}`)}\n`,
+    );
+  });
+
+const telemetryActionArgument = Argument.string("action").pipe(
+  Argument.withDescription("Telemetry action: status, on, or off."),
+  Argument.optional,
+);
+
+const resolveTelemetryAction = (
+  action: Option.Option<string>,
+): Effect.Effect<TelemetryMode | "status", DaemonCommandError> =>
+  Effect.gen(function* () {
+    if (Option.isNone(action)) {
+      return "status";
+    }
+    const normalized = action.value.trim().toLowerCase();
+    if (normalized === "status" || normalized === "on" || normalized === "off") {
+      return normalized;
+    }
+    return yield* new DaemonCommandError({
+      message:
+        "Unknown telemetry action. Use `ace telemetry status`, `ace telemetry on`, or `ace telemetry off`.",
+    });
+  });
+
+const telemetryCommand = Command.make("telemetry", {
+  ...dataCommandFlags,
+  action: telemetryActionArgument,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "View or change the stored anonymous telemetry preference. Defaults to `status`.",
+  ),
+  Command.withHandler(({ action, json, ...flags }) =>
+    Effect.gen(function* () {
+      const mode = yield* resolveTelemetryAction(action);
+      return yield* runTelemetryPreferenceCommand({
+        flags,
+        mode,
+        json,
+      });
+    }),
+  ),
+);
+
+const doctorCommand = Command.make("doctor", {
+  ...dataCommandFlags,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Check daemon state, telemetry preference, and provider CLI availability.",
+  ),
+  Command.withHandler(({ json, ...flags }) =>
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveDataConfig(flags, logLevel);
+      const daemon = yield* readDaemonStatusPayload(config.baseDir);
+      const telemetryPreference = yield* readTelemetryPreference(config.telemetryPreferencePath);
+      const telemetryEnabled = telemetryPreference ?? true;
+      const providerChecks = yield* Effect.all(doctorCliProbes.map(probeCli), {
+        concurrency: "unbounded",
+      });
+      const availableProviderCount = providerChecks.filter((check) => check.status === "ok").length;
+      const checks: ReadonlyArray<DoctorCheck> = [
+        {
+          area: "Version",
+          status: "info",
+          detail: serverPackageVersion,
+        },
+        {
+          area: "Ace home",
+          status: "ok",
+          detail: config.baseDir,
+        },
+        {
+          area: "Daemon",
+          status: daemon.status === "running" ? "ok" : "warn",
+          detail:
+            daemon.status === "running" && daemon.state
+              ? `running pid=${String(daemon.state.pid)} ${daemon.state.wsUrl}`
+              : "not running; start with `ace web` or `ace daemon start`",
+        },
+        {
+          area: "Telemetry",
+          status: telemetryEnabled ? "info" : "ok",
+          detail:
+            telemetryPreference === undefined
+              ? "on by default; change with `ace telemetry off`"
+              : `${telemetryEnabledToMode(telemetryEnabled)} from ${config.telemetryPreferencePath}`,
+        },
+        {
+          area: "Provider CLIs",
+          status: availableProviderCount > 0 ? "ok" : "warn",
+          detail:
+            availableProviderCount > 0
+              ? `${String(availableProviderCount)} available on PATH`
+              : "no checked provider CLIs found on PATH",
+        },
+        ...providerChecks,
+        {
+          area: "Copilot/Pi",
+          status: "info",
+          detail: "checked through app settings/runtime, not standalone CLI probes",
+        },
+      ];
+
+      if (json) {
+        return yield* writeJson({
+          status: checks.some((check) => check.status === "warn") ? "warn" : "ok",
+          checks,
+        });
+      }
+      return yield* writeStdout(formatDoctorRows(checks));
     }),
   ),
 );
@@ -2188,7 +2525,7 @@ const remotePingCommand = Command.make("ping", {
 );
 
 const remoteCommand = Command.make("remote").pipe(
-  Command.withDescription("Manage host pairing and linked remote connections."),
+  Command.withDescription("Pair this machine with another device and manage saved remote hosts."),
   Command.withSubcommands([
     remoteCreateCommand,
     remoteListCommand,
@@ -2203,7 +2540,7 @@ const daemonStartCommand = Command.make("start", {
   ...serveCommandFlags,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Start the ace server daemon in the background (idempotent)."),
+  Command.withDescription("Start the background ace daemon. Safe to run more than once."),
   Command.withHandler(({ json, ...flags }) =>
     Effect.gen(function* () {
       yield* applyRelayUrlProcessOverride(flags.relayUrl);
@@ -2304,7 +2641,9 @@ const daemonStatusCommand = Command.make("status", {
   ...dataCommandFlags,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Read background daemon status."),
+  Command.withDescription(
+    "Show whether the background daemon is running and where it is listening.",
+  ),
   Command.withHandler(({ json, ...flags }) =>
     runDaemonCommand(
       flags,
@@ -2355,7 +2694,7 @@ const daemonStopCommand = Command.make("stop", {
   ),
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Stop the background daemon process."),
+  Command.withDescription("Gracefully stop the background daemon."),
   Command.withHandler(({ timeoutMs, json, ...flags }) =>
     runDaemonStopCommand({ timeoutMs, json, flags }),
   ),
@@ -2370,14 +2709,16 @@ const stopCommand = Command.make("stop", {
   ),
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Stop the background daemon process."),
+  Command.withDescription("Gracefully stop the background daemon."),
   Command.withHandler(({ timeoutMs, json, ...flags }) =>
     runDaemonStopCommand({ timeoutMs, json, flags }),
   ),
 );
 
 const daemonCommand = Command.make("daemon").pipe(
-  Command.withDescription("Manage the persistent background ace server."),
+  Command.withDescription(
+    "Manage the background server used by the web app and provider sessions.",
+  ),
   Command.withSubcommands([
     daemonStartCommand,
     daemonStatusCommand,
@@ -2581,24 +2922,246 @@ const colorizeRootBannerLine = (line: string, index: number): string => {
 export const formatRootCliBanner = (): string =>
   `${rootBannerLines.map((line, index) => colorizeRootBannerLine(line, index)).join("\n")}\n`;
 
-const formatRootCliGuide = (): string =>
+export const formatRootCliGuide = (): string =>
   [
     `${pc.bold("ace CLI")}`,
-    `${pc.bold("Quick start")}`,
-    `  ${pc.cyan("ace --web")}              open ace web app in your browser`,
-    `  ${pc.cyan("ace serve")}              run or attach to background daemon`,
-    `  ${pc.cyan("ace --update")}           update the packaged desktop app`,
-    `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
-    `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
-    `  ${pc.cyan("ace stop")}               stop background daemon`,
-    `  ${pc.cyan("ace --restart")}          restart background daemon`,
-    `  ${pc.cyan("ace interactive")}        launch quick interactive command picker`,
-    `  ${pc.cyan("ace project list")}       list saved local projects`,
-    `  ${pc.cyan('ace remote create --device-name="Macbook Pro"')}  create pairing token + QR`,
-    `  ${pc.cyan("ace remote list")}        list paired devices/sessions`,
-    `  ${pc.cyan("ace remote ping")}        continuously ping linked remotes`,
-    `  ${pc.cyan("ace --help")}             show full command reference`,
+    pc.dim("Run coding agents through a local daemon and web UI."),
+    "",
+    `${pc.bold("Start")}`,
+    `  ${pc.cyan("ace web [workspace]")}              open ace now`,
+    `  ${pc.cyan("ace serve [workspace]")}            follow daemon logs`,
+    `  ${pc.cyan("ace doctor")}                       check local setup`,
+    `  ${pc.cyan("ace interactive")}                  pick an action`,
+    "",
+    `${pc.bold("Daemon")}`,
+    `  ${pc.cyan("ace daemon status")}                inspect background server`,
+    `  ${pc.cyan("ace daemon start")}                 start it explicitly`,
+    `  ${pc.cyan("ace stop")}                         stop it`,
+    `  ${pc.cyan("ace daemon restart")}               restart it`,
+    "",
+    `${pc.bold("Settings")}`,
+    `  ${pc.cyan("ace telemetry status")}             show telemetry setting`,
+    `  ${pc.cyan("ace telemetry off")}                disable telemetry by default`,
+    `  ${pc.cyan("ace web --telemetry off")}          disable telemetry for one run`,
+    "",
+    `${pc.bold("Data and remotes")}`,
+    `  ${pc.cyan("ace project list")}                 list saved projects`,
+    `  ${pc.cyan('ace remote create --device-name="Macbook Pro"')}  pair another device`,
+    `  ${pc.cyan("ace remote list")}                  list paired devices`,
+    "",
+    `${pc.bold("Reference")}`,
+    `  ${pc.cyan("ace --help")}                       full command reference`,
+    `  ${pc.cyan("ace <command> --help")}             command-specific flags`,
   ].join("\n");
+
+const helpSection = (title: string, lines: ReadonlyArray<string>): string =>
+  [`${pc.bold(title)}`, ...lines.map((line) => `  ${line}`)].join("\n");
+
+const helpCommand = (command: string, description: string): string =>
+  `${pc.cyan(command.padEnd(46))}${description}`;
+
+const helpFlag = (flag: string, description: string): string =>
+  `${pc.cyan(flag.padEnd(30))}${description}`;
+
+const formatHelpPage = (input: {
+  readonly title: string;
+  readonly summary: string;
+  readonly usage: string;
+  readonly sections: ReadonlyArray<string>;
+}): string =>
+  [
+    `${pc.bold(input.title)}`,
+    input.summary,
+    "",
+    helpSection("Usage", [pc.cyan(input.usage)]),
+    "",
+    ...input.sections.flatMap((section) => [section, ""]),
+  ].join("\n");
+
+const rootHelpSections = [
+  helpSection("Start Here", [
+    helpCommand("ace web [workspace]", "open ace now"),
+    helpCommand("ace doctor", "check daemon, telemetry, and provider CLIs"),
+    helpCommand("ace interactive", "pick an action from a short menu"),
+  ]),
+  helpSection("Daemon", [
+    helpCommand("ace daemon status", "show background server status"),
+    helpCommand("ace daemon start", "start the daemon explicitly"),
+    helpCommand("ace stop", "stop the daemon"),
+    helpCommand("ace daemon restart", "restart daemon with existing settings"),
+  ]),
+  helpSection("Settings", [
+    helpCommand("ace telemetry", "show telemetry preference"),
+    helpCommand("ace telemetry off", "disable telemetry by default"),
+    helpCommand("ace --telemetry off", "same persistent shortcut"),
+    helpCommand("ace web --telemetry off", "disable telemetry for one run"),
+  ]),
+  helpSection("Data and Remotes", [
+    helpCommand("ace project list", "list saved projects"),
+    helpCommand('ace remote create --device-name "Macbook Pro"', "pair another device"),
+    helpCommand("ace remote list", "list paired devices"),
+  ]),
+  helpSection("Global Flags", [
+    helpFlag("--help, -h", "show help"),
+    helpFlag("--version", "show version"),
+    helpFlag("--log-level <level>", "all, trace, debug, info, warn, error, fatal, none"),
+    helpFlag("--base-dir <path>", "override ace home for config/state commands"),
+    helpFlag("--json", "machine-readable output where supported"),
+  ]),
+] as const;
+
+const commandHelpPages: Record<string, string> = {
+  root: formatHelpPage({
+    title: "ace CLI",
+    summary: "Run coding agents through a local daemon and web UI.",
+    usage: "ace <command> [flags]",
+    sections: rootHelpSections,
+  }),
+  web: formatHelpPage({
+    title: "ace web",
+    summary: "Open ace in your browser. Reuses the daemon or starts one in the background.",
+    usage: "ace web [workspace] [flags]",
+    sections: [
+      helpSection("Examples", [
+        helpCommand("ace web", "open ace"),
+        helpCommand("ace web .", "open ace and add the current workspace"),
+        helpCommand("ace web --telemetry off", "disable telemetry for this run"),
+        helpCommand("ace web --no-browser", "start daemon without opening browser"),
+      ]),
+      helpSection("Useful Flags", [
+        helpFlag("--port <number>", "server port"),
+        helpFlag("--host <host>", "bind address"),
+        helpFlag("--base-dir <path>", "ace state directory"),
+        helpFlag("--telemetry on|off", "one-run telemetry override"),
+      ]),
+    ],
+  }),
+  serve: formatHelpPage({
+    title: "ace serve",
+    summary: "Follow daemon logs in your terminal. Starts the daemon when one is not running.",
+    usage: "ace serve [workspace] [flags]",
+    sections: [
+      helpSection("Examples", [
+        helpCommand("ace serve", "attach to daemon logs"),
+        helpCommand("ace serve .", "start/follow daemon for current workspace"),
+      ]),
+      helpSection("Useful Flags", [
+        helpFlag("--port <number>", "server port"),
+        helpFlag("--host <host>", "bind address"),
+        helpFlag("--telemetry on|off", "one-run telemetry override"),
+      ]),
+    ],
+  }),
+  doctor: formatHelpPage({
+    title: "ace doctor",
+    summary: "Check daemon state, telemetry preference, and provider CLI availability.",
+    usage: "ace doctor [flags]",
+    sections: [
+      helpSection("Examples", [
+        helpCommand("ace doctor", "human-readable setup report"),
+        helpCommand("ace doctor --json", "machine-readable setup report"),
+      ]),
+      helpSection("Checks", [
+        "ace version and home directory",
+        "daemon running/listening state",
+        "stored telemetry preference",
+        "Codex, Claude, Cursor, Gemini, and OpenCode CLI availability",
+      ]),
+    ],
+  }),
+  telemetry: formatHelpPage({
+    title: "ace telemetry",
+    summary: "View or change the stored anonymous telemetry preference.",
+    usage: "ace telemetry [status|on|off] [flags]",
+    sections: [
+      helpSection("Examples", [
+        helpCommand("ace telemetry", "show current preference"),
+        helpCommand("ace telemetry status", "show current preference"),
+        helpCommand("ace telemetry off", "disable telemetry by default"),
+        helpCommand("ace telemetry on", "enable telemetry by default"),
+        helpCommand("ace --telemetry off", "persistent shortcut"),
+      ]),
+      helpSection("Precedence", [
+        "1. command flag: --telemetry on|off",
+        "2. environment: ACE_TELEMETRY_ENABLED",
+        "3. stored preference: ace telemetry on|off",
+        "4. default: on",
+      ]),
+    ],
+  }),
+  daemon: formatHelpPage({
+    title: "ace daemon",
+    summary: "Manage the background server used by the web app and provider sessions.",
+    usage: "ace daemon <start|status|stop|restart> [flags]",
+    sections: [
+      helpSection("Commands", [
+        helpCommand("ace daemon start", "start daemon, safe to run more than once"),
+        helpCommand("ace daemon status", "show pid, URL, version, and health"),
+        helpCommand("ace daemon stop", "gracefully stop daemon"),
+        helpCommand("ace daemon restart", "restart daemon with existing settings"),
+        helpCommand("ace stop", "top-level stop shortcut"),
+      ]),
+      helpSection("Automation", [
+        helpCommand("ace daemon status --json", "read status in scripts"),
+        helpCommand("ace stop --json", "stop daemon in scripts"),
+      ]),
+    ],
+  }),
+  stop: formatHelpPage({
+    title: "ace stop",
+    summary: "Gracefully stop the background daemon. Same behavior as `ace daemon stop`.",
+    usage: "ace stop [flags]",
+    sections: [
+      helpSection("Examples", [
+        helpCommand("ace stop", "stop daemon"),
+        helpCommand("ace stop --json", "machine-readable result"),
+      ]),
+    ],
+  }),
+  project: formatHelpPage({
+    title: "ace project",
+    summary: "Manage saved local projects without launching the server runtime.",
+    usage: "ace project <add|list|remove> [flags]",
+    sections: [
+      helpSection("Commands", [
+        helpCommand("ace project add <path>", "save a workspace"),
+        helpCommand("ace project list", "list saved workspaces"),
+        helpCommand("ace project remove <project>", "remove by id, title, or path"),
+      ]),
+    ],
+  }),
+  remote: formatHelpPage({
+    title: "ace remote",
+    summary: "Pair this machine with another device and manage saved remote hosts.",
+    usage: "ace remote <create|list|link|revoke|remove|ping> [flags]",
+    sections: [
+      helpSection("Pair Another Device", [
+        helpCommand('ace remote create --device-name "Macbook Pro"', "show token and QR"),
+        helpCommand("ace remote list", "list pairing sessions"),
+        helpCommand("ace remote revoke <session>", "revoke a pairing session"),
+      ]),
+      helpSection("Connect To A Host", [
+        helpCommand("ace remote link --token <token>", "save a remote host"),
+        helpCommand("ace remote ping --once", "check saved remotes once"),
+        helpCommand("ace remote remove <remote>", "remove a saved remote"),
+      ]),
+    ],
+  }),
+} as const;
+
+export const formatCliHelp = (args: ReadonlyArray<string>): string | null => {
+  const helpRequested = args.includes("--help") || args.includes("-h") || args[0] === "help";
+  if (!helpRequested) {
+    return null;
+  }
+  const positional =
+    args[0] === "help" ? args.slice(1) : args.filter((arg) => arg !== "--help" && arg !== "-h");
+  const topic = positional[0] ?? "root";
+  if (topic === "projects") {
+    return commandHelpPages.project ?? null;
+  }
+  return commandHelpPages[topic] ?? null;
+};
 
 const shouldAnimateRootCliLogo = (): boolean =>
   process.stdout.isTTY &&
@@ -2627,9 +3190,13 @@ export const playRootCliLogoAnimation = Effect.gen(function* () {
 const interactiveActionIds = [
   "web",
   "serve",
+  "doctor",
   "update",
   "daemon-status",
+  "daemon-stop",
   "daemon-restart",
+  "telemetry-status",
+  "telemetry-off",
   "project-list",
   "remote-list",
 ] as const;
@@ -2647,6 +3214,10 @@ const interactiveActions: Record<
     description: "Run or attach to daemon",
     argv: ["serve"],
   },
+  doctor: {
+    description: "Check local setup",
+    argv: ["doctor"],
+  },
   update: {
     description: "Update packaged desktop app",
     argv: ["update"],
@@ -2655,9 +3226,21 @@ const interactiveActions: Record<
     description: "Show daemon status",
     argv: ["daemon", "status"],
   },
+  "daemon-stop": {
+    description: "Stop daemon",
+    argv: ["stop"],
+  },
   "daemon-restart": {
     description: "Restart daemon",
     argv: ["daemon", "restart"],
+  },
+  "telemetry-status": {
+    description: "Show telemetry setting",
+    argv: ["telemetry", "status"],
+  },
+  "telemetry-off": {
+    description: "Disable telemetry by default",
+    argv: ["telemetry", "off"],
   },
   "project-list": {
     description: "List saved projects",
@@ -2777,10 +3360,28 @@ const interactiveCommand = Command.make("interactive", {
   ),
 );
 
-const rootCommand = Command.make("ace").pipe(
-  Command.withDescription("ace CLI."),
-  Command.withHandler(() =>
+const rootCommand = Command.make("ace", rootCommandFlags).pipe(
+  Command.withDescription(
+    [
+      "ace CLI. Open the web app, manage the local daemon, pair devices, and control telemetry.",
+      "",
+      "Common flows:",
+      "  ace web [workspace]          open ace now",
+      "  ace doctor                   check local setup",
+      "  ace stop                     stop the daemon",
+      "  ace telemetry off            disable telemetry by default",
+      "  ace interactive              pick an action",
+    ].join("\n"),
+  ),
+  Command.withHandler(({ telemetry, json, ...flags }) =>
     Effect.gen(function* () {
+      if (Option.isSome(telemetry)) {
+        return yield* runTelemetryPreferenceCommand({
+          flags,
+          mode: telemetry.value,
+          json,
+        });
+      }
       const animated = yield* playRootCliLogoAnimation;
       const banner = animated ? "" : formatRootCliBanner();
       const spacer = animated ? "\n" : "";
@@ -2793,8 +3394,10 @@ export const cli = rootCommand.pipe(
   Command.withSubcommands([
     webCommand,
     serveCommand,
+    doctorCommand,
     updateCommand,
     profileCommand,
+    telemetryCommand,
     projectCommand,
     remoteCommand,
     daemonCommand,
