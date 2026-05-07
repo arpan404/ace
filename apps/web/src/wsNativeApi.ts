@@ -83,6 +83,8 @@ export function createWsNativeApi(): NativeApi {
       clear: (input) => resolveRpcClientForInput(input).terminal.clear(input as never),
       restart: (input) => resolveRpcClientForInput(input).terminal.restart(input as never),
       close: (input) => resolveRpcClientForInput(input).terminal.close(input as never),
+      list: (input = {}) => resolveRpcClientForInput(input).terminal.list(input as never),
+      terminate: (input) => resolveRpcClientForInput(input).terminal.terminate(input as never),
       onEvent: (callback) => resolveRpcClientForActiveRoute().terminal.onEvent(callback),
     },
     projects: {

@@ -1,6 +1,12 @@
 import { type ProjectId } from "@ace/contracts";
 import { IconSearch } from "@tabler/icons-react";
-import { ChevronLeftIcon, FolderIcon, SettingsIcon, SquarePenIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  FolderIcon,
+  SettingsIcon,
+  SquarePenIcon,
+  TerminalIcon,
+} from "lucide-react";
 import { memo, type KeyboardEvent, type RefObject } from "react";
 
 import type { Project } from "../../types";
@@ -46,6 +52,9 @@ function renderActionIcon(item: SearchPaletteItem) {
   }
   if (item.type === "action.new-project") {
     return <FolderIcon className="size-4 shrink-0" strokeWidth={2} />;
+  }
+  if (item.type === "action.open-terminals") {
+    return <TerminalIcon className="size-4 shrink-0" strokeWidth={2} />;
   }
   return <SettingsIcon className="size-4 shrink-0" strokeWidth={2} />;
 }

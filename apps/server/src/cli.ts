@@ -7,6 +7,11 @@ import pc from "picocolors";
 import QRCode from "qrcode";
 import {
   DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
+  DEFAULT_TERMINAL_ID,
+  type TerminalProcessListInput,
+  type TerminalProcessSummary,
+  type TerminalSessionSnapshot,
+  type TerminalTerminateInput,
   WS_METHODS,
   type ServerRuntimeProfile,
 } from "@ace/contracts";
@@ -456,6 +461,18 @@ const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDescription("Print structured JSON output."),
   Flag.withDefault(false),
 );
+const allFlag = Flag.boolean("all").pipe(
+  Flag.withDescription("Apply the command to every matching item."),
+  Flag.withDefault(false),
+);
+const terminalThreadFlag = Flag.string("thread").pipe(
+  Flag.withDescription("Thread id for a terminal process."),
+  Flag.optional,
+);
+const terminalIdFlag = Flag.string("terminal").pipe(
+  Flag.withDescription("Terminal id within the thread."),
+  Flag.optional,
+);
 
 const openWorkspaceArgument = Argument.string("workspace").pipe(
   Argument.withDescription("Workspace path to bootstrap on launch."),
@@ -576,6 +593,29 @@ const formatProjectRows = (projects: ReadonlyArray<CliProjectSummary>): string =
   return formatRows(headers, rows);
 };
 
+function formatTerminalProcessLabel(process: TerminalProcessSummary): string {
+  const title = process.title?.trim() || process.terminalId;
+  const pid = process.pid ? `pid ${String(process.pid)}` : process.status;
+  return `${title} ${pc.dim(`(${process.threadId}/${process.terminalId}, ${pid})`)}`;
+}
+
+function formatTerminalProcessRows(processes: ReadonlyArray<TerminalProcessSummary>): string {
+  if (processes.length === 0) {
+    return `${pc.dim("No running terminal processes found.")}\n`;
+  }
+  const headers = ["#", "PID", "THREAD", "TERMINAL", "STATE", "TITLE", "CWD"] as const;
+  const rows = processes.map((process, index) => [
+    String(index + 1),
+    process.pid === null ? "-" : String(process.pid),
+    process.threadId,
+    process.terminalId,
+    process.hasRunningSubprocess ? "busy" : process.status,
+    process.title ?? "-",
+    process.cwd,
+  ]);
+  return formatRows(headers, rows);
+}
+
 const maskToken = (token: string): string => {
   const trimmed = token.trim();
   if (trimmed.length === 0) {
@@ -678,6 +718,63 @@ const promptPairingSessionSelection = (sessions: ReadonlyArray<CliPairingSession
       }),
   });
 
+type TerminalProcessSelection =
+  | { readonly type: "cancel" }
+  | { readonly type: "all" }
+  | { readonly type: "one"; readonly process: TerminalProcessSummary };
+
+const promptTerminalProcessSelection = (
+  processes: ReadonlyArray<TerminalProcessSummary>,
+): Effect.Effect<TerminalProcessSelection, DaemonCommandError> =>
+  Effect.tryPromise({
+    try: async (): Promise<TerminalProcessSelection> => {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error(
+          "Interactive terminal process selection requires a TTY. Pass --thread and --terminal, or use --all.",
+        );
+      }
+
+      const rl = Readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      try {
+        process.stdout.write(`${pc.bold("Running terminal processes")}\n`);
+        processes.forEach((entry, index) => {
+          process.stdout.write(
+            `  ${pc.cyan(String(index + 1))}. ${formatTerminalProcessLabel(entry)}\n`,
+          );
+        });
+        process.stdout.write(`  ${pc.cyan("a")}. stop all\n`);
+        process.stdout.write(`  ${pc.cyan("c")}. cancel\n`);
+
+        const answer = (await rl.question(`${pc.magenta("›")} `)).trim().toLowerCase();
+        if (answer === "c" || answer === "cancel" || answer.length === 0) {
+          return { type: "cancel" };
+        }
+        if (answer === "a" || answer === "all") {
+          return { type: "all" };
+        }
+        const byIndex = Number.parseInt(answer, 10);
+        if (Number.isFinite(byIndex) && byIndex >= 1 && byIndex <= processes.length) {
+          const selected = processes[byIndex - 1];
+          if (selected) {
+            return { type: "one", process: selected };
+          }
+        }
+        throw new Error("Invalid selection. Use a number from the list, a, or c.");
+      } finally {
+        rl.close();
+      }
+    },
+    catch: (cause) =>
+      new DaemonCommandError({
+        message: "Failed to read terminal process selection.",
+        cause,
+      }),
+  });
+
 const promptRemoteConnectionSelection = (
   connections: ReadonlyArray<CliRemoteConnectionSummary>,
   purpose: "remove" | "ping",
@@ -760,6 +857,14 @@ interface RuntimeProfileWsClient {
   readonly close: () => Promise<void>;
 }
 
+interface TerminalWsClient {
+  readonly list: (
+    input?: TerminalProcessListInput,
+  ) => Promise<ReadonlyArray<TerminalProcessSummary>>;
+  readonly terminate: (input: TerminalTerminateInput) => Promise<TerminalSessionSnapshot>;
+  readonly close: () => Promise<void>;
+}
+
 function withPromiseTimeout<T>(input: {
   readonly timeoutMs: number;
   readonly operationLabel: string;
@@ -818,6 +923,52 @@ async function createRuntimeProfileWsClient(wsUrl: string): Promise<RuntimeProfi
           timeoutMs: PROFILE_RUNTIME_RPC_READ_TIMEOUT_MS,
           operationLabel: "Reading daemon runtime profile snapshot",
           operation: () => runtime.runPromise(client[WS_METHODS.serverGetRuntimeProfile]({})),
+        }),
+      close: async () => {
+        try {
+          await runtime.runPromise(Scope.close(scope, Exit.void));
+        } finally {
+          runtime.dispose();
+        }
+      },
+    };
+  } catch (error) {
+    try {
+      await runtime.runPromise(Scope.close(scope, Exit.void));
+    } finally {
+      runtime.dispose();
+    }
+    throw error;
+  }
+}
+
+async function createTerminalWsClient(wsUrl: string): Promise<TerminalWsClient> {
+  const runtime = ManagedRuntime.make(createWsRpcProtocolLayer({ target: normalizeWsUrl(wsUrl) }));
+  const scope = runtime.runSync(Scope.make());
+  try {
+    const client = await withPromiseTimeout({
+      timeoutMs: PROFILE_RUNTIME_RPC_CONNECT_TIMEOUT_MS,
+      operationLabel: "Connecting to daemon terminal RPC",
+      operation: () => runtime.runPromise(Scope.provide(scope)(makeWsRpcProtocolClient)),
+    });
+    return {
+      list: (input = {}) =>
+        withPromiseTimeout({
+          timeoutMs: PROFILE_RUNTIME_RPC_READ_TIMEOUT_MS,
+          operationLabel: "Reading terminal process list",
+          operation: () => runtime.runPromise(client[WS_METHODS.terminalList](input)),
+        }),
+      terminate: (input) =>
+        withPromiseTimeout({
+          timeoutMs: PROFILE_RUNTIME_RPC_READ_TIMEOUT_MS,
+          operationLabel: "Stopping terminal process",
+          operation: () =>
+            runtime.runPromise(
+              client[WS_METHODS.terminalTerminate]({
+                ...input,
+                terminalId: input.terminalId ?? DEFAULT_TERMINAL_ID,
+              }),
+            ),
         }),
       close: async () => {
         try {
@@ -1074,6 +1225,29 @@ const runDaemonCommand = <A, E, R>(flags: CliDataFlags, effect: Effect.Effect<A,
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveDataConfig(flags, logLevel);
     return yield* effect.pipe(Effect.provideService(ServerConfig, config));
+  });
+
+const withTerminalWsClient = <A>(
+  flags: CliDataFlags,
+  useClient: (client: TerminalWsClient) => Promise<A>,
+) =>
+  Effect.gen(function* () {
+    const connection = yield* resolveLocalDaemonConnection(flags);
+    return yield* Effect.tryPromise({
+      try: async () => {
+        const client = await createTerminalWsClient(connection.wsUrl);
+        try {
+          return await useClient(client);
+        } finally {
+          await client.close().catch(() => undefined);
+        }
+      },
+      catch: (cause) =>
+        new DaemonCommandError({
+          message: "Failed to manage terminal processes.",
+          cause,
+        }),
+    });
   });
 
 const resolveLocalDaemonConnection = Effect.fn("resolveLocalDaemonConnection")(function* (
@@ -1755,6 +1929,91 @@ const projectCommand = Command.make("project").pipe(
   Command.withAlias("projects"),
   Command.withDescription("Manage stored projects without launching the server runtime."),
   Command.withSubcommands([projectAddCommand, projectRemoveCommand, projectListCommand]),
+);
+
+const terminalListCommand = Command.make("list", {
+  ...dataCommandFlags,
+  all: allFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("List terminal processes owned by the running ace daemon."),
+  Command.withHandler((flags) =>
+    withTerminalWsClient(flags, (client) => client.list({ runningOnly: !flags.all })).pipe(
+      Effect.flatMap((processes) =>
+        flags.json ? writeJson(processes) : writeStdout(formatTerminalProcessRows(processes)),
+      ),
+    ),
+  ),
+);
+
+const terminalStopCommand = Command.make("stop", {
+  ...dataCommandFlags,
+  thread: terminalThreadFlag,
+  terminal: terminalIdFlag,
+  all: allFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withAlias("close"),
+  Command.withDescription("Stop terminal processes owned by the running ace daemon."),
+  Command.withHandler((flags) =>
+    withTerminalWsClient(flags, async (client) => {
+      const threadId = Option.getOrUndefined(flags.thread);
+      const terminalId = Option.getOrUndefined(flags.terminal) ?? DEFAULT_TERMINAL_ID;
+
+      if (threadId) {
+        const stopped = await client.terminate({ threadId, terminalId });
+        return { cancelled: false, stopped: [stopped] } as const;
+      }
+
+      const processes = await client.list({ runningOnly: true });
+      if (processes.length === 0) {
+        return { cancelled: false, stopped: [] } as const;
+      }
+
+      const selection = flags.all
+        ? ({ type: "all" } as const)
+        : await Effect.runPromise(promptTerminalProcessSelection(processes));
+
+      if (selection.type === "cancel") {
+        return { cancelled: true, stopped: [] } as const;
+      }
+
+      const targets = selection.type === "all" ? processes : [selection.process];
+      const stopped: TerminalSessionSnapshot[] = [];
+      for (const terminalProcess of targets) {
+        stopped.push(
+          await client.terminate({
+            threadId: terminalProcess.threadId,
+            terminalId: terminalProcess.terminalId,
+          }),
+        );
+      }
+      return { cancelled: false, stopped } as const;
+    }).pipe(
+      Effect.flatMap((result) => {
+        if (flags.json) {
+          return writeJson(result);
+        }
+        if (result.cancelled) {
+          return writeStdout(`${pc.dim("Cancelled.")}\n`);
+        }
+        if (result.stopped.length === 0) {
+          return writeStdout(`${pc.dim("No running terminal processes found.")}\n`);
+        }
+        return writeStdout(
+          `${pc.green("Stopped")} ${String(result.stopped.length)} terminal process${
+            result.stopped.length === 1 ? "" : "es"
+          }.\n`,
+        );
+      }),
+    ),
+  ),
+);
+
+const terminalCommand = Command.make("terminal").pipe(
+  Command.withAlias("terminals"),
+  Command.withDescription("List and stop terminal processes owned by ace."),
+  Command.withSubcommands([terminalListCommand, terminalStopCommand]),
 );
 
 const remoteCreateCommand = Command.make("create", {
@@ -2542,6 +2801,7 @@ const formatRootCliGuide = (): string =>
     `  ${pc.cyan("ace --restart")}          restart background daemon`,
     `  ${pc.cyan("ace interactive")}        launch quick interactive command picker`,
     `  ${pc.cyan("ace project list")}       list saved local projects`,
+    `  ${pc.cyan("ace terminal list")}      list running terminal processes`,
     `  ${pc.cyan('ace remote create --device-name="Macbook Pro"')}  create pairing token + QR`,
     `  ${pc.cyan("ace remote list")}        list paired devices/sessions`,
     `  ${pc.cyan("ace remote ping")}        continuously ping linked remotes`,
@@ -2579,6 +2839,7 @@ const interactiveActionIds = [
   "daemon-status",
   "daemon-restart",
   "project-list",
+  "terminal-list",
   "remote-list",
 ] as const;
 type InteractiveActionId = (typeof interactiveActionIds)[number];
@@ -2610,6 +2871,10 @@ const interactiveActions: Record<
   "project-list": {
     description: "List saved projects",
     argv: ["project", "list"],
+  },
+  "terminal-list": {
+    description: "List running terminal processes",
+    argv: ["terminal", "list"],
   },
   "remote-list": {
     description: "List paired devices and sessions",
@@ -2744,6 +3009,7 @@ export const cli = rootCommand.pipe(
     updateCommand,
     profileCommand,
     projectCommand,
+    terminalCommand,
     remoteCommand,
     daemonCommand,
     interactiveCommand,
