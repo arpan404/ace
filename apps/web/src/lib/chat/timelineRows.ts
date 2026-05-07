@@ -678,6 +678,10 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
 
   const liveDurationStartAt =
     activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
+  flushHiddenCompletedWorkSummary({
+    startedAtFloor: liveDurationStartAt,
+    endedAt: null,
+  });
 
   if (input.isWorking) {
     nextRows.push({
