@@ -481,6 +481,47 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.queue.dispatch": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const messageIndex = thread.queuedComposerMessages.findIndex(
+        (message) => message.id === command.messageId,
+      );
+      if (messageIndex < 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not exist.`,
+        });
+      }
+      const queuedComposerMessages = [...thread.queuedComposerMessages];
+      const [message] = queuedComposerMessages.splice(messageIndex, 1);
+      if (message) {
+        queuedComposerMessages.unshift(message);
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages,
+          queuedDispatchRequest: {
+            messageId: command.messageId,
+          },
+          queuedSteerRequest: null,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     case "thread.queue.steer": {
       const thread = yield* requireThread({
         readModel,

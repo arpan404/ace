@@ -23,6 +23,7 @@ import {
   ProviderInteractionMode,
   ProviderUserInputAnswers,
   QueuedComposerMessage,
+  QueuedDispatchRequest,
   QueuedSteerRequest,
   RuntimeMode,
   TurnCountRange,
@@ -143,6 +144,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   queuedComposerMessages: Schema.optional(Schema.Array(QueuedComposerMessage)),
+  queuedDispatchRequest: Schema.optional(QueuedDispatchRequest),
   queuedSteerRequest: Schema.optional(Schema.NullOr(QueuedSteerRequest)),
   updatedAt: IsoDateTime,
 });
