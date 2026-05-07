@@ -6129,6 +6129,59 @@ export default function ChatView({
       setThreadError,
     ],
   );
+  const sendQueuedComposerMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!serverThread || liveTurnInProgress || isSendBusy || isConnecting) {
+        return;
+      }
+      if (sendInFlightRef.current) {
+        return;
+      }
+      const queuedMessage =
+        queuedComposerMessagesRef.current.find((message) => message.id === messageId) ?? null;
+      if (!queuedMessage) {
+        return;
+      }
+
+      const activeSteerRequest = queuedSteerRequestRef.current;
+      if (activeSteerRequest && !(await clearQueuedSteerRequest(serverThread.id))) {
+        return;
+      }
+
+      const dispatched = await dispatchComposerMessage(
+        {
+          prompt: queuedMessage.prompt,
+          images: queuedMessage.images,
+          terminalContexts: queuedMessage.terminalContexts.map((context) => ({
+            ...context,
+            threadId: serverThread.id,
+          })),
+          modelSelection: queuedMessage.modelSelection,
+          runtimeMode: queuedMessage.runtimeMode,
+          interactionMode: queuedMessage.interactionMode,
+        },
+        {
+          restoreDraftOnFailure: false,
+        },
+      );
+      if (!dispatched) {
+        return;
+      }
+      if (!(await deleteQueuedComposerMessage(serverThread.id, messageId))) {
+        return;
+      }
+      revokeComposerImagePreviewUrls(queuedMessage.images);
+    },
+    [
+      clearQueuedSteerRequest,
+      deleteQueuedComposerMessage,
+      dispatchComposerMessage,
+      isConnecting,
+      isSendBusy,
+      liveTurnInProgress,
+      serverThread,
+    ],
+  );
   const submitWorkspaceAgentNote = useCallback(
     async (input: { mode: "queue" | "send"; prompt: string }) => {
       const trimmedPrompt = input.prompt.trim();
@@ -7532,6 +7585,13 @@ export default function ChatView({
   const handleQueueComposerMessage = useCallback(() => {
     queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue");
   }, [liveTurnInProgress, queueCurrentComposerMessage]);
+  const canSendQueuedComposerMessages =
+    activeLatestTurn?.state === "interrupted" &&
+    queuedComposerMessages.length > 0 &&
+    !liveTurnInProgress &&
+    !isSendBusy &&
+    !isConnecting &&
+    !sendInFlightRef.current;
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
@@ -7756,6 +7816,7 @@ export default function ChatView({
                     activeContextWindow={activeContextWindow}
                     queuedComposerMessages={queuedComposerMessages}
                     queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+                    canSendQueuedMessages={canSendQueuedComposerMessages}
                     pendingComposerComments={pendingComposerCommentItems}
                     liveTurnInProgress={liveTurnInProgress}
                     isConnecting={isConnecting}
@@ -7811,6 +7872,7 @@ export default function ChatView({
                     onDismissPendingComposerComment={dismissPendingComposerComment}
                     onClearPendingComposerComments={clearPendingComposerComments}
                     onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+                    onSendQueuedComposerMessage={sendQueuedComposerMessage}
                     onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
                     onSetThreadError={setThreadError}
                   />
