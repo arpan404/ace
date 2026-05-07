@@ -351,6 +351,11 @@ export const QueuedSteerRequest = Schema.Struct({
 });
 export type QueuedSteerRequest = typeof QueuedSteerRequest.Type;
 
+export const QueuedDispatchRequest = Schema.Struct({
+  messageId: MessageId,
+});
+export type QueuedDispatchRequest = typeof QueuedDispatchRequest.Type;
+
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",
   "running",

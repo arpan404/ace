@@ -14,7 +14,7 @@ vi.mock("./processRunner", () => ({
 
 import { isCommandAvailable } from "./open";
 import { runProcess } from "./processRunner";
-import { getLspToolsStatus, installLspTool, installLspTools } from "./lspTools";
+import { getLspToolsStatus, installLspTool, installLspTools, uninstallLspTool } from "./lspTools";
 
 const mockedIsCommandAvailable = vi.mocked(isCommandAvailable);
 const mockedRunProcess = vi.mocked(runProcess);
@@ -348,5 +348,60 @@ describe("lspTools", () => {
       fileNames: ["dockerfile"],
       installPackages: ["@example/docker-ls@1.2.3"],
     });
+  });
+
+  it("uninstalls a custom npm LSP and removes its registry entry", async () => {
+    mockedIsCommandAvailable.mockImplementation((command) => command === "npm");
+    mockedRunProcess.mockImplementation(async (_command, args) => {
+      const prefixIndex = args.indexOf("--prefix");
+      const installDir = String(args[prefixIndex + 1]);
+      if (args.includes("install")) {
+        await mkdir(join(installDir, "node_modules", ".bin"), { recursive: true });
+        await writeFile(commandBinaryPath(stateDir, "custom-docker-ls"), "", "utf8");
+        await mkdir(join(installDir, "node_modules", "@example", "docker-ls"), {
+          recursive: true,
+        });
+        await writeFile(
+          join(installDir, "node_modules", "@example", "docker-ls", "package.json"),
+          JSON.stringify({ version: "1.2.3" }),
+          "utf8",
+        );
+      } else if (args.includes("uninstall")) {
+        expect(args).toEqual([
+          "uninstall",
+          "--prefix",
+          join(stateDir, "lsp-tools"),
+          "@example/docker-ls",
+        ]);
+        await rm(commandBinaryPath(stateDir, "custom-docker-ls"), { force: true });
+        await rm(join(installDir, "node_modules", "@example", "docker-ls"), {
+          recursive: true,
+          force: true,
+        });
+      }
+      return {
+        stdout: "",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      };
+    });
+
+    await installLspTool(stateDir, {
+      packageName: "@example/docker-ls",
+      command: "custom-docker-ls",
+      label: "Custom Docker",
+      description: "Custom Dockerfile language server.",
+      installPackages: ["@example/docker-ls@1.2.3"],
+      languageIds: ["dockerfile"],
+      fileExtensions: [],
+      fileNames: ["Dockerfile"],
+    });
+
+    const status = await uninstallLspTool(stateDir, { id: "custom-docker-ls" });
+
+    expect(mockedRunProcess).toHaveBeenCalledTimes(2);
+    expect(status.tools.find((tool) => tool.id === "custom-docker-ls")).toBeUndefined();
   });
 });

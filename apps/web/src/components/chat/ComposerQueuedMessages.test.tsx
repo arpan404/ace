@@ -70,6 +70,35 @@ describe("ComposerQueuedMessages", () => {
     expect(markup).toContain("Keep this in the normal queue.");
   });
 
+  it("shows send instead of steering when queued messages can be sent after interruption", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        messages={[
+          {
+            id: MessageId.makeUnsafe("queued-1"),
+            prompt: "Send this after the interrupted turn.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+        ]}
+        canSendNow
+        steerMessageId={MessageId.makeUnsafe("queued-1")}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Send queued message"');
+    expect(markup).toContain(">Send</button>");
+    expect(markup).not.toContain("Steering");
+    expect(markup).not.toContain('aria-label="Steer queued message"');
+  });
+
   it("renders steer and edit controls for designer queue rows", () => {
     const prompt = appendBrowserDesignContextToPrompt("Tighten the card rhythm", {
       requestId: "DR-4F2C8A11",
@@ -102,6 +131,9 @@ describe("ComposerQueuedMessages", () => {
 
     expect(markup).toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
+    expect(markup).toContain("Tighten the card rhythm");
+    expect(markup).not.toContain("browser_design_context");
+    expect(markup).not.toContain("DR-4F2C8A11");
   });
 
   it("renders nothing when the queue is empty", () => {

@@ -121,6 +121,34 @@ describe("formatQueuedComposerMessagePreview", () => {
     ).toBe("Increase spacing between cards");
   });
 
+  it("formats accumulated browser comments without leaking hidden prompt blocks", () => {
+    const prompt = [
+      "Remove unwanted things",
+      "",
+      "<accumulated_comments>",
+      "Apply these user comments with the attached screenshots.",
+      "",
+      "1. Browser comment",
+      "Target: /settings/editor",
+      "Element: .language-server-row",
+      "Screenshot: attached image 1",
+      "Comment: only show name and install button",
+      "</accumulated_comments>",
+      "",
+      "<browser_design_context>",
+      '{"requestId":"DR-7F2A9C11"}',
+      "</browser_design_context>",
+    ].join("\n");
+
+    expect(
+      formatQueuedComposerMessagePreview({
+        prompt,
+        imageCount: 1,
+        terminalContextCount: 0,
+      }),
+    ).toBe("Remove unwanted things only show name and install button");
+  });
+
   it("truncates long queued previews to 200 characters", () => {
     const longPrompt = "A".repeat(250);
 
@@ -187,6 +215,33 @@ describe("deriveQueuedComposerMessageDraftForEditing", () => {
 
     expect(deriveQueuedComposerMessageDraftForEditing(makeQueuedMessage(prompt))).toEqual({
       prompt: "Make this card cleaner",
+      includeImages: false,
+      includeTerminalContexts: false,
+    });
+  });
+
+  it("hides non-trailing browser design metadata when restoring accumulated queued drafts", () => {
+    const prompt = [
+      appendBrowserDesignContextToPrompt("Make this card cleaner", {
+        requestId: "DR-7F2A9C11",
+        pageUrl: "https://example.com/dashboard",
+        pagePath: "/dashboard",
+        selection: { x: 24, y: 32, width: 420, height: 240 },
+        targetElement: null,
+        mainContainer: null,
+      }),
+      "",
+      "<accumulated_comments>",
+      "Apply these user comments with the attached screenshots.",
+      "",
+      "1. Browser comment",
+      "Screenshot: attached image 1",
+      "Comment: reduce the row noise",
+      "</accumulated_comments>",
+    ].join("\n");
+
+    expect(deriveQueuedComposerMessageDraftForEditing(makeQueuedMessage(prompt))).toEqual({
+      prompt: "Make this card cleaner\n\nreduce the row noise",
       includeImages: false,
       includeTerminalContexts: false,
     });

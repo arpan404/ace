@@ -709,7 +709,7 @@ export function ProviderSettingsSection({
     <SettingsSection
       title="Providers"
       description="Configure provider CLIs, accounts, launch paths, and custom models."
-      contentClassName="overflow-visible border-pill-border/58 bg-pill/58 p-0 supports-[backdrop-filter]:bg-pill/48 supports-[backdrop-filter]:backdrop-blur-lg"
+      contentClassName="overflow-visible p-0"
       headerAction={
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
@@ -779,8 +779,8 @@ export function ProviderSettingsSection({
         </div>
       }
     >
-      <div className="grid min-h-[34rem] overflow-hidden rounded-[var(--panel-radius)] border border-border/45 bg-background/20 md:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <div className="border-b border-border/45 bg-background/25 p-2 md:border-r md:border-b-0">
+      <div className="grid min-h-[34rem] overflow-hidden md:grid-cols-[13.5rem_minmax(0,1fr)]">
+        <div className="border-b border-border/35 bg-muted/[0.08] p-2 md:border-r md:border-b-0">
           <Button
             size="sm"
             variant="outline"
@@ -809,8 +809,8 @@ export function ProviderSettingsSection({
                   className={cn(
                     "group flex min-w-0 items-center gap-2 rounded-[var(--control-radius)] border px-2 py-2 text-left transition-colors",
                     isSelected
-                      ? "border-border/60 bg-foreground/[0.06] text-foreground"
-                      : "border-transparent bg-transparent text-muted-foreground",
+                      ? "border-border/50 bg-background/72 text-foreground"
+                      : "border-transparent bg-transparent text-muted-foreground hover:bg-background/45 hover:text-foreground/90",
                   )}
                   onClick={() => setSelectedEntryKey(entry.key)}
                 >
@@ -852,7 +852,7 @@ export function ProviderSettingsSection({
         </div>
 
         <div className="min-w-0">
-          <div className="border-b border-border/45 bg-background/25 px-3 py-3 sm:px-4">
+          <div className="border-b border-border/35 bg-muted/[0.08] px-3 py-3 sm:px-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="flex min-w-0 gap-3">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">

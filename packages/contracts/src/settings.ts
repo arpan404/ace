@@ -43,6 +43,10 @@ export const DEFAULT_BROWSER_SEARCH_ENGINE: BrowserSearchEngine = "duckduckgo";
 export const DEFAULT_BROWSER_MAX_MOUNTED_INSTANCES = 2;
 export const BROWSER_MAX_MOUNTED_INSTANCES_LIMIT = 5;
 
+export const CommentSubmissionMode = Schema.Literals(["immediate", "accumulate"]);
+export type CommentSubmissionMode = typeof CommentSubmissionMode.Type;
+export const DEFAULT_COMMENT_SUBMISSION_MODE: CommentSubmissionMode = "immediate";
+
 export const WorkspaceEditorOpenMode = Schema.Literals(["split", "full"]);
 export type WorkspaceEditorOpenMode = typeof WorkspaceEditorOpenMode.Type;
 export const DEFAULT_WORKSPACE_EDITOR_OPEN_MODE: WorkspaceEditorOpenMode = "split";
@@ -92,6 +96,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ).pipe(Schema.withDecodingDefault(() => DEFAULT_BROWSER_MAX_MOUNTED_INSTANCES)),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  commentSubmissionMode: CommentSubmissionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_COMMENT_SUBMISSION_MODE),
+  ),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorLineNumbers: EditorLineNumbers.pipe(
     Schema.withDecodingDefault(() => DEFAULT_EDITOR_LINE_NUMBERS),
