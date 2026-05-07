@@ -150,7 +150,10 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
 
 const validationManager = new FakeCodexManager();
 const validationLayer = it.layer(
-  makeCodexAdapterLive({ manager: validationManager }).pipe(
+  makeCodexAdapterLive({
+    manager: validationManager,
+    resolveGoalsFeatureEnabled: () => false,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -262,7 +265,10 @@ sessionErrorManager.sendTurnImpl.mockImplementation(async () => {
   throw new Error("Unknown session: sess-missing");
 });
 const sessionErrorLayer = it.layer(
-  makeCodexAdapterLive({ manager: sessionErrorManager }).pipe(
+  makeCodexAdapterLive({
+    manager: sessionErrorManager,
+    resolveGoalsFeatureEnabled: () => false,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -331,13 +337,68 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
 
 const lifecycleManager = new FakeCodexManager();
 const lifecycleLayer = it.layer(
-  makeCodexAdapterLive({ manager: lifecycleManager }).pipe(
+  makeCodexAdapterLive({
+    manager: lifecycleManager,
+    resolveGoalsFeatureEnabled: () => false,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
     Layer.provideMerge(NodeServices.layer),
   ),
 );
+
+const goalFeatureManager = new FakeCodexManager();
+const goalFeatureLayer = it.layer(
+  makeCodexAdapterLive({
+    manager: goalFeatureManager,
+    resolveGoalsFeatureEnabled: () => true,
+  }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+goalFeatureLayer("CodexAdapterLive goal feature discovery", (it) => {
+  it.effect("emits /goal on session/ready only when Codex CLI goals are enabled", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-goal-feature-enabled");
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
+        Effect.forkChild,
+      );
+
+      goalFeatureManager.emit("event", {
+        id: asEventId("evt-session-ready-goal"),
+        kind: "notification",
+        provider: "codex",
+        threadId,
+        createdAt: new Date().toISOString(),
+        method: "session/ready",
+      } satisfies ProviderEvent);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.equal(events[0]?.type, "session.state.changed");
+      assert.equal(events[1]?.type, "session.configured");
+      if (events[1]?.type !== "session.configured") {
+        return;
+      }
+      const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
+        .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+      assert.equal(
+        availableCommands.some((command) => command.name === "goal"),
+        true,
+      );
+    }),
+  );
+});
 
 lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
   it.effect("maps completed agent message items to canonical item.completed events", () =>
@@ -613,6 +674,95 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(firstEvent.value.threadId, "thread-1");
       assert.equal(firstEvent.value.payload.reason, "Session stopped");
       assert.equal(firstEvent.value.payload.processPid, process.pid);
+    }),
+  );
+
+  it.effect(
+    "maps session/configured notifications and preserves CLI-advertised slash commands",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const threadId = asThreadId("thread-session-configured");
+        yield* adapter.startSession({
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+        lifecycleManager.emit("event", {
+          id: asEventId("evt-session-configured"),
+          kind: "notification",
+          provider: "codex",
+          threadId,
+          createdAt: new Date().toISOString(),
+          method: "session/configured",
+          payload: {
+            availableCommands: [
+              {
+                name: "goal",
+                description: "Manage long-running goals",
+              },
+            ],
+          },
+        } satisfies ProviderEvent);
+
+        const firstEvent = yield* Fiber.join(firstEventFiber);
+        assert.equal(firstEvent._tag, "Some");
+        if (firstEvent._tag !== "Some") {
+          return;
+        }
+        assert.equal(firstEvent.value.type, "session.configured");
+        if (firstEvent.value.type !== "session.configured") {
+          return;
+        }
+        const availableCommands = ((
+          firstEvent.value.payload.config as { availableCommands?: unknown }
+        ).availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+        assert.equal(
+          availableCommands.some((command) => command.name === "goal"),
+          true,
+        );
+      }),
+  );
+
+  it.effect("maps session/started command metadata into a session.configured event", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-session-started-commands");
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
+        Effect.forkChild,
+      );
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-session-started-goal"),
+        kind: "notification",
+        provider: "codex",
+        threadId,
+        createdAt: new Date().toISOString(),
+        method: "session/started",
+        payload: {
+          availableCommands: [{ name: "goal" }],
+        },
+      } satisfies ProviderEvent);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.equal(events[0]?.type, "session.started");
+      assert.equal(events[1]?.type, "session.configured");
+      if (events[1]?.type !== "session.configured") {
+        return;
+      }
+      const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
+        .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+      assert.equal(
+        availableCommands.some((command) => command.name === "goal"),
+        true,
+      );
     }),
   );
 

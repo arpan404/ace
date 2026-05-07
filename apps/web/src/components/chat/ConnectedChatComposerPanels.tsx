@@ -624,6 +624,33 @@ export const ConnectedChatComposerPanels = memo(
           const providerCommandNames = new Set(
             props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
           );
+          const slashTriggerAtPromptStart =
+            prompt.slice(0, composerTrigger.rangeStart).trim().length === 0;
+          const planCommandSupported = providerCommandNames.has("plan");
+          const interactionModeCommandItems =
+            interactionMode === "plan"
+              ? ([
+                  {
+                    id: "slash:default",
+                    type: "slash-command" as const,
+                    command: "default" as const,
+                    commandSource: "ace" as const,
+                    label: formatCommandDisplayLabel("default"),
+                    description: "Switch this thread back to normal chat mode",
+                  },
+                ] as const)
+              : planCommandSupported
+                ? ([
+                    {
+                      id: "slash:plan",
+                      type: "slash-command" as const,
+                      command: "plan" as const,
+                      commandSource: "ace" as const,
+                      label: formatCommandDisplayLabel("plan"),
+                      description: "Switch this thread into plan mode",
+                    },
+                  ] as const)
+                : [];
           const slashCommandItems = [
             {
               id: "slash:model",
@@ -633,31 +660,26 @@ export const ConnectedChatComposerPanels = memo(
               label: formatCommandDisplayLabel("model"),
               description: "Switch response model for this thread",
             },
-            {
-              id: "slash:plan",
-              type: "slash-command" as const,
-              command: "plan" as const,
-              commandSource: "ace" as const,
-              label: formatCommandDisplayLabel("plan"),
-              description: "Switch this thread into plan mode",
-            },
-            {
-              id: "slash:default",
-              type: "slash-command" as const,
-              command: "default" as const,
-              commandSource: "ace" as const,
-              label: formatCommandDisplayLabel("default"),
-              description: "Switch this thread back to normal chat mode",
-            },
-            {
-              id: "slash:issues",
-              type: "slash-command" as const,
-              command: "issues" as const,
-              commandSource: "ace" as const,
-              label: formatCommandDisplayLabel("issues"),
-              description: "Attach GitHub issue context to this message",
-            },
-          ].filter((item) => !providerCommandNames.has(normalizeSlashCommandName(item.command)));
+            ...interactionModeCommandItems,
+            ...(props.selectedProvider === "codex" &&
+            providerCommandNames.has("goal") &&
+            slashTriggerAtPromptStart
+              ? ([
+                  {
+                    id: "slash:goal",
+                    type: "slash-command" as const,
+                    command: "goal" as const,
+                    commandSource: "ace" as const,
+                    label: formatCommandDisplayLabel("goal"),
+                    description: "Set or inspect the active long-running goal",
+                  },
+                ] as const)
+              : []),
+          ].filter((item) =>
+            item.command === "goal" || item.command === "plan" || item.command === "default"
+              ? true
+              : !providerCommandNames.has(normalizeSlashCommandName(item.command)),
+          );
           const allSlashCommandItems = [...slashCommandItems, ...providerCommandItems];
           if (!query) {
             return allSlashCommandItems;
@@ -688,8 +710,11 @@ export const ConnectedChatComposerPanels = memo(
           }));
       }, [
         composerTrigger,
+        interactionMode,
         issueTriggerMatches,
+        prompt,
         props.providerCommands,
+        props.selectedProvider,
         searchableModelOptions,
         workspaceEntries,
       ]);
@@ -1030,8 +1055,13 @@ export const ConnectedChatComposerPanels = memo(
             return;
           }
           if (item.type === "slash-command") {
-            if (item.command === "model" || item.command === "issues") {
-              const replacement = item.command === "model" ? "/model " : "/issues ";
+            if (item.command === "model" || item.command === "issues" || item.command === "goal") {
+              const replacement =
+                item.command === "model"
+                  ? "/model "
+                  : item.command === "issues"
+                    ? "/issues "
+                    : `${createMarkedProviderCommandToken("goal")} `;
               const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
                 snapshot.value,
                 trigger.rangeEnd,

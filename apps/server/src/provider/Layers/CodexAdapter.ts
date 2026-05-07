@@ -46,10 +46,14 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
-import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import {
+  mergeProviderSlashCommands,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { discoverCodexExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
+import { CODEX_GOAL_SLASH_COMMAND, isCodexGoalsFeatureEnabled } from "../codexGoalFeature.ts";
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
@@ -67,6 +71,12 @@ export interface CodexAdapterLiveOptions {
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly resolveGoalsFeatureEnabled?: (input: {
+    readonly binaryPath: string;
+    readonly cwd: string;
+    readonly homePath?: string;
+    readonly launchEnv?: Readonly<Record<string, string>>;
+  }) => boolean;
 }
 
 interface CodexReplayBootstrapState {
@@ -112,10 +122,63 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
 }
 
 const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
+const SESSION_CONFIG_COMMAND_KEYS = [
+  "availableCommands",
+  "available_commands",
+  "slashCommands",
+  "slash_commands",
+  "commands",
+] as const;
 
 function isFatalCodexProcessStderrMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return FATAL_CODEX_STDERR_SNIPPETS.some((snippet) => normalized.includes(snippet));
+}
+
+function readSessionConfigCommandEntries(value: unknown): ReadonlyArray<unknown> | undefined {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  const record = asObject(value);
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of SESSION_CONFIG_COMMAND_KEYS) {
+    const entries = asArray(record[key]);
+    if (entries) {
+      return entries;
+    }
+  }
+  return undefined;
+}
+
+function readSessionConfiguredCommandEntries(
+  payload: Record<string, unknown> | undefined,
+): ReadonlyArray<unknown> | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  return (
+    readSessionConfigCommandEntries(payload) ??
+    readSessionConfigCommandEntries(payload.config) ??
+    readSessionConfigCommandEntries(payload.session) ??
+    readSessionConfigCommandEntries(asObject(payload.session)?.config)
+  );
+}
+
+function mergeSessionConfiguredCommandEntries(
+  providerCommands: ReadonlyArray<unknown> | undefined,
+  extensionCommands: ReadonlyArray<ProviderSlashCommand>,
+): ReadonlyArray<unknown> | undefined {
+  if (providerCommands === undefined) {
+    return extensionCommands.length > 0 ? extensionCommands : undefined;
+  }
+  if (extensionCommands.length === 0) {
+    return providerCommands;
+  }
+  return [...providerCommands, ...extensionCommands];
 }
 
 function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
@@ -755,6 +818,20 @@ function mapToRuntimeEvents(
 
   if (event.method === "session/ready") {
     const processPid = toProcessPid(payload);
+    const configuredEvent =
+      availableCommands.length > 0
+        ? [
+            {
+              ...runtimeEventBase(event, canonicalThreadId),
+              type: "session.configured" as const,
+              payload: {
+                config: {
+                  availableCommands,
+                },
+              },
+            },
+          ]
+        : [];
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -765,11 +842,16 @@ function mapToRuntimeEvents(
           ...(processPid !== undefined ? { processPid } : {}),
         },
       },
+      ...configuredEvent,
     ];
   }
 
   if (event.method === "session/started") {
     const processPid = toProcessPid(payload);
+    const mergedCommands = mergeSessionConfiguredCommandEntries(
+      readSessionConfiguredCommandEntries(payload),
+      availableCommands,
+    );
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -784,8 +866,26 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         type: "session.configured",
         payload: {
+          config: mergedCommands ? { availableCommands: mergedCommands } : {},
+        },
+      },
+    ];
+  }
+
+  if (event.method === "session/configured") {
+    const mergedCommands = mergeSessionConfiguredCommandEntries(
+      readSessionConfiguredCommandEntries(payload),
+      availableCommands,
+    );
+    const configPayload = asObject(payload?.config) ?? payload ?? {};
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "session.configured",
+        payload: {
           config: {
-            availableCommands,
+            ...configPayload,
+            ...(mergedCommands ? { availableCommands: mergedCommands } : {}),
           },
         },
       },
@@ -1559,12 +1659,27 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      const cwd = input.cwd ?? process.cwd();
+      const discoveredCommands = discoverCodexExtensionSlashCommands({
+        cwd: input.cwd,
+        codexHome: homePath,
+      });
+      const goalsFeatureEnabled = (
+        options?.resolveGoalsFeatureEnabled ?? isCodexGoalsFeatureEnabled
+      )({
+        binaryPath,
+        cwd,
+        ...(homePath ? { homePath } : {}),
+        ...(Object.keys(codexSettings.launchEnv).length > 0
+          ? { launchEnv: codexSettings.launchEnv }
+          : {}),
+      });
       extensionCommandsByThreadId.set(
         input.threadId,
-        discoverCodexExtensionSlashCommands({
-          cwd: input.cwd,
-          codexHome: homePath,
-        }),
+        mergeProviderSlashCommands(
+          discoveredCommands,
+          goalsFeatureEnabled ? [CODEX_GOAL_SLASH_COMMAND] : [],
+        ),
       );
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,

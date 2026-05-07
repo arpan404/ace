@@ -1,4 +1,5 @@
 import { computeMessageDurationStart } from "./messagesTimeline";
+import { stripProviderCommandMarkers } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
 export type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
@@ -78,6 +79,8 @@ export type TimelineRow =
       id: string;
       createdAt: string | null;
       mode: "live" | "silent-thinking";
+      activity: "default" | "goal";
+      goalStartedAt: string | null;
       intentText: string | null;
     };
 
@@ -102,6 +105,7 @@ export interface BuildTimelineRowsInput {
   readonly completionSummary: string | null;
   readonly hideCompletedWorkMessages?: boolean;
   readonly isWorking: boolean;
+  readonly enableGoalWorkingState?: boolean;
 }
 
 export function isCompletedAssistantMessageRow(
@@ -252,10 +256,44 @@ function latestIso(firstIso: string, secondIso: string): string {
   return secondMs >= firstMs ? secondIso : firstIso;
 }
 
+function isGoalCommandMessageText(text: string): boolean {
+  return /^\/goal(?:\s|$)/iu.test(stripProviderCommandMarkers(text).trim());
+}
+
+function latestGoalCommandMessageCreatedAt(input: {
+  readonly timelineEntries: ReadonlyArray<TimelineEntry>;
+  readonly enabled: boolean | undefined;
+}): string | null {
+  if (input.enabled !== true) {
+    return null;
+  }
+
+  let startedAt: string | null = null;
+
+  for (const timelineEntry of input.timelineEntries) {
+    if (timelineEntry?.kind !== "message") {
+      continue;
+    }
+
+    if (
+      timelineEntry.message.role === "user" &&
+      isGoalCommandMessageText(timelineEntry.message.text)
+    ) {
+      startedAt = timelineEntry.message.createdAt;
+    }
+  }
+
+  return startedAt;
+}
+
 export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
   const terminalAssistantMessageIds = new Set<string>();
   const assistantMessageIdsWithoutLaterUser = new Set<string>();
+  const latestGoalStartedAt = latestGoalCommandMessageCreatedAt({
+    timelineEntries: input.timelineEntries,
+    enabled: input.enableGoalWorkingState,
+  });
   const lastAssistantMessageIdByTurnId = new Map<string, string>();
   for (const timelineEntry of input.timelineEntries) {
     if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
@@ -313,7 +351,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   );
   let hasRenderableCurrentTurnOutput = false;
   let lastMessageBoundaryAt: string | null = null;
-  let activeTurnUserMessageCreatedAt: string | null = null;
+  let activeTurnPrimaryUserMessageCreatedAt: string | null = null;
+  let activeTurnPrimaryUserMessageIsGoalCommand = false;
   let pendingMetaRowId: string | null = null;
   let pendingMetaCreatedAt: string | null = null;
   let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
@@ -606,7 +645,12 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
         Number.isNaN(activeTurnStartedAtMs) ||
         isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
       ) {
-        activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
+        if (activeTurnPrimaryUserMessageCreatedAt === null) {
+          activeTurnPrimaryUserMessageCreatedAt = timelineEntry.message.createdAt;
+          activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(
+            timelineEntry.message.text,
+          );
+        }
       }
     }
 
@@ -676,12 +720,11 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     flushPendingMetaEntries(null);
   }
 
+  const goalWorkingStateEnabled =
+    input.enableGoalWorkingState === true &&
+    (activeTurnPrimaryUserMessageIsGoalCommand || latestGoalStartedAt !== null);
   const liveDurationStartAt =
-    activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
-  flushHiddenCompletedWorkSummary({
-    startedAtFloor: liveDurationStartAt,
-    endedAt: null,
-  });
+    activeTurnPrimaryUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
 
   if (input.isWorking) {
     nextRows.push({
@@ -689,6 +732,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       id: "working-indicator-row",
       createdAt: liveDurationStartAt,
       mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
+      activity: goalWorkingStateEnabled ? "goal" : "default",
+      goalStartedAt: goalWorkingStateEnabled ? latestGoalStartedAt : null,
       intentText: activeLiveIntentText,
     });
   }
