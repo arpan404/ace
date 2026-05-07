@@ -54,6 +54,7 @@ import {
   type LucideIcon,
   PlugIcon,
   SquarePenIcon,
+  TargetIcon,
   Undo2Icon,
   WrenchIcon,
   ZapIcon,
@@ -309,6 +310,7 @@ interface MessagesTimelineProps {
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
+  enableGoalWorkingState?: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -346,6 +348,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenFilePath = null,
   enableLocalFileLinks = true,
   providerCommands = [],
+  enableGoalWorkingState = false,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
@@ -363,6 +366,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       completionSummary,
       hideCompletedWorkMessages,
       isWorking,
+      enableGoalWorkingState,
     }),
     [
       activeTurnInProgress,
@@ -372,6 +376,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       hideCompletedWorkMessages,
       isWorking,
       activeTurnStartedAt,
+      enableGoalWorkingState,
     ],
   );
   const shouldResolveTimelineRowsInWorker = useMemo(
@@ -1072,6 +1077,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   "Working..."
                 )}
               </span>
+              {row.activity === "goal" && (
+                <span
+                  className="inline-flex items-center gap-1.5 text-emerald-600/80 dark:text-emerald-400/80"
+                  data-goal-working-timer="true"
+                >
+                  <span className="text-muted-foreground/38">·</span>
+                  {row.goalStartedAt ? (
+                    <WorkingTimer
+                      createdAt={row.goalStartedAt}
+                      label="Pursuing goal for"
+                      live={liveTimers}
+                    />
+                  ) : (
+                    "Pursuing goal..."
+                  )}
+                </span>
+              )}
             </div>
             {row.intentText && (
               <p
@@ -1524,7 +1546,7 @@ function getTimelineRowHeightCacheKey(
     case "proposed-plan":
       return `proposed-plan:${row.id}:${row.proposedPlan.planMarkdown.length}`;
     case "working":
-      return `working:${row.id}:${row.mode}:${row.intentText ? 1 : 0}`;
+      return `working:${row.id}:${row.mode}:${row.activity}:${row.goalStartedAt ?? "no-goal"}:${row.intentText ? 1 : 0}`;
   }
 }
 
@@ -1786,7 +1808,7 @@ const UserMessageTerminalContextInlineLabel = memo(
 );
 
 type UserMessageProviderCommandDisplay = {
-  readonly kind: ProviderExtensionCommandKind;
+  readonly kind: ProviderExtensionCommandKind | "goal";
   readonly label: string;
 };
 
@@ -1798,7 +1820,10 @@ const USER_MESSAGE_INLINE_TOKEN_REGEX =
 function providerCommandKindForDisplay(
   command: ProviderSlashCommand,
   normalizedName: string,
-): ProviderExtensionCommandKind | null {
+): ProviderExtensionCommandKind | "goal" | null {
+  if (command.kind === "provider" && normalizedName === "goal") {
+    return "goal";
+  }
   if (command.kind === "skill" || command.kind === "plugin") {
     return command.kind;
   }
@@ -1893,19 +1918,36 @@ function renderUserMessageInlineText(
 
     const providerCommandDisplay = providerCommandLookup.get(token.toLowerCase());
 
-    if (providerCommandDisplay) {
-      const ProviderCommandIcon = providerCommandDisplay.kind === "plugin" ? PlugIcon : IconStack2;
+    const isFirstNonWhitespaceToken = text.slice(0, tokenStart).trim().length === 0;
+    const shouldDecorateProviderCommand =
+      providerCommandDisplay &&
+      (providerCommandDisplay.kind !== "goal" || isFirstNonWhitespaceToken);
+
+    if (shouldDecorateProviderCommand) {
+      const ProviderCommandIcon =
+        providerCommandDisplay.kind === "plugin"
+          ? PlugIcon
+          : providerCommandDisplay.kind === "goal"
+            ? TargetIcon
+            : IconStack2;
       nodes.push(
         <span
           key={`${keyPrefix}:provider-command:${tokenStart}`}
-          className="inline-flex items-center gap-1 rounded-md border border-sky-500/35 bg-sky-500/10 px-1 py-px font-medium text-sky-700 leading-[1.15] dark:text-sky-300"
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-1 py-px font-medium leading-[1.15]",
+            providerCommandDisplay.kind === "goal"
+              ? "border border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+              : "border border-border/70 bg-muted/70 text-foreground/85",
+          )}
         >
           <ProviderCommandIcon
             aria-hidden="true"
             className={
               providerCommandDisplay.kind === "plugin"
-                ? "size-3.5 shrink-0 text-violet-400/90"
-                : "size-3.5 shrink-0 text-cyan-400/90"
+                ? "size-3.5 shrink-0 text-muted-foreground/85"
+                : providerCommandDisplay.kind === "goal"
+                  ? "size-3.5 shrink-0 text-emerald-500"
+                  : "size-3.5 shrink-0 text-muted-foreground/85"
             }
           />
           <span>{providerCommandDisplay.label}</span>

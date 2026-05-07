@@ -7375,6 +7375,8 @@ export default function ChatView({
       onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
       enableLocalFileLinks: canOpenLocalMarkdownFiles,
       providerCommands: composerProviderCommands,
+      enableGoalWorkingState:
+        (activeThread.session?.provider ?? activeThread.modelSelection.provider) === "codex",
       resolvedTheme,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
@@ -7383,6 +7385,7 @@ export default function ChatView({
       activeProject?.cwd,
       activeThread.messages.length,
       activeThread.session?.provider,
+      activeThread.modelSelection.provider,
       activeForSideEffects,
       activeWorkStartedAt,
       canOpenLocalMarkdownFiles,
