@@ -260,37 +260,67 @@ function isGoalCommandMessageText(text: string): boolean {
   return /^\/goal(?:\s|$)/iu.test(stripProviderCommandMarkers(text).trim());
 }
 
-function latestGoalCommandMessageCreatedAt(input: {
+function isCodexGoalCompletionMessageText(text: string): boolean {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  return (
+    /\bgoal\s+(?:completed|complete|finished|done|achieved)\b/iu.test(normalized) ||
+    /\bassistant\s+stopping\s+completely\b/iu.test(normalized)
+  );
+}
+
+function timelineEntryHasCodexGoalCompletionSignal(timelineEntry: TimelineEntry): boolean {
+  if (timelineEntry.kind === "message") {
+    return (
+      timelineEntry.message.role === "assistant" &&
+      isCodexGoalCompletionMessageText(timelineEntry.message.text)
+    );
+  }
+
+  if (timelineEntry.kind !== "work") {
+    return false;
+  }
+
+  return [timelineEntry.entry.label, timelineEntry.entry.detail]
+    .filter((value): value is string => typeof value === "string")
+    .some(isCodexGoalCompletionMessageText);
+}
+
+function latestGoalState(input: {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly enabled: boolean | undefined;
-}): string | null {
+}): { readonly active: boolean; readonly startedAt: string | null } {
   if (input.enabled !== true) {
-    return null;
+    return { active: false, startedAt: null };
   }
 
   let startedAt: string | null = null;
+  let active = false;
 
   for (const timelineEntry of input.timelineEntries) {
-    if (timelineEntry?.kind !== "message") {
-      continue;
-    }
-
     if (
+      timelineEntry?.kind === "message" &&
       timelineEntry.message.role === "user" &&
       isGoalCommandMessageText(timelineEntry.message.text)
     ) {
       startedAt = timelineEntry.message.createdAt;
+      active = true;
+      continue;
+    }
+
+    if (active && timelineEntryHasCodexGoalCompletionSignal(timelineEntry)) {
+      startedAt = null;
+      active = false;
     }
   }
 
-  return startedAt;
+  return { active, startedAt };
 }
 
 export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
   const terminalAssistantMessageIds = new Set<string>();
   const assistantMessageIdsWithoutLaterUser = new Set<string>();
-  const latestGoalStartedAt = latestGoalCommandMessageCreatedAt({
+  const goalState = latestGoalState({
     timelineEntries: input.timelineEntries,
     enabled: input.enableGoalWorkingState,
   });
@@ -719,10 +749,15 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   } else {
     flushPendingMetaEntries(null);
   }
+  flushHiddenCompletedWorkSummary({
+    startedAtFloor: lastMessageBoundaryAt,
+    endedAt: null,
+  });
 
   const goalWorkingStateEnabled =
     input.enableGoalWorkingState === true &&
-    (activeTurnPrimaryUserMessageIsGoalCommand || latestGoalStartedAt !== null);
+    goalState.active &&
+    (activeTurnPrimaryUserMessageIsGoalCommand || goalState.startedAt !== null);
   const liveDurationStartAt =
     activeTurnPrimaryUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
 
@@ -733,7 +768,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       createdAt: liveDurationStartAt,
       mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
       activity: goalWorkingStateEnabled ? "goal" : "default",
-      goalStartedAt: goalWorkingStateEnabled ? latestGoalStartedAt : null,
+      goalStartedAt: goalWorkingStateEnabled ? goalState.startedAt : null,
       intentText: activeLiveIntentText,
     });
   }
