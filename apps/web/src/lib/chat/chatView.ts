@@ -28,12 +28,12 @@ import {
   type TerminalContextDraft,
 } from "../terminalContext";
 import { type QueuedComposerImageAttachment } from "../../types";
+export { formatQueuedComposerMessagePreview } from "./queuedComposerPreview";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "ace:last-invoked-script-by-project";
 const WORKTREE_BRANCH_PREFIX = "ace";
 const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
   /(?:\n\s*)?<browser_design_context>\s*[\s\S]*?\s*<\/browser_design_context>\s*$/u;
-const QUEUED_COMPOSER_PREVIEW_MAX_CHARS = 200;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -196,39 +196,6 @@ export function deriveComposerSendState(options: {
     hasSendableContent:
       trimmedPrompt.length > 0 || options.imageCount > 0 || sendableTerminalContexts.length > 0,
   };
-}
-
-export function formatQueuedComposerMessagePreview(options: {
-  prompt: string;
-  imageCount: number;
-  terminalContextCount: number;
-}): string {
-  const truncatePreview = (value: string): string =>
-    value.length > QUEUED_COMPOSER_PREVIEW_MAX_CHARS
-      ? `${value.slice(0, QUEUED_COMPOSER_PREVIEW_MAX_CHARS - 3).trimEnd()}...`
-      : value;
-  const visiblePrompt = deriveDisplayedUserMessageState(options.prompt).visibleText;
-  const trimmedPrompt = stripInlineTerminalContextPlaceholders(visiblePrompt)
-    .replace(/\s+/gu, " ")
-    .trim();
-
-  if (trimmedPrompt.length > 0) {
-    return truncatePreview(trimmedPrompt);
-  }
-
-  const parts: string[] = [];
-  if (options.imageCount > 0) {
-    parts.push(options.imageCount === 1 ? "1 image" : `${options.imageCount} images`);
-  }
-  if (options.terminalContextCount > 0) {
-    parts.push(
-      options.terminalContextCount === 1
-        ? "1 terminal context"
-        : `${options.terminalContextCount} terminal contexts`,
-    );
-  }
-
-  return truncatePreview(parts.length > 0 ? parts.join(" · ") : "Queued message");
 }
 
 export function deriveQueuedComposerMessageDraftForEditing(message: QueuedComposerMessage): {

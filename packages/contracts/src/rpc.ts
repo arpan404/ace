@@ -121,6 +121,7 @@ import {
   ServerProviderUpdatedPayload,
   ServerProviderCliUpgradeError,
   ServerRuntimeProfile,
+  ServerUninstallLspToolInput,
   ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
@@ -194,6 +195,7 @@ export const WS_METHODS = {
   serverInstallLspTools: "server.installLspTools",
   serverSearchLspMarketplace: "server.searchLspMarketplace",
   serverInstallLspTool: "server.installLspTool",
+  serverUninstallLspTool: "server.uninstallLspTool",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -277,6 +279,12 @@ export const WsServerSearchLspMarketplaceRpc = Rpc.make(WS_METHODS.serverSearchL
 
 export const WsServerInstallLspToolRpc = Rpc.make(WS_METHODS.serverInstallLspTool, {
   payload: ServerInstallLspToolInput,
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
+});
+
+export const WsServerUninstallLspToolRpc = Rpc.make(WS_METHODS.serverUninstallLspTool, {
+  payload: ServerUninstallLspToolInput,
   success: ServerLspToolsStatus,
   error: ServerLspToolsError,
 });
@@ -599,6 +607,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerInstallLspToolsRpc,
   WsServerSearchLspMarketplaceRpc,
   WsServerInstallLspToolRpc,
+  WsServerUninstallLspToolRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,

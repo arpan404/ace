@@ -70,6 +70,7 @@ import {
   installLspTool,
   installLspTools,
   searchLspMarketplace,
+  uninstallLspTool,
 } from "./lspTools";
 import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
@@ -663,6 +664,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           catch: (cause) =>
             new ServerLspToolsError({
               message: "Unable to install language server tool.",
+              cause,
+            }),
+        }),
+      [WS_METHODS.serverUninstallLspTool]: (input) =>
+        Effect.tryPromise({
+          try: () => uninstallLspTool(config.stateDir, input),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to uninstall language server tool.",
               cause,
             }),
         }),

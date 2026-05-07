@@ -102,6 +102,9 @@ describe("ComposerQueuedMessages", () => {
 
     expect(markup).toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
+    expect(markup).toContain("Tighten the card rhythm");
+    expect(markup).not.toContain("browser_design_context");
+    expect(markup).not.toContain("DR-4F2C8A11");
   });
 
   it("renders nothing when the queue is empty", () => {

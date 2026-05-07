@@ -400,6 +400,11 @@ export const ServerInstallLspToolInput = Schema.Struct({
 });
 export type ServerInstallLspToolInput = typeof ServerInstallLspToolInput.Type;
 
+export const ServerUninstallLspToolInput = Schema.Struct({
+  id: ServerLspToolId,
+});
+export type ServerUninstallLspToolInput = typeof ServerUninstallLspToolInput.Type;
+
 export class ServerLspToolsError extends Schema.TaggedErrorClass<ServerLspToolsError>()(
   "ServerLspToolsError",
   {
