@@ -42,7 +42,7 @@ This starts the web app and local server together.
 
 ## CLI
 
-The `ace` CLI can start/open the app, manage the daemon, and manage local/remote runtime state.
+The `ace` CLI can start/open the app, manage the daemon, diagnose provider setup, control telemetry, inspect terminals, and manage local/remote runtime state.
 
 Quick examples:
 
@@ -62,13 +62,16 @@ ace stop
 # Restart daemon
 ace daemon restart
 
-# Telemetry controls
+# Telemetry and runtime controls
 ace telemetry off
 ace telemetry status
 ace daemon start --telemetry on
+
+# Managed terminals
+ace terminal list
 ```
 
-Full command reference and examples:
+Full CLI guide with first-run setup, diagnostics, telemetry/privacy controls, terminal management, remote pairing, troubleshooting, and automation examples:
 
 - [docs/cli.md](./docs/cli.md)
 
