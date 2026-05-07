@@ -2320,6 +2320,32 @@ const daemonStatusCommand = Command.make("status", {
   ),
 );
 
+const runDaemonStopCommand = (input: {
+  readonly timeoutMs: number;
+  readonly json: boolean;
+  readonly flags: CliDataFlags;
+}) =>
+  runDaemonCommand(
+    input.flags,
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const result = yield* stopDaemonIfPresent({
+        baseDir: config.baseDir,
+        timeoutMs: input.timeoutMs,
+      });
+      if (input.json) {
+        return yield* writeJson(result);
+      }
+      if (result.status === "already-stopped") {
+        return yield* writeStdout(`${pc.yellow("Already stopped")} daemon not running\n`);
+      }
+      if (result.status === "cleared-stale-state") {
+        return yield* writeStdout(`${pc.yellow("Cleared")} stale daemon state\n`);
+      }
+      return yield* writeStdout(`${pc.green("Stopped")} daemon pid=${String(result.pid)}\n`);
+    }),
+  );
+
 const daemonStopCommand = Command.make("stop", {
   ...dataCommandFlags,
   timeoutMs: Flag.integer("timeout-ms").pipe(
@@ -2331,26 +2357,22 @@ const daemonStopCommand = Command.make("stop", {
 }).pipe(
   Command.withDescription("Stop the background daemon process."),
   Command.withHandler(({ timeoutMs, json, ...flags }) =>
-    runDaemonCommand(
-      flags,
-      Effect.gen(function* () {
-        const config = yield* ServerConfig;
-        const result = yield* stopDaemonIfPresent({
-          baseDir: config.baseDir,
-          timeoutMs,
-        });
-        if (json) {
-          return yield* writeJson(result);
-        }
-        if (result.status === "already-stopped") {
-          return yield* writeStdout(`${pc.yellow("Already stopped")} daemon not running\n`);
-        }
-        if (result.status === "cleared-stale-state") {
-          return yield* writeStdout(`${pc.yellow("Cleared")} stale daemon state\n`);
-        }
-        return yield* writeStdout(`${pc.green("Stopped")} daemon pid=${String(result.pid)}\n`);
-      }),
-    ),
+    runDaemonStopCommand({ timeoutMs, json, flags }),
+  ),
+);
+
+const stopCommand = Command.make("stop", {
+  ...dataCommandFlags,
+  timeoutMs: Flag.integer("timeout-ms").pipe(
+    Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(250))),
+    Flag.withDescription("How long to wait for graceful daemon shutdown."),
+    Flag.withDefault(8_000),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Stop the background daemon process."),
+  Command.withHandler(({ timeoutMs, json, ...flags }) =>
+    runDaemonStopCommand({ timeoutMs, json, flags }),
   ),
 );
 
@@ -2568,6 +2590,7 @@ const formatRootCliGuide = (): string =>
     `  ${pc.cyan("ace --update")}           update the packaged desktop app`,
     `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
     `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
+    `  ${pc.cyan("ace stop")}               stop background daemon`,
     `  ${pc.cyan("ace --restart")}          restart background daemon`,
     `  ${pc.cyan("ace interactive")}        launch quick interactive command picker`,
     `  ${pc.cyan("ace project list")}       list saved local projects`,
@@ -2775,6 +2798,7 @@ export const cli = rootCommand.pipe(
     projectCommand,
     remoteCommand,
     daemonCommand,
+    stopCommand,
     interactiveCommand,
   ]),
 );
