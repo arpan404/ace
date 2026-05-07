@@ -359,6 +359,17 @@ function classifyToolItemType(toolName: string | undefined): CanonicalItemType {
     return "command_execution";
   }
   if (
+    normalized.includes("grep") ||
+    normalized.includes("glob") ||
+    normalized.includes("search") ||
+    normalized.includes("find")
+  ) {
+    return "web_search";
+  }
+  if (normalized.includes("read") || normalized.includes("open") || normalized.includes("view")) {
+    return "dynamic_tool_call";
+  }
+  if (
     normalized.includes("write") ||
     normalized.includes("edit") ||
     normalized.includes("patch") ||

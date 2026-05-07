@@ -1371,6 +1371,75 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("does not treat read-only file tool payloads as file changes", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "read-title",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: {
+          itemType: "file_change",
+          title: "Read file",
+          data: {
+            toolCallId: "read-title",
+            path: "README.md",
+          },
+        },
+      }),
+      makeActivity({
+        id: "read-detail",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          detail: "Read File",
+          data: {
+            toolCallId: "read-detail",
+            path: "apps/web/src/session-logic.ts",
+          },
+        },
+      }),
+      makeActivity({
+        id: "search-title",
+        kind: "tool.completed",
+        summary: "Find",
+        payload: {
+          itemType: "file_change",
+          title: "Find",
+          data: {
+            toolCallId: "search-title",
+            path: "apps/web/src",
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    const readTitle = entries.find((entry) => entry.id === "read-title");
+    const readDetail = entries.find((entry) => entry.id === "read-detail");
+    const searchTitle = entries.find((entry) => entry.id === "search-title");
+
+    expect(readTitle).toMatchObject({
+      toolTitle: "Read file",
+      requestKind: "file-read",
+      detail: "README.md",
+    });
+    expect(readTitle?.changedFiles).toBeUndefined();
+    expect(readDetail).toMatchObject({
+      toolTitle: "Read file",
+      requestKind: "file-read",
+      detail: "Read File",
+    });
+    expect(readDetail?.changedFiles).toBeUndefined();
+    expect(searchTitle).toMatchObject({
+      toolTitle: "Find",
+      detail: "apps/web/src",
+    });
+    expect(searchTitle?.requestKind).toBeUndefined();
+    expect(searchTitle?.changedFiles).toBeUndefined();
+  });
+
   it("derives readable Gemini tool labels from kind, locations, and path-like titles", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -2671,6 +2740,7 @@ describe("PROVIDER_OPTIONS", () => {
       { value: "claudeAgent", label: "Claude", available: true },
       { value: "githubCopilot", label: "Copilot", available: true },
       { value: "cursor", label: "Cursor", available: true },
+      { value: "pi", label: "Pi", available: true },
       { value: "gemini", label: "Gemini", available: true },
       { value: "opencode", label: "OpenCode", available: true },
     ]);

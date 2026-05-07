@@ -288,6 +288,7 @@ import {
   buildHandoffTimeline,
   type HandoffLineageResult,
   resolveHandoffLineage,
+  resolveHandoffSourceProvider,
 } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -759,6 +760,7 @@ export default function ChatView({
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
+  const hideCompletedWorkMessages = useSetting("hideCompletedWorkMessages");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
   const browserMaxMountedInstances = useSetting("browserMaxMountedInstances");
@@ -2199,6 +2201,18 @@ export default function ChatView({
     timelineEntries,
     turnDiffSummaryByAssistantMessageId,
   ]);
+  const revertTurnCountByAssistantMessageId = useMemo(() => {
+    const byAssistantMessageId = new Map<MessageId, number>();
+    for (const [assistantMessageId, summary] of turnDiffSummaryByAssistantMessageId) {
+      const turnCount =
+        summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+      if (typeof turnCount !== "number") {
+        continue;
+      }
+      byAssistantMessageId.set(assistantMessageId, Math.max(0, turnCount - 1));
+    }
+    return byAssistantMessageId;
+  }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionSummary = useMemo(() => {
     if (!latestTurnSettled) return null;
@@ -6960,7 +6974,7 @@ export default function ChatView({
           worktreePath: activeThread.worktreePath,
           handoff: {
             sourceThreadId: activeThread.id,
-            fromProvider: activeThread.modelSelection.provider,
+            fromProvider: resolveHandoffSourceProvider(activeThread),
             toProvider: resolvedProvider,
             mode: "best",
             createdAt,
@@ -7049,6 +7063,16 @@ export default function ChatView({
       void onRevertToTurnCount(targetTurnCount);
     },
     [onRevertToTurnCount, revertTurnCountByUserMessageId],
+  );
+  const onRevertAssistantMessage = useCallback(
+    (messageId: MessageId) => {
+      const targetTurnCount = revertTurnCountByAssistantMessageId.get(messageId);
+      if (typeof targetTurnCount !== "number") {
+        return;
+      }
+      void onRevertToTurnCount(targetTurnCount);
+    },
+    [onRevertToTurnCount, revertTurnCountByAssistantMessageId],
   );
   const onFixGitHubIssue = useCallback(
     async (payload: { prompt: string; images: ComposerImageAttachment[] }) => {
@@ -7306,6 +7330,7 @@ export default function ChatView({
       activeTurnInProgress: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
       backgroundMarkdownPrewarm: activeForSideEffects,
+      hideCompletedWorkMessages,
       liveTimers: activeForSideEffects,
       getScrollContainer: getMessagesScrollContainer,
       timelineEntries,
@@ -7317,6 +7342,8 @@ export default function ChatView({
       onOpenTurnDiff,
       revertTurnCountByUserMessageId,
       onRevertUserMessage,
+      revertTurnCountByAssistantMessageId,
+      onRevertAssistantMessage,
       revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
       isRevertingCheckpoint,
       onImageExpand: onExpandTimelineImage,
@@ -7343,6 +7370,7 @@ export default function ChatView({
       composerProviderCommands,
       isGitRepo,
       isHandoffThread,
+      hideCompletedWorkMessages,
       isRevertingCheckpoint,
       isThreadHistoryLoading,
       isWorking,
@@ -7350,12 +7378,14 @@ export default function ChatView({
       getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
+      onRevertAssistantMessage,
       onRevertUserMessage,
       onToggleWorkGroup,
       openGitHubIssueDialog,
       openBrowserUrlInNewTab,
       openMarkdownFileInAppEditor,
       resolvedTheme,
+      revertTurnCountByAssistantMessageId,
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
       timelineEntries,

@@ -380,7 +380,6 @@ function SidebarRail({
   const resolvedResizable = sidebarInstance?.resizable ?? null;
   const canResize = resolvedResizable !== null && open;
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
-  const railTitle = canResize ? "Drag to resize sidebar" : "Toggle Sidebar";
 
   const stopResize = React.useCallback(
     (pointerId: number) => {
@@ -647,7 +646,6 @@ function SidebarRail({
       onPointerUp={handlePointerUp}
       ref={railRef}
       tabIndex={-1}
-      title={railTitle}
       type="button"
       {...props}
     />

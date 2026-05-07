@@ -37,6 +37,7 @@ import {
 } from "~/lib/browser/url";
 import { resolveLocalConnectionUrl } from "~/lib/connectionRouting";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const BROWSER_ZOOM_STEP = 0.1;
 const MIN_BROWSER_ZOOM_FACTOR = 0.25;
@@ -1392,7 +1393,7 @@ export function BrowserFavicon(props: {
   className?: string;
   fallbackClassName?: string;
 }) {
-  const { className, fallbackClassName, title, url } = props;
+  const { className, fallbackClassName, url } = props;
   const sources = useMemo(() => resolveBrowserFaviconSources(url), [url]);
   const [sourceIndex, setSourceIndex] = useState(0);
 
@@ -1413,7 +1414,6 @@ export function BrowserFavicon(props: {
       aria-hidden="true"
       className={cn("shrink-0 rounded-sm object-cover", className)}
       src={source}
-      title={title}
       onError={() => {
         setSourceIndex((current) => {
           const nextIndex = current + 1;
@@ -3047,15 +3047,21 @@ export function BrowserTabWebview(props: {
                 className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
                 autoFocus
               />
-              <button
-                type="submit"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
-                disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
-                aria-label="Submit comment"
-                title="Submit comment"
-              >
-                <ArrowUpRightIcon className="size-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="submit"
+                      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
+                      disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
+                      aria-label="Submit comment"
+                    />
+                  }
+                >
+                  <ArrowUpRightIcon className="size-4" />
+                </TooltipTrigger>
+                <TooltipPopup side="top">Submit comment</TooltipPopup>
+              </Tooltip>
             </form>
           )}
         </div>
