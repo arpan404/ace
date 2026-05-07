@@ -58,6 +58,14 @@ export function resetThreadRightSidePanelState(threadId: ThreadId): void {
   removeLocalStorageItem(keys.visible);
 }
 
+export function shouldApplyThreadBrowserViewportResizeToVisiblePanel(input: {
+  activeThreadId: ThreadId | null;
+  requestThreadId: ThreadId;
+  rightSidePanelInteractive: boolean;
+}): boolean {
+  return input.rightSidePanelInteractive && input.activeThreadId === input.requestThreadId;
+}
+
 export function resolveRightSidePanelModeAfterDiffClose(input: {
   activeMode: RightSidePanelMode | null;
   lastNonDiffMode: RightSidePanelMode | null;

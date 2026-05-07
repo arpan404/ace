@@ -313,12 +313,13 @@ import {
   RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
   RightSidePanelModeStorageSchema,
   resolveRightSidePanelModeAfterDiffClose,
+  shouldApplyThreadBrowserViewportResizeToVisiblePanel,
   type RightSidePanelMode,
 } from "~/lib/rightSidePanelState";
 import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
-import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useConnectionServerConfig,
   resolveThreadOriginConnectionUrl,
@@ -491,7 +492,6 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onCloseTerminal: (terminalId: string) => void;
-  onTerminateTerminal: (terminalId: string) => void;
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -511,7 +511,6 @@ function ConnectedRetainedThreadTerminalDrawers({
   onMoveTerminal,
   onAutoTerminalTitleChange,
   onCloseTerminal,
-  onTerminateTerminal,
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
@@ -540,7 +539,6 @@ function ConnectedRetainedThreadTerminalDrawers({
           onMoveTerminal,
           onAutoTerminalTitleChange,
           onCloseTerminal,
-          onTerminateTerminal,
           onToggleTerminal,
           onHeightChange,
           onAddTerminalContext,
@@ -4471,15 +4469,31 @@ export default function ChatView({
   }, [editorHostedInRightPanel, syncWorkspaceEditorSplitWidth, workspaceMode]);
 
   const resizeBrowserViewportForBridge = useCallback(
-    (request: BrowserViewportResizeRequest): BrowserViewportResizeResult => {
+    (
+      requestThreadId: ThreadId,
+      request: BrowserViewportResizeRequest,
+    ): BrowserViewportResizeResult => {
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
       const requestedPanelWidth =
         request.panelWidth ??
         (request.width !== undefined
           ? request.width + RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH
           : undefined);
+      const requestIsForActiveThread = shouldApplyThreadBrowserViewportResizeToVisiblePanel({
+        activeThreadId,
+        requestThreadId,
+        rightSidePanelInteractive,
+      });
+      const requestThreadPanelWidthStorageKey = resolveScopedBrowserStorageKey(
+        RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+        requestThreadId,
+      );
+      const storedRequestThreadPanelWidth = requestIsForActiveThread
+        ? rightSidePanelWidthRef.current
+        : (getLocalStorageItem(requestThreadPanelWidthStorageKey, Schema.Number) ??
+          DEFAULT_RIGHT_SIDE_PANEL_WIDTH);
       const currentPanelWidth = clampRightSidePanelWidth(
-        rightSidePanelWidthRef.current,
+        storedRequestThreadPanelWidth,
         viewportWidth,
       );
       const nextPanelWidth =
@@ -4487,11 +4501,15 @@ export default function ChatView({
           ? clampRightSidePanelWidth(requestedPanelWidth, viewportWidth)
           : currentPanelWidth;
 
-      setRightSidePanelMode("browser");
-      setBrowserMode("split");
-      setRightSidePanelVisible(true);
-      setRightSidePanelFullscreen(false);
-      syncRightSidePanelWidth(nextPanelWidth);
+      if (requestIsForActiveThread) {
+        setRightSidePanelMode("browser");
+        setBrowserMode("split");
+        setRightSidePanelVisible(true);
+        setRightSidePanelFullscreen(false);
+        syncRightSidePanelWidth(nextPanelWidth);
+      } else if (requestedPanelWidth !== undefined) {
+        setLocalStorageItem(requestThreadPanelWidthStorageKey, nextPanelWidth, Schema.Number);
+      }
 
       const result: BrowserViewportResizeResult = {
         heightControlledByAppWindow: true,
@@ -4510,6 +4528,8 @@ export default function ChatView({
       return result;
     },
     [
+      activeThreadId,
+      rightSidePanelInteractive,
       setBrowserMode,
       setRightSidePanelFullscreen,
       setRightSidePanelMode,
@@ -4818,21 +4838,6 @@ export default function ChatView({
       closeTerminalTarget(terminalId);
     },
     [activeThreadId, closeTerminalTarget],
-  );
-  const terminateTerminal = useCallback(
-    (terminalId: string) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
-      void api.terminal
-        .terminate({
-          threadId: activeThreadId,
-          terminalId,
-        })
-        .catch((error) => {
-          reportBackgroundError("Failed to stop the terminal process from ChatView.", error);
-        });
-    },
-    [activeThreadId],
   );
   const runProjectScript = useCallback(
     async (
@@ -7529,7 +7534,8 @@ export default function ChatView({
                   onBrowserSessionChange: getBrowserSessionChangeHandler(browserThreadId),
                   onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
                   onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
-                  onResizeViewport: resizeBrowserViewportForBridge,
+                  onResizeViewport: (request: BrowserViewportResizeRequest) =>
+                    resizeBrowserViewportForBridge(browserThreadId, request),
                   backShortcutLabel: browserBackShortcutLabel,
                   designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
                   designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
@@ -8153,7 +8159,6 @@ export default function ChatView({
         onMoveTerminal={moveTerminal}
         onAutoTerminalTitleChange={setTerminalAutoTitle}
         onCloseTerminal={closeTerminal}
-        onTerminateTerminal={terminateTerminal}
         onToggleTerminal={toggleTerminalVisibility}
         onHeightChange={setTerminalHeight}
         onAddTerminalContext={addTerminalContextToDraft}
