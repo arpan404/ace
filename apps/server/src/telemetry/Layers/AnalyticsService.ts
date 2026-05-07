@@ -12,7 +12,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 
 import { ServerConfig } from "../../config.ts";
 import { AnalyticsService, type AnalyticsServiceShape } from "../Services/AnalyticsService.ts";
-import { getTelemetryIdentifier } from "../Identify.ts";
+import { getTelemetryIdentity } from "../Identify.ts";
 import { version } from "../../../package.json" with { type: "json" };
 
 interface BufferedAnalyticsEvent {
@@ -23,7 +23,7 @@ interface BufferedAnalyticsEvent {
 
 const TelemetryEnvConfig = Config.all({
   posthogKey: Config.string("ACE_POSTHOG_KEY").pipe(
-    Config.withDefault("phc_XOWci4oZP4VvLiEyrFqkFjP4CZn55mjYYBMREK5Wd6m"),
+    Config.withDefault("phc_BZeopQzgN6neMNhGdMtADQvzQpA8vjKNzNJGW7QykjTN"),
   ),
   posthogHost: Config.string("ACE_POSTHOG_HOST").pipe(
     Config.withDefault("https://us.i.posthog.com"),
@@ -39,7 +39,7 @@ const makeAnalyticsService = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig.asEffect();
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig;
-  const identifier = yield* getTelemetryIdentifier;
+  const identity = yield* getTelemetryIdentity;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
   const clientType = serverConfig.mode === "desktop" ? "desktop-app" : "cli-web-client";
 
@@ -73,20 +73,21 @@ const makeAnalyticsService = Effect.gen(function* () {
   const sendBatch = Effect.fn("sendBatch")(function* (
     events: ReadonlyArray<BufferedAnalyticsEvent>,
   ) {
-    if (!telemetryConfig.enabled || !identifier) return;
+    if (!telemetryConfig.enabled || !identity) return;
 
     const payload = {
       api_key: telemetryConfig.posthogKey,
       batch: events.map((event) => ({
         event: event.event,
-        distinct_id: identifier,
+        distinct_id: identity.distinctId,
         properties: {
           ...event.properties,
+          ...identity.traits,
           $process_person_profile: false,
           platform: process.platform,
           wsl: process.env.WSL_DISTRO_NAME,
           arch: process.arch,
-          t3CodeVersion: version,
+          aceVersion: version,
           clientType,
         },
         timestamp: event.capturedAt,
@@ -126,7 +127,7 @@ const makeAnalyticsService = Effect.gen(function* () {
   }).pipe(Effect.catch((cause) => Effect.logError("Failed to flush telemetry", { cause })));
 
   const record: AnalyticsServiceShape["record"] = Effect.fnUntraced(function* (event, properties) {
-    if (!telemetryConfig.enabled || !identifier) return;
+    if (!telemetryConfig.enabled || !identity) return;
 
     const enqueueResult = yield* enqueueBufferedEvent(event, properties);
     if (enqueueResult.dropped) {

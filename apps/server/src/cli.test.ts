@@ -11,6 +11,8 @@ import type { AceServerDaemonState } from "./daemon";
 import {
   applyDaemonRestartStateDefaults,
   cli,
+  formatCliHelp,
+  formatRootCliGuide,
   isDaemonStateCurrentVersion,
   shouldRunServeInForeground,
 } from "./cli.ts";
@@ -50,6 +52,24 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
 
   it.effect("recognizes interactive command", () =>
     Command.runWith(cli, { version: "0.0.0" })(["interactive", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes telemetry command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["telemetry", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes doctor command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["doctor", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes top-level telemetry preference flag", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["--telemetry", "off", "--help"]).pipe(
       Effect.provide(CliRuntimeLayer),
     ),
   );
@@ -101,6 +121,29 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
       Effect.provide(CliRuntimeLayer),
     ),
   );
+
+  it("keeps the root quick guide focused on current commands", () => {
+    const guide = formatRootCliGuide();
+    assert.equal(guide.includes("ace web [workspace]"), true);
+    assert.equal(guide.includes("ace doctor"), true);
+    assert.equal(guide.includes("ace telemetry off"), true);
+    assert.equal(guide.includes("ace --web"), false);
+  });
+
+  it("renders custom root help with examples", () => {
+    const help = formatCliHelp(["--help"]);
+    assert.notEqual(help, null);
+    assert.equal(help?.includes("ace doctor"), true);
+    assert.equal(help?.includes("ace telemetry off"), true);
+    assert.equal(help?.includes("Start Here"), true);
+  });
+
+  it("renders custom telemetry help with precedence", () => {
+    const help = formatCliHelp(["telemetry", "--help"]);
+    assert.notEqual(help, null);
+    assert.equal(help?.includes("ace telemetry [status|on|off]"), true);
+    assert.equal(help?.includes("ACE_TELEMETRY_ENABLED"), true);
+  });
 
   it.effect("applies daemon restart defaults from existing daemon state", () =>
     Effect.sync(() => {
