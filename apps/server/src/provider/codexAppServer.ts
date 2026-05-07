@@ -1,5 +1,6 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 import { readCodexAccountSnapshot, type CodexAccountSnapshot } from "./codexAccount";
 
 interface JsonRpcProbeResponse {
@@ -28,16 +29,7 @@ export function buildCodexInitializeParams() {
 }
 
 export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): void {
-  if (process.platform === "win32" && child.pid !== undefined) {
-    try {
-      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // Fall through to direct kill when taskkill is unavailable.
-    }
-  }
-
-  child.kill();
+  terminateChildProcess(child, { signal: "SIGTERM", tree: true });
 }
 
 export async function probeCodexAccount(input: {

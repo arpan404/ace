@@ -8,8 +8,9 @@
  *
  * @module opencodeRuntime
  */
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
+import { terminateChildProcess, terminatePid } from "@ace/shared/processTermination";
 
 const DEFAULT_HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 12_000;
@@ -87,25 +88,20 @@ export function killChildProcess(
   signal: NodeJS.Signals = "SIGTERM",
   options?: OpenCodeProcessOptions,
 ): void {
-  if (process.platform === "win32" && child.pid !== undefined) {
-    try {
-      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // Fall back to direct kill when taskkill is unavailable.
-    }
-  }
-
   if (options?.processGroup === true && child.pid !== undefined) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {
-      // Fall back to killing the direct child when group shutdown is unavailable.
-    }
+    terminatePid(child.pid, {
+      signal,
+      processGroup: true,
+      force: signal === "SIGKILL",
+    });
+    return;
   }
 
-  child.kill(signal);
+  terminateChildProcess(child, {
+    signal,
+    tree: process.platform === "win32",
+    force: signal === "SIGKILL",
+  });
 }
 
 type ParentCleanupProcess = Pick<NodeJS.Process, "platform"> & {

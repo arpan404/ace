@@ -1,6 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
+import { terminateChildProcess } from "@ace/shared/processTermination";
+
 export type PiRpcId = string | number;
 
 interface PiRpcResponse {
@@ -302,7 +304,7 @@ export function startPiRpcClient(options: StartPiRpcClientOptions): PiRpcClient 
         };
         child.once("close", done);
         child.stdin.end();
-        child.kill("SIGTERM");
+        terminateChildProcess(child, { signal: "SIGTERM", tree: true });
         setTimeout(done, 2_000);
       });
     },
