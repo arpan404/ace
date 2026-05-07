@@ -15,7 +15,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.1.8",
+      "version": "0.2.0-alpha",
       "dependencies": {
         "effect": "catalog:",
         "electron": "41.5.0",
@@ -32,7 +32,7 @@
     },
     "apps/marketing": {
       "name": "@ace/marketing",
-      "version": "0.1.8",
+      "version": "0.2.0-alpha",
       "dependencies": {
         "astro": "^6.2.1",
         "gsap": "^3.15.0",
@@ -44,7 +44,7 @@
     },
     "apps/mobile": {
       "name": "@ace/mobile",
-      "version": "0.1.8",
+      "version": "0.2.0-alpha",
       "dependencies": {
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",
@@ -81,7 +81,7 @@
     },
     "apps/relay": {
       "name": "@ace/relay",
-      "version": "0.1.8",
+      "version": "0.2.0-alpha",
       "devDependencies": {
         "@types/node": "catalog:",
         "typescript": "catalog:",
@@ -89,7 +89,7 @@
     },
     "apps/server": {
       "name": "ace",
-      "version": "0.1.8",
+      "version": "0.2.0-alpha",
       "bin": {
         "ace": "./dist/bin.mjs",
       },
@@ -126,7 +126,7 @@
     },
     "apps/web": {
       "name": "@ace/web",
-      "version": "0.1.8",
+      "version": "0.2.0-alpha",
       "dependencies": {
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",

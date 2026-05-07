@@ -55,8 +55,8 @@ class PiRpcDiscoveryError extends Schema.TaggedErrorClass<PiRpcDiscoveryError>()
   },
 ) {}
 
-function resolvePiAgentDir(): string {
-  const fromEnv = process.env.PI_CODING_AGENT_DIR?.trim();
+function resolvePiAgentDir(env: NodeJS.ProcessEnv = process.env): string {
+  const fromEnv = env.PI_CODING_AGENT_DIR?.trim();
   return fromEnv && fromEnv.length > 0 ? fromEnv : path.join(homedir(), ".pi", "agent");
 }
 
@@ -114,8 +114,8 @@ function readPiSettingsFile(settingsPath: string): PiSettingsFile | null {
   }
 }
 
-function resolveConfiguredPiDefaults(): PiDefaults {
-  const globalSettings = readPiSettingsFile(path.join(resolvePiAgentDir(), "settings.json"));
+function resolveConfiguredPiDefaults(env: NodeJS.ProcessEnv = process.env): PiDefaults {
+  const globalSettings = readPiSettingsFile(path.join(resolvePiAgentDir(env), "settings.json"));
   const projectSettings = readPiSettingsFile(path.join(process.cwd(), ".pi", "settings.json"));
   const defaultProvider = [projectSettings, globalSettings]
     .map((settings) =>
@@ -192,10 +192,13 @@ function buildPiReasoningCapabilities(
   } as const;
 }
 
-async function runPiRpcGetModels(binaryPath: string): Promise<ReadonlyArray<PiRpcModel>> {
+async function runPiRpcGetModels(
+  binaryPath: string,
+  env: NodeJS.ProcessEnv,
+): Promise<ReadonlyArray<PiRpcModel>> {
   const child = spawn(binaryPath, ["--mode", "rpc", "--no-session"], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env,
   });
 
   return await new Promise<ReadonlyArray<PiRpcModel>>((resolve, reject) => {
@@ -357,17 +360,22 @@ function normalizePiRpcModels(
 const runProviderCommand = Effect.fn("runProviderCommand")(function* (
   binaryPath: string,
   args: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv,
 ) {
   const command = ChildProcess.make(binaryPath, [...args], {
     shell: process.platform === "win32",
-    env: process.env,
+    env,
   });
   return yield* spawnAndCollect(binaryPath, command);
 });
 
 function fallbackPiModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
   const builtInModels: ServerProviderModel[] = [];
-  const defaults = resolveConfiguredPiDefaults();
+  const defaults = resolveConfiguredPiDefaults({
+    ...process.env,
+    ...settings.launchEnv,
+    ...(settings.agentDir ? { PI_CODING_AGENT_DIR: settings.agentDir } : {}),
+  });
   const configuredDefaultModel = defaults.defaultModel;
   if (configuredDefaultModel) {
     builtInModels.push({
@@ -390,6 +398,11 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(
   > {
     const settingsService = yield* ServerSettingsService;
     const settings = yield* settingsService.getSettings.pipe(Effect.map((all) => all.providers.pi));
+    const processEnv = {
+      ...process.env,
+      ...settings.launchEnv,
+      ...(settings.agentDir ? { PI_CODING_AGENT_DIR: settings.agentDir } : {}),
+    };
     const checkedAt = new Date().toISOString();
     const fallbackModels = fallbackPiModels(settings);
     const baseRuntimes = {
@@ -420,10 +433,11 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(
       });
     }
 
-    const piVersionResult = yield* runProviderCommand(settings.binaryPath, ["--version"]).pipe(
-      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
-      Effect.result,
-    );
+    const piVersionResult = yield* runProviderCommand(
+      settings.binaryPath,
+      ["--version"],
+      processEnv,
+    ).pipe(Effect.timeoutOption(DEFAULT_TIMEOUT_MS), Effect.result);
 
     const piInstalled = Result.isSuccess(piVersionResult) && Option.isSome(piVersionResult.success);
     const piVersion =
@@ -464,7 +478,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(
     }
 
     const discoveredModelsResult = yield* Effect.tryPromise({
-      try: () => runPiRpcGetModels(settings.binaryPath),
+      try: () => runPiRpcGetModels(settings.binaryPath, processEnv),
       catch: (cause) =>
         new PiRpcDiscoveryError({
           message: cause instanceof Error ? cause.message : "Pi RPC model discovery failed.",
