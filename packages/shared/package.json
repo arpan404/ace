@@ -92,6 +92,10 @@
       "types": "./src/providerInstances.ts",
       "import": "./src/providerInstances.ts"
     },
+    "./processTermination": {
+      "types": "./src/processTermination.ts",
+      "import": "./src/processTermination.ts"
+    },
     "./hostConnections": {
       "types": "./src/hostConnections.ts",
       "import": "./src/hostConnections.ts"

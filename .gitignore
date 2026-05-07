@@ -13,6 +13,7 @@ build/
 .logs/
 release/
 release-mock/
+release-mac-*/
 .ace
 .idea/
 apps/web/.playwright
