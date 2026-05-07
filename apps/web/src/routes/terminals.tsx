@@ -1,15 +1,16 @@
-import type { TerminalProcessSummary } from "@ace/contracts";
-import { createFileRoute } from "@tanstack/react-router";
+import { ThreadId, type TerminalProcessSummary } from "@ace/contracts";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { RefreshCwIcon, SquareIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 
 import { AppPageTopBar } from "../components/AppPageTopBar";
 import { HEADER_PILL_CONTROL_CLASS_NAME, TopBarCluster } from "../components/thread/TopBarCluster";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
-import { readNativeApi } from "../nativeApi";
 import { reportBackgroundError } from "../lib/async";
+import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { cn } from "../lib/utils";
+import { readNativeApi } from "../nativeApi";
 
 type TerminalProcessLoadState = "idle" | "loading" | "ready" | "error";
 
@@ -83,6 +84,7 @@ function sortTerminalProcesses(
 }
 
 function TerminalsPage() {
+  const navigate = useNavigate();
   const [processes, setProcesses] = useState<ReadonlyArray<TerminalProcessSummary>>([]);
   const [loadState, setLoadState] = useState<TerminalProcessLoadState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -90,6 +92,31 @@ function TerminalsPage() {
 
   const sortedProcesses = useMemo(() => sortTerminalProcesses(processes), [processes]);
   const runningCount = sortedProcesses.filter((process) => process.status === "running").length;
+
+  const openThread = useCallback(
+    (threadId: string) => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: ThreadId.makeUnsafe(threadId) },
+        search: buildSingleThreadRouteSearch(),
+      });
+    },
+    [navigate],
+  );
+
+  const handleThreadRowKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>, threadId: string) => {
+      if (event.target !== event.currentTarget) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      openThread(threadId);
+    },
+    [openThread],
+  );
 
   const refreshProcesses = useCallback(async () => {
     const api = readNativeApi();
@@ -217,7 +244,11 @@ function TerminalsPage() {
                     return (
                       <div
                         key={id}
-                        className="group/terminal grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/28 px-0.5 py-2.25 last:border-b-0 hover:bg-muted/22 sm:px-1"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openThread(process.threadId)}
+                        onKeyDown={(event) => handleThreadRowKeyDown(event, process.threadId)}
+                        className="group/terminal grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/28 px-0.5 py-2.25 transition-colors last:border-b-0 hover:bg-muted/22 focus-visible:bg-muted/24 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none sm:px-1"
                       >
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span
@@ -254,7 +285,10 @@ function TerminalsPage() {
                           variant="ghost"
                           size="sm"
                           disabled={stopping || process.status !== "running"}
-                          onClick={() => void stopProcess(process)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void stopProcess(process);
+                          }}
                           className="h-7 rounded-[var(--control-radius)] px-2 text-[12px] font-medium text-muted-foreground opacity-72 transition-opacity hover:bg-destructive/8 hover:text-destructive group-hover/terminal:opacity-100"
                         >
                           <SquareIcon className="size-3" aria-hidden="true" />
