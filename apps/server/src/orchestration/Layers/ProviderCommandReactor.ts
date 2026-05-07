@@ -173,7 +173,10 @@ function resolveThreadProvider(thread: OrchestrationThread): ProviderKind {
   return thread.modelSelection.provider;
 }
 
-function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
+function threadCanDispatchQueuedMessage(
+  thread: OrchestrationThread,
+  options?: { readonly allowInterruptedDispatch?: boolean },
+): boolean {
   if (thread.deletedAt !== null || thread.archivedAt !== null) {
     return false;
   }
@@ -183,7 +186,11 @@ function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
   if (thread.latestTurn?.state === "running") {
     return false;
   }
-  if (thread.latestTurn?.state === "interrupted" && thread.queuedSteerRequest === null) {
+  if (
+    thread.latestTurn?.state === "interrupted" &&
+    thread.queuedSteerRequest === null &&
+    options?.allowInterruptedDispatch !== true
+  ) {
     return false;
   }
   if (thread.session?.status === "running" || (thread.session?.activeTurnId ?? null) !== null) {
@@ -394,6 +401,7 @@ const make = Effect.gen(function* () {
     ThreadId,
     { readonly createdAt: string; readonly messageId: MessageId }
   >();
+  const queuedDispatchRequestsByThreadId = new Map<ThreadId, MessageId>();
   const pausedQueueDispatchByThreadId = new Set<ThreadId>();
   const nativeSteerReservationsByThreadId = new Set<ThreadId>();
 
@@ -799,8 +807,12 @@ const make = Effect.gen(function* () {
   });
 
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const queuedDispatchMessageId = queuedDispatchRequestsByThreadId.get(threadId) ?? null;
     if (pausedQueueDispatchByThreadId.has(threadId)) {
-      return;
+      if (queuedDispatchMessageId === null) {
+        return;
+      }
+      pausedQueueDispatchByThreadId.delete(threadId);
     }
     if (queueDispatchReservationsByThreadId.has(threadId)) {
       return;
@@ -831,7 +843,20 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    if (!thread || !threadCanDispatchQueuedMessage(thread)) {
+    if (
+      thread &&
+      queuedDispatchMessageId !== null &&
+      !thread.queuedComposerMessages.some((message) => message.id === queuedDispatchMessageId)
+    ) {
+      queuedDispatchRequestsByThreadId.delete(threadId);
+    }
+
+    if (
+      !thread ||
+      !threadCanDispatchQueuedMessage(thread, {
+        allowInterruptedDispatch: queuedDispatchMessageId !== null,
+      })
+    ) {
       return;
     }
 
@@ -847,6 +872,10 @@ const make = Effect.gen(function* () {
 
     const nextQueuedMessage = thread.queuedComposerMessages[0];
     if (!nextQueuedMessage) {
+      return;
+    }
+    if (queuedDispatchMessageId !== null && nextQueuedMessage.id !== queuedDispatchMessageId) {
+      queuedDispatchRequestsByThreadId.delete(threadId);
       return;
     }
 
@@ -893,6 +922,7 @@ const make = Effect.gen(function* () {
       threadId,
       messageId: nextQueuedMessage.id,
     });
+    queuedDispatchRequestsByThreadId.delete(threadId);
 
     const titleSeed = buildQueuedMessageTitleSeed(nextQueuedMessage);
     queueDispatchReservationsByThreadId.set(threadId, {
@@ -1716,6 +1746,15 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-diff-completed" ||
         event.type === "thread.activity-appended"
       ) {
+        if (
+          event.type === "thread.meta-updated" &&
+          event.payload.queuedDispatchRequest !== undefined
+        ) {
+          queuedDispatchRequestsByThreadId.set(
+            event.payload.threadId,
+            event.payload.queuedDispatchRequest.messageId,
+          );
+        }
         if (event.type === "thread.turn-diff-completed") {
           yield* releaseQueueDispatchReservationForCompletedTurn({
             threadId: event.payload.threadId,

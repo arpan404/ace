@@ -259,6 +259,38 @@ describe("terminalContext", () => {
     });
   });
 
+  it("hides browser and workspace context blocks from accumulated comment display text", () => {
+    const prompt = [
+      "Remove unwanted things",
+      "",
+      "<accumulated_comments>",
+      "Apply these user comments with the attached screenshots.",
+      "",
+      "1. Browser comment",
+      "Target: /settings/editor",
+      "Element: .language-server-row",
+      "Screenshot: attached image 1",
+      "Comment: only show name, version, and install button",
+      "</accumulated_comments>",
+      "",
+      "<browser_design_context>",
+      '{"requestId":"DR-4A9D2B6E"}',
+      "</browser_design_context>",
+      "",
+      "<workspace_code_context>",
+      '{"relativePath":"src/settings.tsx"}',
+      "</workspace_code_context>",
+    ].join("\n");
+
+    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
+      visibleText: "Remove unwanted things\nonly show name, version, and install button",
+      copyText: prompt,
+      contextCount: 0,
+      previewTitle: null,
+      contexts: [],
+    });
+  });
+
   it("returns null preview title when every context is invalid", () => {
     expect(
       buildTerminalContextPreviewTitle([

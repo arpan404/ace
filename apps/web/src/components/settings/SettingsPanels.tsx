@@ -1,16 +1,13 @@
 import {
   ArchiveIcon,
   ArchiveX,
-  CheckCircle2Icon,
   ChevronDownIcon,
-  Code2Icon,
   DownloadIcon,
-  PackageIcon,
   RefreshCwIcon,
   SearchIcon,
-  TerminalIcon,
   WrenchIcon,
 } from "lucide-react";
+import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -216,6 +213,39 @@ function getLspToolSearchText(tool: ServerLspToolStatus): string {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function parseLspToolVersionFromSpecifier(
+  tool: Pick<ServerLspToolStatus, "installer" | "packageName">,
+  specifier: string,
+): string | null {
+  const trimmed = specifier.trim();
+  if (tool.installer === "uv-tool") {
+    const prefix = `${tool.packageName}==`;
+    return trimmed.startsWith(prefix) && trimmed.length > prefix.length
+      ? trimmed.slice(prefix.length)
+      : null;
+  }
+
+  const prefix = `${tool.packageName}@`;
+  return trimmed.startsWith(prefix) && trimmed.length > prefix.length
+    ? trimmed.slice(prefix.length)
+    : null;
+}
+
+function resolveLspToolVersionLabel(
+  tool: Pick<ServerLspToolStatus, "installer" | "installPackages" | "packageName" | "version">,
+): string {
+  if (tool.version) {
+    return tool.version;
+  }
+  for (const specifier of tool.installPackages) {
+    const version = parseLspToolVersionFromSpecifier(tool, specifier);
+    if (version) {
+      return version;
+    }
+  }
+  return "Latest";
 }
 
 function getLspToolStatusBadgeVariant(tool: ServerLspToolStatus): "success" | "warning" {
@@ -1275,6 +1305,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       ),
     [lspCatalogTools],
   );
+  const lspCatalogCategoryLabel =
+    lspCatalogCategory === "all" ? "All categories" : LSP_CATEGORY_LABELS[lspCatalogCategory];
 
   const refreshLspToolsStatus = useCallback(() => {
     void ensureNativeApi()
@@ -1352,6 +1384,28 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     },
     [installCustomLspTool],
   );
+
+  const uninstallCatalogTool = useCallback((tool: ServerLspToolStatus) => {
+    setIsInstallingCustomLsp(true);
+    setLspInstallTargetId(tool.id);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.uninstallLspTool({ id: tool.id })
+      .then((status) => {
+        setLspToolsStatus(status);
+        toastManager.add({
+          type: "success",
+          title: `Uninstalled ${tool.label}.`,
+        });
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(getErrorMessage(error, "Unable to uninstall language server."));
+      })
+      .finally(() => {
+        setIsInstallingCustomLsp(false);
+        setLspInstallTargetId(null);
+      });
+  }, []);
 
   const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
     if (tool) {
@@ -1870,6 +1924,37 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             />
           </SettingsSection>
 
+          <SettingsSection title="Comments">
+            <SettingsRow
+              title="Accumulate comments"
+              description="Hold browser and chat comments, then send them together with the next assistant request."
+              resetAction={
+                settings.commentSubmissionMode !==
+                DEFAULT_UNIFIED_SETTINGS.commentSubmissionMode ? (
+                  <SettingResetButton
+                    label="comment submission"
+                    onClick={() =>
+                      updateSettings({
+                        commentSubmissionMode: DEFAULT_UNIFIED_SETTINGS.commentSubmissionMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.commentSubmissionMode === "accumulate"}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      commentSubmissionMode: checked ? "accumulate" : "immediate",
+                    })
+                  }
+                  aria-label="Accumulate comments"
+                />
+              }
+            />
+          </SettingsSection>
+
           <SettingsSection title="Confirmations">
             <SettingsRow
               title="Archive confirmation"
@@ -2293,27 +2378,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Language server tools"
-              description="Install the core bundle, browse a curated LSP catalog, and keep custom servers inside ace."
               status={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex h-5 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/42 px-1.5 text-[10px] font-medium text-muted-foreground">
-                    <Code2Icon className="size-3" />
-                    {lspCoreTools.filter((tool) => tool.installed).length}/{lspCoreTools.length}{" "}
-                    core
-                  </span>
-                  <span className="inline-flex h-5 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/42 px-1.5 text-[10px] font-medium text-muted-foreground">
-                    <PackageIcon className="size-3" />
-                    {lspCatalogTools.filter((tool) => tool.installed).length}/
-                    {lspCatalogTools.length} catalog
-                  </span>
-                  <span className="inline-flex h-5 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/42 px-1.5 text-[10px] font-medium text-muted-foreground">
-                    <WrenchIcon className="size-3" />
-                    {lspCustomTools.length} custom
-                  </span>
-                  {lspToolsError ? (
-                    <span className="text-[11px] text-destructive">{lspToolsError}</span>
-                  ) : null}
-                </div>
+                lspToolsError ? (
+                  <span className="text-[11px] text-destructive">{lspToolsError}</span>
+                ) : null
               }
               control={
                 <div className="flex flex-wrap gap-2">
@@ -2342,43 +2410,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               }
             >
               <div className="mt-3 space-y-3">
-                <div className="grid overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35 text-[11px] sm:grid-cols-3">
-                  <div className="flex min-w-0 items-center gap-2 border-b border-border/35 px-3 py-2 sm:border-r sm:border-b-0">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/40 bg-background/55 text-muted-foreground">
-                      <Code2Icon className="size-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-medium text-foreground/90">Core bundle</div>
-                      <div className="text-muted-foreground/62">
-                        {lspCoreTools.filter((tool) => tool.installed).length} of{" "}
-                        {lspCoreTools.length} installed
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-2 border-b border-border/35 px-3 py-2 sm:border-r sm:border-b-0">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/40 bg-background/55 text-muted-foreground">
-                      <PackageIcon className="size-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-medium text-foreground/90">Catalog</div>
-                      <div className="text-muted-foreground/62">
-                        {filteredLspCatalogTools.length} shown from {lspCatalogTools.length}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-2 px-3 py-2">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/40 bg-background/55 text-muted-foreground">
-                      <TerminalIcon className="size-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-medium text-foreground/90">Install root</div>
-                      <div className="truncate font-mono text-[10px] text-muted-foreground/62">
-                        {lspToolsStatus?.installDir ?? "Not loaded"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="rounded-[var(--control-radius)] border border-border/45 bg-background/35 p-2.5">
                   <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     <div className="relative min-w-0">
@@ -2390,152 +2421,85 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                         placeholder="Search language, package, command, or file type"
                       />
                     </div>
-                    <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
-                      <Button
+                    <Select
+                      value={lspCatalogCategory}
+                      onValueChange={(value) => {
+                        if (value === null) {
+                          return;
+                        }
+                        if (value === "all") {
+                          setLspCatalogCategory(value);
+                          return;
+                        }
+                        if (value !== "custom" && lspCatalogCategories.includes(value)) {
+                          setLspCatalogCategory(value);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
                         size="sm"
-                        variant={lspCatalogCategory === "all" ? "default" : "ghost"}
-                        onClick={() => setLspCatalogCategory("all")}
-                        className="shrink-0"
+                        className="w-full lg:w-44"
+                        aria-label="Language server category filter"
                       >
-                        All
-                      </Button>
-                      {lspCatalogCategories.map((category) => (
-                        <Button
-                          key={category}
-                          size="sm"
-                          variant={lspCatalogCategory === category ? "default" : "ghost"}
-                          onClick={() => setLspCatalogCategory(category)}
-                          className="shrink-0"
-                        >
-                          {LSP_CATEGORY_LABELS[category]}
-                        </Button>
-                      ))}
-                    </div>
+                        <SelectValue>{lspCatalogCategoryLabel}</SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        <SelectItem hideIndicator value="all">
+                          All categories
+                        </SelectItem>
+                        {lspCatalogCategories.map((category) => (
+                          <SelectItem hideIndicator key={category} value={category}>
+                            {LSP_CATEGORY_LABELS[category]}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
                   </div>
                 </div>
 
                 <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
-                  <div className="flex items-center justify-between gap-3 border-b border-border/35 px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="text-[12px] font-medium text-foreground/90">
-                        Curated language servers
-                      </div>
-                      <div className="text-[11px] text-muted-foreground/60">
-                        Install only what this workspace needs.
-                      </div>
-                    </div>
-                    <Badge variant="outline" size="sm">
-                      {filteredLspCatalogTools.length}
-                    </Badge>
-                  </div>
-
                   {filteredLspCatalogTools.length === 0 ? (
                     <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
-                      No curated language servers match this filter.
+                      No language servers match this filter.
                     </div>
                   ) : (
                     <div className="divide-y divide-border/32">
-                      {filteredLspCatalogTools.map((tool) => (
-                        <div
-                          key={tool.id}
-                          className={cn(
-                            "px-3 py-3 transition-colors",
-                            tool.installed && "bg-success/4",
-                          )}
-                        >
-                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-                            <div className="flex min-w-0 gap-3">
-                              <span
-                                className={cn(
-                                  "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border",
-                                  tool.installed
-                                    ? "border-success/25 bg-success/8 text-success"
-                                    : "border-border/40 bg-background/55 text-muted-foreground",
-                                )}
-                              >
-                                {tool.installed ? (
-                                  <CheckCircle2Icon className="size-4" />
-                                ) : (
-                                  <Code2Icon className="size-4" />
-                                )}
-                              </span>
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                  <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
-                                    {tool.label}
-                                  </div>
-                                  <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
-                                    {tool.installed
-                                      ? tool.version
-                                        ? `Installed ${tool.version}`
-                                        : "Installed"
-                                      : "Missing"}
-                                  </Badge>
-                                  <Badge variant="outline" size="sm">
-                                    {tool.builtin ? "Core" : LSP_CATEGORY_LABELS[tool.category]}
-                                  </Badge>
-                                  <Badge variant="outline" size="sm">
-                                    {LSP_INSTALLER_LABELS[tool.installer]}
-                                  </Badge>
-                                </div>
-                                <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/68">
-                                  {tool.description}
-                                </p>
-                              </div>
+                      {filteredLspCatalogTools.map((tool) => {
+                        const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
+                        const versionLabel = resolveLspToolVersionLabel(tool);
+                        return (
+                          <div
+                            key={tool.id}
+                            className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                          >
+                            <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
+                              {tool.label}
+                            </div>
+                            <div className="justify-self-start text-[11px] font-medium text-muted-foreground/62 sm:justify-self-end">
+                              {versionLabel}
                             </div>
                             <Button
                               size="sm"
                               variant={tool.installed ? "outline" : "default"}
-                              onClick={() => installCatalogTool(tool)}
+                              onClick={() =>
+                                tool.installed
+                                  ? uninstallCatalogTool(tool)
+                                  : installCatalogTool(tool)
+                              }
                               disabled={isInstallingCustomLsp}
-                              className="justify-self-start lg:justify-self-end"
+                              className="justify-self-start sm:justify-self-end"
                             >
-                              {isInstallingCustomLsp && lspInstallTargetId === tool.id
-                                ? "Installing..."
+                              {isWorking
+                                ? tool.installed
+                                  ? "Uninstalling..."
+                                  : "Installing..."
                                 : tool.installed
-                                  ? "Reinstall"
+                                  ? "Uninstall"
                                   : "Install"}
                             </Button>
                           </div>
-
-                          <div className="mt-2.5 grid gap-2 pl-11 text-[11px] text-muted-foreground sm:grid-cols-2">
-                            <div className="min-w-0 rounded-[var(--control-radius)] border border-border/30 bg-background/36 px-2 py-1.5">
-                              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
-                                Package
-                              </div>
-                              <div className="truncate font-mono text-foreground/84">
-                                {tool.packageName}
-                              </div>
-                            </div>
-                            <div className="min-w-0 rounded-[var(--control-radius)] border border-border/30 bg-background/36 px-2 py-1.5">
-                              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
-                                Command
-                              </div>
-                              <div className="truncate font-mono text-foreground/84">
-                                {tool.command}
-                                {tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 pl-11">
-                            {tool.languageIds.map((languageId) => (
-                              <Badge key={`${tool.id}-${languageId}`} variant="secondary" size="sm">
-                                {languageId}
-                              </Badge>
-                            ))}
-                            {tool.fileExtensions.map((extension) => (
-                              <Badge key={`${tool.id}-${extension}`} variant="outline" size="sm">
-                                {extension}
-                              </Badge>
-                            ))}
-                            {tool.fileNames.map((fileName) => (
-                              <Badge key={`${tool.id}-${fileName}`} variant="outline" size="sm">
-                                {fileName}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3342,167 +3306,171 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <SettingsSection
-          title="By project"
-          icon={<ArchiveIcon />}
-          headerAction={
-            archivedGroups.length > 1 ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
-              >
-                {allGroupsExpanded ? "Collapse all" : "Expand all"}
-              </Button>
-            ) : null
-          }
-        >
-          {archivedGroups.map((group) => {
-            const project = group.project;
-            const isOpen = openGroupIds[project.id] !== false;
-            const archivedItemCount = group.threads.length + (project.archivedAt === null ? 0 : 1);
-
-            return (
-              <div key={project.id} className="border-t border-border/45 first:border-t-0">
-                <button
-                  type="button"
-                  className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-150 sm:px-4"
-                  aria-expanded={isOpen}
-                  onClick={() => setGroupOpen(project.id, !isOpen)}
+        <section className="min-w-0 space-y-1.5">
+          <div className="flex h-6 min-w-0 items-center justify-between gap-3 pl-2 pr-1.5">
+            <h2 className="min-w-0 truncate text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              <span className="min-w-0 truncate">Archived</span>
+            </h2>
+            {archivedGroups.length > 1 ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={
+                        allGroupsExpanded ? "Collapse all projects" : "Expand all projects"
+                      }
+                      className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                      onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
+                    />
+                  }
                 >
-                  <ChevronDownIcon
-                    className={cn(
-                      "size-4 shrink-0 text-muted-foreground/55 transition-transform duration-200",
-                      !isOpen && "-rotate-90",
-                    )}
-                    aria-hidden="true"
-                  />
-                  <ProjectAvatar
-                    project={project}
-                    className="size-8 rounded-[var(--control-radius)]"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h3 className="truncate text-[13px] font-medium text-foreground/90">
-                        {project.name}
-                      </h3>
-                      {project.archivedAt !== null ? (
-                        <span className="shrink-0 rounded-[var(--control-radius)] border border-border/50 bg-background/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          Project
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {formatCountLabel(archivedItemCount, "archived item")} {"\u00b7 "}
-                      {formatCountLabel(group.threads.length, "thread")}
-                    </p>
-                  </div>
-                </button>
+                  {allGroupsExpanded ? (
+                    <IconArrowsDiagonalMinimize2 className="size-4" />
+                  ) : (
+                    <IconArrowsDiagonal className="size-4" />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  {allGroupsExpanded ? "Collapse all" : "Expand all"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
+          </div>
+          <div className="min-w-0 divide-y divide-border/35">
+            {archivedGroups.map((group) => {
+              const project = group.project;
+              const isOpen = openGroupIds[project.id] !== false;
+              const archivedItemCount =
+                group.threads.length + (project.archivedAt === null ? 0 : 1);
 
-                <Collapsible open={isOpen} onOpenChange={(open) => setGroupOpen(project.id, open)}>
-                  <CollapsibleContent>
-                    <div className="border-t border-border/45 bg-background/25">
-                      {project.archivedAt !== null ? (
-                        <div className="flex items-center justify-between gap-3 px-3 py-3 sm:px-4">
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/50 bg-card/40 text-muted-foreground">
-                              <ArchiveIcon className="size-4" />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <h4 className="truncate text-[13px] font-medium text-foreground/90">
+              return (
+                <div key={project.id} className="min-w-0 py-1">
+                  <button
+                    type="button"
+                    className="group flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left transition-colors duration-150 hover:bg-muted/20"
+                    aria-expanded={isOpen}
+                    onClick={() => setGroupOpen(project.id, !isOpen)}
+                  >
+                    <ChevronDownIcon
+                      className={cn(
+                        "size-3 shrink-0 text-muted-foreground/45 transition-transform duration-200",
+                        !isOpen && "-rotate-90",
+                      )}
+                      aria-hidden="true"
+                    />
+                    <ProjectAvatar
+                      project={project}
+                      className="size-3.5 rounded-[4px] opacity-70"
+                    />
+                    <h3 className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/84">
+                      {project.name}
+                    </h3>
+                    {project.archivedAt !== null ? (
+                      <span className="shrink-0 text-[10px] font-medium text-muted-foreground/48">
+                        project
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-[10px] text-muted-foreground/45 tabular-nums">
+                      {formatCountLabel(archivedItemCount, "item")} ·{" "}
+                      {formatCountLabel(group.threads.length, "thread")}
+                    </span>
+                  </button>
+
+                  <Collapsible
+                    open={isOpen}
+                    onOpenChange={(open) => setGroupOpen(project.id, open)}
+                  >
+                    <CollapsibleContent>
+                      <div className="mt-0.5 space-y-0.5 pl-6">
+                        {project.archivedAt !== null ? (
+                          <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/14">
+                            <div className="min-w-0">
+                              <h4 className="truncate text-[12px] font-medium text-foreground/82">
                                 Project archive
                               </h4>
-                              <p className="truncate text-xs text-muted-foreground">
-                                Archived{" "}
+                              <p className="truncate text-[10px] text-muted-foreground/50">
                                 {formatRelativeTimeLabel(
                                   project.archivedAt ??
                                     project.updatedAt ??
                                     project.createdAt ??
                                     "",
-                                )}
-                                {" \u00b7 "}
-                                {formatCountLabel(group.totalThreadCount, "total thread")}
+                                )}{" "}
+                                · {formatCountLabel(group.totalThreadCount, "thread")} total
                               </p>
                             </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 shrink-0 cursor-pointer gap-1 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground/64 hover:bg-muted/25 hover:text-foreground"
+                              onClick={() =>
+                                void restoreProject(project.id).catch((error) => {
+                                  toastManager.add({
+                                    type: "error",
+                                    title: "Failed to restore project",
+                                    description:
+                                      error instanceof Error ? error.message : "An error occurred.",
+                                  });
+                                })
+                              }
+                            >
+                              <ArchiveX className="size-3" />
+                              <span>Unarchive</span>
+                            </Button>
                           </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                            onClick={() =>
-                              void restoreProject(project.id).catch((error) => {
-                                toastManager.add({
-                                  type: "error",
-                                  title: "Failed to restore project",
-                                  description:
-                                    error instanceof Error ? error.message : "An error occurred.",
-                                });
-                              })
-                            }
-                          >
-                            <ArchiveX className="size-3.5" />
-                            <span>Restore</span>
-                          </Button>
-                        </div>
-                      ) : null}
+                        ) : null}
 
-                      {group.threads.map((thread) => (
-                        <div
-                          key={thread.id}
-                          className={cn(
-                            "flex items-center justify-between gap-3 border-t border-border/45 px-3 py-3 sm:px-4",
-                            project.archivedAt === null && "first:border-t-0",
-                          )}
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            void handleArchivedThreadContextMenu(thread.id, {
-                              x: event.clientX,
-                              y: event.clientY,
-                            });
-                          }}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <h4 className="truncate text-[13px] font-medium text-foreground/90">
-                              {thread.title}
-                            </h4>
-                            <p className="text-xs text-muted-foreground">
-                              Archived{" "}
-                              {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
-                              {" \u00b7 Created "}
-                              {formatRelativeTimeLabel(thread.createdAt)}
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                            onClick={() =>
-                              void unarchiveThread(thread.id).catch((error) => {
-                                toastManager.add({
-                                  type: "error",
-                                  title: "Failed to unarchive thread",
-                                  description:
-                                    error instanceof Error ? error.message : "An error occurred.",
-                                });
-                              })
-                            }
+                        {group.threads.map((thread) => (
+                          <div
+                            key={thread.id}
+                            className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/14"
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              void handleArchivedThreadContextMenu(thread.id, {
+                                x: event.clientX,
+                                y: event.clientY,
+                              });
+                            }}
                           >
-                            <ArchiveX className="size-3.5" />
-                            <span>Unarchive</span>
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            );
-          })}
-        </SettingsSection>
+                            <div className="min-w-0">
+                              <h4 className="truncate text-[12px] font-medium text-foreground/84">
+                                {thread.title}
+                              </h4>
+                              <p className="truncate text-[10px] text-muted-foreground/50">
+                                {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)} ·
+                                created {formatRelativeTimeLabel(thread.createdAt)}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 shrink-0 cursor-pointer gap-1 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground/64 hover:bg-muted/25 hover:text-foreground"
+                              onClick={() =>
+                                void unarchiveThread(thread.id).catch((error) => {
+                                  toastManager.add({
+                                    type: "error",
+                                    title: "Failed to unarchive thread",
+                                    description:
+                                      error instanceof Error ? error.message : "An error occurred.",
+                                  });
+                                })
+                              }
+                            >
+                              <ArchiveX className="size-3" />
+                              <span>Unarchive</span>
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </SettingsPageContainer>
   );

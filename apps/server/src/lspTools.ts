@@ -1,5 +1,5 @@
 import { access, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { basename, delimiter, extname, join } from "node:path";
 import { homedir } from "node:os";
 
 import type {
@@ -8,6 +8,7 @@ import type {
   ServerLspToolInstaller,
   ServerLspToolStatus,
   ServerLspToolsStatus,
+  ServerUninstallLspToolInput,
 } from "@ace/contracts";
 
 import { isCommandAvailable } from "./open";
@@ -531,6 +532,20 @@ function parsePinnedVersionFromSpecifier(
     : null;
 }
 
+function stripNpmPackageSpecifier(specifier: string): string {
+  const trimmed = specifier.trim();
+  if (trimmed.startsWith("@")) {
+    const versionSeparatorIndex = trimmed.indexOf("@", 1);
+    return versionSeparatorIndex > 0 ? trimmed.slice(0, versionSeparatorIndex) : trimmed;
+  }
+  const versionSeparatorIndex = trimmed.indexOf("@");
+  return versionSeparatorIndex > 0 ? trimmed.slice(0, versionSeparatorIndex) : trimmed;
+}
+
+function stripUvPackageSpecifier(specifier: string): string {
+  return specifier.trim().split("==", 1)[0] ?? specifier.trim();
+}
+
 function getLspToolSearchText(tool: LspToolDefinition): string {
   return [
     tool.label,
@@ -688,6 +703,16 @@ function resolveGoInstallDir(stateDir: string): string {
 
 function resolveGoBinDir(stateDir: string): string {
   return join(resolveGoInstallDir(stateDir), "bin");
+}
+
+function createUvToolEnvironment(stateDir: string): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const currentPath = env.PATH ?? env.Path ?? env.path ?? "";
+  const binHome = resolveUvBinDir(stateDir);
+  env.XDG_DATA_HOME = resolveUvDataHome(stateDir);
+  env.XDG_BIN_HOME = binHome;
+  env.PATH = [binHome, ...currentPath.split(delimiter).filter(Boolean)].join(delimiter);
+  return env;
 }
 
 function resolveCargoBinDir(): string {
@@ -1068,6 +1093,91 @@ async function installPackagesWithInstaller(
   await installPackagesWithNpm(stateDir, packages, options);
 }
 
+async function uninstallPackagesWithNpm(
+  stateDir: string,
+  packages: readonly string[],
+): Promise<void> {
+  if (!isCommandAvailable("npm")) {
+    throw new Error("Cannot uninstall language servers because npm is not available in PATH.");
+  }
+  const packageNames = Array.from(
+    new Set(packages.map(stripNpmPackageSpecifier).filter((name) => name.length > 0)),
+  );
+  if (packageNames.length === 0) {
+    return;
+  }
+  await runProcess(
+    "npm",
+    ["uninstall", "--prefix", resolveNpmInstallDir(stateDir), ...packageNames],
+    {
+      timeoutMs: 240_000,
+      maxBufferBytes: 2 * 1024 * 1024,
+      outputMode: "truncate",
+    },
+  );
+}
+
+async function uninstallUvTool(stateDir: string, packages: readonly string[]): Promise<void> {
+  if (!isCommandAvailable("uv")) {
+    throw new Error("Cannot uninstall language servers because uv is not available in PATH.");
+  }
+  const packageSpec = packages[0];
+  if (!packageSpec) {
+    return;
+  }
+  const packageName = stripUvPackageSpecifier(packageSpec);
+  if (packageName.length === 0) {
+    return;
+  }
+  await runProcess("uv", ["tool", "uninstall", packageName], {
+    timeoutMs: 120_000,
+    env: createUvToolEnvironment(stateDir),
+    maxBufferBytes: 2 * 1024 * 1024,
+    outputMode: "truncate",
+    allowNonZeroExit: true,
+  });
+}
+
+async function uninstallGoInstallTool(stateDir: string, tool: LspToolDefinition): Promise<void> {
+  await Promise.all(
+    resolveBinaryCandidatePaths(stateDir, tool).map((candidate) => rm(candidate, { force: true })),
+  );
+}
+
+async function uninstallRustupComponents(packages: readonly string[]): Promise<void> {
+  if (!isCommandAvailable("rustup")) {
+    throw new Error("Cannot uninstall language servers because rustup is not available in PATH.");
+  }
+  if (packages.length === 0) {
+    return;
+  }
+  await runProcess("rustup", ["component", "remove", ...packages], {
+    timeoutMs: 120_000,
+    maxBufferBytes: 2 * 1024 * 1024,
+    outputMode: "truncate",
+  });
+}
+
+async function uninstallPackagesWithInstaller(
+  stateDir: string,
+  tool: LspToolDefinition,
+): Promise<void> {
+  switch (tool.installer) {
+    case "uv-tool":
+      await uninstallUvTool(stateDir, tool.installPackages);
+      return;
+    case "go-install":
+      await uninstallGoInstallTool(stateDir, tool);
+      return;
+    case "rustup":
+      await uninstallRustupComponents(tool.installPackages);
+      return;
+    case "npm":
+      await uninstallPackagesWithNpm(stateDir, tool.installPackages);
+      return;
+  }
+}
+
 export async function installLspTools(
   stateDir: string,
   options: { readonly reinstall?: boolean } = {},
@@ -1150,5 +1260,26 @@ export async function installLspTool(
     throw new Error("Unable to register the language server due to invalid metadata.");
   }
   await writeCustomRegistry(stateDir, [...customTools, normalized]);
+  return getLspToolsStatus(stateDir);
+}
+
+export async function uninstallLspTool(
+  stateDir: string,
+  input: ServerUninstallLspToolInput,
+): Promise<ServerLspToolsStatus> {
+  const id = input.id.trim();
+  const definitions = await getLspToolDefinitions(stateDir);
+  const tool = definitions.find((candidate) => candidate.id === id);
+  if (!tool) {
+    throw new Error("Unknown language server.");
+  }
+
+  await uninstallPackagesWithInstaller(stateDir, tool);
+  if (tool.source === "custom") {
+    await writeCustomRegistry(
+      stateDir,
+      definitions.filter((candidate) => candidate.source === "custom" && candidate.id !== id),
+    );
+  }
   return getLspToolsStatus(stateDir);
 }

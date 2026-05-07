@@ -31,6 +31,7 @@ import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
+import { ComposerPendingComments } from "./ComposerPendingComments";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
@@ -90,6 +91,8 @@ interface ChatComposerPanelProps {
   >["terminalContexts"];
   readonly queuedComposerMessages: ComponentProps<typeof ComposerQueuedMessages>["messages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
+  readonly canSendQueuedMessages: boolean;
+  readonly pendingComposerComments: ComponentProps<typeof ComposerPendingComments>["comments"];
   readonly composerProviderState: ComposerProviderState;
   readonly selectedProvider: ProviderKind;
   readonly selectedProviderInstanceId?: string | undefined;
@@ -160,9 +163,18 @@ interface ChatComposerPanelProps {
   readonly onClearQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onClearAll"];
+  readonly onDismissPendingComposerComment: ComponentProps<
+    typeof ComposerPendingComments
+  >["onDismiss"];
+  readonly onClearPendingComposerComments: ComponentProps<
+    typeof ComposerPendingComments
+  >["onClearAll"];
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onReorder"];
+  readonly onSendQueuedComposerMessage: NonNullable<
+    ComponentProps<typeof ComposerQueuedMessages>["onSend"]
+  >;
   readonly onSteerQueuedComposerMessage: ComponentProps<typeof ComposerQueuedMessages>["onSteer"];
   readonly onPreviewComposerImage: (imageId: string) => void;
   readonly onRemoveComposerImage: (imageId: string) => void;
@@ -387,18 +399,28 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         data-chat-composer-form="true"
       >
         {(props.showQueue ?? true) ? (
-          <ComposerQueuedMessages
-            messages={props.queuedComposerMessages}
-            className="mb-2"
-            {...(props.queuedSteerMessageId !== undefined
-              ? { steerMessageId: props.queuedSteerMessageId }
-              : {})}
-            onEdit={props.onEditQueuedComposerMessage}
-            onDelete={props.onDeleteQueuedComposerMessage}
-            onClearAll={props.onClearQueuedComposerMessages}
-            onReorder={props.onReorderQueuedComposerMessages}
-            onSteer={props.onSteerQueuedComposerMessage}
-          />
+          <>
+            <ComposerPendingComments
+              comments={props.pendingComposerComments}
+              className="mb-2"
+              onDismiss={props.onDismissPendingComposerComment}
+              onClearAll={props.onClearPendingComposerComments}
+            />
+            <ComposerQueuedMessages
+              messages={props.queuedComposerMessages}
+              className="mb-2"
+              {...(props.queuedSteerMessageId !== undefined
+                ? { steerMessageId: props.queuedSteerMessageId }
+                : {})}
+              onEdit={props.onEditQueuedComposerMessage}
+              onDelete={props.onDeleteQueuedComposerMessage}
+              onClearAll={props.onClearQueuedComposerMessages}
+              onReorder={props.onReorderQueuedComposerMessages}
+              canSendNow={props.canSendQueuedMessages}
+              onSend={props.onSendQueuedComposerMessage}
+              onSteer={props.onSteerQueuedComposerMessage}
+            />
+          </>
         ) : null}
         {props.pendingUserInputs.length > 0 ? (
           <div className="mb-2">

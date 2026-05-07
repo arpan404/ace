@@ -147,6 +147,13 @@ export const ThreadQueueClearCommand = Schema.Struct({
   threadId: ThreadId,
 });
 
+export const ThreadQueueDispatchCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.dispatch"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+});
+
 export const ThreadQueueSteerCommand = Schema.Struct({
   type: Schema.Literal("thread.queue.steer"),
   commandId: CommandId,
@@ -278,6 +285,7 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
+  ThreadQueueDispatchCommand,
   ThreadQueueSteerCommand,
   ThreadQueueSteerClearCommand,
   ThreadRuntimeModeSetCommand,
@@ -307,6 +315,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
+  ThreadQueueDispatchCommand,
   ThreadQueueSteerCommand,
   ThreadQueueSteerClearCommand,
   ThreadRuntimeModeSetCommand,

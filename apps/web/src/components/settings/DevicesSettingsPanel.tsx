@@ -69,17 +69,17 @@ import { toastManager } from "../ui/toast";
 import { SettingsPageContainer } from "./SettingsPanelPrimitives";
 
 const SETTINGS_INLINE_PANEL_CLASS_NAME =
-  "rounded-[var(--control-radius)] border border-pill-border/58 bg-background/56 shadow-none";
+  "rounded-[var(--control-radius)] border border-border/45 bg-background/58 shadow-none";
 const SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME =
-  "rounded-[var(--control-radius)] border border-pill-border/48 bg-background/36 shadow-none";
+  "rounded-[var(--control-radius)] border border-border/35 bg-muted/[0.10] shadow-none";
 const SETTINGS_POPOVER_TRIGGER_CLASS_NAME =
-  "inline-flex h-7 items-center gap-1 rounded-[var(--control-radius)] border border-pill-border/58 bg-background/56 px-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+  "inline-flex h-7 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const SETTINGS_NATIVE_SELECT_CLASS_NAME =
-  "h-7 rounded-[var(--control-radius)] border border-pill-border/58 bg-background/56 px-2 text-[12px] text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+  "h-7 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const DEVICE_SECTION_CLASS_NAME =
-  "overflow-hidden rounded-[var(--panel-radius)] border border-pill-border/58 bg-pill/58 text-card-foreground supports-[backdrop-filter]:bg-pill/48 supports-[backdrop-filter]:backdrop-blur-lg";
+  "overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/72 text-card-foreground shadow-none supports-[backdrop-filter]:bg-background/66 supports-[backdrop-filter]:backdrop-blur-md";
 const DEVICE_SUBPANEL_CLASS_NAME =
-  "rounded-[var(--control-radius)] border border-pill-border/52 bg-background/42";
+  "rounded-[var(--control-radius)] border border-border/40 bg-background/45";
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
 const DEVICE_META_TEXT_CLASS_NAME = "text-[11px] leading-relaxed text-muted-foreground/62";
 
@@ -120,22 +120,24 @@ function DeviceSection({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0 space-y-1.5">
-      <div className="flex min-w-0 flex-col gap-2 px-0.5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-0.5">
-          <h2 className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/62">
-            <span className="shrink-0 text-muted-foreground/65">{icon}</span>
-            <span className="min-w-0 truncate">{title}</span>
-          </h2>
-          {description ? (
-            <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/52">
-              {description}
-            </p>
-          ) : null}
+    <section className="min-w-0">
+      <div className={DEVICE_SECTION_CLASS_NAME}>
+        <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.10] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-3.5">
+          <div className="min-w-0 space-y-0.5">
+            <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
+              <span className="shrink-0 text-muted-foreground/65">{icon}</span>
+              <span className="min-w-0 truncate">{title}</span>
+            </h2>
+            {description ? (
+              <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
         </div>
-        {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
+        {children}
       </div>
-      <div className={DEVICE_SECTION_CLASS_NAME}>{children}</div>
     </section>
   );
 }
@@ -155,7 +157,7 @@ function DeviceSubPanel({
 }) {
   return (
     <div className={cn(DEVICE_SUBPANEL_CLASS_NAME, className)}>
-      <div className="flex min-w-0 flex-col gap-2 border-b border-pill-border/42 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.08] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-0.5">
           <h3 className="text-[13px] leading-snug font-medium text-foreground/88">{title}</h3>
           {description ? <p className={DEVICE_META_TEXT_CLASS_NAME}>{description}</p> : null}
@@ -178,7 +180,7 @@ function DeviceStatusBadge({
     <span
       className={cn(
         "inline-flex h-5 w-fit max-w-full shrink-0 items-center gap-1 self-start rounded-[var(--control-radius)] border px-1.5 text-[10px] font-medium",
-        tone === "neutral" && "border-pill-border/52 bg-background/42 text-muted-foreground",
+        tone === "neutral" && "border-border/40 bg-background/42 text-muted-foreground",
         tone === "info" && "border-primary/30 bg-primary/10 text-info-foreground",
         tone === "success" && "border-success/30 bg-success/10 text-success-foreground",
         tone === "warning" && "border-warning/35 bg-warning/10 text-warning-foreground",
