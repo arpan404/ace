@@ -75,6 +75,9 @@ export function decodeClientSettingsPatch(rawPatch: Record<string, unknown>): Cl
       case "diffWordWrap":
         patch.diffWordWrap = Schema.decodeUnknownSync(Schema.Boolean)(value);
         break;
+      case "hideCompletedWorkMessages":
+        patch.hideCompletedWorkMessages = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
       case "editorLineNumbers":
         patch.editorLineNumbers = Schema.decodeUnknownSync(EditorLineNumbers)(value);
         break;

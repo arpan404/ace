@@ -100,6 +100,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_COMMENT_SUBMISSION_MODE),
   ),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  hideCompletedWorkMessages: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorLineNumbers: EditorLineNumbers.pipe(
     Schema.withDecodingDefault(() => DEFAULT_EDITOR_LINE_NUMBERS),
   ),
