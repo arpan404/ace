@@ -1,6 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import readline from "node:readline";
 
+import { terminateChildProcess } from "@ace/shared/processTermination";
+
 export type AcpJsonRpcId = string | number;
 
 interface JsonRpcError {
@@ -318,7 +320,7 @@ export function startAcpClient(options: StartAcpClientOptions): AcpClient {
         };
         child.once("close", finish);
         child.stdin.end();
-        child.kill("SIGTERM");
+        terminateChildProcess(child, { signal: "SIGTERM", tree: true });
         setTimeout(finish, 2_000);
       });
     },

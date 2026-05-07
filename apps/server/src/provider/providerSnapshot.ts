@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-
 import type {
   ServerProvider,
   ServerProviderAuth,
@@ -10,6 +8,7 @@ import type {
 import { Effect, Option, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { normalizeModelSlug } from "@ace/shared/model";
+import { terminatePid } from "@ace/shared/processTermination";
 
 import { isWindowsCommandNotFound } from "../processRunner";
 
@@ -46,17 +45,11 @@ export function isCommandMissingCause(error: unknown): boolean {
 const PROVIDER_PROBE_STOP_TIMEOUT = "1 second" as const;
 
 function killProviderProbeProcess(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (process.platform === "win32") {
-    try {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // Fall back to direct process signals when taskkill is unavailable.
-    }
-  }
-
   try {
-    process.kill(pid, signal);
+    terminatePid(pid, {
+      signal,
+      force: signal === "SIGKILL",
+    });
   } catch {
     // The process may have already exited between the liveness check and kill.
   }

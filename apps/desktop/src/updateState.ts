@@ -41,6 +41,9 @@ export function getAutoUpdateDisabledReason(args: {
   if (args.disabledByEnv) {
     return "Automatic updates are disabled by the ACE_DISABLE_AUTO_UPDATE setting.";
   }
+  if (args.platform !== "darwin" && args.platform !== "linux" && args.platform !== "win32") {
+    return `Automatic updates are not supported on ${args.platform}.`;
+  }
   if (args.platform === "linux" && !args.appImage) {
     return "Automatic updates on Linux require running the AppImage build.";
   }

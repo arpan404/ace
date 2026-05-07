@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 import type { ProviderKind } from "@ace/contracts";
 import { ServerProviderCliUpgradeError } from "@ace/contracts";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 import { Effect } from "effect";
 
 const CLI_UPGRADE_TIMEOUT_MS = 5 * 60_000;
@@ -121,7 +122,7 @@ function runCommand(command: string, args: ReadonlyArray<string>, timeoutMs: num
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
+      terminateChildProcess(child, { signal: "SIGTERM", tree: true });
     }, timeoutMs);
 
     child.stdout?.on("data", (chunk) => {

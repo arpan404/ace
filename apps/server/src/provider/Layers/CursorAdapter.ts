@@ -21,6 +21,7 @@ import {
   type UserInputQuestion,
 } from "@ace/contracts";
 import { Effect, FileSystem, Layer, PubSub, Stream } from "effect";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 
 import {
   ProviderAdapterProcessError,
@@ -2069,7 +2070,7 @@ export const CursorAdapterLive = Layer.effect(
             } catch (cause) {
               context.stopping = true;
               sessions.delete(input.threadId);
-              context.client.child.kill("SIGTERM");
+              terminateChildProcess(context.client.child, { signal: "SIGTERM", tree: true });
               throw cause;
             } finally {
               context.startPromise = undefined;
