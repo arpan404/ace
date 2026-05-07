@@ -259,6 +259,149 @@ describe("timelineRows", () => {
     });
   });
 
+  it("stops showing the goal working activity after Codex reports goal completion", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-completed",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-completed"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-completed",
+          kind: "message",
+          createdAt: "2025-01-01T00:01:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-completed"),
+            role: "assistant",
+            text: "Goal completed.",
+            createdAt: "2025-01-01T00:01:00.000Z",
+            completedAt: "2025-01-01T00:01:05.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:01:06.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      activity: "default",
+      goalStartedAt: null,
+    });
+  });
+
+  it("stops showing the goal working activity when Codex says the assistant is stopping completely", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-stopping",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-stopping"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-stopping-completely",
+          kind: "message",
+          createdAt: "2025-01-01T00:01:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-stopping-completely"),
+            role: "assistant",
+            text: "Assistant stopping completely.",
+            createdAt: "2025-01-01T00:01:00.000Z",
+            streaming: true,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      activity: "default",
+      goalStartedAt: null,
+    });
+  });
+
+  it("restarts the Codex goal timer after a completed goal when a later /goal is sent", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-first",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-first"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-first-completed",
+          kind: "message",
+          createdAt: "2025-01-01T00:01:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-first-completed"),
+            role: "assistant",
+            text: "Goal completed.",
+            createdAt: "2025-01-01T00:01:00.000Z",
+            completedAt: "2025-01-01T00:01:05.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "user-goal-second",
+          kind: "message",
+          createdAt: "2025-01-01T00:02:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-second"),
+            role: "user",
+            text: "/goal Ship the next feature",
+            createdAt: "2025-01-01T00:02:00.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:02:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      isWorking: true,
+    });
+
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      activity: "goal",
+      goalStartedAt: "2025-01-01T00:02:00.000Z",
+    });
+  });
+
   it("marks completed assistant message rows", () => {
     const rows = buildTimelineRows({
       timelineEntries: [
