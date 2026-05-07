@@ -79,6 +79,12 @@ export type SearchPaletteItem =
     }
   | {
       id: string;
+      type: "action.open-terminals";
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
       type: "project";
       projectId: ProjectId;
       label: string;

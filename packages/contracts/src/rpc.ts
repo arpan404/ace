@@ -101,9 +101,12 @@ import {
   TerminalError,
   TerminalEvent,
   TerminalOpenInput,
+  TerminalProcessListInput,
+  TerminalProcessSummary,
   TerminalResizeInput,
   TerminalRestartInput,
   TerminalSessionSnapshot,
+  TerminalTerminateInput,
   TerminalWriteInput,
 } from "./terminal";
 import {
@@ -183,6 +186,8 @@ export const WS_METHODS = {
   terminalClear: "terminal.clear",
   terminalRestart: "terminal.restart",
   terminalClose: "terminal.close",
+  terminalList: "terminal.list",
+  terminalTerminate: "terminal.terminate",
 
   // Server meta
   serverGetConfig: "server.getConfig",
@@ -517,6 +522,18 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: TerminalError,
 });
 
+export const WsTerminalListRpc = Rpc.make(WS_METHODS.terminalList, {
+  payload: TerminalProcessListInput,
+  success: Schema.Array(TerminalProcessSummary),
+  error: TerminalError,
+});
+
+export const WsTerminalTerminateRpc = Rpc.make(WS_METHODS.terminalTerminate, {
+  payload: TerminalTerminateInput,
+  success: TerminalSessionSnapshot,
+  error: TerminalError,
+});
+
 export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
   payload: OrchestrationGetSnapshotInput,
   success: OrchestrationRpcSchemas.getSnapshot.output,
@@ -649,6 +666,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
+  WsTerminalListRpc,
+  WsTerminalTerminateRpc,
   WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeBrowserBridgeRequestsRpc,

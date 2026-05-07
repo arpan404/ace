@@ -42,6 +42,8 @@ const rpcClientMock = {
     clear: vi.fn(),
     restart: vi.fn(),
     close: vi.fn(),
+    list: vi.fn(),
+    terminate: vi.fn(),
     onEvent: vi.fn((listener: (event: TerminalEvent) => void) =>
       registerListener(terminalEventListeners, listener),
     ),

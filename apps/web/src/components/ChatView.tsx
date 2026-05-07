@@ -491,6 +491,7 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onCloseTerminal: (terminalId: string) => void;
+  onTerminateTerminal: (terminalId: string) => void;
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -510,6 +511,7 @@ function ConnectedRetainedThreadTerminalDrawers({
   onMoveTerminal,
   onAutoTerminalTitleChange,
   onCloseTerminal,
+  onTerminateTerminal,
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
@@ -538,6 +540,7 @@ function ConnectedRetainedThreadTerminalDrawers({
           onMoveTerminal,
           onAutoTerminalTitleChange,
           onCloseTerminal,
+          onTerminateTerminal,
           onToggleTerminal,
           onHeightChange,
           onAddTerminalContext,
@@ -4816,6 +4819,21 @@ export default function ChatView({
     },
     [activeThreadId, closeTerminalTarget],
   );
+  const terminateTerminal = useCallback(
+    (terminalId: string) => {
+      const api = readNativeApi();
+      if (!api || !activeThreadId) return;
+      void api.terminal
+        .terminate({
+          threadId: activeThreadId,
+          terminalId,
+        })
+        .catch((error) => {
+          reportBackgroundError("Failed to stop the terminal process from ChatView.", error);
+        });
+    },
+    [activeThreadId],
+  );
   const runProjectScript = useCallback(
     async (
       script: ProjectScript,
@@ -8135,6 +8153,7 @@ export default function ChatView({
         onMoveTerminal={moveTerminal}
         onAutoTerminalTitleChange={setTerminalAutoTitle}
         onCloseTerminal={closeTerminal}
+        onTerminateTerminal={terminateTerminal}
         onToggleTerminal={toggleTerminalVisibility}
         onHeightChange={setTerminalHeight}
         onAddTerminalContext={addTerminalContextToDraft}

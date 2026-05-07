@@ -15,11 +15,14 @@ import {
   TerminalHistoryError,
   TerminalNotRunningError,
   TerminalOpenInput,
+  TerminalProcessListInput,
+  TerminalProcessSummary,
   TerminalResizeInput,
   TerminalRestartInput,
   TerminalSessionSnapshot,
   TerminalSessionLookupError,
   TerminalSessionStatus,
+  TerminalTerminateInput,
   TerminalWriteInput,
 } from "@ace/contracts";
 import { PtyProcess } from "./PTY";
@@ -109,6 +112,20 @@ export interface TerminalManagerShape {
    * When `terminalId` is omitted, closes all sessions for the thread.
    */
   readonly close: (input: TerminalCloseInput) => Effect.Effect<void, TerminalError>;
+
+  /**
+   * List terminal processes currently known to the server.
+   */
+  readonly list: (
+    input?: TerminalProcessListInput,
+  ) => Effect.Effect<ReadonlyArray<TerminalProcessSummary>, TerminalError>;
+
+  /**
+   * Stop the PTY process for a terminal session without deleting history.
+   */
+  readonly terminate: (
+    input: TerminalTerminateInput,
+  ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
 
   /**
    * Subscribe to terminal runtime events with a direct callback.
