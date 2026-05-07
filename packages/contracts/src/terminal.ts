@@ -78,6 +78,15 @@ export const TerminalCloseInput = Schema.Struct({
 });
 export type TerminalCloseInput = typeof TerminalCloseInput.Type;
 
+export const TerminalProcessListInput = Schema.Struct({
+  threadId: Schema.optional(TrimmedNonEmptyStringSchema),
+  runningOnly: Schema.optional(Schema.Boolean),
+});
+export type TerminalProcessListInput = typeof TerminalProcessListInput.Type;
+
+export const TerminalTerminateInput = TerminalSessionInput;
+export type TerminalTerminateInput = Schema.Codec.Encoded<typeof TerminalTerminateInput>;
+
 export const TerminalSessionStatus = Schema.Literals(["starting", "running", "exited", "error"]);
 export type TerminalSessionStatus = typeof TerminalSessionStatus.Type;
 
@@ -94,6 +103,18 @@ export const TerminalSessionSnapshot = Schema.Struct({
   updatedAt: Schema.String,
 });
 export type TerminalSessionSnapshot = typeof TerminalSessionSnapshot.Type;
+
+export const TerminalProcessSummary = Schema.Struct({
+  threadId: Schema.String.check(Schema.isNonEmpty()),
+  terminalId: Schema.String.check(Schema.isNonEmpty()),
+  cwd: Schema.String.check(Schema.isNonEmpty()),
+  title: TerminalTitleSchema,
+  status: TerminalSessionStatus,
+  pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
+  hasRunningSubprocess: Schema.Boolean,
+  updatedAt: Schema.String,
+});
+export type TerminalProcessSummary = typeof TerminalProcessSummary.Type;
 
 const TerminalEventBaseSchema = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),

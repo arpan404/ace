@@ -907,6 +907,8 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.terminalClear]: (input) => terminalManager.clear(input),
       [WS_METHODS.terminalRestart]: (input) => terminalManager.restart(input),
       [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
+      [WS_METHODS.terminalList]: (input) => terminalManager.list(input),
+      [WS_METHODS.terminalTerminate]: (input) => terminalManager.terminate(input),
       [WS_METHODS.subscribeTerminalEvents]: (input) =>
         filterCurrentClientStream(
           normalizeStreamIdentity(input),

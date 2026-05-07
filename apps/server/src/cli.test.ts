@@ -92,6 +92,12 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
     ),
   );
 
+  it.effect("recognizes terminal command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["terminal", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
   it.effect("recognizes remote command", () =>
     Command.runWith(cli, { version: "0.0.0" })(["remote", "--help"]).pipe(
       Effect.provide(CliRuntimeLayer),

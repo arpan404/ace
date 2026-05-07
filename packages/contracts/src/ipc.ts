@@ -71,9 +71,12 @@ import type {
   TerminalCloseInput,
   TerminalEvent,
   TerminalOpenInput,
+  TerminalProcessListInput,
+  TerminalProcessSummary,
   TerminalResizeInput,
   TerminalRestartInput,
   TerminalSessionSnapshot,
+  TerminalTerminateInput,
   TerminalWriteInput,
 } from "./terminal";
 import type {
@@ -330,6 +333,10 @@ export interface NativeApi {
     clear: (input: typeof TerminalClearInput.Encoded) => Promise<void>;
     restart: (input: typeof TerminalRestartInput.Encoded) => Promise<TerminalSessionSnapshot>;
     close: (input: typeof TerminalCloseInput.Encoded) => Promise<void>;
+    list: (
+      input?: typeof TerminalProcessListInput.Encoded,
+    ) => Promise<ReadonlyArray<TerminalProcessSummary>>;
+    terminate: (input: typeof TerminalTerminateInput.Encoded) => Promise<TerminalSessionSnapshot>;
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
   };
   projects: {

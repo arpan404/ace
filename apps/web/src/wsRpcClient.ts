@@ -66,6 +66,8 @@ export interface WsRpcClient {
     readonly clear: RpcUnaryMethod<typeof WS_METHODS.terminalClear>;
     readonly restart: RpcUnaryMethod<typeof WS_METHODS.terminalRestart>;
     readonly close: RpcUnaryMethod<typeof WS_METHODS.terminalClose>;
+    readonly list: RpcUnaryMethod<typeof WS_METHODS.terminalList>;
+    readonly terminate: RpcUnaryMethod<typeof WS_METHODS.terminalTerminate>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTerminalEvents>;
   };
   readonly browserBridge: {
@@ -188,6 +190,9 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
       clear: (input) => transport.request((client) => client[WS_METHODS.terminalClear](input)),
       restart: (input) => transport.request((client) => client[WS_METHODS.terminalRestart](input)),
       close: (input) => transport.request((client) => client[WS_METHODS.terminalClose](input)),
+      list: (input) => transport.request((client) => client[WS_METHODS.terminalList](input)),
+      terminate: (input) =>
+        transport.request((client) => client[WS_METHODS.terminalTerminate](input)),
       onEvent: (listener) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTerminalEvents](streamIdentity),

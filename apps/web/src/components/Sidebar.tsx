@@ -4259,6 +4259,9 @@ export default function Sidebar() {
     onNavigateSettings: () => {
       void navigate({ to: "/settings" });
     },
+    onNavigateTerminals: () => {
+      void navigate({ to: "/terminals" });
+    },
     onNavigateToThread: navigateToThread,
     onNavigateToThreadOnConnection: navigateToThreadOnConnection,
   });

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TerminalsRouteImport } from './routes/terminals'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
@@ -24,6 +25,11 @@ import { Route as SettingsAdvancedRouteImport } from './routes/settings.advanced
 import { Route as SettingsAboutRouteImport } from './routes/settings.about'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
 
+const TerminalsRoute = TerminalsRouteImport.update({
+  id: '/terminals',
+  path: '/terminals',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -97,6 +103,7 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/terminals': typeof TerminalsRoute
   '/$threadId': typeof ChatThreadIdRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
@@ -111,6 +118,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
+  '/terminals': typeof TerminalsRoute
   '/$threadId': typeof ChatThreadIdRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
+  '/terminals': typeof TerminalsRoute
   '/_chat/$threadId': typeof ChatThreadIdRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
@@ -146,6 +155,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/settings'
+    | '/terminals'
     | '/$threadId'
     | '/settings/about'
     | '/settings/advanced'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/settings'
+    | '/terminals'
     | '/$threadId'
     | '/settings/about'
     | '/settings/advanced'
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_chat'
     | '/settings'
+    | '/terminals'
     | '/_chat/$threadId'
     | '/settings/about'
     | '/settings/advanced'
@@ -193,10 +205,18 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
+  TerminalsRoute: typeof TerminalsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terminals': {
+      id: '/terminals'
+      path: '/terminals'
+      fullPath: '/terminals'
+      preLoaderRoute: typeof TerminalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -343,6 +363,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
+  TerminalsRoute: TerminalsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
