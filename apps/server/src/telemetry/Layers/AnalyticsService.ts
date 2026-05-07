@@ -23,7 +23,7 @@ interface BufferedAnalyticsEvent {
 
 const TelemetryEnvConfig = Config.all({
   posthogKey: Config.string("ACE_POSTHOG_KEY").pipe(
-    Config.withDefault("phc_XOWci4oZP4VvLiEyrFqkFjP4CZn55mjYYBMREK5Wd6m"),
+    Config.withDefault("phc_BZeopQzgN6neMNhGdMtADQvzQpA8vjKNzNJGW7QykjTN"),
   ),
   posthogHost: Config.string("ACE_POSTHOG_HOST").pipe(
     Config.withDefault("https://us.i.posthog.com"),
@@ -86,7 +86,7 @@ const makeAnalyticsService = Effect.gen(function* () {
           platform: process.platform,
           wsl: process.env.WSL_DISTRO_NAME,
           arch: process.arch,
-          t3CodeVersion: version,
+          aceVersion: version,
           clientType,
         },
         timestamp: event.capturedAt,
