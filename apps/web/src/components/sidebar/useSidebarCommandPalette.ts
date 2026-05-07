@@ -54,6 +54,7 @@ interface UseSidebarCommandPaletteInput {
   }) => void;
   readonly onFocusMostRecentThreadForProject: (projectId: ProjectId) => void;
   readonly onNavigateSettings: () => void;
+  readonly onNavigateTerminals: () => void;
   readonly onNavigateToThread: (threadId: ThreadId) => void;
   readonly onNavigateToThreadOnConnection: (connectionUrl: string, threadId: ThreadId) => void;
 }
@@ -243,6 +244,12 @@ export function useSidebarCommandPalette(
         label: "Open settings",
         description: "Settings",
       },
+      {
+        id: "action-open-terminals",
+        type: "action.open-terminals",
+        label: "Open terminals",
+        description: "Manage running terminal processes.",
+      },
     ];
 
     const allProjectItems = combinedSidebarSnapshot.projects.map((project): SearchPaletteItem => {
@@ -308,7 +315,8 @@ export function useSidebarCommandPalette(
         (item) =>
           item.type === "action.new-thread" ||
           item.type === "action.new-project" ||
-          item.type === "action.open-settings",
+          item.type === "action.open-settings" ||
+          item.type === "action.open-terminals",
       ),
     [searchPaletteItems],
   );
@@ -375,6 +383,11 @@ export function useSidebarCommandPalette(
       if (item.type === "action.open-settings") {
         closeSearchPalette();
         input.onNavigateSettings();
+        return;
+      }
+      if (item.type === "action.open-terminals") {
+        closeSearchPalette();
+        input.onNavigateTerminals();
         return;
       }
       if (item.type === "project") {

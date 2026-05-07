@@ -13,7 +13,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dn
 import { CSS } from "@dnd-kit/utilities";
 import { FitAddon } from "@xterm/addon-fit";
 import { IconTerminal } from "@tabler/icons-react";
-import { PlusIcon, XIcon } from "lucide-react";
+import { PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { type ThreadId } from "@ace/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
@@ -954,6 +954,7 @@ interface ThreadTerminalDrawerProps {
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onCloseTerminal: (terminalId: string) => void;
+  onTerminateTerminal: (terminalId: string) => void;
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -1118,6 +1119,7 @@ export default memo(function ThreadTerminalDrawer({
   onMoveTerminal,
   onAutoTerminalTitleChange,
   onCloseTerminal,
+  onTerminateTerminal,
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
@@ -1356,6 +1358,15 @@ export default memo(function ThreadTerminalDrawer({
       <XIcon className="size-4" />
     </TerminalActionButton>
   );
+  const renderTerminateTerminalButton = () => (
+    <TerminalActionButton
+      className="terminal-action-btn inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      onClick={() => onTerminateTerminal(resolvedActiveTerminalId)}
+      label="Stop terminal process"
+    >
+      <SquareIcon className="size-3.5" />
+    </TerminalActionButton>
+  );
 
   return (
     <aside
@@ -1409,6 +1420,7 @@ export default memo(function ThreadTerminalDrawer({
         </div>
 
         {tabsOverflow ? renderNewTerminalButton() : null}
+        {renderTerminateTerminalButton()}
         {renderToggleTerminalButton()}
       </div>
 
