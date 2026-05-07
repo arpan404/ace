@@ -3,6 +3,7 @@ import { BotIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface PendingActionState {
   questionIndex: number;
@@ -96,36 +97,48 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
         {canQueueMessage && !shouldShowQueueAsPrimarySend ? (
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            className={cn(
-              "rounded-full transition-all duration-150",
-              isRunning
-                ? "bg-primary/8 text-primary hover:bg-primary/14 hover:text-primary"
-                : "text-primary hover:bg-primary/12 hover:text-primary",
-            )}
-            onClick={onQueueMessage}
-            disabled={isConnecting}
-            aria-label={isRunning ? "Steer message" : "Queue message"}
-            title={isRunning ? "Steer message" : "Queue message"}
-          >
-            {isRunning ? <BotIcon className="size-3.5" /> : <SendArrowIcon size={12} />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  className={cn(
+                    "rounded-full transition-all duration-150",
+                    isRunning
+                      ? "bg-primary/8 text-primary hover:bg-primary/14 hover:text-primary"
+                      : "text-primary hover:bg-primary/12 hover:text-primary",
+                  )}
+                  onClick={onQueueMessage}
+                  disabled={isConnecting}
+                  aria-label={isRunning ? "Steer message" : "Queue message"}
+                />
+              }
+            >
+              {isRunning ? <BotIcon className="size-3.5" /> : <SendArrowIcon size={12} />}
+            </TooltipTrigger>
+            <TooltipPopup side="top">{isRunning ? "Steer message" : "Queue message"}</TooltipPopup>
+          </Tooltip>
         ) : null}
 
         {shouldShowQueueAsPrimarySend ? (
-          <button
-            type="button"
-            className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-150 hover:bg-primary/88 disabled:pointer-events-none disabled:opacity-15 sm:size-7"
-            onClick={onQueueMessage}
-            disabled={isConnecting}
-            aria-label="Queue message"
-            title="Queue message"
-          >
-            <SendArrowIcon />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-150 hover:bg-primary/88 disabled:pointer-events-none disabled:opacity-15 sm:size-7"
+                  onClick={onQueueMessage}
+                  disabled={isConnecting}
+                  aria-label="Queue message"
+                />
+              }
+            >
+              <SendArrowIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="top">Queue message</TooltipPopup>
+          </Tooltip>
         ) : isRunning ? (
           <button
             type="button"

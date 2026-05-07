@@ -288,6 +288,7 @@ import {
   buildHandoffTimeline,
   type HandoffLineageResult,
   resolveHandoffLineage,
+  resolveHandoffSourceProvider,
 } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -6973,7 +6974,7 @@ export default function ChatView({
           worktreePath: activeThread.worktreePath,
           handoff: {
             sourceThreadId: activeThread.id,
-            fromProvider: activeThread.modelSelection.provider,
+            fromProvider: resolveHandoffSourceProvider(activeThread),
             toProvider: resolvedProvider,
             mode: "best",
             createdAt,

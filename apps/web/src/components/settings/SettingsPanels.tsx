@@ -2933,21 +2933,30 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           >
             <div className="mt-3 flex flex-wrap gap-2">
               {WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  size="sm"
-                  variant={
-                    settings.workspaceSummaryGenerationMode === option.value ? "default" : "outline"
-                  }
-                  onClick={() =>
-                    updateSettings({
-                      workspaceSummaryGenerationMode: option.value,
-                    })
-                  }
-                  title={option.description}
-                >
-                  {option.label}
-                </Button>
+                <Tooltip key={option.value}>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant={
+                          settings.workspaceSummaryGenerationMode === option.value
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() =>
+                          updateSettings({
+                            workspaceSummaryGenerationMode: option.value,
+                          })
+                        }
+                      >
+                        {option.label}
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
+                    {option.description}
+                  </TooltipPopup>
+                </Tooltip>
               ))}
             </div>
           </SettingsRow>

@@ -168,6 +168,50 @@ function normalizeToolNameLabel(value: string): string {
   return normalized.length > 0 ? normalized : value;
 }
 
+function recognizedToolActionLabel(value: string | null): string | null {
+  if (!value || looksLikePath(value)) {
+    return null;
+  }
+  if (/[{}\[\]:]/u.test(value)) {
+    return null;
+  }
+  const normalized = normalizeToolNameLabel(value);
+  return [
+    "Read file",
+    "Write file",
+    "Edit file",
+    "Delete file",
+    "Move file",
+    "Search",
+    "Run command",
+    "Fetch URL",
+    "Reasoning",
+    "Switch mode",
+  ].includes(normalized)
+    ? normalized
+    : null;
+}
+
+function inferRequestKindFromToolAction(value: string | null): WorkLogEntry["requestKind"] | null {
+  const action = recognizedToolActionLabel(value);
+  if (!action) {
+    return null;
+  }
+  switch (action) {
+    case "Read file":
+      return "file-read";
+    case "Write file":
+    case "Edit file":
+    case "Delete file":
+    case "Move file":
+      return "file-change";
+    case "Run command":
+      return "command";
+    default:
+      return null;
+  }
+}
+
 function extractToolNameFromData(data: Record<string, unknown> | null): string | null {
   const item = asRecord(data?.item);
   const input = asRecord(data?.input);
@@ -231,6 +275,10 @@ export function extractToolTitle(payload: Record<string, unknown> | null): strin
   const dataToolName = extractToolNameFromData(data);
   if ((isGenericToolLabel(rawTitle) || looksLikePath(rawTitle)) && dataToolName) {
     return normalizeToolNameLabel(dataToolName);
+  }
+  const detailActionLabel = recognizedToolActionLabel(asTrimmedString(payload?.detail));
+  if (isGenericToolLabel(rawTitle) && detailActionLabel) {
+    return detailActionLabel;
   }
   if (rawTitle) {
     return rawTitle;
@@ -437,7 +485,36 @@ export function extractWorkLogRequestKind(
   ) {
     return payload.requestKind;
   }
-  return requestKindFromRequestType(payload?.requestType) ?? undefined;
+  const requestKind = requestKindFromRequestType(payload?.requestType);
+  if (requestKind) {
+    return requestKind;
+  }
+  if (payload?.itemType === "command_execution") {
+    return "command";
+  }
+
+  const data = asRecord(payload?.data);
+  const dataToolName = extractToolNameFromData(data);
+  const actionLabels = [
+    recognizedToolActionLabel(asTrimmedString(payload?.title)),
+    recognizedToolActionLabel(dataToolName),
+    recognizedToolActionLabel(asTrimmedString(payload?.detail)),
+  ];
+  if (actionLabels.includes("Search")) {
+    return undefined;
+  }
+  const titleKind =
+    inferRequestKindFromToolAction(asTrimmedString(payload?.title)) ??
+    inferRequestKindFromToolAction(dataToolName) ??
+    inferRequestKindFromToolAction(asTrimmedString(payload?.detail));
+  if (titleKind) {
+    return titleKind;
+  }
+
+  if (payload?.itemType === "file_change") {
+    return "file-change";
+  }
+  return undefined;
 }
 
 function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {

@@ -46,6 +46,7 @@ import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/rende
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 const MermaidDiagram = React.lazy(() => import("./MermaidDiagram"));
 
 class CodeHighlightErrorBoundary extends React.Component<
@@ -258,22 +259,30 @@ function InlineCodeLocalFileLink(props: {
   }
 
   return (
-    <a
-      href={targetPath}
-      className="chat-markdown-local-file-link"
-      title={`Open ${targetPath}`}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        openLocalFilePath({
-          targetPath,
-          onOpenFilePath: props.onOpenFilePath,
-          preferExternalEditor: event.metaKey || event.ctrlKey,
-        });
-      }}
-    >
-      {codeElement}
-    </a>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <a
+            href={targetPath}
+            className="chat-markdown-local-file-link"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openLocalFilePath({
+                targetPath,
+                onOpenFilePath: props.onOpenFilePath,
+                preferExternalEditor: event.metaKey || event.ctrlKey,
+              });
+            }}
+          />
+        }
+      >
+        {codeElement}
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap">
+        Open {targetPath}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -343,15 +352,21 @@ function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNo
 
   return (
     <div className="chat-markdown-codeblock">
-      <button
-        type="button"
-        className="chat-markdown-copy-button"
-        onClick={handleCopy}
-        title={copied ? "Copied" : "Copy code"}
-        aria-label={copied ? "Copied" : "Copy code"}
-      >
-        {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="chat-markdown-copy-button"
+              onClick={handleCopy}
+              aria-label={copied ? "Copied" : "Copy code"}
+            />
+          }
+        >
+          {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+        </TooltipTrigger>
+        <TooltipPopup side="top">{copied ? "Copied" : "Copy code"}</TooltipPopup>
+      </Tooltip>
       {children}
     </div>
   );
@@ -671,19 +686,25 @@ function ChatMarkdown({
                   onOpenBrowserUrl(browserUrl);
                 }}
               />
-              <button
-                type="button"
-                className="chat-markdown-link-open-browser"
-                aria-label="Open link in the in-app browser"
-                title="Open in in-app browser"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onOpenBrowserUrl(browserUrl);
-                }}
-              >
-                <GlobeIcon className="size-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="chat-markdown-link-open-browser"
+                      aria-label="Open link in the in-app browser"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onOpenBrowserUrl(browserUrl);
+                      }}
+                    />
+                  }
+                >
+                  <GlobeIcon className="size-3" />
+                </TooltipTrigger>
+                <TooltipPopup side="top">Open in in-app browser</TooltipPopup>
+              </Tooltip>
             </span>
           );
         }

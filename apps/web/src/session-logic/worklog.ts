@@ -149,7 +149,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? (activity.payload as Record<string, unknown>)
       : null;
   const command = extractToolCommand(payload);
-  const changedFiles = extractChangedFiles(payload);
+  const rawChangedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
   const embeddedIntentText = extractEmbeddedIntentText(payload);
   const entry: DerivedWorkLogEntry = {
@@ -169,6 +169,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
+  const changedFiles = requestKind === "file-change" ? rawChangedFiles : [];
   const isRuntimeDiagnostic =
     activity.kind === "runtime.error" || activity.kind === "runtime.warning";
   if (isRuntimeDiagnostic && payload) {
@@ -319,7 +320,11 @@ function mergeDerivedWorkLogEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
-  const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
+  const requestKind = next.requestKind ?? previous.requestKind;
+  const changedFiles =
+    requestKind === "file-change"
+      ? mergeChangedFiles(previous.changedFiles, next.changedFiles)
+      : [];
   const detail =
     previous.tone === "thinking" && next.tone === "thinking"
       ? mergeThinkingWorkLogDetail(previous.detail, next.detail)
@@ -327,7 +332,6 @@ function mergeDerivedWorkLogEntries(
   const command = next.command ?? previous.command;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
-  const requestKind = next.requestKind ?? previous.requestKind;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
   return {
     ...previous,
