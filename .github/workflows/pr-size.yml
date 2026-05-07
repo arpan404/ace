@@ -3,6 +3,12 @@ name: PR Size
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/pr-size.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,32 +30,32 @@ jobs:
               {
                 name: "size:XS",
                 color: "0e8a16",
-                description: "0-9 effective changed lines (test files excluded in mixed PRs).",
+                description: "0-9 effective changed lines.",
               },
               {
                 name: "size:S",
                 color: "5ebd3e",
-                description: "10-29 effective changed lines (test files excluded in mixed PRs).",
+                description: "10-29 effective changed lines.",
               },
               {
                 name: "size:M",
                 color: "fbca04",
-                description: "30-99 effective changed lines (test files excluded in mixed PRs).",
+                description: "30-99 effective changed lines.",
               },
               {
                 name: "size:L",
                 color: "fe7d37",
-                description: "100-499 effective changed lines (test files excluded in mixed PRs).",
+                description: "100-499 effective changed lines.",
               },
               {
                 name: "size:XL",
                 color: "d93f0b",
-                description: "500-999 effective changed lines (test files excluded in mixed PRs).",
+                description: "500-999 effective changed lines.",
               },
               {
                 name: "size:XXL",
                 color: "b60205",
-                description: "1,000+ effective changed lines (test files excluded in mixed PRs).",
+                description: "1,000+ effective changed lines.",
               },
             ];
 
@@ -125,7 +131,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Checkout base repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Sync PR size label

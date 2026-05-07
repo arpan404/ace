@@ -1,10 +1,14 @@
 # ace
 
-ace is a minimal web GUI for coding agents.
+ace is an agentic coding environment for running local coding-agent CLIs through one web, desktop, and remote-control workspace.
 
-It runs local provider CLIs behind a shared server, then streams session events to the UI over WebSocket.
+It starts provider CLIs behind a shared server, normalizes their runtime events, and streams session state to the UI over WebSocket.
 
-ace is multi-provider. The repo currently includes provider integrations for:
+The project is actively developed and already used as a daily coding workspace. Expect regular improvements as provider CLIs and desktop release flows evolve.
+
+## Providers
+
+ace currently includes integrations for:
 
 - Codex
 - Claude
@@ -12,8 +16,13 @@ ace is multi-provider. The repo currently includes provider integrations for:
 - Gemini
 - GitHub Copilot
 - OpenCode
+- Pi
 
-This project is still early and changing quickly.
+Provider CLIs are installed and authenticated separately. ace does not replace provider accounts or provider-specific auth flows.
+
+Provider-specific features are implemented natively where ace can expose them cleanly. Codex currently has the deepest native integration, including plugins, skills, image generation, and Browser Use inside ace's in-app browser. More provider-specific capabilities are coming across Claude, Cursor, Gemini, GitHub Copilot, OpenCode, and Pi.
+
+See [FEATURES.md](./FEATURES.md) for the current feature map.
 
 ## Quick Start
 
@@ -23,7 +32,7 @@ This project is still early and changing quickly.
 bun install
 ```
 
-2. Install and sign in to at least one supported provider CLI.
+2. Install and sign in to at least one supported provider CLI:
 
 Examples:
 
@@ -31,14 +40,39 @@ Examples:
 - Claude: `claude auth login`
 - Gemini: install Gemini CLI and sign in
 - Cursor: install `cursor-agent`
+- GitHub Copilot: configure through ace app settings; availability is checked through the Copilot runtime
+- OpenCode: install `opencode`
+- Pi: install the Pi CLI, for example `npm install -g @mariozechner/pi-coding-agent`
 
-3. Start the app:
+3. Check local setup:
+
+```bash
+bun apps/server/src/bin.ts doctor
+```
+
+4. Start the app:
 
 ```bash
 bun dev:web
 ```
 
 This starts the web app and local server together.
+
+## Desktop Releases
+
+The Electron desktop app lives in `apps/desktop`.
+
+Current desktop release state:
+
+- macOS release artifacts are available.
+- Windows and Linux packaging are part of the release workflow but need more real-device validation before production use.
+- macOS signing/notarization and Windows signing require maintainer-owned signing credentials.
+
+Generated release artifacts should stay out of git. Use ignored release directories such as `release/` or `release-mac-*/`.
+
+## Mobile
+
+The mobile app is in development in `apps/mobile`. It is part of the ace workspace direction for remote supervision and companion workflows, but the web and desktop apps are the primary daily-use surfaces today.
 
 ## CLI
 
@@ -79,8 +113,8 @@ Full CLI guide with first-run setup, diagnostics, telemetry/privacy controls, te
 
 Requirements:
 
-- `bun`
-- `node`
+- Bun `1.3.9` or compatible with `package.json`
+- Node `24.13.1` or compatible with `package.json`
 - at least one supported provider CLI installed locally
 
 Common commands:
@@ -98,6 +132,7 @@ bun dev:web
 - `bun fmt`
 - `bun lint`
 - `bun typecheck`
+- `bun run test`
 
 Before considering a change complete, run:
 
@@ -107,12 +142,15 @@ bun lint
 bun typecheck
 ```
 
+Use `bun run test` for tests. Do not use `bun test`; the repo scripts route tests through Turbo/Vitest.
+
 ## Architecture
 
-- `apps/server` manages provider sessions and exposes the app over WebSocket
-- `apps/web` is the main React/Vite UI
-- provider runtime activity is projected into shared orchestration events for the client
-- some internals are still Codex-specific today, but the product and provider layer are designed to support multiple backends
+- `apps/server` manages provider sessions, daemon lifecycle, CLI commands, and WebSocket routing.
+- `apps/web` is the main React/Vite UI.
+- `apps/desktop` wraps the app in Electron and owns native desktop lifecycle/update behavior.
+- Provider runtime activity is projected into shared orchestration events for the client.
+- Some internals are still Codex-first today, but the product and provider layer are designed to support multiple backends.
 
 ## Repo Structure
 
@@ -125,10 +163,14 @@ bun typecheck
 - `packages/contracts` - shared schemas and protocol types
 - `packages/shared` - shared runtime utilities
 
-## Notes
+## Contributing
 
-- The server is the integration point for provider CLIs.
-- The web app consumes server-pushed orchestration events rather than talking to providers directly.
-- For contribution details, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Small reliability, performance, cross-platform, and docs improvements are the easiest contributions to review. Open an issue before large features, provider integrations, or protocol changes.
 
-> Attribution: ace is a fork of T3 Code by T3 Tools Inc. and is released under the MIT License, copyright (c) 2026 arpan404.
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## License And Attribution
+
+ace is released under the MIT License.
+
+This project began as a fork of T3 Code by T3 Tools Inc. and is now maintained as ace by arpan404.

@@ -1,4 +1,4 @@
-name: CI
+name: Quality
 
 on:
   pull_request:
@@ -6,9 +6,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
-    name: Format, Lint, Typecheck, Test, Browser Test, Build
+    name: Format, lint, typecheck, test, build
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
@@ -45,7 +52,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Format
+      - name: Format check
         run: bun run fmt:check
 
       - name: Lint
@@ -62,10 +69,10 @@ jobs:
           cd apps/web
           bunx playwright install --with-deps chromium
 
-      - name: Browser test
+      - name: Browser tests
         run: bun run --cwd apps/web test:browser
 
-      - name: Build desktop pipeline
+      - name: Build desktop pipeline outputs
         run: bun run build:desktop
 
       - name: Verify preload bundle output
@@ -74,7 +81,7 @@ jobs:
           grep -nE "desktopBridge|getWsUrl|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.js
 
   release_smoke:
-    name: Release Smoke
+    name: Release workflow smoke
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
