@@ -184,6 +184,7 @@ const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyAr
     shell: process.platform === "win32",
     env: {
       ...process.env,
+      ...codexSettings.launchEnv,
       ...(codexSettings.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
     },
   });

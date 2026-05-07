@@ -10,7 +10,7 @@ import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@ace/contracts";
-import { startOpenCodeServer } from "../opencodeRuntime";
+import { startOpenCodeServerIsolated } from "../opencodeRuntime";
 import { probeOpenCodeSdk } from "../opencodeSdk";
 
 const PROVIDER = "opencode" as const;
@@ -48,7 +48,11 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
     }
 
     const probeResult = yield* Effect.promise(async () => {
-      const server = await startOpenCodeServer(settings.binaryPath);
+      const server = await startOpenCodeServerIsolated(settings.binaryPath, {
+        ...process.env,
+        ...settings.launchEnv,
+        ...(settings.configDir ? { OPENCODE_CONFIG_DIR: settings.configDir } : {}),
+      });
       try {
         return await probeOpenCodeSdk(server.url);
       } finally {
