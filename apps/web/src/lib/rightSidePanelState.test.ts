@@ -6,6 +6,7 @@ import {
   resolveRightSidePanelModeAfterDiffClose,
   resolveThreadRightSidePanelStorageKeys,
   resetThreadRightSidePanelState,
+  shouldApplyThreadBrowserViewportResizeToVisiblePanel,
 } from "./rightSidePanelState";
 import {
   getLocalStorageItem,
@@ -84,5 +85,34 @@ describe("rightSidePanelState", () => {
         lastNonDiffMode: null,
       }),
     ).toBe("summary");
+  });
+
+  it("applies browser viewport resize only to the visible owning thread", () => {
+    const activeThreadId = ThreadId.makeUnsafe("thread-active");
+    const backgroundThreadId = ThreadId.makeUnsafe("thread-background");
+
+    expect(
+      shouldApplyThreadBrowserViewportResizeToVisiblePanel({
+        activeThreadId,
+        requestThreadId: activeThreadId,
+        rightSidePanelInteractive: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldApplyThreadBrowserViewportResizeToVisiblePanel({
+        activeThreadId,
+        requestThreadId: backgroundThreadId,
+        rightSidePanelInteractive: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldApplyThreadBrowserViewportResizeToVisiblePanel({
+        activeThreadId,
+        requestThreadId: activeThreadId,
+        rightSidePanelInteractive: false,
+      }),
+    ).toBe(false);
   });
 });
