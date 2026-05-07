@@ -1,4 +1,6 @@
-import { type ChildProcess as ChildProcessHandle, spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+
+import { terminateChildProcess } from "@ace/shared/processTermination";
 
 export interface ProcessRunOptions {
   cwd?: string | undefined;
@@ -80,23 +82,6 @@ function normalizeBufferError(
 
 const DEFAULT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
-/**
- * On Windows with `shell: true`, `child.kill()` only terminates the `cmd.exe`
- * wrapper, leaving the actual command running. Use `taskkill /T` to kill the
- * entire process tree instead.
- */
-function killChild(child: ChildProcessHandle, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (process.platform === "win32" && child.pid !== undefined) {
-    try {
-      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // fallback to direct kill
-    }
-  }
-  child.kill(signal);
-}
-
 function appendChunkWithinLimit(
   target: string,
   currentBytes: number,
@@ -154,9 +139,9 @@ export async function runProcess(
 
     const timeoutTimer = setTimeout(() => {
       timedOut = true;
-      killChild(child, "SIGTERM");
+      terminateChildProcess(child, { signal: "SIGTERM", tree: true });
       forceKillTimer = setTimeout(() => {
-        killChild(child, "SIGKILL");
+        terminateChildProcess(child, { signal: "SIGKILL", tree: true, force: true });
       }, 1_000);
     }, timeoutMs);
 
@@ -171,7 +156,7 @@ export async function runProcess(
     };
 
     const fail = (error: Error): void => {
-      killChild(child, "SIGTERM");
+      terminateChildProcess(child, { signal: "SIGTERM", tree: true });
       finalize(() => {
         reject(error);
       });

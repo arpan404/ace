@@ -7,6 +7,7 @@ import { FileSystem, Path, Effect } from "effect";
 
 import {
   isCommandAvailable,
+  inspectLinuxDesktopTools,
   launchDetached,
   pickFolder,
   resolveAvailableEditors,
@@ -164,6 +165,13 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
 
   it.effect("maps file-manager editor to OS open commands", () =>
     Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-open-test-" });
+      const xdgOpenPath = path.join(dir, "xdg-open");
+      yield* fs.writeFileString(xdgOpenPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(xdgOpenPath, 0o755));
+
       const launch1 = yield* resolveEditorLaunch(
         { cwd: "/tmp/workspace", editor: "file-manager" },
         "darwin",
@@ -185,6 +193,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       const launch3 = yield* resolveEditorLaunch(
         { cwd: "/tmp/workspace", editor: "file-manager" },
         "linux",
+        { PATH: dir },
       );
       assert.deepEqual(launch3, {
         command: "xdg-open",
@@ -197,6 +206,13 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
 it.layer(NodeServices.layer)("resolveRevealInFileManagerLaunch", (it) => {
   it.effect("maps reveal commands by operating system", () =>
     Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-open-test-" });
+      const xdgOpenPath = path.join(dir, "xdg-open");
+      yield* fs.writeFileString(xdgOpenPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(xdgOpenPath, 0o755));
+
       const macLaunch = yield* resolveRevealInFileManagerLaunch(
         { path: "/tmp/workspace/src/app.ts" },
         "darwin",
@@ -218,6 +234,7 @@ it.layer(NodeServices.layer)("resolveRevealInFileManagerLaunch", (it) => {
       const linuxLaunch = yield* resolveRevealInFileManagerLaunch(
         { path: "/tmp/workspace/src/app.ts" },
         "linux",
+        { PATH: dir },
       );
       assert.deepEqual(linuxLaunch, {
         command: "xdg-open",
@@ -232,6 +249,28 @@ it.layer(NodeServices.layer)("resolveRevealInFileManagerLaunch", (it) => {
         Effect.result,
       );
       assert.equal(result._tag, "Failure");
+    }),
+  );
+
+  it.effect("falls back to gio for Linux file-manager launches", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-open-test-" });
+      const gioPath = path.join(dir, "gio");
+      yield* fs.writeFileString(gioPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(gioPath, 0o755));
+
+      const launch = yield* resolveEditorLaunch(
+        { cwd: "/tmp/workspace", editor: "file-manager" },
+        "linux",
+        { PATH: dir },
+      );
+
+      assert.deepEqual(launch, {
+        command: "gio",
+        args: ["open", "/tmp/workspace"],
+      });
     }),
   );
 });
@@ -342,6 +381,39 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       });
       assert.deepEqual(editors, ["trae", "vscode-insiders", "vscodium", "file-manager"]);
+    }),
+  );
+
+  it.effect("reports file-manager as available on linux when gio is installed", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-open-test-" });
+      const gioPath = path.join(dir, "gio");
+      yield* fs.writeFileString(gioPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(gioPath, 0o755));
+
+      assert.equal(resolveAvailableEditors("linux", { PATH: dir }).includes("file-manager"), true);
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("inspectLinuxDesktopTools", (it) => {
+  it.effect("reports opener and picker availability", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-linux-tools-test-" });
+      for (const command of ["gio", "kdialog"]) {
+        const commandPath = path.join(dir, command);
+        yield* fs.writeFileString(commandPath, "#!/bin/sh\nexit 0\n");
+        yield* Effect.sync(() => chmodSync(commandPath, 0o755));
+      }
+
+      assert.deepEqual(inspectLinuxDesktopTools({ PATH: dir }), {
+        opener: "gio",
+        folderPicker: "kdialog",
+      });
     }),
   );
 });

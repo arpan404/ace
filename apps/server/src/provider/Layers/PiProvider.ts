@@ -12,6 +12,7 @@ import type {
 } from "@ace/contracts";
 import { PI_THOUGHT_LEVEL_OPTIONS } from "@ace/contracts";
 import { ServerSettingsError } from "@ace/contracts";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -204,7 +205,7 @@ async function runPiRpcGetModels(binaryPath: string): Promise<ReadonlyArray<PiRp
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
-        child.kill("SIGTERM");
+        terminateChildProcess(child, { signal: "SIGTERM", tree: true });
         reject(new Error("Timed out while querying Pi RPC models."));
       }
     }, PI_RPC_TIMEOUT_MS);
@@ -239,7 +240,7 @@ async function runPiRpcGetModels(binaryPath: string): Promise<ReadonlyArray<PiRp
                 ),
               ),
             );
-            child.kill("SIGTERM");
+            terminateChildProcess(child, { signal: "SIGTERM", tree: true });
             return;
           }
           const data =
@@ -282,7 +283,7 @@ async function runPiRpcGetModels(binaryPath: string): Promise<ReadonlyArray<PiRp
               }),
             ),
           );
-          child.kill("SIGTERM");
+          terminateChildProcess(child, { signal: "SIGTERM", tree: true });
           return;
         } catch {
           continue;

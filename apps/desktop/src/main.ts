@@ -41,6 +41,7 @@ import {
   type AceCliInstallOptions,
   type AceCliInstallResult,
 } from "@ace/shared/cliInstall";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@ace/contracts";
@@ -73,6 +74,7 @@ import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
+import { buildLinuxDaemonAutostartEntry } from "./linuxAutostart";
 import { findDesktopPairingUrlInArgv, normalizeDesktopPairingUrl } from "./pairingProtocol";
 import {
   startDesktopBackgroundNotificationService,
@@ -1498,31 +1500,17 @@ function configureAppIdentity(): void {
   configureMacDockIcon();
 }
 
-function quoteDesktopAutostartExecArgument(value: string): string {
-  return `"${value.replace(/(["\\`$])/g, "\\$1")}"`;
-}
-
 function ensureLinuxDaemonAutostartEntry(): void {
   const autostartDir = Path.join(OS.homedir(), ".config", "autostart");
   const entryPath = Path.join(
     autostartDir,
     isDevelopment ? "ace-dev-daemon.desktop" : "ace-daemon.desktop",
   );
-  const execCommand = [process.execPath, DAEMON_LOGIN_ITEM_ARG]
-    .map(quoteDesktopAutostartExecArgument)
-    .join(" ");
-  const entryContents = [
-    "[Desktop Entry]",
-    "Type=Application",
-    "Version=1.0",
-    "Name=ace daemon",
-    "Comment=Start the ace background daemon at login",
-    `Exec=${execCommand}`,
-    "Terminal=false",
-    "NoDisplay=true",
-    "X-GNOME-Autostart-enabled=true",
-    "",
-  ].join("\n");
+  const entryContents = buildLinuxDaemonAutostartEntry({
+    appName: APP_DISPLAY_NAME,
+    executablePath: process.execPath,
+    args: [DAEMON_LOGIN_ITEM_ARG],
+  });
   FS.mkdirSync(autostartDir, { recursive: true });
   const previousContents = FS.existsSync(entryPath) ? FS.readFileSync(entryPath, "utf8") : null;
   if (previousContents !== entryContents) {
@@ -1936,9 +1924,11 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
     } else {
       await stopBackendAndWaitForExit();
     }
-    // Destroy all windows before launching the NSIS installer to avoid the installer finding live windows it needs to close.
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.destroy();
+    if (process.platform === "win32") {
+      // Close live app windows before NSIS starts so it can replace files without prompting.
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.destroy();
+      }
     }
     // `quitAndInstall()` only starts the handoff to the updater. The actual
     // install may still fail asynchronously, so keep the action incomplete
@@ -1949,9 +1939,27 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
     const message = formatErrorMessage(error);
     updateInstallInFlight = false;
     isQuitting = false;
+    recoverBackendAfterFailedUpdateInstall();
     setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
+  }
+}
+
+function recoverBackendAfterFailedUpdateInstall(): void {
+  try {
+    if (backendManagedByDaemon) {
+      startOrConnectBackendDaemon();
+      writeDesktopLogHeader("daemon backend restarted after failed update install");
+      return;
+    }
+
+    startBackend();
+    writeDesktopLogHeader("child backend restarted after failed update install");
+  } catch (error) {
+    writeDesktopLogHeader(
+      `backend restart after failed update install failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
   }
 }
 
@@ -2186,7 +2194,7 @@ function startBackend(): void {
     );
     bootstrapStream.end();
   } else {
-    child.kill("SIGTERM");
+    terminateChildProcess(child, { signal: "SIGTERM", tree: true });
     scheduleBackendRestart("missing desktop bootstrap pipe");
     return;
   }
@@ -2239,10 +2247,10 @@ function stopBackend(): void {
   if (!child) return;
 
   if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGTERM");
+    terminateChildProcess(child, { signal: "SIGTERM", tree: true });
     setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
+        terminateChildProcess(child, { signal: "SIGKILL", tree: true, force: true });
       }
     }, 2_000).unref();
   }
@@ -2283,11 +2291,11 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
     }
 
     backendChild.once("exit", onExit);
-    backendChild.kill("SIGTERM");
+    terminateChildProcess(backendChild, { signal: "SIGTERM", tree: true });
 
     forceKillTimer = setTimeout(() => {
       if (backendChild.exitCode === null && backendChild.signalCode === null) {
-        backendChild.kill("SIGKILL");
+        terminateChildProcess(backendChild, { signal: "SIGKILL", tree: true, force: true });
       }
     }, 2_000);
     forceKillTimer.unref();

@@ -24,6 +24,7 @@ import {
 } from "@ace/shared/hostConnections";
 import { NetService } from "@ace/shared/Net";
 import { createWsRpcProtocolLayer, makeWsRpcProtocolClient } from "@ace/shared/wsRpcProtocol";
+import { terminatePid } from "@ace/shared/processTermination";
 import {
   addCliProject,
   listCliProjects,
@@ -81,7 +82,7 @@ import {
   RuntimeMode,
 } from "./config";
 import { readBootstrapEnvelope } from "./bootstrap";
-import { Open, OpenLive } from "./open";
+import { inspectLinuxDesktopTools, Open, OpenLive } from "./open";
 import { resolveBaseDir } from "./os-jank";
 import {
   buildProcessTree,
@@ -762,6 +763,30 @@ const probeCli = (probe: DoctorCliProbe) =>
         });
       }),
   );
+
+function checkLinuxDesktopTools(): ReadonlyArray<DoctorCheck> {
+  if (process.platform !== "linux") {
+    return [];
+  }
+
+  const tools = inspectLinuxDesktopTools(process.env);
+  return [
+    {
+      area: "Linux opener",
+      status: tools.opener ? "ok" : "warn",
+      detail: tools.opener
+        ? `${tools.opener} available for opening files/URLs`
+        : "missing xdg-open/gio; install xdg-utils or GLib gio for file/URL opening",
+    },
+    {
+      area: "Linux folder picker",
+      status: tools.folderPicker ? "ok" : "warn",
+      detail: tools.folderPicker
+        ? `${tools.folderPicker} available for folder selection`
+        : "missing zenity/kdialog; install one or enter folder paths manually",
+    },
+  ];
+}
 
 const renderDoctorStatus = (status: DoctorStatus): string => {
   switch (status) {
@@ -1675,7 +1700,11 @@ const isErrnoCode = (cause: unknown, code: string): boolean =>
 
 const sendSignal = (pid: number, signal: NodeJS.Signals) =>
   Effect.try({
-    try: () => process.kill(pid, signal),
+    try: () =>
+      terminatePid(pid, {
+        signal,
+        force: signal === "SIGKILL",
+      }),
     catch: (cause) =>
       new DaemonCommandError({
         message: `Failed to signal daemon process ${String(pid)} with ${signal}.`,
@@ -2149,6 +2178,7 @@ const doctorCommand = Command.make("doctor", {
       const providerChecks = yield* Effect.all(doctorCliProbes.map(probeCli), {
         concurrency: "unbounded",
       });
+      const desktopToolChecks = checkLinuxDesktopTools();
       const availableProviderCount = providerChecks.filter((check) => check.status === "ok").length;
       const checks: ReadonlyArray<DoctorCheck> = [
         {
@@ -2185,6 +2215,7 @@ const doctorCommand = Command.make("doctor", {
               ? `${String(availableProviderCount)} available on PATH`
               : "no checked provider CLIs found on PATH",
         },
+        ...desktopToolChecks,
         ...providerChecks,
         {
           area: "Copilot/Pi",
