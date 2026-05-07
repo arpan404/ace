@@ -9,7 +9,7 @@ body:
     attributes:
       value: |
         Use this form for new capabilities or meaningful improvements to existing behavior.
-        This repo is still early. Small, concrete requests that clearly explain the problem and scope are much easier to evaluate.
+        Small, concrete requests that clearly explain the problem and scope are much easier to evaluate.
 
   - type: checkboxes
     id: checks
@@ -30,6 +30,10 @@ body:
         - apps/web
         - apps/server
         - apps/desktop
+        - apps/mobile
+        - apps/relay
+        - apps/marketing
+        - Provider runtime or CLI integration
         - packages/contracts or packages/shared
         - Build, CI, or release tooling
         - Docs

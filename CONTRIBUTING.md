@@ -1,65 +1,114 @@
 # Contributing
 
-## Read This First
+ace is an actively used coding workspace, so the best contributions are small, focused changes that improve reliability, performance, cross-platform behavior, or developer experience without expanding product scope unexpectedly.
 
-We are not actively accepting contributions right now.
+## Before You Start
 
-You can still open an issue or PR, but please do so knowing there is a high chance we close it, defer it forever, or never look at it.
+- Search existing issues and PRs.
+- Open an issue first for non-trivial features, protocol changes, release changes, or large refactors.
+- Keep one PR focused on one problem.
+- Prefer the existing architecture and local helpers over new one-off patterns.
 
-If that sounds annoying, that is because it is. This project is still early and we are trying to keep scope, quality, and direction under control.
+## What We Prioritize
 
-PRs are automatically labeled with a `vouch:*` trust status and a `size:*` diff size based on changed lines.
+- Provider/session reliability fixes.
+- WebSocket reconnect, restart, and partial-stream correctness.
+- Cross-platform desktop behavior on macOS, Windows, and Linux.
+- Performance improvements with clear before/after reasoning.
+- Tests for shared contracts, provider orchestration, updater behavior, and CLI flows.
+- Clear docs for setup, troubleshooting, release, and provider requirements.
 
-If you are an external contributor, expect `vouch:unvouched` until we explicitly add you to [.github/VOUCHED.td](.github/VOUCHED.td).
+## What Usually Needs Discussion First
 
-## What We Are Most Likely To Accept
+- New provider integrations.
+- Changes to contracts or WebSocket protocol shape.
+- Broad UI redesigns.
+- Release/signing/update pipeline changes.
+- Large rewrites or dependency swaps.
 
-Small, focused bug fixes.
+## Development Setup
 
-Small reliability fixes.
+Requirements:
 
-Small performance improvements.
+- Bun `1.3.9` or compatible with `package.json`.
+- Node `24.13.1` or compatible with `package.json`.
+- At least one supported provider CLI if you are testing provider flows.
 
-Tightly scoped maintenance work that clearly improves the project without changing its direction.
+Install dependencies:
 
-## What We Are Least Likely To Accept
+```bash
+bun install
+```
 
-Large PRs.
+Run the app:
 
-Drive-by feature work.
+```bash
+bun dev:web
+```
 
-Opinionated rewrites.
+Useful entry points:
 
-Anything that expands product scope without us asking for it first.
+```bash
+bun dev:server
+bun dev:desktop
+bun dev:mobile
+bun dev:marketing
+ace doctor
+```
 
-If you open a 1,000+ line PR full of new features, we will probably close it quickly and remember that you ignored the clearly written instructions.
+## Required Checks
 
-## If You Still Want To Open A PR
+Before a PR is ready for review, run:
 
-Keep it small.
+```bash
+bun fmt
+bun lint
+bun typecheck
+```
 
-Explain exactly what changed.
+For tests, use:
 
-Explain exactly why the change should exist.
+```bash
+bun run test
+```
 
-Do not mix unrelated fixes together.
+Do not run `bun test`; the repo uses `bun run test` so Turbo/Vitest run through the intended scripts.
 
-If the PR makes anything resembling a UI change, include clear before/after images.
+For focused package tests:
 
-If the change depends on motion, timing, transitions, or interaction details, include a short video.
+```bash
+bun run --filter=ace test -- open
+bun run --filter=@ace/shared test -- processTermination
+bun run --filter=@ace/desktop test -- updateState
+```
 
-If we have to guess what changed, we are much less likely to review it.
+## PR Guidelines
 
-## Issues First
+Include:
 
-If you are thinking about a non-trivial change, open an issue first.
+- What changed.
+- Why the change is needed.
+- How it was tested.
+- Any known platform or provider limitations.
 
-That still does not mean we will want the PR, but it gives you a chance to avoid wasting your time.
+For UI changes, include screenshots or a short recording. For desktop, updater, or daemon changes, describe the platform tested.
 
-## Be Realistic
+## Architecture Notes
 
-Opening a PR does not create an obligation on our side.
+- `apps/server` owns provider orchestration, daemon commands, WebSocket routing, and CLI behavior.
+- `apps/web` owns the React/Vite app and client-side session UX.
+- `apps/desktop` owns the Electron shell, app updates, native dialogs, and desktop-specific lifecycle.
+- `packages/contracts` is schema and protocol only.
+- `packages/shared` contains runtime utilities consumed across packages and should use explicit subpath exports.
 
-We may close it. We may ignore it. We may ask you to shrink it. We may reimplement the idea ourselves later.
+Provider runtime activity should be projected into orchestration/domain events server-side. The web app should not talk directly to provider CLIs.
 
-If you are fine with that, proceed.
+## Security And Secrets
+
+- Do not commit provider credentials, auth tokens, signing certificates, release artifacts, or local state.
+- Redact logs before attaching them to issues or PRs.
+- Keep generated desktop artifacts in ignored release directories.
+
+## Maintainer Expectations
+
+We may ask you to split a PR, add tests, reduce scope, or open an issue before continuing. That keeps reviews practical and preserves the reliability of the app people are already using day to day.
