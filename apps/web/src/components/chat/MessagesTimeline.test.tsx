@@ -2563,6 +2563,97 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("README.md");
   });
 
+  it("keeps runtime diagnostics visible when completed work details are hidden", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        hideCompletedWorkMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "user-before-error",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-before-error"),
+              role: "user",
+              text: "Check the file",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "hidden-tool-before-error",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "hidden-tool-before-error",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Read file",
+              toolTitle: "Read file",
+              detail: "README.md",
+              tone: "tool",
+            },
+          },
+          {
+            id: "runtime-error-hidden-work",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "runtime-error-hidden-work",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Runtime error",
+              detail: "You've hit your rate limit. Please wait for your limit to reset.",
+              tone: "error",
+              diagnosticKind: "runtime-error",
+            },
+          },
+          {
+            id: "runtime-warning-hidden-work",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            entry: {
+              id: "runtime-warning-hidden-work",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              label: "Runtime warning",
+              detail: "Retry scheduled",
+              tone: "info",
+              diagnosticKind: "runtime-warning",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-completed-work-summary="true"');
+    expect(markup).toContain('data-completed-work-visible-diagnostics="true"');
+    expect(markup).toContain('data-work-entry-id="runtime-error-hidden-work"');
+    expect(markup).toContain('data-work-entry-id="runtime-warning-hidden-work"');
+    expect(markup).toContain("Runtime error");
+    expect(markup).toContain("Runtime warning");
+    expect(markup).toContain("You&#x27;ve hit your rate limit");
+    expect(markup).toContain("Retry scheduled");
+    expect(markup).not.toContain("README.md");
+  });
+
   it("shows completed image-view tool calls", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

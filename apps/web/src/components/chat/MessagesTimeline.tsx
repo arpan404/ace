@@ -1424,7 +1424,7 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "completed-work-summary":
-      height = 42;
+      height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.detailRows);
       break;
     case "message": {
       const message = row.message;
@@ -1512,7 +1512,7 @@ function getTimelineRowHeightCacheKey(
   const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
   switch (row.kind) {
     case "completed-work-summary":
-      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenMessageCount}`;
+      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenMessageCount}:${completedWorkVisibleDiagnosticsCacheKey(row.detailRows)}`;
     case "message": {
       const assistantRenderHint =
         row.message.role === "assistant"
@@ -2289,6 +2289,105 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
   );
 });
 
+function isVisibleCompletedWorkDiagnosticEntry(
+  entry: TimelineMetaGroupEntry,
+): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> {
+  return (
+    entry.kind === "work" &&
+    (entry.workEntry.tone === "error" || entry.workEntry.diagnosticKind !== undefined)
+  );
+}
+
+function collectVisibleCompletedWorkDiagnosticRows(
+  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
+): TimelineWorkLogRow[] {
+  const diagnosticRows: TimelineWorkLogRow[] = [];
+  for (const detailRow of detailRows) {
+    if (detailRow.kind === "work") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
+        diagnosticRows.push(detailRow);
+      }
+      continue;
+    }
+
+    if (detailRow.kind !== "work-group") {
+      continue;
+    }
+
+    for (const entry of detailRow.entries) {
+      if (!isVisibleCompletedWorkDiagnosticEntry(entry)) {
+        continue;
+      }
+      diagnosticRows.push({
+        kind: "work",
+        id: entry.id,
+        createdAt: entry.createdAt,
+        workEntry: entry.workEntry,
+      });
+    }
+  }
+  return diagnosticRows;
+}
+
+function estimateVisibleCompletedWorkDiagnosticRowsHeight(
+  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
+): number {
+  let height = 0;
+  for (const detailRow of detailRows) {
+    if (detailRow.kind === "work") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
+        height += detailRow.workEntry.detail || detailRow.workEntry.command ? 84 : 52;
+      }
+      continue;
+    }
+
+    if (detailRow.kind !== "work-group") {
+      continue;
+    }
+
+    for (const entry of detailRow.entries) {
+      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
+        height += entry.workEntry.detail || entry.workEntry.command ? 84 : 52;
+      }
+    }
+  }
+  return height;
+}
+
+function completedWorkVisibleDiagnosticsCacheKey(
+  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
+): string {
+  const parts: string[] = [];
+  for (const detailRow of detailRows) {
+    if (detailRow.kind === "work") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
+        parts.push(`${detailRow.id}:${detailRow.workEntry.detail?.length ?? 0}`);
+      }
+      continue;
+    }
+
+    if (detailRow.kind !== "work-group") {
+      continue;
+    }
+
+    for (const entry of detailRow.entries) {
+      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
+        parts.push(`${entry.id}:${entry.workEntry.detail?.length ?? 0}`);
+      }
+    }
+  }
+  return parts.length === 0 ? "none" : parts.join(",");
+}
+
 const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimelineRow(props: {
   row: Extract<TimelineRow, { kind: "completed-work-summary" }>;
   enableLocalFileLinks: boolean | undefined;
@@ -2302,6 +2401,10 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
   timestampFormat: TimestampFormat;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const visibleDiagnosticRows = useMemo(
+    () => collectVisibleCompletedWorkDiagnosticRows(props.row.detailRows),
+    [props.row.detailRows],
+  );
   const elapsedLabel = formatCompletedWorkTimer(props.row.startedAt, props.row.endedAt);
   if (!elapsedLabel) {
     return null;
@@ -2349,6 +2452,21 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           data-completed-work-summary-hidden-messages={props.row.hiddenMessageCount}
         >
           {summaryContent}
+        </div>
+      )}
+      {!isOpen && visibleDiagnosticRows.length > 0 && (
+        <div
+          className="mt-2 ml-[5px] min-w-0 space-y-2 border-destructive/35 border-l py-0.5 pl-4"
+          data-completed-work-visible-diagnostics="true"
+        >
+          {visibleDiagnosticRows.map((diagnosticRow) => (
+            <WorkLogTimelineRow
+              key={`completed-work-visible-diagnostic:${props.row.id}:${diagnosticRow.id}`}
+              row={diagnosticRow}
+              expandedWorkGroups={props.expandedWorkGroups}
+              onToggleWorkGroup={props.onToggleWorkGroup}
+            />
+          ))}
         </div>
       )}
       {isOpen && hasHiddenLogs && (

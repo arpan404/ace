@@ -166,6 +166,11 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           ? "info"
           : activity.tone,
     activityKind: activity.kind,
+    ...(activity.kind === "runtime.error"
+      ? { diagnosticKind: "runtime-error" as const }
+      : activity.kind === "runtime.warning"
+        ? { diagnosticKind: "runtime-warning" as const }
+        : {}),
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);

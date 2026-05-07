@@ -485,6 +485,61 @@ describe("timelineRows", () => {
     ).not.toContainEqual(expect.objectContaining({ id: "old-hidden-tool" }));
   });
 
+  it("flushes trailing hidden completed work when no assistant message follows", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-before-runtime-error",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-before-runtime-error"),
+            role: "user",
+            text: "continue",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "runtime-error-final-event",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          entry: {
+            id: "runtime-error-final-event",
+            createdAt: "2025-01-01T00:00:03.000Z",
+            label: "Runtime error",
+            detail: "rate limit",
+            tone: "error",
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "completed-work-summary",
+        startedAt: "2025-01-01T00:00:03.000Z",
+        endedAt: "2025-01-01T00:00:03.000Z",
+        detailRows: [
+          expect.objectContaining({
+            kind: "work",
+            id: "runtime-error-final-event",
+            workEntry: expect.objectContaining({
+              tone: "error",
+              detail: "rate limit",
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it("hides non-final completed assistant messages when completed work details are hidden", () => {
     const rows = buildTimelineRows({
       timelineEntries: [
