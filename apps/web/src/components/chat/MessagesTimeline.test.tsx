@@ -2467,7 +2467,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("README.md");
   });
 
-  it("keeps runtime errors visible when completed work details are hidden", async () => {
+  it("keeps runtime diagnostics visible when completed work details are hidden", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2513,6 +2513,20 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
               label: "Runtime error",
               detail: "You've hit your rate limit. Please wait for your limit to reset.",
               tone: "error",
+              diagnosticKind: "runtime-error",
+            },
+          },
+          {
+            id: "runtime-warning-hidden-work",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            entry: {
+              id: "runtime-warning-hidden-work",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              label: "Runtime warning",
+              detail: "Retry scheduled",
+              tone: "info",
+              diagnosticKind: "runtime-warning",
             },
           },
         ]}
@@ -2536,8 +2550,11 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-completed-work-summary="true"');
     expect(markup).toContain('data-completed-work-visible-diagnostics="true"');
     expect(markup).toContain('data-work-entry-id="runtime-error-hidden-work"');
+    expect(markup).toContain('data-work-entry-id="runtime-warning-hidden-work"');
     expect(markup).toContain("Runtime error");
+    expect(markup).toContain("Runtime warning");
     expect(markup).toContain("You&#x27;ve hit your rate limit");
+    expect(markup).toContain("Retry scheduled");
     expect(markup).not.toContain("README.md");
   });
 

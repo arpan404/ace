@@ -46,6 +46,7 @@ export interface WorkLogEntry {
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
   intentText?: string;
+  diagnosticKind?: "runtime-error" | "runtime-warning";
 }
 
 export interface PendingApproval {

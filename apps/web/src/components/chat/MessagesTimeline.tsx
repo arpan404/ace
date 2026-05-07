@@ -2247,10 +2247,13 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
   );
 });
 
-function isErrorMetaGroupWorkEntry(
+function isVisibleCompletedWorkDiagnosticEntry(
   entry: TimelineMetaGroupEntry,
 ): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> {
-  return entry.kind === "work" && entry.workEntry.tone === "error";
+  return (
+    entry.kind === "work" &&
+    (entry.workEntry.tone === "error" || entry.workEntry.diagnosticKind !== undefined)
+  );
 }
 
 function collectVisibleCompletedWorkDiagnosticRows(
@@ -2259,7 +2262,10 @@ function collectVisibleCompletedWorkDiagnosticRows(
   const diagnosticRows: TimelineWorkLogRow[] = [];
   for (const detailRow of detailRows) {
     if (detailRow.kind === "work") {
-      if (detailRow.workEntry.tone === "error") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
         diagnosticRows.push(detailRow);
       }
       continue;
@@ -2270,7 +2276,7 @@ function collectVisibleCompletedWorkDiagnosticRows(
     }
 
     for (const entry of detailRow.entries) {
-      if (!isErrorMetaGroupWorkEntry(entry)) {
+      if (!isVisibleCompletedWorkDiagnosticEntry(entry)) {
         continue;
       }
       diagnosticRows.push({
@@ -2290,7 +2296,10 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
   let height = 0;
   for (const detailRow of detailRows) {
     if (detailRow.kind === "work") {
-      if (detailRow.workEntry.tone === "error") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
         height += detailRow.workEntry.detail || detailRow.workEntry.command ? 84 : 52;
       }
       continue;
@@ -2301,7 +2310,7 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
     }
 
     for (const entry of detailRow.entries) {
-      if (isErrorMetaGroupWorkEntry(entry)) {
+      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
         height += entry.workEntry.detail || entry.workEntry.command ? 84 : 52;
       }
     }
@@ -2315,7 +2324,10 @@ function completedWorkVisibleDiagnosticsCacheKey(
   const parts: string[] = [];
   for (const detailRow of detailRows) {
     if (detailRow.kind === "work") {
-      if (detailRow.workEntry.tone === "error") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
         parts.push(`${detailRow.id}:${detailRow.workEntry.detail?.length ?? 0}`);
       }
       continue;
@@ -2326,7 +2338,7 @@ function completedWorkVisibleDiagnosticsCacheKey(
     }
 
     for (const entry of detailRow.entries) {
-      if (isErrorMetaGroupWorkEntry(entry)) {
+      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
         parts.push(`${entry.id}:${entry.workEntry.detail?.length ?? 0}`);
       }
     }

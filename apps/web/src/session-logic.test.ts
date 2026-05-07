@@ -859,6 +859,7 @@ describe("deriveWorkLogEntries", () => {
     const [entry] = deriveWorkLogEntries(activities, undefined);
     expect(entry?.label).toBe("Runtime error");
     expect(entry?.detail).toBe("GitHub Copilot turn failed: network timeout");
+    expect(entry?.diagnosticKind).toBe("runtime-error");
   });
 
   it("combines runtime.warning message with structured detail for the work log", () => {
@@ -877,6 +878,7 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.diagnosticKind).toBe("runtime-warning");
     expect(entry?.detail).toContain("Retry scheduled");
     expect(entry?.detail).toContain("429");
     expect(entry?.detail).toContain("rate limit");
