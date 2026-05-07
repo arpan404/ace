@@ -71,6 +71,26 @@ Use this first to validate the release pipeline.
 4. Verify the GitHub Release contains all platform artifacts.
 5. Download each artifact and sanity-check installation on each OS.
 
+## Local Linux Docker Builds
+
+For local validation from macOS, build the Linux AppImage in Docker:
+
+```bash
+bun run dist:desktop:linux:docker
+```
+
+The script builds a local builder image, mounts the repo at `/workspace`, and uses Docker volumes for Linux `node_modules` and Bun's package cache. This avoids accidentally packaging macOS-native dependencies into the Linux artifact.
+
+Useful overrides:
+
+```bash
+ACE_DESKTOP_ARCH=arm64 bun run dist:desktop:linux:docker
+ACE_DESKTOP_OUTPUT_DIR=release-linux-docker bun run dist:desktop:linux:docker
+bun run dist:desktop:linux:docker -- --build-version 0.2.0-local.1 --verbose
+```
+
+Windows installers are intentionally not routed through Docker on macOS. The app includes native dependencies, so the reliable local path is a Windows VM or the existing GitHub Actions Windows runner.
+
 ## 2) Apple signing + notarization setup (macOS)
 
 Required secrets used by the workflow:

@@ -70,6 +70,14 @@ Current desktop release state:
 
 Generated release artifacts should stay out of git. Use ignored release directories such as `release/` or `release-mac-*/`.
 
+From macOS, Linux AppImage artifacts can be built locally in Docker:
+
+```bash
+bun run dist:desktop:linux:docker
+```
+
+The Docker build intentionally uses a Linux `node_modules` volume so platform-native dependencies are installed inside the container instead of reusing host macOS dependencies. Windows installers should still be built on Windows or in the GitHub Actions release matrix because the desktop app includes native dependencies.
+
 ## Mobile
 
 The mobile app is in development in `apps/mobile`. It is part of the ace workspace direction for remote supervision and companion workflows, but the web and desktop apps are the primary daily-use surfaces today.
