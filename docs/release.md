@@ -61,15 +61,19 @@ Checklist:
 
 ## 1) Dry-run release without signing
 
-Use this first to validate the release pipeline.
+Use this first to validate packaging locally, or to validate non-macOS release paths before wiring signing.
 
-1. Confirm no signing secrets are required for this test.
-2. Create a test tag:
-   - `git tag v0.0.0-test.1`
-   - `git push origin v0.0.0-test.1`
-3. Wait for `.github/workflows/release.yml` to finish.
-4. Verify the GitHub Release contains all platform artifacts.
-5. Download each artifact and sanity-check installation on each OS.
+Important:
+
+- Unsigned macOS artifacts cannot be used for in-app auto-update. ShipIt will reject them with a code-signature validation error.
+- The GitHub release workflow now requires Apple signing secrets for macOS release tags so broken auto-update metadata is not published.
+
+1. Build local unsigned artifacts as needed:
+   - `bun run dist:desktop:dmg:arm64`
+   - `bun run dist:desktop:dmg:x64`
+   - `bun run dist:desktop:linux`
+2. Do not publish unsigned macOS artifacts to the updater GitHub release feed.
+3. Download each artifact and sanity-check installation on each OS.
 
 ## Local Linux Docker Builds
 

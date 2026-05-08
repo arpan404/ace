@@ -15,6 +15,10 @@ export function requestKindFromRequestType(
     case "file_change_approval":
     case "apply_patch_approval":
       return "file-change";
+    case "dynamic_tool_call":
+    case "auth_tokens_refresh":
+    case "unknown":
+      return "permission";
     default:
       return null;
   }
@@ -481,7 +485,8 @@ export function extractWorkLogRequestKind(
   if (
     payload?.requestKind === "command" ||
     payload?.requestKind === "file-read" ||
-    payload?.requestKind === "file-change"
+    payload?.requestKind === "file-change" ||
+    payload?.requestKind === "permission"
   ) {
     return payload.requestKind;
   }
