@@ -4060,15 +4060,6 @@ export default function ChatView({
   }, [openBrowser, openBrowserUrl]);
 
   useEffect(() => {
-    if (!ownsGlobalSideEffects || !rightSidePanelInteractive) return;
-    if (!isElectron) return;
-    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
-      if (typeof url !== "string" || url.length === 0) return;
-      openBrowserUrl(url, { newTab: true });
-    });
-  }, [openBrowserUrl, ownsGlobalSideEffects, rightSidePanelInteractive]);
-
-  useEffect(() => {
     if (!ownsGlobalSideEffects || !rightSidePanelInteractive) {
       return;
     }
