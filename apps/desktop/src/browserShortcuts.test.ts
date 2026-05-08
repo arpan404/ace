@@ -58,6 +58,28 @@ describe("resolveBrowserShortcutAction", () => {
       resolveBrowserShortcutAction(
         input({
           alt: true,
+          code: "KeyF",
+          key: "ƒ",
+          meta: true,
+        }),
+        "darwin",
+      ),
+    ).toBe("right-panel-fullscreen-toggle");
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          alt: true,
+          code: "KeyC",
+          key: "ç",
+          meta: true,
+        }),
+        "darwin",
+      ),
+    ).toBe("right-panel-floating-chat-toggle");
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          alt: true,
           key: "[",
           meta: true,
         }),
