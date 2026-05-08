@@ -2,23 +2,23 @@ FROM node:24.13.1-bookworm
 
 ARG BUN_VERSION=1.3.9
 
-ENV APPIMAGE_EXTRACT_AND_RUN=1 \
+ENV CSC_IDENTITY_AUTO_DISCOVERY=false \
   DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
+RUN dpkg --add-architecture i386 \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
-    fakeroot \
-    file \
     g++ \
     git \
-    libarchive-tools \
-    libfuse2 \
     make \
+    mono-runtime \
+    nsis \
     pkg-config \
     python3 \
-    rpm \
-    xz-utils \
+    wine \
+    wine32:i386 \
+    wine64 \
   && npm install --global "bun@${BUN_VERSION}" node-gyp \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
