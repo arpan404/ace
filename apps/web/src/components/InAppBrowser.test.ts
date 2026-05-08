@@ -9,48 +9,54 @@ describe("resolveMountedBrowserTabs", () => {
     { id: "tab-c", title: "C", url: "https://c.example/" },
   ];
 
-  it("keeps only the active and last active webview tabs mounted", () => {
+  it("keeps all non-internal webview tabs mounted while visible", () => {
     expect(
       resolveMountedBrowserTabs({
         activeTabId: "tab-c",
-        lastActiveTabId: "tab-a",
-        retainLastActiveTab: true,
+        retainInactiveTabs: true,
         tabs,
       }).map((tab) => tab.id),
-    ).toEqual(["tab-a", "tab-c"]);
+    ).toEqual(["tab-a", "tab-b", "tab-c"]);
   });
 
   it("does not mount internal browser tabs", () => {
     expect(
       resolveMountedBrowserTabs({
         activeTabId: "tab-new",
-        lastActiveTabId: "tab-b",
-        retainLastActiveTab: true,
+        retainInactiveTabs: true,
         tabs: [{ id: "tab-new", title: "New tab", url: "ace://browser/new-tab" }, ...tabs],
       }).map((tab) => tab.id),
-    ).toEqual(["tab-b"]);
+    ).toEqual(["tab-a", "tab-b", "tab-c"]);
   });
 
-  it("falls back to only the active tab before tab switching has happened", () => {
+  it("mounts all non-internal tabs even before tab switching has happened", () => {
     expect(
       resolveMountedBrowserTabs({
         activeTabId: "tab-b",
-        lastActiveTabId: null,
-        retainLastActiveTab: true,
+        retainInactiveTabs: true,
         tabs,
       }).map((tab) => tab.id),
-    ).toEqual(["tab-b"]);
+    ).toEqual(["tab-a", "tab-b", "tab-c"]);
   });
 
-  it("keeps only the active webview tab for retained hidden browser instances", () => {
+  it("keeps only the active webview tab for hidden browser instances", () => {
     expect(
       resolveMountedBrowserTabs({
         activeTabId: "tab-c",
-        lastActiveTabId: "tab-a",
-        retainLastActiveTab: false,
+        retainInactiveTabs: false,
         tabs,
       }).map((tab) => tab.id),
     ).toEqual(["tab-c"]);
+  });
+
+  it("does not mount a hidden internal active tab", () => {
+    expect(
+      resolveMountedBrowserTabs({
+        activeTabId: "tab-new",
+        retainInactiveTabs: false,
+        tabs: [{ id: "tab-new", title: "New tab", url: "ace://browser/new-tab" }, ...tabs],
+      }).map((tab) => tab.id),
+    ).toEqual([]);
   });
 });
 
