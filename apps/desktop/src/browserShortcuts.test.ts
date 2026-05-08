@@ -38,6 +38,26 @@ describe("resolveBrowserShortcutAction", () => {
       resolveBrowserShortcutAction(
         input({
           alt: true,
+          key: "f",
+          meta: true,
+        }),
+        "darwin",
+      ),
+    ).toBe("right-panel-fullscreen-toggle");
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          alt: true,
+          key: "c",
+          meta: true,
+        }),
+        "darwin",
+      ),
+    ).toBe("right-panel-floating-chat-toggle");
+    expect(
+      resolveBrowserShortcutAction(
+        input({
+          alt: true,
           key: "[",
           meta: true,
         }),

@@ -138,7 +138,6 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import { defaultShortcutLabelForCommand } from "~/lib/keybindingRegistry";
 import { AppPageTopBar } from "./AppPageTopBar";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
@@ -2348,8 +2347,7 @@ export default function ChatView({
   );
   const rightSidePanelToggleShortcutLabel = useMemo(
     () =>
-      shortcutLabelForCommand(keybindings, "rightPanel.toggle", nonTerminalShortcutLabelOptions) ??
-      defaultShortcutLabelForCommand("rightPanel.toggle"),
+      shortcutLabelForCommand(keybindings, "rightPanel.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const rightSidePanelShortcutLabelOptions = useMemo(
@@ -2369,7 +2367,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.fullscreen.toggle",
         rightSidePanelShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.fullscreen.toggle"),
+      ),
     [keybindings, rightSidePanelShortcutLabelOptions],
   );
   const rightSidePanelFloatingChatShortcutLabel = useMemo(
@@ -2378,7 +2376,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.floatingChat.toggle",
         rightSidePanelShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.floatingChat.toggle"),
+      ),
     [keybindings, rightSidePanelShortcutLabelOptions],
   );
   const reviewPanelShortcutLabel = useMemo(
@@ -2387,7 +2385,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.review.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.review.open"),
+      ),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const rightPanelBrowserShortcutLabel = useMemo(
@@ -2396,7 +2394,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.browser.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.browser.open"),
+      ),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const rightPanelEditorShortcutLabel = useMemo(
@@ -2405,16 +2403,12 @@ export default function ChatView({
         keybindings,
         "rightPanel.editor.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.editor.open"),
+      ),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const togglePlanModeShortcutLabel = useMemo(
     () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "chat.togglePlanMode",
-        nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("chat.togglePlanMode"),
+      shortcutLabelForCommand(keybindings, "chat.togglePlanMode", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserActionShortcutLabelOptions = useMemo(
@@ -2448,7 +2442,6 @@ export default function ChatView({
   const browserNewTabShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(keybindings, "browser.newTab", nonTerminalShortcutLabelOptions) ??
-      defaultShortcutLabelForCommand("browser.newTab") ??
       rightPanelBrowserShortcutLabel,
     [rightPanelBrowserShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
   );
@@ -3961,6 +3954,10 @@ export default function ChatView({
   const onToggleRightSidePanelFullscreen = useCallback(() => {
     setRightSidePanelFullscreen((current) => !current);
   }, [setRightSidePanelFullscreen]);
+  const onToggleRightSidePanelFloatingChat = useCallback(() => {
+    if (!rightSidePanelFullscreen) return;
+    setRightSidePanelFloatingChatOpen((current) => !current);
+  }, [rightSidePanelFullscreen, setRightSidePanelFloatingChatOpen]);
   const onBrowserSessionChange = useCallback(
     (browserThreadId: ThreadId, session: BrowserSessionStorage) => {
       setBrowserSession(browserThreadId, session);
@@ -5703,8 +5700,7 @@ export default function ChatView({
       if (command === "rightPanel.floatingChat.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        if (!rightSidePanelFullscreen) return;
-        setRightSidePanelFloatingChatOpen((current) => !current);
+        onToggleRightSidePanelFloatingChat();
         return;
       }
 
@@ -5850,11 +5846,11 @@ export default function ChatView({
     onOpenRightSidePanelBrowserTab,
     onToggleRightSidePanel,
     onToggleRightSidePanelFullscreen,
+    onToggleRightSidePanelFloatingChat,
     onOpenRightSidePanelEditor,
     onOpenRightSidePanelDiff,
     rightSidePanelFullscreen,
     rightSidePanelOpen,
-    setRightSidePanelFloatingChatOpen,
     shortcutsEnabled,
     toggleInteractionMode,
     toggleWorkspaceMode,
@@ -7581,6 +7577,8 @@ export default function ChatView({
                   onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
                   onResizeViewport: (request: BrowserViewportResizeRequest) =>
                     resizeBrowserViewportForBridge(browserThreadId, request),
+                  onToggleRightPanelFloatingChat: onToggleRightSidePanelFloatingChat,
+                  onToggleRightPanelFullscreen: onToggleRightSidePanelFullscreen,
                   backShortcutLabel: browserBackShortcutLabel,
                   designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
                   designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
@@ -7646,7 +7644,7 @@ export default function ChatView({
         onSelectMode={onSelectRightSidePanelMode}
         onTogglePanelVisibility={onToggleRightSidePanel}
         onToggleFloatingChat={() => {
-          setRightSidePanelFloatingChatOpen((current) => !current);
+          onToggleRightSidePanelFloatingChat();
         }}
         onToggleFullscreen={onToggleRightSidePanelFullscreen}
         panelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}

@@ -283,7 +283,7 @@ describe("BrowserTabWebview lifecycle", () => {
       expect(document.body.textContent).toContain("NAME NOT RESOLVED");
     });
     expect(
-      document.querySelector('[aria-label="Offline dinosaur runner. Press Space to jump."]'),
+      document.querySelector('[aria-label="Offline jump game. Press Space to jump."]'),
     ).toBeTruthy();
 
     await screen.unmount();

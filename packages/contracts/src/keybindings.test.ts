@@ -101,6 +101,24 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedBrowserDevTools.command, "browser.devtools");
 
+    const parsedEditorFilePalette = yield* decode(KeybindingRule, {
+      key: "mod+p",
+      command: "editor.openFilePalette",
+    });
+    assert.strictEqual(parsedEditorFilePalette.command, "editor.openFilePalette");
+
+    const parsedEditorCommandPalette = yield* decode(KeybindingRule, {
+      key: "mod+shift+p",
+      command: "editor.openCommandPalette",
+    });
+    assert.strictEqual(parsedEditorCommandPalette.command, "editor.openCommandPalette");
+
+    const parsedEditorFind = yield* decode(KeybindingRule, {
+      key: "mod+shift+f",
+      command: "editor.findInActiveEditor",
+    });
+    assert.strictEqual(parsedEditorFind.command, "editor.findInActiveEditor");
+
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
       command: "chat.newLocal",

@@ -84,7 +84,7 @@ import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
-import { resolveShortcutCommand } from "~/keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
@@ -2004,13 +2004,42 @@ function ThreadWorkspaceEditor(inputProps: {
   const requestFindInActiveEditor = useCallback(() => {
     setFindRequestToken((current) => current + 1);
   }, []);
+  const editorShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        browserOpen: props.browserOpen,
+        editorFocus: true,
+        terminalFocus: false,
+        terminalOpen: props.terminalOpen,
+      },
+    }),
+    [props.browserOpen, props.terminalOpen],
+  );
+  const openFilePaletteShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        props.keybindings,
+        "editor.openFilePalette",
+        editorShortcutLabelOptions,
+      ),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
+  const findInActiveEditorShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        props.keybindings,
+        "editor.findInActiveEditor",
+        editorShortcutLabelOptions,
+      ),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
   const workspaceCommandActions = useMemo<readonly WorkspaceCommandAction[]>(
     () => [
       {
         id: "open-file",
         icon: "search",
         label: "Open File",
-        shortcut: "⌘P",
+        ...(openFilePaletteShortcutLabel ? { shortcut: openFilePaletteShortcutLabel } : {}),
         run: () => openCommandPalette("files"),
       },
       {
@@ -2018,7 +2047,7 @@ function ThreadWorkspaceEditor(inputProps: {
         description: "Open find in the active editor.",
         icon: "search",
         label: "Find in Active Editor",
-        shortcut: "⌘F",
+        ...(findInActiveEditorShortcutLabel ? { shortcut: findInActiveEditorShortcutLabel } : {}),
         run: requestFindInActiveEditor,
       },
       {
@@ -2084,8 +2113,10 @@ function ThreadWorkspaceEditor(inputProps: {
       activePane?.activeFilePath,
       activePane?.id,
       changedFiles.length,
+      findInActiveEditorShortcutLabel,
       handleSplitPane,
       openCommandPalette,
+      openFilePaletteShortcutLabel,
       props.gitCwd,
       props.threadId,
       queueWorkspaceSelectionContext,
@@ -2600,24 +2631,6 @@ function ThreadWorkspaceEditor(inputProps: {
       if (shouldIgnoreEditorShortcutTarget(event.target)) {
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "p") {
-        event.preventDefault();
-        event.stopPropagation();
-        openCommandPalette("files");
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
-        event.preventDefault();
-        event.stopPropagation();
-        openCommandPalette("commands");
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        event.stopPropagation();
-        requestFindInActiveEditor();
-        return;
-      }
       const terminalFocus = isTerminalFocused();
       const command = resolveShortcutCommand(event, props.keybindings, {
         context: {
@@ -2628,6 +2641,27 @@ function ThreadWorkspaceEditor(inputProps: {
         },
       });
       if (!command) {
+        return;
+      }
+
+      if (command === "editor.openFilePalette") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette("files");
+        return;
+      }
+
+      if (command === "editor.openCommandPalette") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette("commands");
+        return;
+      }
+
+      if (command === "editor.findInActiveEditor") {
+        event.preventDefault();
+        event.stopPropagation();
+        requestFindInActiveEditor();
         return;
       }
 

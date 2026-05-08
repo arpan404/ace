@@ -39,7 +39,7 @@ Current default coverage includes:
 - Right panel: `rightPanel.toggle`, `rightPanel.review.open`, `rightPanel.browser.open`, `rightPanel.editor.open`, `rightPanel.fullscreen.toggle`, `rightPanel.floatingChat.toggle`
 - Browser: `browser.back`, `browser.forward`, `browser.newTab`, `browser.closeTab`, `browser.focusAddressBar`, `browser.reload`, `browser.devtools`, `browser.previousTab`, `browser.nextTab`, `browser.designer.areaComment`, `browser.designer.elementComment`
 - Chat: `chat.new`, `chat.newLocal`, `chat.togglePlanMode`, `chat.toggleHeader`
-- Editor: `editor.openFavorite`, `editor.newFile`, `editor.newFolder`, `editor.rename`, `editor.split`, `editor.splitDown`, `editor.toggleWordWrap`, `editor.closeTab`, `editor.closeOtherTabs`, `editor.closeTabsToRight`, `editor.reopenClosedTab`, `editor.closeWindow`, `editor.focusNextWindow`, `editor.focusPreviousWindow`, `editor.nextTab`, `editor.previousTab`, `editor.moveTabLeft`, `editor.moveTabRight`
+- Editor: `editor.openFavorite`, `editor.openFilePalette`, `editor.openCommandPalette`, `editor.findInActiveEditor`, `editor.newFile`, `editor.newFolder`, `editor.rename`, `editor.split`, `editor.splitDown`, `editor.toggleWordWrap`, `editor.closeTab`, `editor.closeOtherTabs`, `editor.closeTabsToRight`, `editor.reopenClosedTab`, `editor.closeWindow`, `editor.focusNextWindow`, `editor.focusPreviousWindow`, `editor.nextTab`, `editor.previousTab`, `editor.moveTabLeft`, `editor.moveTabRight`
 - Threads: `thread.previous`, `thread.next`, `thread.jump.1` through `thread.jump.9`
 
 Selected defaults:
@@ -63,6 +63,9 @@ Selected defaults:
   },
   { "key": "mod+shift+p", "command": "chat.togglePlanMode", "when": "!terminalFocus" },
   { "key": "mod+shift+h", "command": "chat.toggleHeader", "when": "!terminalFocus" },
+  { "key": "mod+p", "command": "editor.openFilePalette", "when": "editorFocus" },
+  { "key": "mod+shift+p", "command": "editor.openCommandPalette", "when": "editorFocus" },
+  { "key": "mod+shift+f", "command": "editor.findInActiveEditor", "when": "editorFocus" },
   { "key": "mod+[", "command": "browser.back", "when": "browserOpen && !terminalFocus" },
   { "key": "mod+]", "command": "browser.forward", "when": "browserOpen && !terminalFocus" },
   {
@@ -131,6 +134,9 @@ individually and reported as config issues.
 - `chat.togglePlanMode`: toggle the composer between plan and execute modes
 - `chat.toggleHeader`: hide/show the chat top header
 - `editor.openFavorite`: open current project/worktree in the last-used editor
+- `editor.openFilePalette`: open the workspace file picker
+- `editor.openCommandPalette`: open the workspace editor command palette
+- `editor.findInActiveEditor`: open find in the active workspace editor
 - `editor.newFile`: create a new file in the workspace
 - `editor.newFolder`: create a new folder in the workspace
 - `editor.rename`: rename the selected file or folder

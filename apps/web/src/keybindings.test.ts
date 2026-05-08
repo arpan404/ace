@@ -188,6 +188,21 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
+  {
+    shortcut: modShortcut("p"),
+    command: "editor.openFilePalette",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("p", { shiftKey: true }),
+    command: "editor.openCommandPalette",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("f", { shiftKey: true }),
+    command: "editor.findInActiveEditor",
+    whenAst: whenIdentifier("editorFocus"),
+  },
   { shortcut: modShortcut("n", { altKey: true }), command: "editor.newFile" },
   { shortcut: modShortcut("n", { altKey: true, shiftKey: true }), command: "editor.newFolder" },
   {
@@ -563,6 +578,27 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+O",
     );
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFilePalette", {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "⌘P",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openCommandPalette", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+Shift+P",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.findInActiveEditor", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+Shift+F",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.split", {
         platform: "Linux",
         context: { editorFocus: true },
@@ -854,6 +890,27 @@ describe("chat/editor shortcuts", () => {
   });
 
   it("resolves editor shortcuts only with editorFocus context", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "p", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true, terminalFocus: false },
+      }),
+      "editor.openFilePalette",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "p", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true, terminalFocus: false },
+      }),
+      "editor.openCommandPalette",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "f", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true, terminalFocus: false },
+      }),
+      "editor.findInActiveEditor",
+    );
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "\\", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",

@@ -144,6 +144,8 @@ export type BrowserShortcutAction =
   | "next-tab"
   | "previous-tab"
   | "reload"
+  | "right-panel-floating-chat-toggle"
+  | "right-panel-fullscreen-toggle"
   | "toggle-designer-mode"
   | "select-tab-1"
   | "select-tab-2"
