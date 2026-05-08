@@ -59,7 +59,7 @@ export interface ApplyThreadAttentionStateResult {
 
 interface PendingApproval {
   readonly requestId: string;
-  readonly requestKind: "command" | "file-read" | "file-change";
+  readonly requestKind: "command" | "file-read" | "file-change" | "permission";
   readonly createdAt: string;
   readonly detail?: string;
 }
@@ -141,6 +141,10 @@ function requestKindFromRequestType(requestType: unknown): PendingApproval["requ
     case "file_change_approval":
     case "apply_patch_approval":
       return "file-change";
+    case "dynamic_tool_call":
+    case "auth_tokens_refresh":
+    case "unknown":
+      return "permission";
     default:
       return null;
   }
@@ -208,7 +212,8 @@ function derivePendingApprovals(
       payload &&
       (payload.requestKind === "command" ||
         payload.requestKind === "file-read" ||
-        payload.requestKind === "file-change")
+        payload.requestKind === "file-change" ||
+        payload.requestKind === "permission")
         ? payload.requestKind
         : requestKindFromRequestType(payload?.requestType);
     const detail = asTrimmedString(payload?.detail) ?? undefined;

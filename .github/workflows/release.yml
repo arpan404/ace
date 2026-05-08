@@ -176,7 +176,9 @@ jobs:
               echo "macOS signing and notarization enabled."
               args+=(--signed)
             else
-              echo "macOS signing and notarization disabled (missing one or more Apple signing secrets)."
+              echo "macOS releases must be signed and notarized for auto-update to work." >&2
+              echo "Missing one or more Apple signing secrets: CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER." >&2
+              exit 1
             fi
           elif [[ "${{ matrix.platform }}" == "win" ]]; then
             if has_all \

@@ -9,6 +9,7 @@ import {
 } from "../../lib/desktopUpdateReactQuery";
 import { toastManager } from "../ui/toast";
 import {
+  DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL,
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
@@ -100,6 +101,18 @@ export function SidebarUpdatePill() {
           description: error instanceof Error ? error.message : "An unexpected error occurred.",
         });
       });
+      return;
+    }
+
+    if (action === "external-download") {
+      const api = readNativeApi() ?? ensureNativeApi();
+      void api.shell.openExternal(DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL).catch((error) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open download page",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      });
     }
   }, [action, disabled, queryClient, runningAgentCount, state]);
 
@@ -136,6 +149,16 @@ export function SidebarUpdatePill() {
                     <>
                       <RotateCwIcon className="size-3.5" />
                       <span>Restart to update</span>
+                    </>
+                  ) : action === "external-download" ? (
+                    <>
+                      <DownloadIcon className="size-3.5" />
+                      <span>Download latest</span>
+                    </>
+                  ) : state?.status === "installing" ? (
+                    <>
+                      <RotateCwIcon className="size-3.5" />
+                      <span>Restarting…</span>
                     </>
                   ) : state?.status === "downloading" ? (
                     <>

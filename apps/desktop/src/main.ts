@@ -65,6 +65,7 @@ import {
   reduceDesktopUpdateStateOnDownloadFailure,
   reduceDesktopUpdateStateOnDownloadProgress,
   reduceDesktopUpdateStateOnDownloadStart,
+  reduceDesktopUpdateStateOnInstallStart,
   reduceDesktopUpdateStateOnInstallFailure,
   reduceDesktopUpdateStateOnNoUpdate,
   reduceDesktopUpdateStateOnUpdateAvailable,
@@ -74,6 +75,7 @@ import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
+import { hasDesktopUpdateArg, resolveDesktopSecondInstanceAction } from "./desktopUpdateLaunch";
 import { buildLinuxDaemonAutostartEntry } from "./linuxAutostart";
 import { findDesktopPairingUrlInArgv, normalizeDesktopPairingUrl } from "./pairingProtocol";
 import {
@@ -142,10 +144,10 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
-const DESKTOP_UPDATE_ARG = "--ace-update";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS = 15_000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
 const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
 const DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
@@ -271,6 +273,29 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function resolveInstallUpdateFailure(input: { rawMessage: string }): {
+  message: string;
+  canRetry: boolean;
+} {
+  const normalized = input.rawMessage.toLowerCase();
+  if (
+    process.platform === "darwin" &&
+    normalized.includes("code signature") &&
+    normalized.includes("did not pass validation")
+  ) {
+    return {
+      message:
+        "macOS rejected the downloaded update because this release is not signed correctly. Download the latest version from the ace website or GitHub Releases and install it manually.",
+      canRetry: false,
+    };
+  }
+
+  return {
+    message: input.rawMessage,
+    canRetry: true,
+  };
 }
 
 function getSafeExternalUrl(rawUrl: unknown): string | null {
@@ -738,6 +763,8 @@ let updateStartupTimer: ReturnType<typeof setTimeout> | null = null;
 let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
 let updateInstallInFlight = false;
+let externalUpdateRequestInFlight = false;
+let updateInstallHandoffTimer: ReturnType<typeof setTimeout> | null = null;
 let updaterConfigured = false;
 let updateState: DesktopUpdateState = initialUpdateState();
 let cliInstallInFlight = false;
@@ -757,6 +784,13 @@ function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   if (updateDownloadInFlight) return "download";
   if (updateCheckInFlight) return "check";
   return updateState.errorContext;
+}
+
+function hasDownloadedUpdateReadyForInstall(state: DesktopUpdateState): boolean {
+  return (
+    state.downloadedVersion !== null &&
+    (state.status === "downloaded" || state.errorContext === "install")
+  );
 }
 
 protocol.registerSchemesAsPrivileged([
@@ -1585,7 +1619,7 @@ function shouldRunHeadlessDaemonBootstrap(): boolean {
 }
 
 function shouldRunHeadlessDesktopUpdate(): boolean {
-  return app.isPackaged && process.argv.includes(DESKTOP_UPDATE_ARG);
+  return hasDesktopUpdateArg(process.argv, app.isPackaged);
 }
 
 function getInAppBrowserSession(): Electron.Session {
@@ -1681,6 +1715,13 @@ function clearUpdatePollTimer(): void {
   if (updatePollTimer) {
     clearInterval(updatePollTimer);
     updatePollTimer = null;
+  }
+}
+
+function clearUpdateInstallHandoffTimer(): void {
+  if (updateInstallHandoffTimer) {
+    clearTimeout(updateInstallHandoffTimer);
+    updateInstallHandoffTimer = null;
   }
 }
 
@@ -1859,7 +1900,11 @@ function shouldEnableAutoUpdates(): boolean {
 
 async function checkForUpdates(reason: string): Promise<boolean> {
   if (isQuitting || !updaterConfigured || updateCheckInFlight) return false;
-  if (updateState.status === "downloading" || updateState.status === "downloaded") {
+  if (
+    updateState.status === "downloading" ||
+    updateState.status === "installing" ||
+    hasDownloadedUpdateReadyForInstall(updateState)
+  ) {
     console.info(
       `[desktop-updater] Skipping update check (${reason}) while status=${updateState.status}.`,
     );
@@ -1907,18 +1952,21 @@ async function downloadAvailableUpdate(): Promise<{ accepted: boolean; completed
 }
 
 async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed: boolean }> {
-  if (isQuitting || !updaterConfigured || updateState.status !== "downloaded") {
+  if (isQuitting || !updaterConfigured || !hasDownloadedUpdateReadyForInstall(updateState)) {
     return { accepted: false, completed: false };
   }
 
   isQuitting = true;
   updateInstallInFlight = true;
+  clearUpdateInstallHandoffTimer();
   clearUpdatePollTimer();
   try {
-    setUpdateState({
-      message: "Preparing update: stopping background services.",
-      errorContext: null,
-    });
+    setUpdateState(
+      reduceDesktopUpdateStateOnInstallStart(
+        updateState,
+        "Preparing update: stopping background services.",
+      ),
+    );
     if (backendManagedByDaemon) {
       await stopDaemonForUpdateInstall();
     } else {
@@ -1933,16 +1981,82 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
     // `quitAndInstall()` only starts the handoff to the updater. The actual
     // install may still fail asynchronously, so keep the action incomplete
     // until we either quit or receive an updater error.
+    updateInstallHandoffTimer = setTimeout(() => {
+      updateInstallHandoffTimer = null;
+      if (!updateInstallInFlight || !isQuitting) return;
+
+      const message = "Update handoff timed out before ace restarted.";
+      updateInstallInFlight = false;
+      isQuitting = false;
+      recoverBackendAfterFailedUpdateInstall();
+      setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
+      console.error(`[desktop-updater] ${message}`);
+    }, AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS);
+    updateInstallHandoffTimer.unref();
     autoUpdater.quitAndInstall(true, true);
     return { accepted: true, completed: false };
   } catch (error: unknown) {
-    const message = formatErrorMessage(error);
+    const failure = resolveInstallUpdateFailure({
+      rawMessage: formatErrorMessage(error),
+    });
+    clearUpdateInstallHandoffTimer();
     updateInstallInFlight = false;
     isQuitting = false;
     recoverBackendAfterFailedUpdateInstall();
-    setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
-    console.error(`[desktop-updater] Failed to install update: ${message}`);
+    setUpdateState(
+      reduceDesktopUpdateStateOnInstallFailure(updateState, failure.message, failure.canRetry),
+    );
+    console.error(`[desktop-updater] Failed to install update: ${failure.message}`);
     return { accepted: true, completed: false };
+  }
+}
+
+async function runExternalDesktopUpdateRequest(): Promise<void> {
+  if (externalUpdateRequestInFlight || isQuitting) return;
+  externalUpdateRequestInFlight = true;
+  writeDesktopLogHeader("external update request start");
+
+  try {
+    if (!updaterConfigured) {
+      configureAutoUpdater();
+    }
+    if (!updaterConfigured) {
+      writeDesktopLogHeader(
+        `external update request unavailable message=${sanitizeLogValue(updateState.message ?? "updater not configured")}`,
+      );
+      return;
+    }
+
+    if (!hasDownloadedUpdateReadyForInstall(updateState) && updateState.status !== "available") {
+      await checkForUpdates("cli-forwarded");
+    }
+
+    if (updateState.status === "available") {
+      const downloadResult = await downloadAvailableUpdate();
+      if (!downloadResult.completed) {
+        writeDesktopLogHeader(
+          `external update request download incomplete message=${sanitizeLogValue(updateState.message ?? "download did not complete")}`,
+        );
+        return;
+      }
+    }
+
+    if (!hasDownloadedUpdateReadyForInstall(updateState)) {
+      writeDesktopLogHeader(
+        `external update request no installable update status=${updateState.status}`,
+      );
+      return;
+    }
+
+    await installDownloadedUpdate();
+  } catch (error) {
+    writeDesktopLogHeader(
+      `external update request failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  } finally {
+    if (!isQuitting) {
+      externalUpdateRequestInFlight = false;
+    }
   }
 }
 
@@ -2089,9 +2203,16 @@ function configureAutoUpdater(): void {
   autoUpdater.on("error", (error) => {
     const message = formatErrorMessage(error);
     if (updateInstallInFlight) {
+      const failure = resolveInstallUpdateFailure({
+        rawMessage: message,
+      });
+      clearUpdateInstallHandoffTimer();
       updateInstallInFlight = false;
       isQuitting = false;
-      setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
+      recoverBackendAfterFailedUpdateInstall();
+      setUpdateState(
+        reduceDesktopUpdateStateOnInstallFailure(updateState, failure.message, failure.canRetry),
+      );
       console.error(`[desktop-updater] Updater error: ${message}`);
       return;
     }
@@ -3026,6 +3147,11 @@ if (!hasSingleInstanceLock) {
 } else {
   app.on("second-instance", (_event, argv) => {
     writeDesktopLogHeader("second-instance received");
+    if (resolveDesktopSecondInstanceAction(argv, app.isPackaged) === "run-update") {
+      void runExternalDesktopUpdateRequest();
+      return;
+    }
+
     const window = getOrCreatePrimaryWindow();
     focusPrimaryWindow(window);
     const pairingUrl = findDesktopPairingUrlInArgv(argv);
@@ -3078,6 +3204,7 @@ async function bootstrap(): Promise<void> {
 app.on("before-quit", () => {
   isQuitting = true;
   updateInstallInFlight = false;
+  clearUpdateInstallHandoffTimer();
   stopDesktopBackgroundNotifications();
   for (const notification of activeDesktopNotifications.values()) {
     notification.close();

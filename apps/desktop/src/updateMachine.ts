@@ -146,15 +146,29 @@ export function reduceDesktopUpdateStateOnDownloadComplete(
   };
 }
 
-export function reduceDesktopUpdateStateOnInstallFailure(
+export function reduceDesktopUpdateStateOnInstallStart(
   state: DesktopUpdateState,
   message: string,
 ): DesktopUpdateState {
   return {
     ...state,
-    status: "downloaded",
+    status: "installing",
+    message,
+    errorContext: null,
+    canRetry: false,
+  };
+}
+
+export function reduceDesktopUpdateStateOnInstallFailure(
+  state: DesktopUpdateState,
+  message: string,
+  canRetry = true,
+): DesktopUpdateState {
+  return {
+    ...state,
+    status: "error",
     message,
     errorContext: "install",
-    canRetry: true,
+    canRetry,
   };
 }

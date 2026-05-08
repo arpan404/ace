@@ -52,7 +52,7 @@ describe("desktop update button state", () => {
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe("network timeout");
   });
 
   it("keeps install action available after an install error", () => {
@@ -67,7 +67,38 @@ describe("desktop update button state", () => {
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("install");
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe("shutdown timeout");
+  });
+
+  it("switches to a manual download action after a non-retryable install error", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "error",
+      downloadedVersion: "1.1.0",
+      availableVersion: "1.1.0",
+      message:
+        "macOS rejected the downloaded update because this release is not signed correctly. Download the latest version from the ace website or GitHub Releases and install it manually.",
+      errorContext: "install",
+      canRetry: false,
+    };
+    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("external-download");
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("not signed correctly");
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("GitHub Releases");
+  });
+
+  it("suppresses install action while an install handoff is already in progress", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "installing",
+      availableVersion: "1.1.0",
+      downloadedVersion: "1.1.0",
+      message: "Preparing update: stopping background services.",
+    };
+    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
+    expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("Preparing update");
   });
 
   it("prefers install when a downloaded version already exists", () => {
@@ -153,6 +184,22 @@ describe("getDesktopUpdateActionError", () => {
     };
     expect(getDesktopUpdateActionError(result)).toBeNull();
   });
+
+  it("ignores non-error progress messages while install handoff is in flight", () => {
+    const result: DesktopUpdateActionResult = {
+      accepted: true,
+      completed: false,
+      state: {
+        ...baseState,
+        status: "installing",
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.0",
+        message: "Preparing update: stopping background services.",
+        errorContext: null,
+      },
+    };
+    expect(getDesktopUpdateActionError(result)).toBeNull();
+  });
 });
 
 describe("desktop update UI helpers", () => {
@@ -161,7 +208,7 @@ describe("desktop update UI helpers", () => {
       shouldToastDesktopUpdateActionResult({
         accepted: true,
         completed: false,
-        state: { ...baseState, message: "checksum mismatch" },
+        state: { ...baseState, message: "checksum mismatch", errorContext: "download" },
       }),
     ).toBe(true);
     expect(
@@ -169,6 +216,20 @@ describe("desktop update UI helpers", () => {
         accepted: true,
         completed: false,
         state: { ...baseState, message: null },
+      }),
+    ).toBe(false);
+    expect(
+      shouldToastDesktopUpdateActionResult({
+        accepted: true,
+        completed: false,
+        state: {
+          ...baseState,
+          status: "installing",
+          downloadedVersion: "1.1.0",
+          availableVersion: "1.1.0",
+          message: "Preparing update: stopping background services.",
+          errorContext: null,
+        },
       }),
     ).toBe(false);
     expect(
@@ -256,6 +317,17 @@ describe("canCheckForUpdate", () => {
     expect(canCheckForUpdate({ ...baseState, status: "downloading", downloadPercent: 50 })).toBe(
       false,
     );
+  });
+
+  it("returns false while installing", () => {
+    expect(
+      canCheckForUpdate({
+        ...baseState,
+        status: "installing",
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.0",
+      }),
+    ).toBe(false);
   });
 
   it("returns false once an update has been downloaded", () => {
