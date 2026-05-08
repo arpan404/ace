@@ -115,6 +115,19 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
+    shortcut: modShortcut("f", { altKey: true }),
+    command: "rightPanel.fullscreen.toggle",
+    whenAst: whenAnd(whenIdentifier("rightPanelOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("c", { altKey: true }),
+    command: "rightPanel.floatingChat.toggle",
+    whenAst: whenAnd(
+      whenIdentifier("rightPanelFullscreen"),
+      whenNot(whenIdentifier("terminalFocus")),
+    ),
+  },
+  {
     shortcut: modShortcut("["),
     command: "browser.back",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
@@ -175,6 +188,21 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
+  {
+    shortcut: modShortcut("p"),
+    command: "editor.openFilePalette",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("p", { shiftKey: true }),
+    command: "editor.openCommandPalette",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("f", { shiftKey: true }),
+    command: "editor.findInActiveEditor",
+    whenAst: whenIdentifier("editorFocus"),
+  },
   { shortcut: modShortcut("n", { altKey: true }), command: "editor.newFile" },
   { shortcut: modShortcut("n", { altKey: true, shiftKey: true }), command: "editor.newFolder" },
   {
@@ -479,6 +507,20 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+B",
     );
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.fullscreen.toggle", {
+        platform: "Linux",
+        context: { rightPanelOpen: true, terminalFocus: false },
+      }),
+      "Ctrl+Alt+F",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.floatingChat.toggle", {
+        platform: "Linux",
+        context: { rightPanelFullscreen: true, terminalFocus: false },
+      }),
+      "Ctrl+Alt+C",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.newTab", {
         platform: "MacIntel",
         context: { browserOpen: true, terminalFocus: false },
@@ -534,6 +576,27 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFilePalette", {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "⌘P",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openCommandPalette", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+Shift+P",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.findInActiveEditor", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+Shift+F",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.split", {
@@ -769,6 +832,42 @@ describe("chat/editor shortcuts", () => {
       "browser.newTab",
     );
     assert.strictEqual(
+      resolveShortcutCommand(event({ key: "f", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { rightPanelOpen: true, terminalFocus: false },
+      }),
+      "rightPanel.fullscreen.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "c", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { rightPanelFullscreen: true, terminalFocus: false },
+      }),
+      "rightPanel.floatingChat.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "MacIntel",
+          context: { rightPanelOpen: true, terminalFocus: false },
+        },
+      ),
+      "rightPanel.fullscreen.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ç", code: "KeyC", metaKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "MacIntel",
+          context: { rightPanelFullscreen: true, terminalFocus: false },
+        },
+      ),
+      "rightPanel.floatingChat.toggle",
+    );
+    assert.strictEqual(
       resolveShortcutCommand(event({ key: "w", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
         context: { browserOpen: true, terminalFocus: false },
@@ -813,6 +912,27 @@ describe("chat/editor shortcuts", () => {
   });
 
   it("resolves editor shortcuts only with editorFocus context", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "p", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true, terminalFocus: false },
+      }),
+      "editor.openFilePalette",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "p", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true, terminalFocus: false },
+      }),
+      "editor.openCommandPalette",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "f", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true, terminalFocus: false },
+      }),
+      "editor.findInActiveEditor",
+    );
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "\\", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",

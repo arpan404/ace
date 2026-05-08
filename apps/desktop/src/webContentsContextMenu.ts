@@ -15,6 +15,7 @@ interface BuildWebContentsContextMenuOptions {
   devToolsAccelerator?: string;
   onCopyLink?: () => void;
   onOpenDevTools?: () => void;
+  onOpenLinkInNewTab?: () => void;
   onOpenLink?: () => void;
   onReplaceMisspelling: (suggestion: string) => void;
 }
@@ -25,6 +26,12 @@ export function buildWebContentsContextMenuTemplate(
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
 
+  if (options.onOpenLinkInNewTab) {
+    template.push({
+      label: "Open Link in New Tab",
+      click: options.onOpenLinkInNewTab,
+    });
+  }
   if (options.onOpenLink) {
     template.push({
       label: "Open Link Externally",

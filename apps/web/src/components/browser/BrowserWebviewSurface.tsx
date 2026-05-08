@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon } from "lucide-react";
+import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon, RotateCwIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -116,10 +116,27 @@ function resolveBrowserFaviconSources(url: string): string[] {
   }
 }
 
+function formatBrowserLoadFailureMessage(input: { code?: number; description?: string }): string {
+  const description = input.description?.trim();
+  if (description) {
+    return description.replace(/^ERR_/u, "").replaceAll("_", " ");
+  }
+  if (typeof input.code === "number") {
+    return `Network error ${String(input.code)}`;
+  }
+  return "The page is unreachable.";
+}
+
 interface BrowserPageElementCapture {
   targetRect: BrowserDesignSelectionRect | null;
   target: BrowserDesignElementDescriptor | null;
   mainContainer: BrowserDesignElementDescriptor | null;
+}
+
+interface BrowserLoadFailure {
+  code: number | null;
+  message: string;
+  url: string;
 }
 
 interface ActiveDragSelection {
@@ -1424,6 +1441,43 @@ export function BrowserFavicon(props: {
   );
 }
 
+function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () => void }) {
+  const hostLabel = useMemo(() => {
+    try {
+      return new URL(props.failure.url).host;
+    } catch {
+      return props.failure.url;
+    }
+  }, [props.failure.url]);
+
+  return (
+    <div className="absolute inset-0 z-10 min-h-0 overflow-auto bg-background px-10 py-16 text-foreground">
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-5">
+        <GlobeIcon className="size-10 text-muted-foreground" aria-hidden="true" />
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold tracking-normal">This page could not load</h2>
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+            Ace could not reach <span className="font-medium text-foreground">{hostLabel}</span>.
+            Check the address or your connection, then try again.
+          </p>
+          <p className="font-mono text-xs text-muted-foreground">
+            {props.failure.code !== null ? `ERR ${String(props.failure.code)}: ` : ""}
+            {props.failure.message}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={props.onRetry}
+        >
+          <RotateCwIcon className="size-4" aria-hidden="true" />
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function BrowserTabWebview(props: {
   active: boolean;
   connectionUrl?: string | null | undefined;
@@ -1438,6 +1492,7 @@ export function BrowserTabWebview(props: {
     position: { x: number; y: number },
     requestedAt: number,
   ) => void;
+  onOpenUrlInNewTab?: (url: string) => void;
   tab: BrowserTabState;
   onHandleChange: (tabId: string, handle: BrowserTabHandle | null) => void;
   onSnapshotChange: (
@@ -1456,6 +1511,7 @@ export function BrowserTabWebview(props: {
     onDesignCaptureError,
     onDesignCaptureSubmit,
     onContextMenuFallbackRequest,
+    onOpenUrlInNewTab,
     tab,
     onHandleChange,
     onSnapshotChange,
@@ -1507,6 +1563,7 @@ export function BrowserTabWebview(props: {
   );
   const [designRequestPanelPosition, setDesignRequestPanelPosition] =
     useState<DesignRequestPanelPosition | null>(null);
+  const [loadFailure, setLoadFailure] = useState<BrowserLoadFailure | null>(null);
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
@@ -1526,6 +1583,9 @@ export function BrowserTabWebview(props: {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
     },
   );
+  const requestOpenUrlInNewTab = useEffectEvent((url: string) => {
+    onOpenUrlInNewTab?.(url);
+  });
   const commitHoveredElementCapture = useCallback(
     (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
       hoveredElementCaptureRef.current = capture;
@@ -1648,6 +1708,7 @@ export function BrowserTabWebview(props: {
 
   const navigate = useCallback(
     (url: string) => {
+      setLoadFailure(null);
       requestedUrlRef.current = url;
       const webview = webviewRef.current;
       if (!webview || !readyRef.current) {
@@ -1660,7 +1721,14 @@ export function BrowserTabWebview(props: {
         return;
       }
 
-      loadWebviewUrl(webview, resolveLoadUrl(url), reportBrowserLoadError);
+      loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
+        setLoadFailure({
+          code: null,
+          message,
+          url,
+        });
+        reportBrowserLoadError(message);
+      });
     },
     [resolveLoadUrl, scheduleEmitSnapshot],
   );
@@ -2032,7 +2100,7 @@ export function BrowserTabWebview(props: {
         if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
         webviewRef.current.closeDevTools();
       },
-      executeJavaScript: async <T = unknown,>(code: string): Promise<T> => {
+      executeJavaScript: async <T = unknown>(code: string): Promise<T> => {
         const webview = webviewRef.current;
         if (!readyRef.current || !webview?.executeJavaScript) {
           throw new Error("The browser tab cannot execute JavaScript yet.");
@@ -2166,12 +2234,20 @@ export function BrowserTabWebview(props: {
         normalizeBrowserHttpUrl(pendingUrl) !==
           normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()))
       ) {
-        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), reportBrowserLoadError);
+        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), (message) => {
+          setLoadFailure({
+            code: null,
+            message,
+            url: pendingUrl,
+          });
+          reportBrowserLoadError(message);
+        });
         return;
       }
       scheduleEmitSnapshot({ persistTab: true });
     };
     const handleLoadStart = () => {
+      setLoadFailure(null);
       emitTabSnapshotChange(
         {
           canGoBack: readyRef.current ? webview.canGoBack() : false,
@@ -2185,6 +2261,7 @@ export function BrowserTabWebview(props: {
       );
     };
     const handleNavigation = () => {
+      setLoadFailure(null);
       scheduleEmitSnapshot({ persistTab: true });
     };
     const handleLoadStop = () => {
@@ -2194,12 +2271,30 @@ export function BrowserTabWebview(props: {
       scheduleEmitSnapshot({ persistTab: true, recordHistory: true });
     };
     const handleFailLoad = (event: Event) => {
-      const detail = event as Event & { errorCode?: number };
+      const detail = event as Event & {
+        errorCode?: number;
+        errorDescription?: string;
+        isMainFrame?: boolean;
+        validatedURL?: string;
+      };
       if (detail.errorCode === -3) {
         return;
       }
+      if (detail.isMainFrame === false) {
+        return;
+      }
       cancelScheduledSnapshot();
-      const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+      const resolvedUrl = resolveSnapshotUrl(detail.validatedURL ?? webview.getURL());
+      setLoadFailure({
+        code: typeof detail.errorCode === "number" ? detail.errorCode : null,
+        message: formatBrowserLoadFailureMessage({
+          ...(typeof detail.errorCode === "number" ? { code: detail.errorCode } : {}),
+          ...(typeof detail.errorDescription === "string"
+            ? { description: detail.errorDescription }
+            : {}),
+        }),
+        url: resolvedUrl,
+      });
       emitTabSnapshotChange(
         {
           canGoBack: readyRef.current ? webview.canGoBack() : false,
@@ -2218,6 +2313,14 @@ export function BrowserTabWebview(props: {
         { x: mouseEvent.clientX, y: mouseEvent.clientY },
         performance.now(),
       );
+    };
+    const handleNewWindow = (event: Event) => {
+      const detail = event as Event & { url?: string };
+      if (typeof detail.url !== "string" || detail.url.trim().length === 0) {
+        return;
+      }
+      event.preventDefault();
+      requestOpenUrlInNewTab(detail.url);
     };
     const handleConsoleMessage = (event: Event) => {
       const detail = event as Event & {
@@ -2265,6 +2368,7 @@ export function BrowserTabWebview(props: {
     webview.addEventListener("page-title-updated", handleNavigation);
     webview.addEventListener("did-fail-load", handleFailLoad);
     webview.addEventListener("contextmenu", handleContextMenu);
+    webview.addEventListener("new-window", handleNewWindow);
     webview.addEventListener("console-message", handleConsoleMessage);
     webview.addEventListener("render-process-gone", handleRenderProcessGone);
 
@@ -2282,6 +2386,7 @@ export function BrowserTabWebview(props: {
       webview.removeEventListener("page-title-updated", handleNavigation);
       webview.removeEventListener("did-fail-load", handleFailLoad);
       webview.removeEventListener("contextmenu", handleContextMenu);
+      webview.removeEventListener("new-window", handleNewWindow);
       webview.removeEventListener("console-message", handleConsoleMessage);
       webview.removeEventListener("render-process-gone", handleRenderProcessGone);
       stopWebviewBeforeRemoval(webview);
@@ -2967,6 +3072,13 @@ export function BrowserTabWebview(props: {
         ? 0
         : 180;
   const canSubmitDesignDraft = designDraft ? designInstructions.trim().length > 0 : false;
+  const retryFailedLoad = useCallback(() => {
+    const failedUrl = loadFailure?.url;
+    if (!failedUrl) {
+      return;
+    }
+    navigate(failedUrl);
+  }, [loadFailure?.url, navigate]);
 
   return (
     <div
@@ -2974,6 +3086,9 @@ export function BrowserTabWebview(props: {
       className={cn("absolute inset-0 min-h-0 [&_webview]:size-full", active ? "block" : "hidden")}
     >
       <div ref={hostRef} className="size-full min-h-0" />
+      {loadFailure ? (
+        <BrowserLoadErrorPage failure={loadFailure} onRetry={retryFailedLoad} />
+      ) : null}
       {agentPointer?.visible ? (
         <div className="pointer-events-none absolute inset-0 z-[35] overflow-hidden">
           <div

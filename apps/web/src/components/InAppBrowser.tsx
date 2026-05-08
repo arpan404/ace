@@ -76,6 +76,8 @@ interface InAppBrowserProps {
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   onResizeViewport?: (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult;
+  onToggleRightPanelFloatingChat?: () => void;
+  onToggleRightPanelFullscreen?: () => void;
   backShortcutLabel?: string | null;
   designerCursorShortcutLabel?: string | null;
   designerAreaCommentShortcutLabel?: string | null;
@@ -280,6 +282,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     zoomOut,
     zoomReset,
   } = useInAppBrowserState({
+    active: activeInstance,
     designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
     open,
@@ -288,11 +291,47 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
     ...(onResizeViewport ? { onResizeViewport } : {}),
+    ...(props.onToggleRightPanelFloatingChat
+      ? { onToggleRightPanelFloatingChat: props.onToggleRightPanelFloatingChat }
+      : {}),
+    ...(props.onToggleRightPanelFullscreen
+      ? { onToggleRightPanelFullscreen: props.onToggleRightPanelFullscreen }
+      : {}),
   });
   const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
   const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
   const browserSessionPublishFrameRef = useRef<number | null>(null);
   const lastPublishedBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
+  const recentExternalNewTabRequestRef = useRef<{ url: string; at: number } | null>(null);
+
+  const openUrlInNewTabFromPage = useCallback(
+    (url: string) => {
+      const trimmedUrl = url.trim();
+      if (trimmedUrl.length === 0) {
+        return;
+      }
+      const now = performance.now();
+      const recent = recentExternalNewTabRequestRef.current;
+      if (recent?.url === trimmedUrl && now - recent.at < 750) {
+        return;
+      }
+      recentExternalNewTabRequestRef.current = { url: trimmedUrl, at: now };
+      openUrl(trimmedUrl, { newTab: true });
+    },
+    [openUrl],
+  );
+
+  useEffect(() => {
+    if (!activeInstance || !isElectron) {
+      return;
+    }
+    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
+      if (typeof url !== "string") {
+        return;
+      }
+      openUrlInNewTabFromPage(url);
+    });
+  }, [activeInstance, openUrlInNewTabFromPage]);
 
   useEffect(() => {
     latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
@@ -1110,6 +1149,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   }
                 : {})}
               onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+              onOpenUrlInNewTab={openUrlInNewTabFromPage}
               tab={tab}
               onHandleChange={registerWebviewHandle}
               onSnapshotChange={handleTabSnapshotChange}

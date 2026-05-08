@@ -123,7 +123,7 @@ async function mountMenu(props?: {
     <CompactComposerControlsMenu
       interactionMode="default"
       runtimeMode={props?.runtimeMode ?? "approval-required"}
-      interactionModeShortcutLabel={props?.interactionModeShortcutLabel ?? "⇧⌘P"}
+      interactionModeShortcutLabel={props?.interactionModeShortcutLabel ?? null}
       traitsMenuContent={
         <TraitsMenuContent
           provider={provider}

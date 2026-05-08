@@ -59,6 +59,18 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedBrowserOpen.command, "rightPanel.browser.open");
 
+    const parsedRightPanelFullscreenToggle = yield* decode(KeybindingRule, {
+      key: "mod+alt+f",
+      command: "rightPanel.fullscreen.toggle",
+    });
+    assert.strictEqual(parsedRightPanelFullscreenToggle.command, "rightPanel.fullscreen.toggle");
+
+    const parsedFloatingChatToggle = yield* decode(KeybindingRule, {
+      key: "mod+alt+c",
+      command: "rightPanel.floatingChat.toggle",
+    });
+    assert.strictEqual(parsedFloatingChatToggle.command, "rightPanel.floatingChat.toggle");
+
     const parsedBrowserReload = yield* decode(KeybindingRule, {
       key: "mod+r",
       command: "browser.reload",
@@ -88,6 +100,24 @@ it.effect("parses keybinding rules", () =>
       command: "browser.devtools",
     });
     assert.strictEqual(parsedBrowserDevTools.command, "browser.devtools");
+
+    const parsedEditorFilePalette = yield* decode(KeybindingRule, {
+      key: "mod+p",
+      command: "editor.openFilePalette",
+    });
+    assert.strictEqual(parsedEditorFilePalette.command, "editor.openFilePalette");
+
+    const parsedEditorCommandPalette = yield* decode(KeybindingRule, {
+      key: "mod+shift+p",
+      command: "editor.openCommandPalette",
+    });
+    assert.strictEqual(parsedEditorCommandPalette.command, "editor.openCommandPalette");
+
+    const parsedEditorFind = yield* decode(KeybindingRule, {
+      key: "mod+shift+f",
+      command: "editor.findInActiveEditor",
+    });
+    assert.strictEqual(parsedEditorFind.command, "editor.findInActiveEditor");
 
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
