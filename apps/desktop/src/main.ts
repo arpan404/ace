@@ -74,6 +74,11 @@ import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
+import {
+  DESKTOP_UPDATE_ARG,
+  hasDesktopUpdateArg,
+  resolveDesktopSecondInstanceAction,
+} from "./desktopUpdateLaunch";
 import { buildLinuxDaemonAutostartEntry } from "./linuxAutostart";
 import { findDesktopPairingUrlInArgv, normalizeDesktopPairingUrl } from "./pairingProtocol";
 import {
@@ -142,7 +147,6 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
-const DESKTOP_UPDATE_ARG = "--ace-update";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -738,6 +742,7 @@ let updateStartupTimer: ReturnType<typeof setTimeout> | null = null;
 let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
 let updateInstallInFlight = false;
+let externalUpdateRequestInFlight = false;
 let updaterConfigured = false;
 let updateState: DesktopUpdateState = initialUpdateState();
 let cliInstallInFlight = false;
@@ -1585,7 +1590,7 @@ function shouldRunHeadlessDaemonBootstrap(): boolean {
 }
 
 function shouldRunHeadlessDesktopUpdate(): boolean {
-  return app.isPackaged && process.argv.includes(DESKTOP_UPDATE_ARG);
+  return hasDesktopUpdateArg(process.argv, app.isPackaged);
 }
 
 function getInAppBrowserSession(): Electron.Session {
@@ -1943,6 +1948,55 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
     setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
+  }
+}
+
+async function runExternalDesktopUpdateRequest(): Promise<void> {
+  if (externalUpdateRequestInFlight || isQuitting) return;
+  externalUpdateRequestInFlight = true;
+  writeDesktopLogHeader("external update request start");
+
+  try {
+    if (!updaterConfigured) {
+      configureAutoUpdater();
+    }
+    if (!updaterConfigured) {
+      writeDesktopLogHeader(
+        `external update request unavailable message=${sanitizeLogValue(updateState.message ?? "updater not configured")}`,
+      );
+      return;
+    }
+
+    if (updateState.status !== "downloaded" && updateState.status !== "available") {
+      await checkForUpdates("cli-forwarded");
+    }
+
+    if (updateState.status === "available") {
+      const downloadResult = await downloadAvailableUpdate();
+      if (!downloadResult.completed) {
+        writeDesktopLogHeader(
+          `external update request download incomplete message=${sanitizeLogValue(updateState.message ?? "download did not complete")}`,
+        );
+        return;
+      }
+    }
+
+    if (updateState.status !== "downloaded") {
+      writeDesktopLogHeader(
+        `external update request no installable update status=${updateState.status}`,
+      );
+      return;
+    }
+
+    await installDownloadedUpdate();
+  } catch (error) {
+    writeDesktopLogHeader(
+      `external update request failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  } finally {
+    if (!isQuitting) {
+      externalUpdateRequestInFlight = false;
+    }
   }
 }
 
@@ -3023,6 +3077,11 @@ if (!hasSingleInstanceLock) {
 } else {
   app.on("second-instance", (_event, argv) => {
     writeDesktopLogHeader("second-instance received");
+    if (resolveDesktopSecondInstanceAction(argv, app.isPackaged) === "run-update") {
+      void runExternalDesktopUpdateRequest();
+      return;
+    }
+
     const window = getOrCreatePrimaryWindow();
     focusPrimaryWindow(window);
     const pairingUrl = findDesktopPairingUrlInArgv(argv);
