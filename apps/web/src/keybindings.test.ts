@@ -846,6 +846,28 @@ describe("chat/editor shortcuts", () => {
       "rightPanel.floatingChat.toggle",
     );
     assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "MacIntel",
+          context: { rightPanelOpen: true, terminalFocus: false },
+        },
+      ),
+      "rightPanel.fullscreen.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ç", code: "KeyC", metaKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "MacIntel",
+          context: { rightPanelFullscreen: true, terminalFocus: false },
+        },
+      ),
+      "rightPanel.floatingChat.toggle",
+    );
+    assert.strictEqual(
       resolveShortcutCommand(event({ key: "w", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
         context: { browserOpen: true, terminalFocus: false },

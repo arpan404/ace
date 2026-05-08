@@ -1441,164 +1441,6 @@ export function BrowserFavicon(props: {
   );
 }
 
-function BrowserOfflineGame() {
-  const fieldRef = useRef<HTMLDivElement | null>(null);
-  const frameRef = useRef<{
-    crashed: boolean;
-    lastAt: number;
-    obstacleX: number;
-    raf: number | null;
-    running: boolean;
-    score: number;
-    velocityY: number;
-    y: number;
-  }>({
-    crashed: false,
-    lastAt: 0,
-    obstacleX: 420,
-    raf: null,
-    running: false,
-    score: 0,
-    velocityY: 0,
-    y: 0,
-  });
-  const [frame, setFrame] = useState({
-    crashed: false,
-    obstacleX: 420,
-    running: false,
-    score: 0,
-    y: 0,
-  });
-
-  const publishFrame = useCallback(() => {
-    const current = frameRef.current;
-    setFrame({
-      crashed: current.crashed,
-      obstacleX: current.obstacleX,
-      running: current.running,
-      score: Math.floor(current.score),
-      y: current.y,
-    });
-  }, []);
-
-  const stopLoop = useCallback(() => {
-    const current = frameRef.current;
-    if (current.raf !== null) {
-      window.cancelAnimationFrame(current.raf);
-      current.raf = null;
-    }
-  }, []);
-
-  const tick = useCallback(
-    (now: number) => {
-      const current = frameRef.current;
-      if (!current.running) {
-        current.raf = null;
-        publishFrame();
-        return;
-      }
-
-      const width = Math.max(280, fieldRef.current?.clientWidth ?? 420);
-      const delta = current.lastAt > 0 ? Math.min(34, now - current.lastAt) : 16;
-      current.lastAt = now;
-
-      current.velocityY -= 0.045 * delta;
-      current.y = Math.max(0, current.y + current.velocityY * delta);
-      if (current.y === 0 && current.velocityY < 0) {
-        current.velocityY = 0;
-      }
-
-      current.score += delta * 0.045;
-      current.obstacleX -= (0.22 + Math.min(0.18, current.score / 2400)) * delta;
-      if (current.obstacleX < -22) {
-        current.obstacleX = width + 24 + Math.random() * 90;
-      }
-
-      const obstacleNearPlayer = current.obstacleX > 38 && current.obstacleX < 72;
-      if (obstacleNearPlayer && current.y < 28) {
-        current.crashed = true;
-        current.running = false;
-        publishFrame();
-        current.raf = null;
-        return;
-      }
-
-      publishFrame();
-      current.raf = window.requestAnimationFrame(tick);
-    },
-    [publishFrame],
-  );
-
-  const startLoop = useCallback(() => {
-    const current = frameRef.current;
-    if (current.raf === null) {
-      current.lastAt = 0;
-      current.raf = window.requestAnimationFrame(tick);
-    }
-  }, [tick]);
-
-  const jumpOrRestart = useCallback(() => {
-    const current = frameRef.current;
-    if (current.crashed) {
-      current.crashed = false;
-      current.running = true;
-      current.score = 0;
-      current.y = 0;
-      current.velocityY = 0;
-      current.obstacleX = Math.max(280, fieldRef.current?.clientWidth ?? 420) - 40;
-      publishFrame();
-      startLoop();
-      return;
-    }
-    if (!current.running) {
-      current.running = true;
-      publishFrame();
-      startLoop();
-    }
-    if (current.y <= 1) {
-      current.velocityY = 0.9;
-    }
-  }, [publishFrame, startLoop]);
-
-  useEffect(() => stopLoop, [stopLoop]);
-
-  return (
-    <button
-      type="button"
-      className="relative h-28 w-full max-w-[560px] overflow-hidden rounded-md border border-border bg-muted/20 text-left outline-none transition-colors hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-ring/60"
-      onClick={jumpOrRestart}
-      onKeyDown={(event) => {
-        if (event.key === " " || event.key === "ArrowUp" || event.key === "Enter") {
-          event.preventDefault();
-          jumpOrRestart();
-        }
-      }}
-      aria-label="Offline jump game. Press Space to jump."
-    >
-      <div ref={fieldRef} className="absolute inset-x-5 bottom-10 top-5">
-        <div className="absolute inset-x-0 bottom-0 border-t border-muted-foreground/30" />
-        <div
-          className="absolute bottom-0 left-10 size-7 rounded-sm bg-foreground"
-          style={{ transform: `translateY(${-frame.y}px)` }}
-          aria-hidden="true"
-        />
-        <div
-          className="absolute bottom-0 h-7 w-3 rounded-sm bg-muted-foreground"
-          style={{ transform: `translateX(${frame.obstacleX}px)` }}
-          aria-hidden="true"
-        />
-      </div>
-      <div className="absolute right-5 top-4 font-mono text-[11px] text-muted-foreground">
-        {String(frame.score).padStart(4, "0")}
-      </div>
-      <div className="absolute inset-x-5 bottom-3 flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{frame.crashed ? "Hit. Click to reset." : "Click or press Space to jump"}</span>
-        <span>{frame.running ? "Running" : "Ready"}</span>
-      </div>
-    </button>
-  );
-}
-
 function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () => void }) {
   const hostLabel = useMemo(() => {
     try {
@@ -1609,35 +1451,28 @@ function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () 
   }, [props.failure.url]);
 
   return (
-    <div className="absolute inset-0 z-10 flex min-h-0 items-center justify-center overflow-auto bg-background px-6 py-10 text-foreground">
-      <div className="grid w-full max-w-3xl gap-7">
-        <div className="space-y-3">
-          <div className="flex size-12 items-center justify-center rounded-lg border border-border bg-muted/45">
-            <GlobeIcon className="size-6 text-muted-foreground" aria-hidden="true" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-semibold tracking-normal">This page could not load</h2>
-            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              Ace could not reach <span className="font-medium text-foreground">{hostLabel}</span>.
-              Check the address or your connection, then try again.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={props.onRetry}
-            >
-              <RotateCwIcon className="size-4" aria-hidden="true" />
-              Retry
-            </button>
-            <span className="rounded-md border border-border bg-muted/35 px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
-              {props.failure.code !== null ? `ERR ${String(props.failure.code)}: ` : ""}
-              {props.failure.message}
-            </span>
-          </div>
+    <div className="absolute inset-0 z-10 min-h-0 overflow-auto bg-background px-10 py-16 text-foreground">
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-5">
+        <GlobeIcon className="size-10 text-muted-foreground" aria-hidden="true" />
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold tracking-normal">This page could not load</h2>
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+            Ace could not reach <span className="font-medium text-foreground">{hostLabel}</span>.
+            Check the address or your connection, then try again.
+          </p>
+          <p className="font-mono text-xs text-muted-foreground">
+            {props.failure.code !== null ? `ERR ${String(props.failure.code)}: ` : ""}
+            {props.failure.message}
+          </p>
         </div>
-        <BrowserOfflineGame />
+        <button
+          type="button"
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={props.onRetry}
+        >
+          <RotateCwIcon className="size-4" aria-hidden="true" />
+          Retry
+        </button>
       </div>
     </div>
   );

@@ -282,9 +282,7 @@ describe("BrowserTabWebview lifecycle", () => {
       expect(document.body.textContent).toContain("This page could not load");
       expect(document.body.textContent).toContain("NAME NOT RESOLVED");
     });
-    expect(
-      document.querySelector('[aria-label="Offline jump game. Press Space to jump."]'),
-    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Click or press Space to jump");
 
     await screen.unmount();
   });
