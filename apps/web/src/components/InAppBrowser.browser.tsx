@@ -208,6 +208,86 @@ describe("BrowserTabWebview lifecycle", () => {
 
     await screen.unmount();
   });
+
+  it("shows a playable error page when the main frame fails to load", async () => {
+    const createdWebviews: Array<HTMLElement & { stop: ReturnType<typeof vi.fn> }> = [];
+    Object.defineProperty(document, "createElement", {
+      configurable: true,
+      value: ((tagName: string, options?: ElementCreationOptions) => {
+        if (tagName.toLowerCase() !== "webview") {
+          return originalCreateElement(tagName, options);
+        }
+        const webview = originalCreateElement("webview") as HTMLElement & {
+          canGoBack: () => boolean;
+          canGoForward: () => boolean;
+          closeDevTools: () => void;
+          getTitle: () => string;
+          getURL: () => string;
+          isDevToolsOpened: () => boolean;
+          isLoading: () => boolean;
+          loadURL: (url: string) => Promise<void>;
+          openDevTools: () => void;
+          reload: () => void;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        webview.canGoBack = () => false;
+        webview.canGoForward = () => false;
+        webview.closeDevTools = () => undefined;
+        webview.getTitle = () => "";
+        webview.getURL = () => "https://missing.example/";
+        webview.isDevToolsOpened = () => false;
+        webview.isLoading = () => false;
+        webview.loadURL = async () => undefined;
+        webview.openDevTools = () => undefined;
+        webview.reload = () => undefined;
+        webview.stop = vi.fn();
+        createdWebviews.push(webview);
+        return webview;
+      }) as typeof document.createElement,
+    });
+
+    const screen = await render(
+      <div style={{ height: "320px", width: "480px" }}>
+        <BrowserTabWebview
+          active
+          onContextMenuFallbackRequest={() => undefined}
+          onHandleChange={() => undefined}
+          onSnapshotChange={() => undefined}
+          tab={{
+            id: "tab-1",
+            title: "Missing",
+            url: "https://missing.example/",
+          }}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() => {
+      expect(createdWebviews).toHaveLength(1);
+    });
+
+    const event = new Event("did-fail-load") as Event & {
+      errorCode: number;
+      errorDescription: string;
+      isMainFrame: boolean;
+      validatedURL: string;
+    };
+    event.errorCode = -105;
+    event.errorDescription = "ERR_NAME_NOT_RESOLVED";
+    event.isMainFrame = true;
+    event.validatedURL = "https://missing.example/";
+    createdWebviews[0]?.dispatchEvent(event);
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("This page could not load");
+      expect(document.body.textContent).toContain("NAME NOT RESOLVED");
+    });
+    expect(
+      document.querySelector('[aria-label="Offline dinosaur runner. Press Space to jump."]'),
+    ).toBeTruthy();
+
+    await screen.unmount();
+  });
 });
 
 describe("designer element capture", () => {

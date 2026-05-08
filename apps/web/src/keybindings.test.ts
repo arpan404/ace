@@ -115,6 +115,19 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
+    shortcut: modShortcut("f", { altKey: true }),
+    command: "rightPanel.fullscreen.toggle",
+    whenAst: whenAnd(whenIdentifier("rightPanelOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("c", { altKey: true }),
+    command: "rightPanel.floatingChat.toggle",
+    whenAst: whenAnd(
+      whenIdentifier("rightPanelFullscreen"),
+      whenNot(whenIdentifier("terminalFocus")),
+    ),
+  },
+  {
     shortcut: modShortcut("["),
     command: "browser.back",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
@@ -479,6 +492,20 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+B",
     );
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.fullscreen.toggle", {
+        platform: "Linux",
+        context: { rightPanelOpen: true, terminalFocus: false },
+      }),
+      "Ctrl+Alt+F",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.floatingChat.toggle", {
+        platform: "Linux",
+        context: { rightPanelFullscreen: true, terminalFocus: false },
+      }),
+      "Ctrl+Alt+C",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.newTab", {
         platform: "MacIntel",
         context: { browserOpen: true, terminalFocus: false },
@@ -767,6 +794,20 @@ describe("chat/editor shortcuts", () => {
         context: { browserOpen: true, terminalFocus: false },
       }),
       "browser.newTab",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "f", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { rightPanelOpen: true, terminalFocus: false },
+      }),
+      "rightPanel.fullscreen.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "c", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { rightPanelFullscreen: true, terminalFocus: false },
+      }),
+      "rightPanel.floatingChat.toggle",
     );
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "w", ctrlKey: true }), DEFAULT_BINDINGS, {

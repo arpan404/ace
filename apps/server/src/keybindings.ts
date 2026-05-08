@@ -67,6 +67,16 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+b", command: "rightPanel.toggle", when: "!terminalFocus" },
   { key: "mod+d", command: "rightPanel.review.open", when: "!terminalFocus" },
   { key: "mod+b", command: "rightPanel.browser.open", when: "!terminalFocus" },
+  {
+    key: "mod+alt+f",
+    command: "rightPanel.fullscreen.toggle",
+    when: "rightPanelOpen && !terminalFocus",
+  },
+  {
+    key: "mod+alt+c",
+    command: "rightPanel.floatingChat.toggle",
+    when: "rightPanelFullscreen && !terminalFocus",
+  },
   { key: "mod+[", command: "browser.back", when: "browserOpen && !terminalFocus" },
   { key: "mod+]", command: "browser.forward", when: "browserOpen && !terminalFocus" },
   { key: "mod+t", command: "browser.newTab", when: "!terminalFocus" },

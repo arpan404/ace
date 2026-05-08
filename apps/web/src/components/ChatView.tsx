@@ -2352,6 +2352,35 @@ export default function ChatView({
       defaultShortcutLabelForCommand("rightPanel.toggle"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
+  const rightSidePanelShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        terminalFocus: false,
+        terminalOpen: Boolean(terminalState.terminalOpen),
+        rightPanelOpen: rightSidePanelOpen,
+        rightPanelFullscreen: rightSidePanelFullscreen,
+      },
+    }),
+    [rightSidePanelFullscreen, rightSidePanelOpen, terminalState.terminalOpen],
+  );
+  const rightSidePanelFullscreenShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.fullscreen.toggle",
+        rightSidePanelShortcutLabelOptions,
+      ) ?? defaultShortcutLabelForCommand("rightPanel.fullscreen.toggle"),
+    [keybindings, rightSidePanelShortcutLabelOptions],
+  );
+  const rightSidePanelFloatingChatShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.floatingChat.toggle",
+        rightSidePanelShortcutLabelOptions,
+      ) ?? defaultShortcutLabelForCommand("rightPanel.floatingChat.toggle"),
+    [keybindings, rightSidePanelShortcutLabelOptions],
+  );
   const reviewPanelShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(
@@ -5615,6 +5644,8 @@ export default function ChatView({
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
         browserOpen,
+        rightPanelOpen: rightSidePanelOpen,
+        rightPanelFullscreen: rightSidePanelFullscreen,
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -5658,6 +5689,22 @@ export default function ChatView({
         event.preventDefault();
         event.stopPropagation();
         onToggleRightSidePanel();
+        return;
+      }
+
+      if (command === "rightPanel.fullscreen.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!rightSidePanelOpen) return;
+        onToggleRightSidePanelFullscreen();
+        return;
+      }
+
+      if (command === "rightPanel.floatingChat.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!rightSidePanelFullscreen) return;
+        setRightSidePanelFloatingChatOpen((current) => !current);
         return;
       }
 
@@ -5802,8 +5849,12 @@ export default function ChatView({
     keybindings,
     onOpenRightSidePanelBrowserTab,
     onToggleRightSidePanel,
+    onToggleRightSidePanelFullscreen,
     onOpenRightSidePanelEditor,
     onOpenRightSidePanelDiff,
+    rightSidePanelFullscreen,
+    rightSidePanelOpen,
+    setRightSidePanelFloatingChatOpen,
     shortcutsEnabled,
     toggleInteractionMode,
     toggleWorkspaceMode,
@@ -7580,7 +7631,9 @@ export default function ChatView({
         diffAvailable={isGitRepo}
         editorShortcutLabel={rightPanelEditorShortcutLabel}
         editorOpen={rightSidePanelEditorOpen}
+        floatingChatShortcutLabel={rightSidePanelFloatingChatShortcutLabel}
         fullscreen={rightSidePanelFullscreen}
+        fullscreenShortcutLabel={rightSidePanelFullscreenShortcutLabel}
         reviewShortcutLabel={reviewPanelShortcutLabel}
         reviewOpen={rightSidePanelReviewOpen}
         floatingChatOpen={rightSidePanelFloatingChatOpen}

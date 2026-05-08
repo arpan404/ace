@@ -39,6 +39,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "rightPanel.toggle",
   "rightPanel.review.open",
   "rightPanel.browser.open",
+  "rightPanel.fullscreen.toggle",
+  "rightPanel.floatingChat.toggle",
   "browser.back",
   "browser.forward",
   "browser.newTab",

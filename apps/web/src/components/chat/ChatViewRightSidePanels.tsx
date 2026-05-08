@@ -222,7 +222,9 @@ export function RightSidePanelTabStrip(props: {
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
   editorOpen: boolean;
+  floatingChatShortcutLabel: string | null;
   fullscreen: boolean;
+  fullscreenShortcutLabel: string | null;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
   floatingChatOpen: boolean;
@@ -254,6 +256,18 @@ export function RightSidePanelTabStrip(props: {
   const panelToggleTooltipLabel = props.panelToggleShortcutLabel
     ? `Close panel (${props.panelToggleShortcutLabel})`
     : "Close panel";
+  const floatingChatTooltipLabel = props.floatingChatOpen
+    ? "Hide floating chat input"
+    : "Show floating chat input";
+  const floatingChatTooltipWithShortcut = props.floatingChatShortcutLabel
+    ? `${floatingChatTooltipLabel} (${props.floatingChatShortcutLabel})`
+    : floatingChatTooltipLabel;
+  const fullscreenTooltipLabel = props.fullscreen
+    ? "Exit full screen side panel"
+    : "Enter full screen side panel";
+  const fullscreenTooltipWithShortcut = props.fullscreenShortcutLabel
+    ? `${fullscreenTooltipLabel} (${props.fullscreenShortcutLabel})`
+    : fullscreenTooltipLabel;
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
@@ -474,9 +488,7 @@ export function RightSidePanelTabStrip(props: {
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
                 aria-pressed={props.floatingChatOpen}
-                aria-label={
-                  props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"
-                }
+                aria-label={floatingChatTooltipWithShortcut}
                 onClick={props.onToggleFloatingChat}
               />
             }
@@ -484,7 +496,7 @@ export function RightSidePanelTabStrip(props: {
             <MessageSquareIcon className="size-4.5" />
           </TooltipTrigger>
           <TooltipPopup side="bottom" align="end">
-            {props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"}
+            {floatingChatTooltipWithShortcut}
           </TooltipPopup>
         </Tooltip>
       ) : null}
@@ -494,9 +506,7 @@ export function RightSidePanelTabStrip(props: {
             <button
               type="button"
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label={
-                props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"
-              }
+              aria-label={fullscreenTooltipWithShortcut}
               onClick={props.onToggleFullscreen}
             />
           }
@@ -508,7 +518,7 @@ export function RightSidePanelTabStrip(props: {
           )}
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
-          {props.fullscreen ? "Exit full screen" : "Enter full screen"}
+          {fullscreenTooltipWithShortcut}
         </TooltipPopup>
       </Tooltip>
       <Tooltip>
