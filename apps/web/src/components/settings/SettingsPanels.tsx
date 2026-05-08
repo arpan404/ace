@@ -35,6 +35,7 @@ import { buildProviderModelSelection, formatProviderModelDisplayName } from "@ac
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
+  DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL,
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
@@ -476,6 +477,18 @@ function AboutVersionSection() {
       return;
     }
 
+    if (action === "external-download") {
+      const api = readNativeApi() ?? ensureNativeApi();
+      void api.shell.openExternal(DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open download page",
+          description: error instanceof Error ? error.message : "Unable to open GitHub Releases.",
+        });
+      });
+      return;
+    }
+
     if (typeof bridge.checkForUpdate !== "function") return;
     void bridge
       .checkForUpdate()
@@ -509,10 +522,12 @@ function AboutVersionSection() {
   const actionLabel: Record<string, string> = {
     download: "Download",
     install: "Install",
+    "external-download": "Download latest",
   };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
+    installing: "Restarting…",
     "up-to-date": "Up to Date",
   };
   const buttonLabel =
@@ -520,7 +535,9 @@ function AboutVersionSection() {
   const description =
     action === "download" || action === "install"
       ? "Update available for desktop, web UI, server daemon, and CLI."
-      : "Current desktop, web UI, daemon runtime, and CLI version.";
+      : action === "external-download"
+        ? "Automatic update could not finish. Download the latest desktop build and install it manually."
+        : "Current desktop, web UI, daemon runtime, and CLI version.";
 
   return (
     <SettingsRow
