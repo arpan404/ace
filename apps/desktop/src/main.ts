@@ -2615,6 +2615,9 @@ function attachWebContentsContextMenu(input: {
         ...(linkUrl
           ? {
               onCopyLink: () => clipboard.writeText(linkUrl),
+              onOpenLinkInNewTab: () => {
+                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, linkUrl);
+              },
               onOpenLink: () => {
                 void shell.openExternal(linkUrl);
               },

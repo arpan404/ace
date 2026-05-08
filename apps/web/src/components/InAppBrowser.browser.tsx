@@ -139,6 +139,75 @@ describe("BrowserTabWebview lifecycle", () => {
 
     await screen.unmount();
   });
+
+  it("routes webview popup requests to an in-app browser tab", async () => {
+    const createdWebviews: Array<HTMLElement & { stop: ReturnType<typeof vi.fn> }> = [];
+    Object.defineProperty(document, "createElement", {
+      configurable: true,
+      value: ((tagName: string, options?: ElementCreationOptions) => {
+        if (tagName.toLowerCase() !== "webview") {
+          return originalCreateElement(tagName, options);
+        }
+        const webview = originalCreateElement("webview") as HTMLElement & {
+          canGoBack: () => boolean;
+          canGoForward: () => boolean;
+          closeDevTools: () => void;
+          getTitle: () => string;
+          getURL: () => string;
+          isDevToolsOpened: () => boolean;
+          isLoading: () => boolean;
+          loadURL: (url: string) => Promise<void>;
+          openDevTools: () => void;
+          reload: () => void;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        webview.canGoBack = () => false;
+        webview.canGoForward = () => false;
+        webview.closeDevTools = () => undefined;
+        webview.getTitle = () => "Example";
+        webview.getURL = () => "https://example.com/";
+        webview.isDevToolsOpened = () => false;
+        webview.isLoading = () => false;
+        webview.loadURL = async () => undefined;
+        webview.openDevTools = () => undefined;
+        webview.reload = () => undefined;
+        webview.stop = vi.fn();
+        createdWebviews.push(webview);
+        return webview;
+      }) as typeof document.createElement,
+    });
+
+    const onOpenUrlInNewTab = vi.fn();
+    const screen = await render(
+      <div style={{ height: "320px", width: "480px" }}>
+        <BrowserTabWebview
+          active
+          onContextMenuFallbackRequest={() => undefined}
+          onHandleChange={() => undefined}
+          onOpenUrlInNewTab={onOpenUrlInNewTab}
+          onSnapshotChange={() => undefined}
+          tab={{
+            id: "tab-1",
+            title: "Example",
+            url: "https://example.com/",
+          }}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() => {
+      expect(createdWebviews).toHaveLength(1);
+    });
+
+    const event = new Event("new-window", { cancelable: true }) as Event & { url: string };
+    event.url = "https://openai.com/";
+    createdWebviews[0]?.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onOpenUrlInNewTab).toHaveBeenCalledWith("https://openai.com/");
+
+    await screen.unmount();
+  });
 });
 
 describe("designer element capture", () => {
