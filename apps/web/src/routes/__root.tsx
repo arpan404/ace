@@ -972,6 +972,9 @@ function EventRouter() {
       void recoverFromReplay("transport-reconnected");
     });
     const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent((event) => {
+      if (typeof window !== "undefined" && window.desktopBridge?.sendOrchestrationEvent) {
+        window.desktopBridge.sendOrchestrationEvent(event);
+      }
       const action = recovery.classifyDomainEvent(event.sequence);
       if (action === "apply") {
         pendingDomainEvents.push(event);
@@ -987,9 +990,6 @@ function EventRouter() {
         });
         flushPendingDomainEvents();
         void recoverFromReplay("sequence-gap");
-      }
-      if (typeof window !== "undefined" && window.desktopBridge?.sendOrchestrationEvent) {
-        window.desktopBridge.sendOrchestrationEvent(event);
       }
     });
     const unsubTerminalEvent = localRpcClient.terminal.onEvent((event) => {

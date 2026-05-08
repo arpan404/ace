@@ -267,6 +267,57 @@ function resolveNotificationSettingsUrl(): string | null {
   return null;
 }
 
+function resolveCombinedNotificationPermission(
+  rendererPermission: AgentAttentionNotificationPermission,
+  desktopPermission: AgentAttentionNotificationPermission,
+): AgentAttentionNotificationPermission {
+  if (rendererPermission === "granted" || rendererPermission === "denied") {
+    return rendererPermission;
+  }
+  if (desktopPermission !== "unsupported") {
+    return desktopPermission;
+  }
+  return rendererPermission;
+}
+
+async function readSettingsNotificationPermission(): Promise<AgentAttentionNotificationPermission> {
+  const rendererPermission = readAgentAttentionNotificationPermission();
+  if (
+    !isElectron ||
+    typeof window === "undefined" ||
+    typeof window.desktopBridge?.getNotificationPermission !== "function"
+  ) {
+    return rendererPermission;
+  }
+
+  try {
+    const desktopPermission = await window.desktopBridge.getNotificationPermission();
+    return resolveCombinedNotificationPermission(rendererPermission, desktopPermission);
+  } catch {
+    return rendererPermission;
+  }
+}
+
+async function requestSettingsNotificationPermission(): Promise<AgentAttentionNotificationPermission> {
+  const rendererPermission = await requestAgentAttentionNotificationPermission();
+  if (
+    !isElectron ||
+    rendererPermission === "granted" ||
+    rendererPermission === "denied" ||
+    typeof window === "undefined" ||
+    typeof window.desktopBridge?.requestNotificationPermission !== "function"
+  ) {
+    return rendererPermission;
+  }
+
+  try {
+    const desktopPermission = await window.desktopBridge.requestNotificationPermission();
+    return resolveCombinedNotificationPermission(rendererPermission, desktopPermission);
+  } catch {
+    return rendererPermission;
+  }
+}
+
 type InstallProviderSettings = {
   provider: ProviderKind;
   title: string;
@@ -981,21 +1032,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     if (typeof window === "undefined") {
       return Promise.resolve<AgentAttentionNotificationPermission>("unsupported");
     }
-    if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
-      return window.desktopBridge
-        .getNotificationPermission()
-        .then((permission) => {
-          setNotificationPermission(permission);
-          return permission;
-        })
-        .catch(() => {
-          setNotificationPermission("unsupported");
-          return "unsupported" as const;
-        });
-    }
-    const permission = readAgentAttentionNotificationPermission();
-    setNotificationPermission(permission);
-    return Promise.resolve(permission);
+    return readSettingsNotificationPermission().then((permission) => {
+      setNotificationPermission(permission);
+      return permission;
+    });
   }, []);
 
   useEffect(() => {
@@ -1003,18 +1043,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return;
     }
     const syncPermission = () => {
-      if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
-        void window.desktopBridge
-          .getNotificationPermission()
-          .then((permission) => {
-            setNotificationPermission(permission);
-          })
-          .catch(() => {
-            setNotificationPermission("unsupported");
-          });
-        return;
-      }
-      setNotificationPermission(readAgentAttentionNotificationPermission());
+      void readSettingsNotificationPermission()
+        .then((permission) => {
+          setNotificationPermission(permission);
+        })
+        .catch(() => {
+          setNotificationPermission("unsupported");
+        });
     };
     syncPermission();
     document.addEventListener("visibilitychange", syncPermission);
@@ -1089,12 +1124,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const enableNotifications = useCallback(
     (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
       setIsUpdatingNotificationPermission(true);
-      const permissionRequest =
-        isElectron && typeof window.desktopBridge?.requestNotificationPermission === "function"
-          ? window.desktopBridge.requestNotificationPermission()
-          : requestAgentAttentionNotificationPermission();
 
-      void permissionRequest
+      void requestSettingsNotificationPermission()
         .then(async (permission) => {
           setNotificationPermission(permission);
           if (permission === "granted") {
