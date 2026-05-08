@@ -496,6 +496,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: "com.ace.ace",
     productName,
     artifactName: "ace-${version}-${arch}.${ext}",
+    npmRebuild: platform !== "win",
     files: [
       "package.json",
       "apps/desktop/dist-electron/**/*",
