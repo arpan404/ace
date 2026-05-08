@@ -500,6 +500,58 @@ describe("designer element capture", () => {
     );
   });
 
+  it("ignores full-page decorative backgrounds instead of selecting a huge surface", () => {
+    document.body.innerHTML = `
+      <main id="root" style="position: relative; width: 1280px; min-height: 4200px;">
+        <div
+          id="background"
+          style="
+            position: absolute;
+            inset: 0;
+            min-height: 4200px;
+            background: linear-gradient(180deg, #0f172a, #111827);
+          "
+        ></div>
+      </main>
+    `;
+    const root = document.getElementById("root");
+    const background = document.getElementById("background");
+
+    expect(root).toBeTruthy();
+    expect(background).toBeTruthy();
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 720,
+    });
+    mockRect(root!, {
+      bottom: 4200,
+      height: 4200,
+      left: 0,
+      right: 1280,
+      top: 0,
+      width: 1280,
+    });
+    mockRect(background!, {
+      bottom: 4200,
+      height: 4200,
+      left: 0,
+      right: 1280,
+      top: 0,
+      width: 1280,
+    });
+    mockHitStack([background!, root!, document.body, document.documentElement]);
+
+    const result = evaluateDesignerCapture({ x: 640, y: 360 });
+
+    expect(result.target).toBeNull();
+    expect(result.targetRect).toBeNull();
+  });
+
   it("maps guest rects back into the host overlay coordinate space", () => {
     document.body.innerHTML = `
       <main id="root" style="position: relative; width: 1280px; height: 720px; background: #0f0f0f;">
