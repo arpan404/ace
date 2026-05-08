@@ -21,7 +21,7 @@ import {
 import { it, assert, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
 
-import { Effect, Fiber, Layer, Option, PubSub, Ref, Stream } from "effect";
+import { Effect, Fiber, Layer, Option, Queue, Ref, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
@@ -76,7 +76,7 @@ function makeFakeCodexAdapter(
   capabilityOverrides?: Partial<ProviderAdapterCapabilities>,
 ) {
   const sessions = new Map<ThreadId, ProviderSession>();
-  const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
+  const runtimeEventQueue = Effect.runSync(Queue.unbounded<ProviderRuntimeEvent>());
 
   const startSession = vi.fn((input: ProviderSessionStartInput) =>
     Effect.sync(() => {
@@ -222,11 +222,11 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     stopAll,
-    streamEvents: Stream.fromPubSub(runtimeEventPubSub),
+    streamEvents: Stream.fromQueue(runtimeEventQueue),
   };
 
   const emit = (event: LegacyProviderRuntimeEvent): void => {
-    Effect.runSync(PubSub.publish(runtimeEventPubSub, event as unknown as ProviderRuntimeEvent));
+    Effect.runSync(Queue.offer(runtimeEventQueue, event as unknown as ProviderRuntimeEvent));
   };
 
   const updateSession = (
@@ -363,7 +363,10 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
     );
 
     assert.instanceOf(failure, ProviderValidationError);
-    assert.include(failure.issue, "Provider 'claudeAgent' is disabled in ace settings.");
+    assert.include(
+      failure.issue,
+      "Provider 'claudeAgent' instance 'default' is disabled in ace settings.",
+    );
     assert.equal(claude.startSession.mock.calls.length, 0);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
@@ -808,7 +811,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
         createdAt: new Date().toISOString(),
         threadId: session.threadId,
         turnId: asTurnId("turn-provider-queue-1"),
-        status: "completed",
+        payload: {
+          state: "completed",
+        },
       });
 
       yield* Fiber.join(secondTurn);
@@ -1603,7 +1608,9 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         createdAt: new Date().toISOString(),
         threadId: session.threadId,
         turnId: asTurnId("turn-1"),
-        status: "completed",
+        payload: {
+          state: "completed",
+        },
       };
 
       fanout.codex.emit(completedEvent);
@@ -1636,24 +1643,25 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       yield* sleep(50);
 
       fanout.codex.emit({
-        type: "tool.started",
+        type: "turn.started",
         eventId: asEventId("evt-seq-1"),
         provider: "codex",
         createdAt: new Date().toISOString(),
         threadId: session.threadId,
         turnId: asTurnId("turn-1"),
-        toolKind: "command",
-        title: "Ran command",
+        payload: {},
       });
       fanout.codex.emit({
-        type: "tool.completed",
+        type: "content.delta",
         eventId: asEventId("evt-seq-2"),
         provider: "codex",
         createdAt: new Date().toISOString(),
         threadId: session.threadId,
         turnId: asTurnId("turn-1"),
-        toolKind: "command",
-        title: "Ran command",
+        payload: {
+          streamKind: "assistant",
+          delta: "hello",
+        },
       });
       fanout.codex.emit({
         type: "turn.completed",
@@ -1662,7 +1670,9 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         createdAt: new Date().toISOString(),
         threadId: session.threadId,
         turnId: asTurnId("turn-1"),
-        status: "completed",
+        payload: {
+          state: "completed",
+        },
       });
 
       yield* Fiber.join(consumer);
@@ -1701,24 +1711,25 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
 
       const events: ReadonlyArray<LegacyProviderRuntimeEvent> = [
         {
-          type: "tool.completed",
+          type: "turn.started",
           eventId: asEventId("evt-ordered-1"),
           provider: "codex",
           createdAt: new Date().toISOString(),
           threadId: session.threadId,
           turnId: asTurnId("turn-1"),
-          toolKind: "command",
-          title: "Ran command",
-          detail: "echo one",
+          payload: {},
         },
         {
-          type: "message.delta",
+          type: "content.delta",
           eventId: asEventId("evt-ordered-2"),
           provider: "codex",
           createdAt: new Date().toISOString(),
           threadId: session.threadId,
           turnId: asTurnId("turn-1"),
-          delta: "hello",
+          payload: {
+            streamKind: "assistant",
+            delta: "hello",
+          },
         },
         {
           type: "turn.completed",
@@ -1727,7 +1738,9 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
           createdAt: new Date().toISOString(),
           threadId: session.threadId,
           turnId: asTurnId("turn-1"),
-          status: "completed",
+          payload: {
+            state: "completed",
+          },
         },
       ];
 

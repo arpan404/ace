@@ -483,7 +483,14 @@ it.layer(NodeServices.layer)("resolveFolderPickerLaunch", (it) => {
 it.layer(NodeServices.layer)("pickFolder", (it) => {
   it.effect("returns the selected folder path", () =>
     Effect.gen(function* () {
-      const selectedPath = yield* pickFolder("darwin", { PATH: "/usr/bin" }, {}, async () =>
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-picker-test-" });
+      const osascriptPath = path.join(dir, "osascript");
+      yield* fs.writeFileString(osascriptPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(osascriptPath, 0o755));
+
+      const selectedPath = yield* pickFolder("darwin", { PATH: dir }, {}, async () =>
         makeResult({ stdout: "/tmp/project\n" }),
       );
 
