@@ -2,6 +2,14 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+git_common_dir="$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$git_common_dir" && "$git_common_dir" != /* ]]; then
+  git_common_dir="$(cd "$repo_root/$git_common_dir" && pwd)"
+fi
+git_common_mount_args=()
+if [[ -n "$git_common_dir" && -d "$git_common_dir" ]]; then
+  git_common_mount_args=(--volume "$git_common_dir:$git_common_dir:ro")
+fi
 
 arch="${ACE_DESKTOP_ARCH:-x64}"
 target="${ACE_DESKTOP_TARGET:-AppImage}"
@@ -39,6 +47,7 @@ docker run --rm \
   --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir" \
   --env APPIMAGE_EXTRACT_AND_RUN=1 \
   --volume "$repo_root:/workspace" \
+  "${git_common_mount_args[@]}" \
   --volume "ace-desktop-linux-node-modules-$arch:/workspace/node_modules" \
   --volume "ace-desktop-linux-bun-cache:/root/.bun/install/cache" \
   "$image" \

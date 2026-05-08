@@ -93,7 +93,75 @@ ACE_DESKTOP_OUTPUT_DIR=release-linux-docker bun run dist:desktop:linux:docker
 bun run dist:desktop:linux:docker -- --build-version 0.2.0-local.1 --verbose
 ```
 
-Windows installers are intentionally not routed through Docker on macOS. The app includes native dependencies, so the reliable local path is a Windows VM or the existing GitHub Actions Windows runner.
+For Windows Docker packaging, use the all-platform local release script below. It installs Wine/Wine32 and disables Electron Builder native rebuilds for Windows so packaged runtime dependencies use their Windows prebuilds.
+
+## Local All-Platform Desktop Release
+
+Use the local release driver when GitHub Actions should not build the desktop artifacts. It builds macOS on the host, builds Linux and Windows in Docker, collects updater metadata, and can optionally create the GitHub Release.
+
+Prerequisites:
+
+- macOS host for DMG/ZIP packaging.
+- Docker Desktop with `linux/amd64` support.
+- `gh` authenticated with `repo` scope.
+- A clean working tree, except ignored/generated release output.
+- The release tag must point at `HEAD`, or pass `--create-tag` to create it.
+
+Dry-run build without publishing:
+
+```bash
+bun run release:desktop:local -- --tag v0.2.0 --create-tag
+```
+
+Publish the release after local artifacts are built:
+
+```bash
+bun run release:desktop:local -- --tag v0.2.0 --publish
+```
+
+Useful options:
+
+```bash
+bun run release:desktop:local -- --tag v0.2.0 --previous-tag v0.2.0-beta --publish
+bun run release:desktop:local -- --tag v0.2.0 --output-dir release-v0.2.0
+bun run release:desktop:local -- --tag v0.2.0 --skip-build
+bun run release:desktop:local -- --tag v0.2.0 --skip-gates
+bun run release:desktop:local -- --tag v0.2.0 --allow-dirty
+```
+
+What the script does:
+
+1. Verifies the tag points at `HEAD` or creates it with `--create-tag`.
+2. Runs `bun fmt`, `bun lint`, and `bun typecheck` unless `--skip-gates` is passed.
+3. Runs `bun run build:desktop` unless `--skip-build` is passed.
+4. Builds:
+   - macOS `arm64` DMG and ZIP on the host.
+   - macOS `x64` DMG and ZIP on the host.
+   - Linux `x64` AppImage in Docker.
+   - Windows `x64` NSIS installer in Docker with Wine, Wine32, and NSIS.
+5. Collects release assets into `release-local/publish`.
+6. Merges per-arch macOS updater manifests into one `latest-mac.yml`.
+7. Prints SHA-256 checksums for every publish asset.
+8. With `--publish`, pushes the tag, creates the GitHub Release, uploads assets, and generates release notes in this shape:
+   - `What's Changed`
+   - PR title, author, and PR link
+   - direct release-prep commits
+   - full changelog link
+
+The script handles git worktrees by mounting the common `.git` directory into Docker at its original absolute path. This is required because worktree `.git` files point outside the checked-out worktree, and Docker otherwise cannot resolve the tag/commit metadata used by the desktop build.
+
+Local Windows Docker details:
+
+- The Windows Docker image is defined in `scripts/docker/desktop-windows.Dockerfile`.
+- It installs Wine, `wine32:i386`, NSIS, Bun, and `node-gyp`.
+- `build-desktop-artifact.ts` disables Electron Builder's native rebuild step for Windows because Linux-to-Windows `node-gyp` cross-rebuilds are unsupported. Runtime packages must provide Windows prebuilds.
+
+Local release caveats:
+
+- macOS artifacts built without Apple signing secrets are ad-hoc or unsigned and are not notarized.
+- Unsigned macOS artifacts are not suitable for production auto-update.
+- Windows artifacts built without Azure Trusted Signing credentials are not authenticode-signed.
+- Docker builds use named volumes for platform-specific `node_modules`; remove those volumes if dependency state needs a completely fresh rebuild.
 
 ## 2) Apple signing + notarization setup (macOS)
 
