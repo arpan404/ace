@@ -335,10 +335,14 @@ import MarketingNav from "../components/MarketingNav.astro";
         return;
       }
 
-      const recommendedCard =
-        recommendation.kind === "asset"
-          ? cards.find((card) => card.dataset.key === recommendation.key)
-          : null;
+      if (recommendation.kind !== "asset") {
+        if (recommendedButton) {
+          setRecommendedButton(recommendedButton, "Download unavailable");
+        }
+        return;
+      }
+
+      const recommendedCard = cards.find((card) => card.dataset.key === recommendation.key);
       if (recommendedButton && recommendedCard?.href && recommendedCard.getAttribute("aria-disabled") !== "true") {
         recommendedButton.href = recommendedCard.href;
         recommendedButton.classList.remove("is-disabled");
