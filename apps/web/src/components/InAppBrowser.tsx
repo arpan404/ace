@@ -295,6 +295,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const lastPublishedBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
 
   useEffect(() => {
+    if (!activeInstance || !isElectron) {
+      return;
+    }
+    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
+      if (typeof url !== "string" || url.trim().length === 0) {
+        return;
+      }
+      openUrl(url, { newTab: true });
+    });
+  }, [activeInstance, openUrl]);
+
+  useEffect(() => {
     latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
   }, [onBrowserSessionChange]);
 
