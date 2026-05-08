@@ -69,6 +69,52 @@ releaseDate: '2026-03-08T10:36:07.540Z'
   return { arm64Path, x64Path };
 }
 
+function writeWindowsManifestFixtures(targetRoot: string): { x64Path: string; arm64Path: string } {
+  const assetDirectory = resolve(targetRoot, "release-assets");
+  mkdirSync(assetDirectory, { recursive: true });
+
+  const x64Path = resolve(assetDirectory, "latest.yml");
+  const arm64Path = resolve(assetDirectory, "latest-arm64.yml");
+
+  writeFileSync(
+    x64Path,
+    `version: 9.9.9-smoke.0
+files:
+  - url: ace-9.9.9-smoke.0-x64.exe
+    sha512: x64exe
+    size: 188743680
+packages:
+  x64:
+    path: ace-9.9.9-smoke.0-x64.nsis.7z
+    sha512: x64pkg
+    size: 174325760
+path: ace-9.9.9-smoke.0-x64.exe
+sha512: x64exe
+releaseDate: '2026-03-08T10:32:14.587Z'
+`,
+  );
+
+  writeFileSync(
+    arm64Path,
+    `version: 9.9.9-smoke.0
+files:
+  - url: ace-9.9.9-smoke.0-arm64.exe
+    sha512: arm64exe
+    size: 180355072
+packages:
+  arm64:
+    path: ace-9.9.9-smoke.0-arm64.nsis.7z
+    sha512: arm64pkg
+    size: 166723584
+path: ace-9.9.9-smoke.0-arm64.exe
+sha512: arm64exe
+releaseDate: '2026-03-08T10:36:07.540Z'
+`,
+  );
+
+  return { x64Path, arm64Path };
+}
+
 function assertContains(haystack: string, needle: string, message: string): void {
   if (!haystack.includes(needle)) {
     throw new Error(message);
@@ -106,17 +152,17 @@ try {
     "Expected bun.lock to contain the smoke version.",
   );
 
-  const { arm64Path, x64Path } = writeMacManifestFixtures(tempRoot);
+  const { arm64Path: macArm64Path, x64Path: macX64Path } = writeMacManifestFixtures(tempRoot);
   execFileSync(
     process.execPath,
-    [resolve(repoRoot, "scripts/merge-mac-update-manifests.ts"), arm64Path, x64Path],
+    [resolve(repoRoot, "scripts/merge-mac-update-manifests.ts"), macArm64Path, macX64Path],
     {
       cwd: repoRoot,
       stdio: "inherit",
     },
   );
 
-  const mergedManifest = readFileSync(arm64Path, "utf8");
+  const mergedManifest = readFileSync(macArm64Path, "utf8");
   assertContains(
     mergedManifest,
     "ace-9.9.9-smoke.0-arm64.zip",
@@ -126,6 +172,38 @@ try {
     mergedManifest,
     "ace-9.9.9-smoke.0-x64.zip",
     "Merged manifest is missing the x64 asset.",
+  );
+
+  const { x64Path: windowsX64Path, arm64Path: windowsArm64Path } =
+    writeWindowsManifestFixtures(tempRoot);
+  execFileSync(
+    process.execPath,
+    [
+      resolve(repoRoot, "scripts/merge-windows-update-manifests.ts"),
+      windowsX64Path,
+      windowsArm64Path,
+    ],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+    },
+  );
+
+  const mergedWindowsManifest = readFileSync(windowsX64Path, "utf8");
+  assertContains(
+    mergedWindowsManifest,
+    "ace-9.9.9-smoke.0-x64.exe",
+    "Merged Windows manifest is missing the x64 asset.",
+  );
+  assertContains(
+    mergedWindowsManifest,
+    "ace-9.9.9-smoke.0-arm64.exe",
+    "Merged Windows manifest is missing the arm64 asset.",
+  );
+  assertContains(
+    mergedWindowsManifest,
+    "  arm64:",
+    "Merged Windows manifest is missing the arm64 package entry.",
   );
 
   console.log("Release smoke checks passed.");
