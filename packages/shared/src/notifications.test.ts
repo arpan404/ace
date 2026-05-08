@@ -51,6 +51,12 @@ describe("notification copy helpers", () => {
       }),
     ).toBe("Review the file read approval request.");
     expect(
+      buildApprovalNotificationBody({
+        requestKind: "permission",
+        detail: "Use Browser Use",
+      }),
+    ).toBe("Permission approval: Use Browser Use");
+    expect(
       buildUserInputNotificationBody({
         firstQuestion: "Which scope should I handle first?",
         questionCount: 2,
