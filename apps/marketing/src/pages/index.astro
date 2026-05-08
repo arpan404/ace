@@ -12,223 +12,485 @@ const providers = [
   { label: "OpenCode", kind: "opencode" },
 ] as const;
 
-const surfaces = ["threads", "terminal", "browser", "editor", "diffs", "approvals", "checkpoints"];
-
-const runRows = [
-  ["Start in the repo", "Project, branch, worktree, provider instance, model, and plan stay attached to the thread."],
-  ["Watch the work", "Conversation, terminal, browser, editor, and diffs stay in one workspace while the agent runs."],
-  ["Control the turn", "Approve, reject, queue, interrupt, switch modes, or hand the task to another provider."],
-  ["Recover state", "Replay after reconnects, reload snapshots, inspect failures, and revert checkpoints."],
+/** Top of page: what changes for the visitor (before any feature detail). */
+const outcomes = [
+  {
+    title: "One thread for the whole run",
+    body: "Chat, terminal, preview, editor signal, and diffs all point at the same project state—not five bookmarks.",
+  },
+  {
+    title: "Hand off without a reset",
+    body: "Move between Codex, Claude, Cursor, or others mid-run without re-explaining the repo from scratch.",
+  },
+  {
+    title: "Stay in control when it gets messy",
+    body: "Approvals, checkpoints, and replay keep long sessions legible instead of hoping nothing broke.",
+  },
 ] as const;
 
-const accountRows = [
-  ["multi-account", "personal, work, sandbox, or dedicated CLI instances"],
-  ["bring your own", "no ace agent subscription; use the accounts and CLIs you already have"],
-  ["handoff", "Codex -> Claude -> Cursor or Pi -> Copilot or OpenCode as an example workflow"],
+type FeatureItem = { tag: string; title: string; body: string };
+
+type WorkspacePhase = {
+  phase: string;
+  title: string;
+  lead: string;
+  layout: "spotlight" | "triple" | "pair";
+  features: readonly FeatureItem[];
+};
+
+/** Features grouped by how you use the app—order matches reading top to bottom. */
+const workspacePhases: readonly WorkspacePhase[] = [
+  {
+    phase: "Layer 1 · Context",
+    title: "Orient: everything ties back to the thread",
+    lead: "The spine of ace is the project run. Plans, activity, and provider state stay attached so history is real, not screenshot memory.",
+    layout: "spotlight",
+    features: [
+      {
+        tag: "Thread",
+        title: "Project thread",
+        body: "One timeline per project: messages, plans, activity, and provider state stay together.",
+      },
+    ],
+  },
+  {
+    phase: "Layer 2 · Execution",
+    title: "Work: watch the agent in the surfaces you already trust",
+    lead: "These are the panels you glance at while something runs—kept beside the conversation instead of buried in other apps.",
+    layout: "triple",
+    features: [
+      {
+        tag: "Terminal",
+        title: "Terminal in context",
+        body: "Commands and output sit next to the chat so you are not copy-pasting logs into a thread.",
+      },
+      {
+        tag: "Browser",
+        title: "Browser you can steer",
+        body: "Preview what the agent built and mark areas or elements that need to change.",
+      },
+      {
+        tag: "Editor",
+        title: "Editor + code intel",
+        body: "Edit in-app with diagnostics, definitions, and references wired into the same run.",
+      },
+    ],
+  },
+  {
+    phase: "Layer 3 · Ship",
+    title: "Finish: review, approve, recover",
+    lead: "When you are ready to merge—or when a turn goes wrong—the workspace keeps diffs and checkpoints where you can act on them.",
+    layout: "pair",
+    features: [
+      {
+        tag: "Review",
+        title: "Diffs before merge",
+        body: "See changes clearly, resolve pending input, and leave notes where reviewers look.",
+      },
+      {
+        tag: "Recovery",
+        title: "Built-in recovery",
+        body: "Snapshots, reconnect replay, and checkpoints for when connectivity or turns get messy.",
+      },
+    ],
+  },
 ] as const;
 
-const browserRows = [
-  ["browser control", "The browser that agents can control: navigate, inspect DOM, screenshot, click, type, and read console logs."],
-  ["image generation", "Codex image generation opens a live placeholder in the thread before the result arrives."],
+/** Linear story after someone understands the layers—day-in-the-life order. */
+const workflowSteps = [
+  {
+    title: "Anchor the repo",
+    body: "Open a folder; branches, worktrees, and paths stay next to the conversation.",
+  },
+  {
+    title: "Wire your providers",
+    body: "Use the CLIs and API keys you already pay for—ace is not another model vendor.",
+  },
+  {
+    title: "Run with full context",
+    body: "Shell output, UI preview, and edits stay visible while the agent works the codebase.",
+  },
+  {
+    title: "Review, ship—or rewind",
+    body: "Gate merges from one diff surface; roll back to a checkpoint when you need a do-over.",
+  },
 ] as const;
 
-const recoveryRows = [
-  ["reconnect", "replay transport events"],
-  ["snapshot", "reload authoritative state"],
-  ["checkpoint", "capture filesystem and diff state"],
-  ["revert", "restore a previous checkpoint"],
-  ["failure state", "show errors, stale approvals, missing diffs, and interrupted sessions"],
+const messyRunRows = [
+  [
+    "Dropped connection",
+    "Replay what happened after you reconnect so the run stays coherent.",
+  ],
+  [
+    "Uncertain state",
+    "Reload a clean snapshot when ordering or timing was confusing.",
+  ],
+  [
+    "A bad change landed",
+    "Restore files and diffs from a checkpoint instead of guessing what moved.",
+  ],
+  [
+    "Interrupted review",
+    "Pending approvals and paused work stay visible instead of vanishing.",
+  ],
+  [
+    "Silent failures",
+    "Get readable errors when diffs or state drift—no mystery blank screens.",
+  ],
 ] as const;
 
-const remoteRows = [
-  ["local", "direct desktop/web connection when the code is on this machine"],
-  ["pair", "link or QR setup for remote hosts"],
-  ["relay", "end-to-end encrypted payload traffic between viewer and host"],
-  ["self-host", "managed relay or your own relay endpoint"],
+const faqItems = [
+  {
+    q: "What is ace?",
+    a: "ace is a desktop workspace for people who already use coding agents. It pulls chat, terminal, preview, editor signal, diffs, and approvals into one project thread so you can supervise serious work without losing context.",
+  },
+  {
+    q: "Do I pay ace to use models?",
+    a: "No separate ace subscription for agents. You bring the provider accounts, CLIs, and API keys you already use. ace focuses on orchestration, layout, and continuity—not reselling models.",
+  },
+  {
+    q: "Where does my code go?",
+    a: "Runs start locally on your machine next to your repo. Remote viewing uses pairing with end-to-end encryption; you can use the managed relay or self-host depending on your needs.",
+  },
+  {
+    q: "How is this different from my IDE's built-in agent?",
+    a: "IDEs optimize for editing. ace optimizes for long, multi-surface agent runs: terminal, browser feedback, handoffs between providers, and recovery when sessions break. Many people use both.",
+  },
+  {
+    q: "Who is ace for?",
+    a: "Engineers and small teams shipping in real codebases—especially when you switch models mid-run, care about review before merge, or need better visibility when agents touch terminals and browsers.",
+  },
 ] as const;
+
+const faqColA = faqItems.slice(0, 3);
+const faqColB = faqItems.slice(3);
 ---
 
 <Layout
-  title="ace - Operator console for coding agents"
-  description="ace is a local-first operator console for coding agents: provider CLIs, terminal, browser, diffs, approvals, checkpoints, and remote pairing in one workspace."
+  title="ace — one workspace for the coding agents you already use"
+  description="ace is a free, local-first desktop app that keeps AI coding agents, terminal, browser preview, editor context, and diffs in one project thread. Open source. Bring your own providers."
 >
-  <nav class="site-nav" aria-label="Primary">
-    <a href="/" class="brand" aria-label="ace home">
-      <img src="/logo.png" alt="" class="brand-icon" />
-      <span>ace</span>
-    </a>
-    <div class="nav-links">
-      <a href="#console">Console</a>
-      <a href="#providers">Providers</a>
-      <a href="#browser">Browser</a>
-      <a href="#recovery">Recovery</a>
-      <a href="#remote">Remote</a>
-      <a href="/download" class="nav-download">Download</a>
-      <a href="https://github.com/arpan404/ace" target="_blank" rel="noopener noreferrer"
-        >GitHub</a
-      >
-    </div>
-  </nav>
-
-  <section class="hero" aria-labelledby="hero-heading">
-    <div class="hero-copy" data-reveal>
-      <p class="eyebrow">Operator console for coding agents</p>
-      <h1 id="hero-heading">Keep agent runs under control.</h1>
-      <p class="hero-intro">
-        ace runs the provider CLIs you already use and keeps each run tied to the project,
-        terminal, browser, diffs, approvals, and checkpoints.
-      </p>
-      <div class="hero-actions" aria-label="Primary actions">
-        <a id="download-btn" href="/download" class="button button-primary" data-interactive>
-          <svg
-            class="cta-icon cta-icon--apple"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 814 1000"
-            aria-hidden="true"
-          >
-            <path
-              fill="currentColor"
-              d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"
-            />
-          </svg>
-          <svg
-            class="cta-icon cta-icon--windows"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 88 88"
-            aria-hidden="true"
-          >
-            <path
-              fill="currentColor"
-              d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"
-            />
-          </svg>
-          <span class="cta-icon cta-icon--linux" aria-hidden="true">Lx</span>
-          <span id="download-label">Download ace</span>
+  <div class="home">
+    <header class="home__header">
+      <nav class="home__nav" aria-label="Primary">
+        <a href="/" class="home__brand" aria-label="ace home">
+          <img src="/logo.png" alt="" class="home__brand-mark" width="32" height="32" />
+          <span class="home__brand-name">ace</span>
         </a>
-        <a href="#console" class="button button-secondary" data-interactive>See the console</a>
+        <div class="home__nav-links">
+          <a href="#workspace">Workspace</a>
+          <a href="#workflow">Workflow</a>
+          <a href="/download">Download</a>
+          <a href="/changelog">Changelog</a>
+          <a href="https://github.com/arpan404/ace" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </div>
+        <a class="home__nav-cta" href="/download" data-interactive>Get the app</a>
+      </nav>
+    </header>
+
+    <section class="home__hero" aria-labelledby="hero-heading">
+      <div class="home__hero-inner">
+        <div class="home__hero-copy">
+          <p class="home__kicker" data-reveal>Local desktop · Open source · BYO models</p>
+          <h1 id="hero-heading" class="home__title" data-reveal>
+            One workspace for every agent you already run.
+          </h1>
+          <p class="home__lead" data-reveal>
+            ace is a free app that keeps chat, terminal, browser preview, editor context, and diffs on
+            one project thread—so you can supervise long runs and hand off between providers without
+            losing the plot.
+          </p>
+          <div class="home__hero-actions" data-reveal>
+            <a id="download-btn" class="home__btn home__btn--primary" href="/download" data-interactive>
+              <svg
+                class="home__cta-icon home__cta-icon--apple"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 814 1000"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"
+                />
+              </svg>
+              <svg
+                class="home__cta-icon home__cta-icon--windows"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 88 88"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"
+                />
+              </svg>
+              <span class="home__cta-icon home__cta-icon--linux" aria-hidden="true">Lx</span>
+              <span id="download-label">Download ace</span>
+            </a>
+            <a class="home__btn home__btn--ghost" href="#workspace">How the workspace is organized</a>
+          </div>
+        </div>
+
+        <div class="home__hero-visual" data-scroll-3d data-scroll-strength="0.38" data-reveal>
+          <div class="home__frame">
+            <div class="home__frame-chrome" aria-hidden="true"></div>
+            <img
+              src="/screenshot.png"
+              alt="ace desktop workspace showing a project thread, agent conversation, terminal, browser preview, editor context, and review surfaces together"
+              width="3456"
+              height="2168"
+              loading="eager"
+              decoding="async"
+              class="home__shot"
+            />
+          </div>
+          <p class="home__frame-caption">
+            Thread → terminal · browser · editor → review & recovery, in one layout.
+          </p>
+        </div>
       </div>
-      <div class="hero-facts" aria-label="ace facts">
-        <span>No ace agent subscription</span>
-        <span>Multi-provider, multi-account</span>
-        <span>Local-first, remote when paired</span>
+    </section>
+
+    <section class="home__stack" aria-labelledby="stack-heading" data-reveal>
+      <div class="home__stack-inner">
+        <div class="home__stack-copy">
+          <h2 id="stack-heading" class="home__stack-title">Use the tools you already rely on</h2>
+          <p class="home__stack-dek">
+            Connect the provider accounts and CLIs you already use. ace focuses on workspace layout,
+            thread state, and handoff—not selling another model subscription.
+          </p>
+        </div>
+        <ul class="home__stack-list" aria-label="Compatible providers">
+          {providers.map((p) => (
+            <li class="home__stack-chip">
+              <span class="home__stack-chip-icon" aria-hidden="true">
+                <ProviderIcon kind={p.kind} />
+              </span>
+              <span class="home__stack-chip-label">{p.label}</span>
+            </li>
+          ))}
+        </ul>
       </div>
-    </div>
+    </section>
 
-    <div class="hero-product" data-scroll-3d data-scroll-strength="0.55">
-      <figure class="product-frame">
-        <img
-          src="/screenshot.png"
-          alt="ace desktop workspace showing coding agent threads, terminal output, browser review, and project context"
-          width="3456"
-          height="2168"
-          loading="eager"
-          decoding="async"
-        />
-      </figure>
-      <div class="surface-bar" aria-label="ace workspace surfaces">
-        {surfaces.map((surface) => <span>{surface}</span>)}
+    <section class="home__panel home__panel--outcomes" aria-labelledby="outcomes-heading">
+      <div class="home__panel-head home__panel-head--tight" data-reveal>
+        <p class="home__label">What changes</p>
+        <h2 id="outcomes-heading" class="home__h2 home__h2--wide">
+          Three shifts before you care about any single panel.
+        </h2>
       </div>
-    </div>
-  </section>
+      <ul class="home__outcomes">
+        {outcomes.map((o) => (
+          <li class="home__outcome" data-reveal>
+            <h3 class="home__outcome-title">{o.title}</h3>
+            <p class="home__outcome-body">{o.body}</p>
+          </li>
+        ))}
+      </ul>
+      <div class="home__contrast-bar" data-reveal>
+        <div class="home__contrast-bar-inner" role="presentation">
+          <span class="home__contrast-neg">Scattered tools</span>
+          <span class="home__contrast-mid" aria-hidden="true">→</span>
+          <span class="home__contrast-pos">One ace thread</span>
+        </div>
+        <p class="home__contrast-note">
+          Without ace, context lives across apps and memory. With ace, the run is an object you can
+          navigate, review, and recover.
+        </p>
+      </div>
+    </section>
 
-  <section id="console" class="section console-section" aria-labelledby="console-heading">
-    <header class="section-heading" data-reveal>
-      <p class="eyebrow">Console</p>
-      <h2 id="console-heading">One thread keeps the run readable.</h2>
-    </header>
-    <div class="run-grid">
-      {runRows.map(([label, text]) => (
-        <article data-reveal>
-          <h3>{label}</h3>
-          <p>{text}</p>
-        </article>
-      ))}
-    </div>
-  </section>
+    <section id="workspace" class="home__panel home__panel--workspace" aria-labelledby="workspace-heading">
+      <div class="home__panel-head" data-reveal>
+        <p class="home__label">The workspace</p>
+        <h2 id="workspace-heading" class="home__h2 home__h2--wide">
+          Features are grouped by how you actually use the app.
+        </h2>
+        <p class="home__dek">
+          Read top to bottom: <strong>context</strong> (what happened), <strong>execution</strong>
+          (what is running), then <strong>shipping</strong> (what you merge—or undo).
+        </p>
+      </div>
 
-  <section id="providers" class="section providers-section" aria-labelledby="providers-heading">
-    <header class="section-heading" data-reveal>
-      <p class="eyebrow">Providers</p>
-      <h2 id="providers-heading">Use your own accounts.</h2>
-      <p>
-        Codex, Claude, Gemini, Cursor, Pi Coding Agent, GitHub Copilot, and OpenCode sit behind the
-        same workspace.
-      </p>
-    </header>
-    <div class="provider-lineup" aria-label="Supported providers" data-reveal>
-      {providers.map((provider) => (
-        <span>
-          <ProviderIcon kind={provider.kind} />
-          {provider.label}
-        </span>
-      ))}
-    </div>
-    <div class="account-ledger">
-      {accountRows.map(([label, text]) => (
-        <p data-reveal><span>{label}</span>{text}</p>
-      ))}
-    </div>
-  </section>
+      <div class="home__phases">
+        {workspacePhases.map((phase) => (
+          <div class:list={["home__phase", `home__phase--${phase.layout}`]} data-reveal>
+            <header class="home__phase-head">
+              <p class="home__phase-label">{phase.phase}</p>
+              <h3 class="home__phase-title">{phase.title}</h3>
+              <p class="home__phase-lead">{phase.lead}</p>
+            </header>
+            <div class:list={["home__phase-grid", `home__phase-grid--${phase.layout}`]}>
+              {phase.features.map((f) => (
+                <article class="home__feat">
+                  <span class="home__feat-tag">{f.tag}</span>
+                  <h4 class="home__feat-title">{f.title}</h4>
+                  <p class="home__feat-body">{f.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
 
-  <section id="browser" class="section browser-section" aria-labelledby="browser-heading">
-    <header class="section-heading" data-reveal>
-      <p class="eyebrow">Browser and Codex</p>
-      <h2 id="browser-heading">The browser that agents can control.</h2>
-    </header>
-    <div class="browser-ledger">
-      {browserRows.map(([label, text]) => (
-        <article data-reveal>
-          <h3>{label}</h3>
-          <p>{text}</p>
-        </article>
-      ))}
-    </div>
-  </section>
+    <section id="workflow" class="home__panel home__panel--workflow" aria-labelledby="workflow-heading">
+      <div class="home__panel-head" data-reveal>
+        <p class="home__label">End-to-end</p>
+        <h2 id="workflow-heading" class="home__h2 home__h2--wide">
+          A simple through-line from open folder to merged (or rolled-back) change.
+        </h2>
+        <p class="home__dek">
+          Same layers as above—now as a single session story you can picture in order.
+        </p>
+      </div>
+      <ol class="home__workflow" aria-label="Typical session steps">
+        {workflowSteps.map((s, i) => (
+          <li class="home__workflow-step" data-reveal>
+            <div class="home__workflow-marker" aria-hidden="true">
+              <span class="home__workflow-dot"></span>
+              {i < workflowSteps.length - 1 ? <span class="home__workflow-line"></span> : null}
+            </div>
+            <div class="home__workflow-copy">
+              <span class="home__workflow-num">Step {i + 1}</span>
+              <h3 class="home__workflow-title">{s.title}</h3>
+              <p class="home__workflow-body">{s.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
 
-  <section id="recovery" class="section split-section" aria-labelledby="recovery-heading">
-    <header class="section-heading" data-reveal>
-      <p class="eyebrow">Recovery</p>
-      <h2 id="recovery-heading">Designed for long runs.</h2>
-      <p>Streams break. Machines sleep. Approvals get stale. ace keeps the state inspectable.</p>
-    </header>
-    <div class="compact-ledger">
-      {recoveryRows.map(([label, text]) => (
-        <p data-reveal><span>{label}</span>{text}</p>
-      ))}
-    </div>
-  </section>
+    <section id="providers" class="home__panel home__panel--providers" aria-labelledby="providers-heading">
+      <div class="home__providers-split">
+        <div class="home__providers-intro" data-reveal>
+          <p class="home__label">Integrations</p>
+          <h2 id="providers-heading" class="home__h2">Bring the agents you already pay for.</h2>
+          <p class="home__dek">
+            ace does not resell models. Connect CLIs and API keys you trust; we focus on continuity,
+            layout, and handoff between them.
+          </p>
+          <div class="home__handoff" data-reveal>
+            <span class="home__handoff-label">Example multi-model flow</span>
+            <div class="home__handoff-row" aria-label="Example provider handoff">
+              <span><ProviderIcon kind="codex" /><small>Codex plan</small></span>
+              <i></i>
+              <span><ProviderIcon kind="claude" /><small>Claude refine</small></span>
+              <i></i>
+              <span><ProviderIcon kind="cursor" /><small>Cursor edit</small></span>
+              <i></i>
+              <span><ProviderIcon kind="pi" /><small>Pi review</small></span>
+            </div>
+          </div>
+        </div>
+        <div class="home__providers-panels" data-reveal>
+          <p class="home__providers-panels-label">Supported providers</p>
+          <div class="home__provider-grid" role="list">
+            {providers.map((provider) => (
+              <span class="home__provider-pill" role="listitem">
+                <ProviderIcon kind={provider.kind} />
+                {provider.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <section id="remote" class="section split-section" aria-labelledby="remote-heading">
-    <header class="section-heading" data-reveal>
-      <p class="eyebrow">Remote</p>
-      <h2 id="remote-heading">Run where the code lives.</h2>
-      <p>Use local mode when the repo is here. Use pairing and relay when it is not.</p>
-    </header>
-    <div class="compact-ledger">
-      {remoteRows.map(([label, text]) => (
-        <p data-reveal><span>{label}</span>{text}</p>
-      ))}
-    </div>
-  </section>
+    <section id="reliability" class="home__panel home__panel--dark" aria-labelledby="reliability-heading">
+      <div class="home__reliability-inner">
+        <div class="home__panel-head" data-reveal>
+          <p class="home__label home__label--on-dark">When sessions break</p>
+          <h2 id="reliability-heading" class="home__h2 home__h2--on-dark home__h2--wide">
+            Controls for real-world runs—not only the happy path.
+          </h2>
+          <p class="home__dek home__dek--on-dark">
+            These are the failure modes that usually eat your afternoon. ace surfaces each one with a
+            clear next action.
+          </p>
+        </div>
+        <ul class="home__ledger" data-reveal>
+          {messyRunRows.map(([situation, response]) => (
+            <li class="home__ledger-row">
+              <span class="home__ledger-situation">{situation}</span>
+              <span class="home__ledger-arrow" aria-hidden="true"></span>
+              <span class="home__ledger-fix">{response}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
 
-  <section class="final-cta" aria-labelledby="final-heading">
-    <div data-reveal>
-      <p class="eyebrow">Download</p>
-      <h2 id="final-heading">Stop running agents from scattered windows.</h2>
-    </div>
-    <div class="final-actions" data-reveal>
-      <a href="/download" class="button button-primary" data-interactive>Download ace</a>
-      <a
-        href="https://github.com/arpan404/ace"
-        class="button button-secondary"
-        target="_blank"
-        rel="noopener noreferrer"
-        data-interactive
-      >
-        View GitHub
-      </a>
-    </div>
-  </section>
+    <section class="home__panel home__panel--remote" aria-labelledby="remote-heading">
+      <div class="home__remote-split">
+        <div data-reveal>
+          <p class="home__label">Local & remote</p>
+          <h2 id="remote-heading" class="home__h2">Code stays local; viewers pair in over encryption.</h2>
+          <p class="home__dek">
+            Default mode runs beside your repo with no relay. For remote viewing, pairing links or QR
+            codes establish an end-to-end encrypted tunnel—managed relay or self-hosted.
+          </p>
+        </div>
+        <div class="home__remote-visual" aria-hidden="true" data-reveal>
+          <span>Host & repo</span>
+          <i class="home__remote-line"></i>
+          <span class="home__remote-pill">Encrypted pairing</span>
+          <i class="home__remote-line"></i>
+          <span>Viewer devices</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="home__panel home__panel--faq" aria-labelledby="faq-heading">
+      <div class="home__panel-head" data-reveal>
+        <p class="home__label">FAQ</p>
+        <h2 id="faq-heading" class="home__h2 home__h2--wide">Questions, answered plainly.</h2>
+      </div>
+      <div class="home__faq-cols">
+        <div class="home__faq-col">
+          {faqColA.map((item) => (
+            <details data-reveal class="home__faq-item">
+              <summary>{item.q}</summary>
+              <p>{item.a}</p>
+            </details>
+          ))}
+        </div>
+        <div class="home__faq-col">
+          {faqColB.map((item) => (
+            <details data-reveal class="home__faq-item">
+              <summary>{item.q}</summary>
+              <p>{item.a}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section class="home__closing" aria-labelledby="closing-heading">
+      <div class="home__closing-inner" data-reveal>
+        <p class="home__label home__label--on-dark">Get started</p>
+        <h2 id="closing-heading" class="home__closing-title">Install ace. Keep the next run in one place.</h2>
+        <p class="home__closing-dek">
+          macOS, Windows, and Linux builds. Connect what you already use; ship with less thrash.
+        </p>
+        <div class="home__closing-actions">
+          <a class="home__btn home__btn--dark" href="/download" data-interactive>
+            <span id="download-label-bottom">Download ace</span>
+          </a>
+          <a
+            class="home__btn home__btn--outline-light"
+            href="https://github.com/arpan404/ace"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-interactive
+          >
+            Star on GitHub
+          </a>
+        </div>
+      </div>
+    </section>
+  </div>
 </Layout>
 
 <script>
@@ -242,446 +504,1196 @@ const remoteRows = [
     return null;
   }
 
-  const btn = document.getElementById("download-btn") as HTMLAnchorElement | null;
-  const label = document.getElementById("download-label");
   const platform = detectPlatform();
-
-  if (btn && label && platform) {
+  if (platform) {
     document.documentElement.dataset.platform = platform.os;
-    label.textContent = platform.label;
+    const topLabel = document.getElementById("download-label");
+    const bottomLabel = document.getElementById("download-label-bottom");
+    if (topLabel) topLabel.textContent = platform.label;
+    if (bottomLabel) bottomLabel.textContent = platform.label;
   }
 </script>
 
 <style>
-  .site-nav,
-  .hero,
-  .section,
-  .final-cta {
-    width: min(100% - 2rem, 1180px);
-    margin: 0 auto;
+  .home {
+    --home-pad: clamp(1rem, 4vw, 2rem);
+    --home-max: 1160px;
+    position: relative;
   }
 
-  .site-nav {
+  .home::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+  }
+
+  .home strong {
+    font-weight: 700;
+    color: var(--fg);
+  }
+
+  /* —— Header —— */
+  .home__header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 0.85rem var(--home-pad);
+    border-bottom: 1px solid var(--line);
+    background: rgba(5, 8, 13, 0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .home__nav {
     display: flex;
-    min-height: 4.75rem;
+    max-width: var(--home-max);
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    border-bottom: 1px solid var(--line);
+    margin: 0 auto;
   }
 
-  .brand,
-  .nav-links,
-  .button,
-  .hero-actions,
-  .surface-bar,
-  .provider-lineup,
-  .final-actions {
-    display: flex;
+  .home__brand {
+    display: inline-flex;
     align-items: center;
+    gap: 0.65rem;
+    color: var(--fg);
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
   }
 
-  .brand {
-    gap: 0.72rem;
-    font-size: 1rem;
-    font-weight: 800;
-  }
-
-  .brand-icon {
+  .home__brand-mark {
     width: 2rem;
     height: 2rem;
-    border-radius: 0.7rem;
+    border-radius: 9px;
   }
 
-  .nav-links {
+  .home__nav-links {
+    display: none;
     flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.55rem 1rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem 1.15rem;
     color: var(--fg-muted);
     font-size: 0.88rem;
-    font-weight: 700;
+    font-weight: 600;
   }
 
-  .nav-links a {
-    border-radius: 999px;
+  .home__nav-links a {
     transition: color 150ms ease;
   }
 
-  .nav-links a:hover,
-  .nav-links a:focus-visible {
-    color: var(--fg);
+  .home__nav-links a:hover,
+  .home__nav-links a:focus-visible {
+    color: var(--accent);
   }
 
-  .nav-download {
-    border: 1px solid var(--line-strong);
-    padding: 0.48rem 0.82rem;
-    color: var(--fg);
+  @media (min-width: 900px) {
+    .home__nav-links {
+      display: flex;
+    }
   }
 
-  .hero {
+  .home__nav-cta {
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--accent);
+    padding: 0.58rem 1.2rem;
+    color: var(--ink);
+    font-size: 0.86rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    transition:
+      transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 160ms ease;
+  }
+
+  .home__nav-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 36px var(--accent-glow);
+  }
+
+  /* —— Hero —— */
+  .home__hero {
+    padding: clamp(2.5rem, 6vw, 5rem) var(--home-pad) clamp(2rem, 5vw, 3.5rem);
+  }
+
+  .home__hero-inner {
     display: grid;
-    grid-template-columns: minmax(20rem, 0.42fr) minmax(0, 0.58fr);
-    gap: clamp(2rem, 4vw, 4.5rem);
-    align-items: center;
-    padding: clamp(2.4rem, 6vw, 5rem) 0 clamp(2.5rem, 5vw, 4rem);
+    max-width: var(--home-max);
+    gap: clamp(2rem, 5vw, 3.5rem);
+    margin: 0 auto;
   }
 
-  .hero-copy,
-  .section-heading,
-  .final-cta > div:first-child {
+  @media (min-width: 980px) {
+    .home__hero-inner {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+      align-items: center;
+    }
+  }
+
+  .home__kicker {
+    margin-bottom: 0.35rem;
+    color: var(--violet);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .home__title {
+    max-width: 14ch;
+    font-family: var(--font-display);
+    font-size: clamp(2.6rem, 7vw, 4.75rem);
+    font-weight: 700;
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+  }
+
+  @media (min-width: 980px) {
+    .home__title {
+      max-width: 12ch;
+    }
+  }
+
+  .home__lead {
+    max-width: 36rem;
+    margin-top: 1.1rem;
+    color: var(--fg-muted);
+    font-size: clamp(1rem, 1.2vw, 1.12rem);
+    line-height: 1.6;
+  }
+
+  .home__hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .home__btn {
+    display: inline-flex;
+    min-height: 3rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    border-radius: 10px;
+    padding: 0.8rem 1.2rem;
+    font-size: 0.92rem;
+    font-weight: 800;
+    line-height: 1;
+    transition:
+      transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 160ms ease,
+      background 160ms ease,
+      color 160ms ease,
+      border-color 160ms ease;
+  }
+
+  .home__btn--primary {
+    border: 1px solid transparent;
+    background: var(--accent);
+    color: var(--ink);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+  }
+
+  .home__btn--primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 18px 40px var(--accent-glow);
+  }
+
+  .home__btn--ghost {
+    border: 1px solid var(--line-strong);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--fg);
+  }
+
+  .home__btn--ghost:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .home__btn--dark {
+    border: 1px solid rgba(20, 18, 4, 0.2);
+    background: var(--ink);
+    color: var(--accent);
+  }
+
+  .home__btn--dark:hover {
+    transform: translateY(-2px);
+    color: var(--fg);
+  }
+
+  .home__btn--outline-light {
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: transparent;
+    color: var(--fg);
+  }
+
+  .home__btn--outline-light:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .home__cta-icon {
+    display: none;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+  }
+
+  .home__cta-icon--linux {
+    place-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+
+  :global([data-platform="mac"]) .home__cta-icon--apple,
+  :global([data-platform="win"]) .home__cta-icon--windows {
+    display: block;
+  }
+
+  :global([data-platform="linux"]) .home__cta-icon--linux {
+    display: inline-grid;
+  }
+
+  .home__hero-visual {
+    position: relative;
+  }
+
+  .home__frame {
+    position: relative;
+    transform: rotate(-1.25deg);
+    transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .home__hero-visual:hover .home__frame {
+    transform: rotate(-0.5deg) translateY(-4px);
+  }
+
+  .home__frame-chrome {
+    position: absolute;
+    inset: -10px -8px;
+    z-index: -1;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04));
+    opacity: 0.9;
+  }
+
+  .home__shot {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 calc(18px + 14px * var(--scroll-shadow, 1))
+        calc(48px + 24px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.45);
+  }
+
+  .home__frame-caption {
+    margin-top: 1.1rem;
+    color: var(--fg-dim);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* —— Stack / integrations band —— */
+  .home__stack {
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface) 42%, transparent);
+    padding: clamp(2rem, 5vw, 3.25rem) var(--home-pad);
+  }
+
+  .home__stack-inner {
+    display: grid;
+    max-width: var(--home-max);
+    gap: clamp(1.35rem, 3.5vw, 2rem);
+    margin: 0 auto;
+  }
+
+  @media (min-width: 800px) {
+    .home__stack-inner {
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr);
+      align-items: center;
+      gap: 2.5rem 3rem;
+    }
+  }
+
+  .home__stack-copy {
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  .home__stack-title {
+    font-family: var(--font-display);
+    font-size: clamp(1.2rem, 2.2vw, 1.45rem);
+    font-weight: 600;
+    line-height: 1.28;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    text-wrap: balance;
+  }
+
+  .home__stack-dek {
+    max-width: 38rem;
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 0.98rem;
+    line-height: 1.58;
+  }
+
+  .home__stack-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.6rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 800px) {
+    .home__stack-list {
+      justify-content: flex-end;
+    }
+  }
+
+  .home__stack-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(237, 242, 251, 0.04);
+    padding: 0.42rem 0.82rem 0.42rem 0.55rem;
+    color: var(--fg-muted);
+    font-size: 0.84rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    transition:
+      border-color 160ms ease,
+      background 160ms ease,
+      color 160ms ease;
+  }
+
+  .home__stack-chip:hover {
+    border-color: var(--line-strong);
+    background: rgba(237, 242, 251, 0.07);
+    color: var(--fg);
+  }
+
+  .home__stack-chip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .home__stack-chip-icon :global(.provider-icon) {
+    width: 0.95rem;
+    height: 0.95rem;
+    opacity: 0.92;
+  }
+
+  .home__stack-chip-label {
+    white-space: nowrap;
+  }
+
+  /* —— Shared section —— */
+  .home__panel {
+    max-width: var(--home-max);
+    margin: 0 auto;
+    padding: clamp(3.25rem, 8vw, 6rem) var(--home-pad);
+  }
+
+  .home__label {
+    margin-bottom: 0.5rem;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .home__label--on-dark {
+    color: var(--accent);
+  }
+
+  .home__h2 {
+    max-width: 20ch;
+    font-family: var(--font-display);
+    font-size: clamp(1.85rem, 3.5vw, 3rem);
+    font-weight: 700;
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+  }
+
+  .home__h2--wide {
+    max-width: 26ch;
+  }
+
+  @media (min-width: 720px) {
+    .home__h2--wide {
+      max-width: 36ch;
+    }
+  }
+
+  .home__h2--on-dark {
+    color: var(--fg);
+  }
+
+  .home__dek {
+    max-width: 44rem;
+    margin-top: 0.85rem;
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+    line-height: 1.62;
+  }
+
+  .home__dek--on-dark {
+    color: rgba(237, 242, 251, 0.68);
+  }
+
+  .home__panel-head {
+    margin-bottom: clamp(1.5rem, 4vw, 2.5rem);
+  }
+
+  .home__panel-head--tight {
+    margin-bottom: clamp(1.25rem, 3vw, 1.75rem);
+  }
+
+  /* —— Outcomes —— */
+  .home__outcomes {
     display: grid;
     gap: 1rem;
+    margin: 0 0 clamp(1.75rem, 4vw, 2.5rem);
+    padding: 0;
+    list-style: none;
   }
 
-  .eyebrow,
-  .surface-bar,
-  .account-ledger span,
-  .compact-ledger span {
-    color: #73d7ff;
+  @media (min-width: 860px) {
+    .home__outcomes {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .home__outcome {
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 1.25rem 1.3rem;
+    transition:
+      border-color 180ms ease,
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .home__outcome:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
+  }
+
+  .home__outcome-title {
+    font-family: var(--font-display);
+    font-size: 1.18rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin-bottom: 0.45rem;
+  }
+
+  .home__outcome-body {
+    color: var(--fg-muted);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .home__contrast-bar {
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 1rem 1.25rem 1.15rem;
+  }
+
+  .home__contrast-bar-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .home__contrast-neg {
+    color: var(--fg-dim);
+  }
+
+  .home__contrast-mid {
+    color: var(--accent);
+  }
+
+  .home__contrast-pos {
+    color: var(--accent);
+  }
+
+  .home__contrast-note {
+    margin-top: 0.85rem;
+    border-top: 1px solid var(--line);
+    padding-top: 0.85rem;
+    text-align: center;
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+    line-height: 1.55;
+  }
+
+  /* —— Workspace phases —— */
+  .home__phases {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2.5rem, 6vw, 4rem);
+  }
+
+  .home__phase {
+    display: grid;
+    gap: clamp(1.25rem, 3vw, 1.85rem);
+  }
+
+  @media (min-width: 960px) {
+    .home__phase {
+      grid-template-columns: minmax(12rem, 0.38fr) minmax(0, 1fr);
+      align-items: start;
+      gap: clamp(2rem, 4vw, 3.5rem);
+    }
+
+    .home__phase-head {
+      position: sticky;
+      top: 5.5rem;
+    }
+  }
+
+  .home__phase-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--violet);
+    text-transform: uppercase;
+  }
+
+  .home__phase-title {
+    margin-top: 0.45rem;
+    font-family: var(--font-display);
+    font-size: clamp(1.45rem, 2.4vw, 1.95rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+  }
+
+  .home__phase-lead {
+    margin-top: 0.65rem;
+    color: var(--fg-muted);
+    font-size: 0.98rem;
+    line-height: 1.58;
+  }
+
+  .home__phase-grid {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .home__phase-grid--spotlight .home__feat {
+    padding: clamp(1.35rem, 3vw, 1.85rem);
+    background:
+      radial-gradient(ellipse 70% 60% at 0% 0%, rgba(255, 255, 255, 0.08), transparent 55%),
+      rgba(255, 255, 255, 0.02);
+  }
+
+  @media (min-width: 640px) {
+    .home__phase-grid--triple {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .home__phase-grid--pair {
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    }
+  }
+
+  .home__feat {
+    display: grid;
+    gap: 0.45rem;
+    align-content: start;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 1.15rem 1.2rem;
+    transition: border-color 180ms ease;
+  }
+
+  .home__feat:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .home__feat-tag {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .home__feat-title {
+    font-family: var(--font-display);
+    font-size: 1.12rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.12;
+  }
+
+  .home__phase-grid--spotlight .home__feat-title {
+    font-size: clamp(1.22rem, 2vw, 1.45rem);
+  }
+
+  .home__feat-body {
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+    line-height: 1.55;
+  }
+
+  /* —— Workflow timeline —— */
+  .home__workflow {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 900px) {
+    .home__workflow {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0 0.75rem;
+    }
+  }
+
+  .home__workflow-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.85rem 1rem;
+    padding: 1.15rem 0;
+    border-top: 1px solid var(--line);
+  }
+
+  @media (min-width: 900px) {
+    .home__workflow-step {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto;
+      padding-top: 0;
+      border-top: none;
+      text-align: left;
+    }
+  }
+
+  .home__workflow-marker {
+    display: flex;
+    width: 1.35rem;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  @media (min-width: 900px) {
+    .home__workflow-marker {
+      flex-direction: row;
+      width: 100%;
+      align-items: center;
+    }
+  }
+
+  .home__workflow-dot {
+    display: block;
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+
+  .home__workflow-line {
+    flex: 1;
+    width: 2px;
+    min-height: 1.5rem;
+    margin-top: 0.2rem;
+    background: linear-gradient(180deg, var(--accent), transparent);
+  }
+
+  @media (min-width: 900px) {
+    .home__workflow-line {
+      width: auto;
+      height: 2px;
+      min-height: 0;
+      min-width: 0;
+      margin-top: 0;
+      margin-left: 0.35rem;
+      background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0.12));
+    }
+
+    .home__workflow-step:last-child .home__workflow-line {
+      display: none;
+    }
+  }
+
+  .home__workflow-num {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--violet);
+    text-transform: uppercase;
+  }
+
+  .home__workflow-title {
+    margin-top: 0.2rem;
+    font-family: var(--font-display);
+    font-size: 1.12rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  .home__workflow-body {
+    margin-top: 0.35rem;
+    color: var(--fg-muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+
+  /* —— Providers split —— */
+  .home__providers-split {
+    display: grid;
+    gap: clamp(1.75rem, 4vw, 2.75rem);
+  }
+
+  @media (min-width: 920px) {
+    .home__providers-split {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+    }
+  }
+
+  .home__providers-panels-label {
+    margin-bottom: 0.65rem;
     font-family: var(--font-mono);
     font-size: 0.68rem;
     font-weight: 700;
     letter-spacing: 0.07em;
+    color: var(--fg-dim);
     text-transform: uppercase;
   }
 
-  h1,
-  h2,
-  h3,
-  p {
-    text-wrap: balance;
-  }
-
-  .hero h1 {
-    max-width: 10.5ch;
-    font-size: clamp(3.4rem, 6.7vw, 6.45rem);
-    line-height: 0.92;
-    letter-spacing: -0.054em;
-  }
-
-  .section-heading h2,
-  .final-cta h2 {
-    max-width: 15ch;
-    font-size: clamp(2.2rem, 4.4vw, 4.2rem);
-    line-height: 0.98;
-    letter-spacing: -0.052em;
-  }
-
-  .hero-intro,
-  .section-heading p,
-  .run-grid p,
-  .browser-ledger p,
-  .account-ledger p,
-  .compact-ledger p {
-    color: var(--fg-muted);
-    font-size: 1rem;
-    line-height: 1.58;
-  }
-
-  .hero-intro {
-    max-width: 35rem;
-  }
-
-  .hero-actions {
-    flex-wrap: wrap;
-    gap: 0.8rem;
-  }
-
-  .button {
-    min-height: 3rem;
-    justify-content: center;
-    gap: 0.58rem;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0.82rem 1.08rem;
-    font-size: 0.94rem;
-    font-weight: 800;
-    line-height: 1;
-    transition:
-      transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
-      border-color 150ms ease,
-      background 150ms ease;
-  }
-
-  .button:hover {
-    transform: translateY(-2px);
-  }
-
-  .button-primary {
-    background: linear-gradient(135deg, #f5f8fc, #bdc9d8);
-    color: #0c121a;
-  }
-
-  .button-secondary {
-    border-color: var(--line-strong);
-    background: rgba(255, 255, 255, 0.028);
-    color: var(--fg);
-  }
-
-  .cta-icon {
-    display: none;
-    width: 1rem;
-    height: 1rem;
-    flex: 0 0 auto;
-  }
-
-  .cta-icon--linux {
-    place-items: center;
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  :global([data-platform="mac"]) .cta-icon--apple,
-  :global([data-platform="win"]) .cta-icon--windows {
-    display: block;
-  }
-
-  :global([data-platform="linux"]) .cta-icon--linux {
-    display: inline-grid;
-  }
-
-  .hero-facts {
+  .home__provider-grid {
     display: grid;
-    gap: 0.45rem;
-    padding-top: 0.15rem;
+    gap: 0.55rem;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
   }
 
-  .hero-facts span {
-    width: fit-content;
-    border-bottom: 1px solid var(--line);
-    color: var(--fg-muted);
-    padding-bottom: 0.24rem;
-    font-size: 0.88rem;
-    font-weight: 700;
-  }
-
-  .hero-product {
-    min-width: 0;
-  }
-
-  .product-frame {
-    margin: 0;
-  }
-
-  .product-frame img {
-    display: block;
-    width: 100%;
-    height: auto;
-    border: 1px solid rgba(255, 255, 255, 0.13);
-    border-radius: 12px;
-    background: #07080d;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.04) inset,
-      0 calc(18px + 14px * var(--scroll-shadow, 1))
-        calc(48px + 22px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.34);
-  }
-
-  .surface-bar {
-    flex-wrap: wrap;
-    gap: 0.45rem 1rem;
-    border-bottom: 1px solid var(--line);
-    padding: 0.72rem 0;
-    color: var(--fg-dim);
-  }
-
-  .section {
-    display: grid;
-    gap: clamp(1.35rem, 3vw, 2rem);
-    padding: clamp(3.5rem, 6vw, 5.4rem) 0 0;
-  }
-
-  .section-heading {
-    max-width: 48rem;
-  }
-
-  .run-grid,
-  .browser-ledger {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    border-top: 1px solid var(--line);
-  }
-
-  .run-grid article,
-  .browser-ledger article {
-    min-width: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 1rem 1rem 1.1rem 0;
-  }
-
-  .run-grid h3,
-  .browser-ledger h3 {
-    font-size: clamp(1.12rem, 1.5vw, 1.35rem);
-    line-height: 1.1;
-  }
-
-  .run-grid p,
-  .browser-ledger p {
-    margin-top: 0.55rem;
-    font-size: 0.94rem;
-  }
-
-  .provider-lineup {
-    flex-wrap: wrap;
-    gap: 0.65rem 1rem;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    padding: 0.9rem 0;
-  }
-
-  .provider-lineup span {
+  .home__provider-pill {
     display: inline-flex;
     align-items: center;
-    gap: 0.48rem;
-    color: var(--fg);
-    font-size: 0.96rem;
+    gap: 0.45rem;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.55rem 0.85rem;
+    font-size: 0.86rem;
     font-weight: 700;
   }
 
-  .provider-lineup :global(.provider-icon) {
-    width: 1.05rem;
-    height: 1.05rem;
+  .home__provider-pill :global(.provider-icon) {
+    width: 1rem;
+    height: 1rem;
   }
 
-  .account-ledger,
-  .compact-ledger {
-    display: grid;
-    border-top: 1px solid var(--line);
+  .home__handoff {
+    margin-top: 1.5rem;
+    border-radius: var(--radius);
+    border: 1px dashed var(--line-strong);
+    background: rgba(255, 255, 255, 0.04);
+    padding: 1rem 1.15rem;
   }
 
-  .account-ledger p,
-  .compact-ledger p {
-    display: grid;
-    grid-template-columns: minmax(8rem, 0.2fr) minmax(0, 1fr);
-    gap: 1rem;
-    border-bottom: 1px solid var(--line);
-    padding: 0.95rem 0;
+  .home__handoff-label {
+    display: block;
+    margin-bottom: 0.65rem;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    color: var(--violet);
+    text-transform: uppercase;
   }
 
-  .account-ledger span,
-  .compact-ledger span {
-    color: var(--fg-dim);
-  }
-
-  .browser-ledger {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .split-section {
-    grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
-    align-items: start;
-  }
-
-  .final-cta {
+  .home__handoff-row {
     display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 1.5rem;
-    padding: clamp(3.8rem, 6vw, 5.2rem) 0 clamp(4rem, 7vw, 6rem);
-  }
-
-  .final-cta > div:first-child {
-    max-width: 36rem;
-    border-top: 1px solid var(--line);
-    padding-top: 1rem;
-  }
-
-  .final-actions {
     flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.8rem;
+    align-items: center;
+    gap: 0.65rem 0.35rem;
+    color: var(--fg-muted);
+    font-size: 0.88rem;
   }
 
-  @media (max-width: 1080px) {
-    .hero,
-    .split-section {
-      grid-template-columns: 1fr;
-    }
-
-    .hero h1 {
-      max-width: 12ch;
-    }
-
-    .run-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+  .home__handoff-row span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 700;
   }
 
-  @media (max-width: 860px) {
-    .site-nav {
-      align-items: flex-start;
-      flex-direction: column;
-      padding: 1rem 0;
-    }
+  .home__handoff-row :global(.provider-icon) {
+    width: 1rem;
+    height: 1rem;
+  }
 
-    .nav-links {
-      justify-content: flex-start;
-      width: 100%;
-    }
+  .home__handoff-row small {
+    font-weight: 600;
+  }
 
-    .nav-links a:nth-child(2),
-    .nav-links a:nth-child(4),
-    .nav-links a:nth-child(5) {
+  .home__handoff-row i {
+    display: inline-block;
+    flex: 1;
+    height: 1px;
+    min-width: 1.25rem;
+    max-width: 3rem;
+    background: linear-gradient(90deg, var(--line-strong), var(--accent));
+  }
+
+  @media (max-width: 640px) {
+    .home__handoff-row i {
       display: none;
     }
 
-    .hero {
-      padding-top: 1.4rem;
+    .home__handoff-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  /* —— Dark reliability —— */
+  .home__panel--dark {
+    max-width: none;
+    margin: 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(ellipse 55% 70% at 0% 40%, rgba(207, 216, 227, 0.05), transparent 52%),
+      linear-gradient(180deg, var(--surface), var(--bg));
+    padding: clamp(3.25rem, 8vw, 5.5rem) var(--home-pad);
+  }
+
+  .home__reliability-inner {
+    max-width: var(--home-max);
+    margin: 0 auto;
+  }
+
+  .home__ledger {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .home__ledger-row {
+    display: grid;
+    gap: 0.65rem;
+    border-top: 1px solid var(--line);
+    padding: 1.1rem 0;
+  }
+
+  @media (min-width: 760px) {
+    .home__ledger-row {
+      grid-template-columns: minmax(10rem, 0.28fr) 2rem minmax(0, 1fr);
+      align-items: center;
+      gap: 1rem;
+    }
+  }
+
+  .home__ledger-situation {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: rgba(237, 242, 251, 0.52);
+    text-transform: uppercase;
+  }
+
+  .home__ledger-arrow {
+    display: none;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), var(--accent));
+    position: relative;
+  }
+
+  .home__ledger-arrow::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateY(-50%);
+  }
+
+  @media (min-width: 760px) {
+    .home__ledger-arrow {
+      display: block;
+    }
+  }
+
+  .home__ledger-fix {
+    color: rgba(237, 242, 251, 0.9);
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  /* —— Remote —— */
+  .home__remote-split {
+    display: grid;
+    gap: clamp(1.5rem, 4vw, 2.5rem);
+  }
+
+  @media (min-width: 880px) {
+    .home__remote-split {
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+      align-items: center;
+    }
+  }
+
+  .home__remote-visual {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 1.1rem 1.15rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .home__remote-visual span {
+    color: var(--fg-muted);
+  }
+
+  .home__remote-pill {
+    border-radius: 999px;
+    background: var(--accent-soft);
+    padding: 0.28rem 0.75rem;
+    color: var(--accent);
+  }
+
+  .home__remote-line {
+    flex: 1;
+    height: 1px;
+    min-width: 1.5rem;
+    border: none;
+    background: linear-gradient(90deg, var(--line-strong), var(--accent));
+  }
+
+  @media (max-width: 520px) {
+    .home__remote-line {
+      display: none;
     }
 
-    .final-cta {
-      align-items: flex-start;
+    .home__remote-visual {
       flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  /* —— FAQ two columns —— */
+  .home__faq-cols {
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  @media (min-width: 800px) {
+    .home__faq-cols {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem 1.25rem;
+      align-items: start;
+    }
+  }
+
+  .home__faq-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .home__faq-item {
+    overflow: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    transition: border-color 160ms ease;
+  }
+
+  .home__faq-item:hover {
+    border-color: var(--line-strong);
+  }
+
+  .home__faq-item[open] {
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .home__faq-item summary {
+    display: flex;
+    cursor: pointer;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.15rem;
+    font-family: var(--font-display);
+    font-size: 1.02rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    list-style: none;
+  }
+
+  .home__faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .home__faq-item summary::after {
+    content: "";
+    width: 0.48rem;
+    height: 0.48rem;
+    flex-shrink: 0;
+    border-right: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
+    transform: rotate(-45deg);
+    transition: transform 180ms ease;
+  }
+
+  .home__faq-item[open] summary::after {
+    transform: rotate(45deg);
+  }
+
+  .home__faq-item p {
+    margin: 0;
+    border-top: 1px solid var(--line);
+    padding: 0.85rem 1.15rem 1.15rem;
+    color: var(--fg-muted);
+    font-size: 0.96rem;
+    line-height: 1.6;
+  }
+
+  /* —— Closing —— */
+  .home__closing {
+    margin: 0 var(--home-pad) clamp(2.5rem, 5vw, 4rem);
+  }
+
+  .home__closing-inner {
+    max-width: var(--home-max);
+    margin: 0 auto;
+    border-radius: calc(var(--radius) + 6px);
+    border: 1px solid var(--line-strong);
+    background: var(--surface-strong);
+    padding: clamp(2.25rem, 6vw, 3.75rem);
+    color: var(--ink);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+  }
+
+  .home__closing .home__label--on-dark {
+    color: rgba(0, 0, 0, 0.5);
+  }
+
+  .home__closing-title {
+    max-width: 20ch;
+    margin-top: 0.25rem;
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+  }
+
+  .home__closing-dek {
+    max-width: 34rem;
+    margin-top: 0.85rem;
+    color: rgba(0, 0, 0, 0.68);
+    font-size: 1.05rem;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+
+  .home__closing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .home__closing-actions .home__btn--outline-light {
+    border-color: rgba(0, 0, 0, 0.35);
+    color: var(--ink);
+  }
+
+  .home__closing-actions .home__btn--outline-light:hover {
+    border-color: var(--ink);
+    color: var(--ink);
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  .home__closing-actions .home__btn--dark:hover {
+    color: #ffffff;
+  }
+
+  @media (max-width: 899px) {
+    .home__nav-links {
+      display: none;
     }
   }
 
   @media (max-width: 640px) {
-    .site-nav,
-    .hero,
-    .section,
-    .final-cta {
-      width: min(100% - 1.25rem, 1180px);
+    .home__nav-cta {
+      padding-inline: 0.95rem;
     }
 
-    .button {
-      width: 100%;
-      min-width: 0;
+    .home__title {
+      max-width: none;
     }
 
-    .hero h1 {
-      font-size: clamp(2.72rem, 14vw, 3.5rem);
-      line-height: 0.94;
-    }
-
-    .hero-intro,
-    .section-heading p {
-      font-size: 0.94rem;
-    }
-
-    .hero-facts span {
-      width: auto;
-      font-size: 0.82rem;
-    }
-
-    .run-grid,
-    .browser-ledger {
-      grid-template-columns: 1fr;
-    }
-
-    .provider-lineup {
-      display: grid;
-      grid-template-columns: 1fr;
-    }
-
-    .account-ledger p,
-    .compact-ledger p {
-      grid-template-columns: 1fr;
-      gap: 0.24rem;
-    }
-
-    .final-actions {
-      width: 100%;
+    :global(.motion-ready) .home [data-reveal] {
+      opacity: 1;
+      transform: none;
+      transition: none;
     }
   }
 </style>

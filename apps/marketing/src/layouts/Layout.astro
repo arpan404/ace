@@ -5,8 +5,8 @@ interface Props {
 }
 
 const {
-  title = "ace",
-  description = "ace is a fast, minimal GUI for coding agents.",
+  title = "ace — one workspace for the coding agents you already use",
+  description = "ace is a free, local-first desktop app that keeps AI coding agents, terminal, browser preview, editor context, and diffs in one project thread. Open source. Bring your own providers.",
 } = Astro.props;
 ---
 
@@ -23,15 +23,10 @@ const {
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content="/screenshot.png" />
-    <link rel="preconnect" href="https://api.fontshare.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      rel="stylesheet"
-      href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&display=swap"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
@@ -53,8 +48,8 @@ const {
             <span>ace</span>
           </a>
           <p class="footer-copy">
-            Agent operations for real codebases: threads, review, recovery, and provider handoff in
-            one workspace.
+            A local-first desktop workspace for supervising coding agents—chat, terminal, preview,
+            review, and recovery in one thread. Open source; bring your own provider accounts.
           </p>
         </div>
         <div class="footer-links">
@@ -154,31 +149,35 @@ const {
 
 <style is:global>
   :root {
+    /* Cool bluish dark field + monochrome white accent (logo-aligned) */
     --bg: #05080d;
     --bg-soft: #0a0f16;
     --surface: #0f141d;
-    --surface-strong: #edf2fb;
-    --ink: #0d1219;
+    --surface-strong: #ffffff;
+    --ink: #05080d;
     --fg: #edf2fb;
     --fg-muted: rgba(237, 242, 251, 0.74);
-    --fg-dim: rgba(237, 242, 251, 0.5);
-    --primary: #d3dae4;
-    --primary-deep: #7b8694;
-    --accent: #d3dae4;
-    --accent-deep: #7b8694;
-    --review: #b9c0c9;
-    --risk: #f1786d;
-    --success: #bcc6d2;
-    --clay: #96a0ad;
+    --fg-dim: rgba(237, 242, 251, 0.48);
+    --primary: #edf2fb;
+    --primary-deep: #9ca3af;
+    --accent: #ffffff;
+    --accent-deep: #d1d9e8;
+    --accent-soft: rgba(255, 255, 255, 0.08);
+    --violet: #9eb0c8;
+    --review: #c5cedd;
+    --risk: #ef4444;
+    --success: #ffffff;
+    --clay: #7b8694;
     --line: rgba(237, 242, 251, 0.12);
-    --line-strong: rgba(237, 242, 251, 0.23);
+    --line-strong: rgba(237, 242, 251, 0.2);
     --border: var(--line);
     --border-bright: var(--line-strong);
-    --accent-glow: rgba(211, 218, 228, 0.16);
-    --shadow: rgba(0, 0, 0, 0.42);
-    --radius: 10px;
-    --font-sans: "Cabinet Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
-    --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
+    --accent-glow: rgba(255, 255, 255, 0.12);
+    --shadow: rgba(0, 0, 0, 0.48);
+    --radius: 12px;
+    --font-display: "Outfit", system-ui, sans-serif;
+    --font-sans: "DM Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
   }
 
   * {
@@ -197,13 +196,13 @@ const {
     min-height: 100vh;
     overflow-x: hidden;
     background:
-      radial-gradient(circle at top left, rgba(207, 216, 227, 0.04), transparent 24%),
-      radial-gradient(circle at top right, rgba(255, 255, 255, 0.02), transparent 20%),
-      linear-gradient(180deg, #090d14 0%, #05080d 28rem, #05080d 100%);
+      radial-gradient(circle at top left, rgba(207, 216, 227, 0.05), transparent 26%),
+      radial-gradient(circle at top right, rgba(255, 255, 255, 0.03), transparent 22%),
+      radial-gradient(ellipse 70% 45% at 50% -15%, rgba(140, 170, 210, 0.04), transparent 48%),
+      linear-gradient(180deg, #090d14 0%, var(--bg) 26rem, var(--bg) 100%);
     color: var(--fg);
     font-family: var(--font-sans);
-    font-feature-settings: "ss01" 1, "ss03" 1;
-    line-height: 1.5;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -272,8 +271,8 @@ const {
     pointer-events: none;
     background: radial-gradient(
       circle at var(--pointer-x) var(--pointer-y),
-      rgba(255, 255, 255, 0.16),
-      transparent 34%
+      rgba(255, 255, 255, 0.14),
+      transparent 38%
     );
     opacity: 0;
     transition: opacity 160ms ease;
@@ -309,17 +308,30 @@ const {
     left: 1rem;
     top: 1rem;
     z-index: 20;
-    transform: translateY(-180%);
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
     border-radius: 6px;
     background: var(--surface-strong);
     color: var(--ink);
-    padding: 0.7rem 0.9rem;
+    padding: 0;
     font-weight: 700;
-    transition: transform 180ms ease;
+    white-space: nowrap;
   }
 
-  .skip-link:focus {
-    transform: translateY(0);
+  .skip-link:focus-visible {
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    padding: 0.7rem 0.9rem;
+    background: var(--accent);
+    color: var(--ink);
   }
 
   .sr-only {
@@ -376,8 +388,10 @@ const {
     display: inline-flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 1.05rem;
-    font-weight: 800;
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 
   .footer-brand img {
@@ -406,7 +420,7 @@ const {
   }
 
   .footer-links a:hover {
-    color: var(--fg);
+    color: var(--accent);
   }
 
   @media (max-width: 780px) {
