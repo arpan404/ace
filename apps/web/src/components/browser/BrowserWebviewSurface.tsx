@@ -1441,7 +1441,7 @@ export function BrowserFavicon(props: {
   );
 }
 
-function BrowserOfflineRunner() {
+function BrowserOfflineGame() {
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<{
     crashed: boolean;
@@ -1514,8 +1514,8 @@ function BrowserOfflineRunner() {
         current.obstacleX = width + 24 + Math.random() * 90;
       }
 
-      const obstacleNearRunner = current.obstacleX > 42 && current.obstacleX < 86;
-      if (obstacleNearRunner && current.y < 34) {
+      const obstacleNearPlayer = current.obstacleX > 38 && current.obstacleX < 72;
+      if (obstacleNearPlayer && current.y < 28) {
         current.crashed = true;
         current.running = false;
         publishFrame();
@@ -1556,7 +1556,7 @@ function BrowserOfflineRunner() {
       startLoop();
     }
     if (current.y <= 1) {
-      current.velocityY = 0.92;
+      current.velocityY = 0.9;
     }
   }, [publishFrame, startLoop]);
 
@@ -1565,7 +1565,7 @@ function BrowserOfflineRunner() {
   return (
     <button
       type="button"
-      className="group relative h-32 w-full max-w-[520px] overflow-hidden rounded-lg border border-border/70 bg-background text-left shadow-sm outline-none transition-colors hover:border-foreground/24 focus-visible:ring-2 focus-visible:ring-ring"
+      className="relative h-28 w-full max-w-[560px] overflow-hidden rounded-md border border-border bg-muted/20 text-left outline-none transition-colors hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-ring/60"
       onClick={jumpOrRestart}
       onKeyDown={(event) => {
         if (event.key === " " || event.key === "ArrowUp" || event.key === "Enter") {
@@ -1573,36 +1573,26 @@ function BrowserOfflineRunner() {
           jumpOrRestart();
         }
       }}
-      aria-label="Offline dinosaur runner. Press Space to jump."
+      aria-label="Offline jump game. Press Space to jump."
     >
-      <div ref={fieldRef} className="absolute inset-x-4 bottom-7 top-4">
-        <div className="absolute inset-x-0 bottom-0 border-t border-dashed border-muted-foreground/35" />
+      <div ref={fieldRef} className="absolute inset-x-5 bottom-10 top-5">
+        <div className="absolute inset-x-0 bottom-0 border-t border-muted-foreground/30" />
         <div
-          className="absolute bottom-0 left-12 h-9 w-10 transition-[filter]"
+          className="absolute bottom-0 left-10 size-7 rounded-sm bg-foreground"
           style={{ transform: `translateY(${-frame.y}px)` }}
           aria-hidden="true"
-        >
-          <div className="absolute bottom-1 left-0 h-5 w-8 rounded-sm bg-foreground" />
-          <div className="absolute bottom-5 left-5 h-4 w-5 rounded-t-sm bg-foreground" />
-          <div className="absolute bottom-7 left-8 size-1 rounded-full bg-background" />
-          <div className="absolute bottom-0 left-2 h-2 w-1.5 bg-foreground" />
-          <div className="absolute bottom-0 left-6 h-2 w-1.5 bg-foreground" />
-          <div className="absolute bottom-2 -left-2 h-1.5 w-4 rounded-l-full bg-foreground" />
-        </div>
+        />
         <div
-          className="absolute bottom-0 h-8 w-4"
+          className="absolute bottom-0 h-7 w-3 rounded-sm bg-muted-foreground"
           style={{ transform: `translateX(${frame.obstacleX}px)` }}
           aria-hidden="true"
-        >
-          <div className="absolute bottom-0 left-1.5 h-8 w-2 rounded-t-sm bg-muted-foreground" />
-          <div className="absolute bottom-3 left-0 h-1.5 w-5 rounded-full bg-muted-foreground" />
-        </div>
+        />
       </div>
-      <div className="absolute right-4 top-3 font-mono text-[11px] text-muted-foreground">
+      <div className="absolute right-5 top-4 font-mono text-[11px] text-muted-foreground">
         {String(frame.score).padStart(4, "0")}
       </div>
-      <div className="absolute inset-x-4 bottom-2 flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{frame.crashed ? "Crashed. Click to restart." : "Click or press Space to jump"}</span>
+      <div className="absolute inset-x-5 bottom-3 flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>{frame.crashed ? "Hit. Click to reset." : "Click or press Space to jump"}</span>
         <span>{frame.running ? "Running" : "Ready"}</span>
       </div>
     </button>
@@ -1647,7 +1637,7 @@ function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () 
             </span>
           </div>
         </div>
-        <BrowserOfflineRunner />
+        <BrowserOfflineGame />
       </div>
     </div>
   );

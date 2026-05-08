@@ -76,6 +76,8 @@ interface InAppBrowserProps {
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   onResizeViewport?: (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult;
+  onToggleRightPanelFloatingChat?: () => void;
+  onToggleRightPanelFullscreen?: () => void;
   backShortcutLabel?: string | null;
   designerCursorShortcutLabel?: string | null;
   designerAreaCommentShortcutLabel?: string | null;
@@ -280,6 +282,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     zoomOut,
     zoomReset,
   } = useInAppBrowserState({
+    active: activeInstance,
     designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
     open,
@@ -288,6 +291,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
     ...(onResizeViewport ? { onResizeViewport } : {}),
+    ...(props.onToggleRightPanelFloatingChat
+      ? { onToggleRightPanelFloatingChat: props.onToggleRightPanelFloatingChat }
+      : {}),
+    ...(props.onToggleRightPanelFullscreen
+      ? { onToggleRightPanelFullscreen: props.onToggleRightPanelFullscreen }
+      : {}),
   });
   const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
   const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);

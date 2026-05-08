@@ -321,6 +321,27 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       label: "Open favorite editor",
       description: "Open the active project/worktree in your preferred editor.",
     },
+    "editor.openFilePalette": {
+      category: "Editor",
+      label: "Open file palette",
+      description: "Open the workspace file picker.",
+      when: "editorFocus",
+      context: EDITOR_CONTEXT,
+    },
+    "editor.openCommandPalette": {
+      category: "Editor",
+      label: "Open editor command palette",
+      description: "Open the workspace editor command palette.",
+      when: "editorFocus",
+      context: EDITOR_CONTEXT,
+    },
+    "editor.findInActiveEditor": {
+      category: "Editor",
+      label: "Find in active editor",
+      description: "Open find in the active workspace editor.",
+      when: "editorFocus",
+      context: EDITOR_CONTEXT,
+    },
     "editor.newFile": {
       category: "Editor",
       label: "New file",

@@ -19,6 +19,8 @@ export function resolveBrowserShortcutAction(
 
   const key = input.key.toLowerCase();
   if (input.alt === true) {
+    if (key === "c") return "right-panel-floating-chat-toggle";
+    if (key === "f") return "right-panel-fullscreen-toggle";
     if (key === "[") return "move-tab-left";
     if (key === "]") return "move-tab-right";
     if (key === "1") return "designer-area-comment";
