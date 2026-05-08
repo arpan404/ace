@@ -606,15 +606,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               },
             });
 
-            for (let attempt = 0; attempt < 20; attempt += 1) {
-              const updated = yield* registry.getProviders;
-              if (updated.find((status) => status.provider === "codex")?.status === "error") {
-                return;
-              }
-              yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
-            }
-
-            const updated = yield* registry.getProviders;
+            const updated = yield* registry.refresh("codex");
             assert.strictEqual(
               updated.find((status) => status.provider === "codex")?.status,
               "error",
