@@ -1,52 +1,38 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import MarketingNav from "../components/MarketingNav.astro";
 ---
 
-<Layout title="Changelog — ace" description="Release notes and updates for ace.">
-  <section class="changelog-page" aria-labelledby="changelog-heading">
-    <nav class="changelog-nav" aria-label="Changelog navigation">
-      <a href="/" class="changelog-brand" aria-label="ace home">
-        <img src="/logo.png" alt="" />
-        <span>ace</span>
-      </a>
-      <a href="/download" class="nav-link">
-        <span>Download</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path
-            d="M11 4 5 10M5 4h6v6"
-            fill="none"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.7"
-          />
-        </svg>
-      </a>
-    </nav>
+<Layout
+  title="Changelog — ace"
+  description="Release notes for ace: desktop updates, fixes, and installers."
+>
+  <div class="changelog">
+    <span class="changelog__noise" aria-hidden="true"></span>
+    <MarketingNav variant="inner" backLabel="Home" backHref="/" />
 
-    <div class="changelog-hero">
-      <p class="small-line">Changelog</p>
-      <h1 id="changelog-heading">Release notes.</h1>
-      <p>Follow desktop releases, fixes, and installer updates for ace.</p>
-    </div>
+    <header class="changelog__hero">
+      <h1 id="changelog-heading" class="changelog__title">Changelog</h1>
+      <p class="changelog__dek">Latest release notes from GitHub.</p>
+    </header>
 
-    <section class="release-panel" aria-labelledby="release-heading">
-      <div>
-        <span id="release-kicker">Latest release</span>
-        <h2 id="release-heading">Loading release notes.</h2>
-        <p id="release-summary">Fetching the newest GitHub release from arpan404/ace.</p>
-        <pre id="release-notes" hidden></pre>
+    <section class="changelog__panel" aria-labelledby="release-heading">
+      <div class="changelog__panel-body">
+        <span id="release-kicker" class="changelog__kicker">Latest release</span>
+        <h2 id="release-heading" class="changelog__release-title">Loading release notes.</h2>
+        <p id="release-summary" class="changelog__summary">Fetching the newest GitHub release from arpan404/ace.</p>
+        <div id="release-notes" class="changelog__markdown" hidden></div>
       </div>
       <a
         href="https://github.com/arpan404/ace/releases"
         target="_blank"
         rel="noopener noreferrer"
-        class="release-button"
+        class="changelog__btn"
       >
         Open releases
       </a>
     </section>
-  </section>
+  </div>
 </Layout>
 
 <script>
@@ -61,19 +47,76 @@ import Layout from "../layouts/Layout.astro";
     }).format(date);
   }
 
+  function escapeHtml(value: string) {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function renderInlineMarkdown(value: string) {
+    return escapeHtml(value)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+
+  function renderMarkdown(value: string) {
+    const blocks: string[] = [];
+    const lines = value.trim().split(/\r?\n/);
+    let listItems: string[] = [];
+
+    const flushList = () => {
+      if (listItems.length === 0) return;
+      blocks.push(`<ul>${listItems.map((item) => `<li>${item}</li>`).join("")}</ul>`);
+      listItems = [];
+    };
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        flushList();
+        continue;
+      }
+
+      const heading = /^(#{2,4})\s+(.+)$/.exec(trimmed);
+      if (heading) {
+        flushList();
+        const level = Math.min(heading[1].length + 1, 4);
+        blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+      if (bullet) {
+        listItems.push(renderInlineMarkdown(bullet[1]));
+        continue;
+      }
+
+      flushList();
+      blocks.push(`<p>${renderInlineMarkdown(trimmed)}</p>`);
+    }
+
+    flushList();
+    return blocks.join("");
+  }
+
   async function initChangelog() {
     const kicker = document.getElementById("release-kicker");
     const heading = document.getElementById("release-heading");
     const summary = document.getElementById("release-summary");
-    const notes = document.getElementById("release-notes") as HTMLPreElement | null;
-    const button = document.querySelector<HTMLAnchorElement>(".release-button");
+    const notes = document.getElementById("release-notes");
+    const button = document.querySelector<HTMLAnchorElement>(".changelog__btn");
 
     try {
       const release = await fetchLatestRelease();
       const date = formatReleaseDate(release.published_at);
 
       if (kicker) {
-        kicker.textContent = date ? `${release.tag_name} / ${date}` : release.tag_name;
+        kicker.textContent = date ? `${release.tag_name} · ${date}` : release.tag_name;
       }
       if (heading) {
         heading.textContent = release.name || release.tag_name || "Latest release";
@@ -84,7 +127,7 @@ import Layout from "../layouts/Layout.astro";
           : "This release does not include notes yet.";
       }
       if (notes && release.body) {
-        notes.textContent = release.body.trim();
+        notes.innerHTML = renderMarkdown(release.body);
         notes.hidden = false;
       }
       if (button && release.html_url) {
@@ -105,144 +148,169 @@ import Layout from "../layouts/Layout.astro";
 </script>
 
 <style>
-  .changelog-page {
-    width: min(100% - 2rem, 1180px);
+  .changelog {
+    --ch-pad: var(--site-pad, clamp(1rem, 4vw, 2rem));
+    --ch-max: var(--site-max, 1200px);
+    position: relative;
+    width: min(100% - 2rem, var(--ch-max));
     margin: 0 auto;
-    padding: clamp(1.15rem, 2.5vw, 1.8rem) 0 clamp(5rem, 10vw, 8rem);
+    padding: 0 0 clamp(4rem, 10vw, 8rem);
+    isolation: isolate;
   }
 
-  .changelog-nav {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: clamp(4rem, 10vw, 7rem);
+  .changelog__noise {
+    display: none;
   }
 
-  .changelog-brand,
-  .nav-link {
-    display: inline-flex;
-    align-items: center;
-    color: var(--fg);
-    font-weight: 800;
+  .changelog > :not(.changelog__noise) {
+    position: relative;
+    z-index: 1;
   }
 
-  .changelog-brand {
-    gap: 0.65rem;
-  }
-
-  .changelog-brand img {
-    width: 34px;
-    height: 34px;
-    border-radius: 7px;
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
-  }
-
-  .nav-link {
-    gap: 0.35rem;
-    color: var(--fg-muted);
-    font-size: 0.94rem;
-  }
-
-  .nav-link svg {
-    width: 0.9rem;
-    height: 0.9rem;
-  }
-
-  .changelog-hero {
+  .changelog__hero {
+    padding: clamp(1rem, 2.5vw, 1.5rem) 0 clamp(1.75rem, 5vw, 3rem);
+    max-width: 44rem;
     display: grid;
-    max-width: 46rem;
-    gap: 1rem;
-    margin-bottom: clamp(2rem, 5vw, 3.5rem);
+    gap: 0.85rem;
   }
 
-  .small-line,
-  .release-panel span {
-    color: var(--accent);
-    font-family: var(--font-mono);
-    font-size: 0.74rem;
+  .changelog__title {
+    font-family: var(--font-display);
+    font-size: clamp(2.2rem, 4.5vw, 3.4rem);
     font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    letter-spacing: -0.035em;
+    line-height: 1.06;
   }
 
-  .changelog-hero h1 {
-    color: var(--fg);
-    font-size: clamp(3.5rem, 8vw, 7rem);
-    font-weight: 800;
-    letter-spacing: 0;
-    line-height: 0.9;
-    text-wrap: balance;
-  }
-
-  .changelog-hero p,
-  .release-panel p {
-    max-width: 40rem;
+  .changelog__dek {
     color: var(--fg-muted);
-    font-size: clamp(1.05rem, 2vw, 1.25rem);
+    font-size: 1rem;
     line-height: 1.6;
   }
 
-  .release-panel {
+  .changelog__panel {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
-    gap: 2rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: var(--radius);
-    background:
-      radial-gradient(circle at 80% 24%, oklch(0.68 0.18 255 / 0.16), transparent 18rem),
-      rgba(255, 255, 255, 0.05);
-    padding: clamp(1.2rem, 3vw, 1.7rem);
+    gap: 1.75rem 2rem;
+    padding: clamp(1.5rem, 4vw, 2.5rem);
+    border-radius: 12px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
   }
 
-  .release-panel h2 {
-    max-width: 36rem;
-    margin: 0.7rem 0 0.65rem;
-    color: var(--fg);
-    font-size: clamp(1.55rem, 3vw, 2.45rem);
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  #release-notes {
-    max-width: 54rem;
-    max-height: 22rem;
-    margin-top: 1rem;
-    overflow: auto;
-    white-space: pre-wrap;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 7px;
-    background: rgba(6, 7, 6, 0.38);
+  .changelog__kicker {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
     color: var(--fg-muted);
-    padding: 1rem;
-    font: 0.9rem/1.55 var(--font-mono);
   }
 
-  .release-button {
+  .changelog__release-title {
+    margin: 0.5rem 0;
+    font-family: var(--font-display);
+    font-size: clamp(1.35rem, 2.5vw, 1.8rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    max-width: 36rem;
+  }
+
+  .changelog__summary {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+    line-height: 1.58;
+    max-width: 40rem;
+  }
+
+  .changelog__markdown {
+    max-width: 54rem;
+    margin-top: 1.1rem;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(4, 4, 8, 0.65);
+    color: var(--fg-muted);
+    padding: 1.15rem;
+    font-size: 0.95rem;
+    line-height: 1.65;
+  }
+
+  .changelog__markdown :global(h3),
+  .changelog__markdown :global(h4) {
+    margin: 1.35rem 0 0.65rem;
+    color: var(--fg);
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .changelog__markdown :global(h3:first-child),
+  .changelog__markdown :global(h4:first-child) {
+    margin-top: 0;
+  }
+
+  .changelog__markdown :global(p) {
+    margin: 0.7rem 0;
+  }
+
+  .changelog__markdown :global(ul) {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0.75rem 0 1rem;
+    padding-left: 1.15rem;
+  }
+
+  .changelog__markdown :global(li) {
+    padding-left: 0.2rem;
+  }
+
+  .changelog__markdown :global(code) {
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    padding: 0.12rem 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .changelog__markdown :global(a) {
+    color: var(--fg);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+  }
+
+  .changelog__btn {
     display: inline-flex;
-    min-height: 3.1rem;
+    min-height: 2.35rem;
     align-items: center;
     justify-content: center;
+    padding: 0.55rem 1rem;
     border-radius: 999px;
-    background: var(--surface-strong);
-    color: var(--ink);
-    padding: 0.84rem 1.25rem;
-    font-weight: 800;
+    font-weight: 500;
+    font-size: 0.84rem;
     white-space: nowrap;
+    background: var(--fg);
+    color: var(--ink);
+    border: 1px solid transparent;
+  }
+
+  .changelog__btn:hover {
+    background: #e0e0e0;
   }
 
   @media (max-width: 760px) {
-    .changelog-page {
-      width: min(100% - 1rem, 1180px);
+    .changelog {
+      width: min(100% - 1rem, var(--ch-max));
     }
 
-    .release-panel {
-      align-items: flex-start;
+    .changelog__panel {
       grid-template-columns: 1fr;
     }
 
-    .release-button {
+    .changelog__btn {
       width: 100%;
     }
   }

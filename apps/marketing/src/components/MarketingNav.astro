@@ -1,0 +1,131 @@
+---
+interface Props {
+  variant?: "home" | "inner";
+  /** e.g. "Home" or "Download" */
+  backLabel?: string;
+  backHref?: string;
+}
+
+const { variant = "home", backLabel = "Home", backHref = "/" } = Astro.props;
+---
+
+<header class="mnav">
+  <nav class="mnav__bar" aria-label="Primary">
+    <a href="/" class="mnav__brand" aria-label="ace home">
+      <span class="mnav__brand-glow" aria-hidden="true"></span>
+      <img src="/logo.png" alt="" class="mnav__logo" width="32" height="32" />
+      <span class="mnav__name">ace</span>
+    </a>
+
+    <a
+      class="mnav__github"
+      href="https://github.com/arpan404/ace"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="GitHub Repository"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" class="mnav__github-icon">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+      </svg>
+      <span>GitHub</span>
+      <svg viewBox="0 0 16 16" aria-hidden="true" class="mnav__external-icon">
+        <path
+          d="M5 4h7v7M12 4 4 12"
+          fill="none"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.6"
+        />
+      </svg>
+    </a>
+  </nav>
+</header>
+
+<style>
+  .mnav {
+    position: sticky;
+    top: 0;
+    z-index: 80;
+    padding: 0.65rem var(--site-pad, clamp(1.25rem, 5vw, 2.5rem));
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .mnav__bar {
+    display: flex;
+    max-width: var(--site-max, 1200px);
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 auto;
+  }
+
+  .mnav__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--fg);
+    font-family: var(--font-display);
+    font-size: 1.18rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    flex-shrink: 0;
+  }
+
+  .mnav__brand-glow {
+    display: none;
+  }
+
+  .mnav__logo {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+  }
+
+  .mnav__name {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mnav__github {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.2rem;
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: 0.84rem;
+    font-weight: 500;
+    transition: color 200ms ease;
+  }
+
+  .mnav__github:hover {
+    color: var(--fg);
+  }
+
+  .mnav__github-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    flex: 0 0 1.05rem;
+    min-width: 1.05rem;
+    opacity: 1;
+  }
+
+  .mnav__external-icon {
+    width: 0.78rem;
+    height: 0.78rem;
+    flex: 0 0 0.78rem;
+    opacity: 0.75;
+    transition:
+      opacity 200ms ease,
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .mnav__github:hover .mnav__external-icon {
+    opacity: 1;
+    transform: translate(2px, -2px);
+  }
+</style>
