@@ -2,15 +2,17 @@
 
 This document covers how to run desktop releases from one tag, first without signing, then with signing.
 
-## What the workflow does
+## What the release tooling does
 
 - Trigger: push tag matching `v*.*.*`.
 - Runs quality gates first: lint, typecheck, test.
-- Builds four artifacts in parallel:
+- The local desktop release path builds six artifacts:
   - macOS `arm64` DMG
   - macOS `x64` DMG
   - Linux `x64` AppImage
+  - Linux `arm64` AppImage
   - Windows `x64` NSIS installer
+  - Windows `arm64` NSIS installer
 - Publishes one GitHub Release with all produced files.
   - Versions with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain `X.Y.Z` releases are marked as the repository's latest release.
@@ -72,6 +74,9 @@ Important:
    - `bun run dist:desktop:dmg:arm64`
    - `bun run dist:desktop:dmg:x64`
    - `bun run dist:desktop:linux`
+   - `bun run dist:desktop:linux:arm64`
+   - `bun run dist:desktop:win`
+   - `bun run dist:desktop:win:arm64`
 2. Do not publish unsigned macOS artifacts to the updater GitHub release feed.
 3. Download each artifact and sanity-check installation on each OS.
 
@@ -138,11 +143,14 @@ What the script does:
    - macOS `arm64` DMG and ZIP on the host.
    - macOS `x64` DMG and ZIP on the host.
    - Linux `x64` AppImage in Docker.
+   - Linux `arm64` AppImage in Docker.
    - Windows `x64` NSIS installer in Docker with Wine, Wine32, and NSIS.
+   - Windows `arm64` NSIS installer in Docker with Wine, Wine32, and NSIS.
 5. Collects release assets into `release-local/publish`.
 6. Merges per-arch macOS updater manifests into one `latest-mac.yml`.
-7. Prints SHA-256 checksums for every publish asset.
-8. With `--publish`, pushes the tag, creates the GitHub Release, uploads assets, and generates release notes in this shape:
+7. Keeps Linux updater metadata split by channel file (`latest-linux.yml` for `x64`, `latest-linux-arm64.yml` for `arm64`) and merges Windows updater metadata into one `latest.yml`.
+8. Prints SHA-256 checksums for every publish asset.
+9. With `--publish`, pushes the tag, creates the GitHub Release if missing, or updates the existing release in place for the same tag, uploads assets, and generates release notes in this shape:
    - `What's Changed`
    - PR title, author, and PR link
    - direct release-prep commits
