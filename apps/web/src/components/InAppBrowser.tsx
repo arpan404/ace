@@ -150,20 +150,16 @@ const BROWSER_SHELL_TRANSITION = {
 
 export function resolveMountedBrowserTabs(input: {
   activeTabId: string | null | undefined;
-  lastActiveTabId: string | null | undefined;
-  retainLastActiveTab: boolean;
+  retainInactiveTabs: boolean;
   tabs: BrowserSessionStorage["tabs"];
 }): BrowserSessionStorage["tabs"] {
-  const mountedTabIds = new Set(
-    [
-      input.activeTabId ?? null,
-      input.retainLastActiveTab ? (input.lastActiveTabId ?? null) : null,
-    ].filter((tabId): tabId is string => typeof tabId === "string" && tabId.length > 0),
-  );
-  if (mountedTabIds.size === 0) {
-    return [];
+  if (input.retainInactiveTabs) {
+    return input.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url));
   }
-  return input.tabs.filter((tab) => mountedTabIds.has(tab.id) && !isBrowserInternalTabUrl(tab.url));
+
+  const activeTabId = input.activeTabId ?? null;
+  if (!activeTabId) return [];
+  return input.tabs.filter((tab) => tab.id === activeTabId && !isBrowserInternalTabUrl(tab.url));
 }
 
 export function shouldPublishBrowserSessionChange(input: {
@@ -385,8 +381,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
-  const previousActiveTabIdRef = useRef<string | null>(activeTab?.id ?? null);
-  const [lastActiveTabId, setLastActiveTabId] = useState<string | null>(null);
   const {
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
@@ -440,23 +434,14 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   useEffect(() => {
     setAddressFieldExpanded(false);
   }, [activeTab?.id]);
-  useEffect(() => {
-    const nextActiveTabId = activeTab?.id ?? null;
-    const previousActiveTabId = previousActiveTabIdRef.current;
-    if (previousActiveTabId && nextActiveTabId && previousActiveTabId !== nextActiveTabId) {
-      setLastActiveTabId(previousActiveTabId);
-    }
-    previousActiveTabIdRef.current = nextActiveTabId;
-  }, [activeTab?.id]);
   const mountedBrowserTabs = useMemo(
     () =>
       resolveMountedBrowserTabs({
         activeTabId: activeTab?.id ?? null,
-        lastActiveTabId,
-        retainLastActiveTab: visible,
+        retainInactiveTabs: visible,
         tabs: browserSession.tabs,
       }),
-    [activeTab?.id, browserSession.tabs, lastActiveTabId, visible],
+    [activeTab?.id, browserSession.tabs, visible],
   );
 
   useEffect(() => {
