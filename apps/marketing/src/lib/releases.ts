@@ -2,8 +2,8 @@ const REPO = "arpan404/ace";
 
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 
-const API_URL = `https://api.github.com/repos/${REPO}/releases`;
-const CACHE_KEY = "ace-latest-release-v2";
+const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+const CACHE_KEY = "ace-latest-release-v3";
 
 export interface ReleaseAsset {
   name: string;
@@ -77,10 +77,7 @@ export async function fetchLatestRelease(): Promise<Release> {
 
   const response = await fetch(API_URL);
   const data = await response.json();
-  const release = Array.isArray(data)
-    ? (data.map((item) => parseRelease(item)).find((item): item is Release => item !== null) ??
-      null)
-    : parseRelease(data);
+  const release = parseRelease(data);
   if (!release) {
     throw new Error(
       response.ok

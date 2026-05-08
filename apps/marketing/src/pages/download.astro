@@ -126,7 +126,7 @@ import MarketingNav from "../components/MarketingNav.astro";
 
       <article class="inner-platform">
         <div class="inner-platform__head">
-          <span class="inner-platform__linux" aria-hidden="true">Lx</span>
+          <img class="inner-platform__icon" src="/icons/linux-tux.svg" alt="" aria-hidden="true" />
           <h2>Linux</h2>
         </div>
         <a
@@ -574,19 +574,10 @@ import MarketingNav from "../components/MarketingNav.astro";
   }
 
   .inner-platform__icon {
+    display: block;
     width: 1.2rem;
     height: 1.2rem;
-    color: var(--fg);
-  }
-
-  .inner-platform__linux {
-    display: inline-grid;
-    place-items: center;
-    width: 1.2rem;
-    height: 1.2rem;
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    font-weight: 600;
+    object-fit: contain;
   }
 
   .inner-asset {
