@@ -76,7 +76,10 @@ import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
 import { hasDesktopUpdateArg, resolveDesktopSecondInstanceAction } from "./desktopUpdateLaunch";
-import { buildLinuxDaemonAutostartEntry } from "./linuxAutostart";
+import {
+  buildLinuxDaemonAutostartEntry,
+  buildLinuxDesktopApplicationEntry,
+} from "./linuxDesktopEntries";
 import { findDesktopPairingUrlInArgv, normalizeDesktopPairingUrl } from "./pairingProtocol";
 import {
   startDesktopBackgroundNotificationService,
@@ -137,7 +140,9 @@ const APP_USER_MODEL_ID = "com.ace.ace";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "ace-dev" : "ace";
 const USER_DATA_DIR_NAME = isDevelopment ? "ace-dev" : "ace";
-const useDaemonBackend = !isDevelopmentBuild;
+// AppImage-packaged Linux builds behave more reliably when the desktop process owns
+// the backend directly instead of round-tripping through the detached daemon CLI.
+const useDaemonBackend = !isDevelopmentBuild && process.platform !== "linux";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -724,6 +729,9 @@ initializePackagedLogging();
 
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("class", LINUX_WM_CLASS);
+  if (process.env.APPIMAGE) {
+    app.commandLine.appendSwitch("no-sandbox");
+  }
 }
 
 app.on("child-process-gone", (_event, details) => {
@@ -1552,6 +1560,43 @@ function ensureLinuxDaemonAutostartEntry(): void {
   }
   writeDesktopLogHeader(
     `daemon autostart entry ready path=${sanitizeLogValue(entryPath)} changed=${String(previousContents !== entryContents)}`,
+  );
+}
+
+function ensureLinuxDesktopLauncherEntry(): void {
+  const applicationsDir = Path.join(OS.homedir(), ".local", "share", "applications");
+  const desktopFileName = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
+  const entryPath = Path.join(applicationsDir, desktopFileName);
+  const iconDir = Path.join(OS.homedir(), ".local", "share", "icons", "hicolor", "512x512", "apps");
+  const iconPath = Path.join(iconDir, isDevelopment ? "ace-dev.png" : "ace.png");
+  const packagedIconPath = Path.join(process.resourcesPath, "icon.png");
+
+  FS.mkdirSync(applicationsDir, { recursive: true });
+
+  let resolvedIconPath: string | undefined;
+  if (FS.existsSync(packagedIconPath)) {
+    FS.mkdirSync(iconDir, { recursive: true });
+    const currentIcon = FS.existsSync(iconPath) ? FS.readFileSync(iconPath) : null;
+    const packagedIcon = FS.readFileSync(packagedIconPath);
+    if (currentIcon === null || !currentIcon.equals(packagedIcon)) {
+      FS.writeFileSync(iconPath, packagedIcon);
+    }
+    resolvedIconPath = iconPath;
+  }
+
+  const entryContents = buildLinuxDesktopApplicationEntry({
+    appName: APP_DISPLAY_NAME,
+    executablePath: process.execPath,
+    ...(resolvedIconPath ? { iconPath: resolvedIconPath } : {}),
+    desktopFileId: desktopFileName,
+    startupWmClass: LINUX_WM_CLASS,
+  });
+  const previousContents = FS.existsSync(entryPath) ? FS.readFileSync(entryPath, "utf8") : null;
+  if (previousContents !== entryContents) {
+    FS.writeFileSync(entryPath, entryContents, "utf8");
+  }
+  writeDesktopLogHeader(
+    `desktop launcher entry ready path=${sanitizeLogValue(entryPath)} changed=${String(previousContents !== entryContents)} iconInstalled=${String(resolvedIconPath !== undefined)}`,
   );
 }
 
@@ -3224,6 +3269,9 @@ app
   .then(() => {
     writeDesktopLogHeader("app ready");
     syncShellEnvironment();
+    if (process.platform === "linux" && app.isPackaged) {
+      ensureLinuxDesktopLauncherEntry();
+    }
     if (useDaemonBackend) {
       ensureDaemonAutostartRegistration();
     }

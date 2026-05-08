@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildLinuxDaemonAutostartEntry, quoteDesktopEntryExecArgument } from "./linuxAutostart";
+import {
+  buildLinuxDaemonAutostartEntry,
+  quoteDesktopEntryExecArgument,
+} from "./linuxDesktopEntries";
 
 describe("linuxAutostart", () => {
   it("quotes Exec arguments for desktop entry parsing", () => {
