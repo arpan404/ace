@@ -111,6 +111,17 @@ import MarketingNav from "../components/MarketingNav.astro";
           <strong>Windows 10, 11</strong>
           <span>.exe installer for x64 PCs</span>
         </a>
+        <a
+          class="inner-asset"
+          data-download-card
+          data-key="windows-arm64"
+          data-patterns="arm64.exe,aarch64.exe"
+          href="#downloads"
+          aria-disabled="true"
+        >
+          <strong>Windows 11 ARM</strong>
+          <span>.exe installer for ARM64 PCs</span>
+        </a>
       </article>
 
       <article class="inner-platform">
@@ -129,6 +140,17 @@ import MarketingNav from "../components/MarketingNav.astro";
           <strong>x86_64</strong>
           <span>AppImage build</span>
         </a>
+        <a
+          class="inner-asset"
+          data-download-card
+          data-key="linux-arm64"
+          data-patterns="arm64.AppImage,aarch64.AppImage"
+          href="#downloads"
+          aria-disabled="true"
+        >
+          <strong>ARM64</strong>
+          <span>AppImage build</span>
+        </a>
       </article>
     </section>
 
@@ -142,7 +164,13 @@ import MarketingNav from "../components/MarketingNav.astro";
 <script>
   import { fetchLatestRelease } from "../lib/releases";
 
-  type PlatformKey = "mac-arm64" | "mac-x64" | "windows-x64" | "linux-x64";
+  type PlatformKey =
+    | "mac-arm64"
+    | "mac-x64"
+    | "windows-x64"
+    | "windows-arm64"
+    | "linux-x64"
+    | "linux-arm64";
   type Recommendation =
     | {
         kind: "asset";
@@ -171,8 +199,10 @@ import MarketingNav from "../components/MarketingNav.astro";
   const PLATFORM_LABELS: Record<PlatformKey, string> = {
     "mac-arm64": "Download for Apple Silicon",
     "mac-x64": "Download for Intel Mac",
-    "windows-x64": "Download for Windows",
-    "linux-x64": "Download for Linux",
+    "windows-x64": "Download for Windows x64",
+    "windows-arm64": "Download for Windows ARM64",
+    "linux-x64": "Download for Linux x64",
+    "linux-arm64": "Download for Linux ARM64",
   };
 
   function assetRecommendation(key: PlatformKey): Recommendation {
@@ -195,7 +225,7 @@ import MarketingNav from "../components/MarketingNav.astro";
     };
   }
 
-  function normalizeMacArchitecture(value: string | undefined): "arm64" | "x64" | null {
+  function normalizeArchitecture(value: string | undefined): "arm64" | "x64" | null {
     const normalized = value?.toLowerCase() ?? "";
     if (/(^|[^a-z0-9])(arm|arm64|aarch64)([^a-z0-9]|$)/i.test(normalized)) {
       return "arm64";
@@ -240,10 +270,14 @@ import MarketingNav from "../components/MarketingNav.astro";
   async function detectRecommendation(): Promise<Recommendation> {
     const userAgentData = await readUserAgentData();
     const clientHintsPlatform = resolvePlatform(userAgentData?.platform);
-    if (clientHintsPlatform === "windows") return assetRecommendation("windows-x64");
-    if (clientHintsPlatform === "linux") return assetRecommendation("linux-x64");
+    const architecture = normalizeArchitecture(userAgentData?.architecture);
+    if (clientHintsPlatform === "windows") {
+      return assetRecommendation(architecture === "arm64" ? "windows-arm64" : "windows-x64");
+    }
+    if (clientHintsPlatform === "linux") {
+      return assetRecommendation(architecture === "arm64" ? "linux-arm64" : "linux-x64");
+    }
     if (clientHintsPlatform === "mac") {
-      const architecture = normalizeMacArchitecture(userAgentData?.architecture);
       if (architecture === "arm64") return assetRecommendation("mac-arm64");
       if (architecture === "x64") return assetRecommendation("mac-x64");
       return assetRecommendation("mac-arm64");

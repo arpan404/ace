@@ -26,7 +26,7 @@ usage() {
     "  --previous-tag <tag>   Previous tag used for generated release notes." \
     "  --output-dir <dir>     Output directory relative to the repo. Default: release-local." \
     "  --repo <owner/repo>    GitHub repo for publishing. Defaults to gh repo view." \
-    "  --publish             Create the GitHub release and upload assets." \
+    "  --publish             Create the GitHub release or update it if the tag already exists." \
     "  --create-tag          Create the tag at HEAD if it does not already exist." \
     "  --skip-gates          Skip bun fmt, bun lint, and bun typecheck." \
     "  --skip-build          Skip bun run build:desktop and reuse existing dist artifacts." \
@@ -231,11 +231,26 @@ build_linux_docker() {
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=x64 \
     --env ACE_DESKTOP_TARGET=AppImage \
-    --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir/linux" \
+    --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir/linux-x64" \
     --env APPIMAGE_EXTRACT_AND_RUN=1 \
     --volume "$repo_root:/workspace" \
     "${git_common_mount_args[@]}" \
     --volume "ace-desktop-linux-node-modules-x64:/workspace/node_modules" \
+    --volume "ace-desktop-linux-bun-cache:/root/.bun/install/cache" \
+    "$linux_image" \
+    bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform linux --target "$ACE_DESKTOP_TARGET" --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
+    bash \
+    "$version"
+
+  run docker run --rm \
+    --platform linux/amd64 \
+    --env ACE_DESKTOP_ARCH=arm64 \
+    --env ACE_DESKTOP_TARGET=AppImage \
+    --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir/linux-arm64" \
+    --env APPIMAGE_EXTRACT_AND_RUN=1 \
+    --volume "$repo_root:/workspace" \
+    "${git_common_mount_args[@]}" \
+    --volume "ace-desktop-linux-node-modules-arm64:/workspace/node_modules" \
     --volume "ace-desktop-linux-bun-cache:/root/.bun/install/cache" \
     "$linux_image" \
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform linux --target "$ACE_DESKTOP_TARGET" --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
@@ -252,14 +267,29 @@ build_windows_docker() {
 
   run docker run --rm \
     --platform linux/amd64 \
-    --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir/windows" \
+    --env ACE_DESKTOP_ARCH=x64 \
+    --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir/windows-x64" \
     --env CSC_IDENTITY_AUTO_DISCOVERY=false \
     --volume "$repo_root:/workspace" \
     "${git_common_mount_args[@]}" \
     --volume "ace-desktop-windows-node-modules-x64:/workspace/node_modules" \
     --volume "ace-desktop-windows-bun-cache:/root/.bun/install/cache" \
     "$windows_image" \
-    bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch x64 --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
+    bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
+    bash \
+    "$version"
+
+  run docker run --rm \
+    --platform linux/amd64 \
+    --env ACE_DESKTOP_ARCH=arm64 \
+    --env ACE_DESKTOP_OUTPUT_DIR="/workspace/$output_dir/windows-arm64" \
+    --env CSC_IDENTITY_AUTO_DISCOVERY=false \
+    --volume "$repo_root:/workspace" \
+    "${git_common_mount_args[@]}" \
+    --volume "ace-desktop-windows-node-modules-arm64:/workspace/node_modules" \
+    --volume "ace-desktop-windows-bun-cache:/root/.bun/install/cache" \
+    "$windows_image" \
+    bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
 }
@@ -278,12 +308,37 @@ collect_assets() {
       cp "$file" "$publish_dir"/
     fi
   done
-  cp "$output_dir"/linux/* "$publish_dir"/
-  cp "$output_dir"/windows/* "$publish_dir"/
+  for file in "$output_dir"/linux-x64/*; do
+    cp "$file" "$publish_dir"/
+  done
+  for file in "$output_dir"/linux-arm64/*; do
+    local base
+    base="$(basename "$file")"
+    if [[ "$base" = "latest-linux.yml" ]]; then
+      cp "$file" "$publish_dir/latest-linux-arm64.yml"
+    else
+      cp "$file" "$publish_dir"/
+    fi
+  done
+  for file in "$output_dir"/windows-x64/*; do
+    cp "$file" "$publish_dir"/
+  done
+  for file in "$output_dir"/windows-arm64/*; do
+    local base
+    base="$(basename "$file")"
+    if [[ "$base" = "latest.yml" ]]; then
+      cp "$file" "$publish_dir/latest-arm64.yml"
+    else
+      cp "$file" "$publish_dir"/
+    fi
+  done
   node scripts/merge-mac-update-manifests.ts \
     "$publish_dir/latest-mac.yml" \
     "$publish_dir/latest-mac-x64.yml"
-  rm -f "$publish_dir/latest-mac-x64.yml" "$publish_dir/builder-debug.yml"
+  node scripts/merge-windows-update-manifests.ts \
+    "$publish_dir/latest.yml" \
+    "$publish_dir/latest-arm64.yml"
+  rm -f "$publish_dir/latest-mac-x64.yml" "$publish_dir/latest-arm64.yml" "$publish_dir/builder-debug.yml"
 
   run find "$publish_dir" -maxdepth 1 -type f -print
   run shasum -a 256 "$publish_dir"/*
@@ -330,11 +385,6 @@ publish_release() {
     run git push origin "$tag"
   fi
 
-  if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-    printf 'Release %s already exists in %s.\n' "$tag" "$repo" >&2
-    exit 1
-  fi
-
   local base_tag
   base_tag="$(detect_previous_tag)"
   local notes_file
@@ -348,7 +398,18 @@ publish_release() {
     release_flags+=(--prerelease)
   fi
 
-  run gh release create "$tag" "$publish_dir"/* "${release_flags[@]}"
+  if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+    local edit_flags=(--repo "$repo" --title "ace $tag" --notes-file "$notes_file")
+    if [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      edit_flags+=(--latest)
+    else
+      edit_flags+=(--prerelease)
+    fi
+    run gh release edit "$tag" "${edit_flags[@]}"
+    run gh release upload "$tag" "$publish_dir"/* --repo "$repo" --clobber
+  else
+    run gh release create "$tag" "$publish_dir"/* "${release_flags[@]}"
+  fi
   rm -f "$notes_file"
 }
 
