@@ -169,6 +169,30 @@ import Layout from "../layouts/Layout.astro";
   import { fetchLatestRelease } from "../lib/releases";
 
   type PlatformKey = "mac-arm64" | "mac-x64" | "windows-x64" | "linux-x64";
+  type Recommendation =
+    | {
+        kind: "asset";
+        key: PlatformKey;
+        heading: string;
+        copy: string;
+        buttonLabel: string;
+      }
+    | {
+        kind: "section";
+        heading: string;
+        copy: string;
+        buttonLabel: string;
+        href: string;
+      };
+  type UserAgentDataValues = {
+    architecture?: string;
+    platform?: string;
+  };
+  type UserAgentData = {
+    architecture?: string;
+    platform?: string;
+    getHighEntropyValues?: (hints: string[]) => Promise<UserAgentDataValues>;
+  };
 
   const PLATFORM_LABELS: Record<PlatformKey, string> = {
     "mac-arm64": "Download for Apple Silicon",
@@ -177,12 +201,85 @@ import Layout from "../layouts/Layout.astro";
     "linux-x64": "Download for Linux",
   };
 
-  function detectPlatform(): PlatformKey {
+  function assetRecommendation(key: PlatformKey): Recommendation {
+    return {
+      kind: "asset",
+      key,
+      heading: "Recommended build",
+      copy: PLATFORM_LABELS[key],
+      buttonLabel: PLATFORM_LABELS[key],
+    };
+  }
+
+  function chooseBuildRecommendation(): Recommendation {
+    return {
+      kind: "section",
+      heading: "Choose your build",
+      copy: "Select the build for your operating system below.",
+      buttonLabel: "View all downloads",
+      href: "#downloads",
+    };
+  }
+
+  function normalizeMacArchitecture(value: string | undefined): "arm64" | "x64" | null {
+    const normalized = value?.toLowerCase() ?? "";
+    if (/(^|[^a-z0-9])(arm|arm64|aarch64)([^a-z0-9]|$)/i.test(normalized)) {
+      return "arm64";
+    }
+    if (/(^|[^a-z0-9])(x86|x64|x86_64|amd64)([^a-z0-9]|$)/i.test(normalized)) {
+      return "x64";
+    }
+    return null;
+  }
+
+  function resolvePlatform(value: string | undefined): "mac" | "windows" | "linux" | null {
+    const normalized = value?.toLowerCase() ?? "";
+    if (normalized.includes("mac")) return "mac";
+    if (normalized.includes("win")) return "windows";
+    if (normalized.includes("linux") || normalized.includes("chrome os")) return "linux";
+    return null;
+  }
+
+  async function readUserAgentData(): Promise<UserAgentDataValues | null> {
+    const userAgentData = (navigator as Navigator & { userAgentData?: UserAgentData }).userAgentData;
+    if (!userAgentData) {
+      return null;
+    }
+
+    if (typeof userAgentData.getHighEntropyValues === "function") {
+      try {
+        return await userAgentData.getHighEntropyValues(["architecture", "platform"]);
+      } catch {
+        return {
+          architecture: userAgentData.architecture,
+          platform: userAgentData.platform,
+        };
+      }
+    }
+
+    return {
+      architecture: userAgentData.architecture,
+      platform: userAgentData.platform,
+    };
+  }
+
+  async function detectRecommendation(): Promise<Recommendation> {
+    const userAgentData = await readUserAgentData();
+    const clientHintsPlatform = resolvePlatform(userAgentData?.platform);
+    if (clientHintsPlatform === "windows") return assetRecommendation("windows-x64");
+    if (clientHintsPlatform === "linux") return assetRecommendation("linux-x64");
+    if (clientHintsPlatform === "mac") {
+      const architecture = normalizeMacArchitecture(userAgentData?.architecture);
+      if (architecture === "arm64") return assetRecommendation("mac-arm64");
+      if (architecture === "x64") return assetRecommendation("mac-x64");
+      return assetRecommendation("mac-arm64");
+    }
+
     const ua = navigator.userAgent;
-    if (/Win/i.test(ua)) return "windows-x64";
-    if (/Mac/i.test(ua)) return /Intel|x86_64/i.test(ua) ? "mac-x64" : "mac-arm64";
-    if (/Linux/i.test(ua)) return "linux-x64";
-    return "mac-arm64";
+    if (/Win/i.test(ua)) return assetRecommendation("windows-x64");
+    if (/Linux/i.test(ua)) return assetRecommendation("linux-x64");
+    if (/Mac/i.test(ua)) return assetRecommendation("mac-arm64");
+    return chooseBuildRecommendation();
   }
 
   function findAsset(
@@ -209,14 +306,18 @@ import Layout from "../layouts/Layout.astro";
   }
 
   async function initDownloadPage() {
-    const recommendedKey = detectPlatform();
+    const recommendation = await detectRecommendation();
     const recommendedButton = document.getElementById("recommended-download") as HTMLAnchorElement | null;
+    const recommendedHeading = document.getElementById("recommended-heading");
     const recommendedCopy = document.getElementById("recommended-copy");
     const versionLabel = document.getElementById("version-label");
     const cards = Array.from(document.querySelectorAll<HTMLAnchorElement>("[data-download-card]"));
 
+    if (recommendedHeading) {
+      recommendedHeading.textContent = recommendation.heading;
+    }
     if (recommendedCopy) {
-      recommendedCopy.textContent = PLATFORM_LABELS[recommendedKey];
+      recommendedCopy.textContent = recommendation.copy;
     }
 
     try {
@@ -236,12 +337,23 @@ import Layout from "../layouts/Layout.astro";
         }
       });
 
-      const recommendedCard = cards.find((card) => card.dataset.key === recommendedKey);
+      if (recommendedButton && recommendation.kind === "section") {
+        recommendedButton.href = recommendation.href;
+        recommendedButton.classList.remove("is-disabled");
+        recommendedButton.removeAttribute("aria-disabled");
+        recommendedButton.querySelector("span")!.textContent = recommendation.buttonLabel;
+        return;
+      }
+
+      const recommendedCard =
+        recommendation.kind === "asset"
+          ? cards.find((card) => card.dataset.key === recommendation.key)
+          : null;
       if (recommendedButton && recommendedCard?.href && recommendedCard.getAttribute("aria-disabled") !== "true") {
         recommendedButton.href = recommendedCard.href;
         recommendedButton.classList.remove("is-disabled");
         recommendedButton.removeAttribute("aria-disabled");
-        recommendedButton.querySelector("span")!.textContent = PLATFORM_LABELS[recommendedKey];
+        recommendedButton.querySelector("span")!.textContent = recommendation.buttonLabel;
       } else if (recommendedButton) {
         recommendedButton.querySelector("span")!.textContent = "Download unavailable";
       }
@@ -361,7 +473,7 @@ import Layout from "../layouts/Layout.astro";
     align-content: start;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
-    background: rgba(244, 241, 232, 0.04);
+    background: rgba(255, 255, 255, 0.04);
     padding: 1.25rem;
     transition:
       background 180ms ease,
@@ -371,8 +483,8 @@ import Layout from "../layouts/Layout.astro";
   }
 
   .recommended-download:hover {
-    border-color: rgba(244, 241, 232, 0.36);
-    background: rgba(244, 241, 232, 0.055);
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.055);
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.26);
     transform: translateY(-2px);
   }
@@ -424,7 +536,7 @@ import Layout from "../layouts/Layout.astro";
   }
 
   .download-button:not(.is-disabled):hover {
-    box-shadow: 0 16px 38px rgba(244, 241, 232, 0.12);
+    box-shadow: 0 16px 38px rgba(255, 255, 255, 0.08);
     transform: translateY(-1px);
   }
 
@@ -448,7 +560,7 @@ import Layout from "../layouts/Layout.astro";
   }
 
   .install-summary div:hover {
-    background: rgba(244, 241, 232, 0.035);
+    background: rgba(255, 255, 255, 0.04);
     transform: translateY(-1px);
   }
 
@@ -481,7 +593,7 @@ import Layout from "../layouts/Layout.astro";
     min-height: 15rem;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: rgba(244, 241, 232, 0.026);
+    background: rgba(255, 255, 255, 0.03);
     padding: 1rem;
     transition:
       background 180ms ease,
@@ -491,7 +603,7 @@ import Layout from "../layouts/Layout.astro";
 
   .platform-card:hover {
     border-color: var(--line-strong);
-    background: rgba(244, 241, 232, 0.04);
+    background: rgba(255, 255, 255, 0.04);
     transform: translateY(-2px);
   }
 
@@ -539,7 +651,7 @@ import Layout from "../layouts/Layout.astro";
 
   .asset-card:hover {
     border-color: var(--line-strong);
-    background: rgba(244, 241, 232, 0.055);
+    background: rgba(255, 255, 255, 0.06);
     transform: translateX(3px);
   }
 
