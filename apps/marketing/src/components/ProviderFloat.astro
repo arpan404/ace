@@ -6,6 +6,7 @@ type ProviderKind =
   | "claude"
   | "gemini"
   | "cursor"
+  | "pi"
   | "githubCopilot"
   | "opencode";
 
@@ -19,6 +20,7 @@ const providers = [
   { label: "Claude", kind: "claude" },
   { label: "Gemini", kind: "gemini" },
   { label: "Cursor", kind: "cursor" },
+  { label: "Pi Coding Agent", kind: "pi" },
   { label: "GitHub Copilot", kind: "githubCopilot" },
   { label: "OpenCode", kind: "opencode" },
 ] satisfies ReadonlyArray<ProviderCard>;
@@ -41,7 +43,8 @@ const providers = [
   .provider-float-container {
     width: 100%;
     overflow: hidden;
-    padding: 2rem 0;
+    border-block: 1px solid var(--line);
+    padding: 0.7rem 0;
     mask-image: linear-gradient(to right, transparent, black 20%, black 80%, transparent);
     -webkit-mask-image: linear-gradient(to right, transparent, black 20%, black 80%, transparent);
   }
@@ -52,37 +55,35 @@ const providers = [
 
   .provider-row {
     display: flex;
-    gap: 1rem;
-    animation: scroll 28s linear infinite;
+    gap: 1.5rem;
+    animation: scroll 32s linear infinite;
     width: max-content;
   }
 
   .provider-card {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1.1rem 0.75rem 0.9rem;
-    background: oklch(1 0 0 / 0.05);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    backdrop-filter: blur(8px);
+    gap: 0.5rem;
+    padding-right: 1.5rem;
+    border-right: 1px solid var(--line);
     transition:
       transform 0.3s ease,
-      background 0.3s ease,
-      border-color 0.3s ease;
+      color 0.3s ease;
     cursor: default;
   }
 
   .provider-card:hover {
-    background: oklch(1 0 0 / 0.1);
-    border-color: var(--border-bright);
+    color: var(--fg);
     transform: translateY(-2px);
   }
 
   .provider-card span {
-    font-size: 0.9rem;
-    font-weight: 600;
     color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
     white-space: nowrap;
   }
 

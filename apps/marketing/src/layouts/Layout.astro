@@ -5,8 +5,9 @@ interface Props {
 }
 
 const {
-  title = "ace",
-  description = "ace is a fast, minimal GUI for coding agents.",
+  title = "ace — multi-provider agent workspace with handoff and parallel PRs",
+  description =
+    "Desktop workspace for seven coding agents (Codex, Claude, Gemini, Cursor, Pi, Copilot, OpenCode). Multiple accounts per provider, handoff between models, browser and editor review, parallel PRs in worktrees, E2E-encrypted remote viewing when you need it.",
 } = Astro.props;
 ---
 
@@ -18,20 +19,15 @@ const {
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="/screenshot.png" />
+    <meta property="og:image" content="/product/app-screenshot.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content="/screenshot.png" />
-    <link rel="preconnect" href="https://api.fontshare.com" />
+    <meta name="twitter:image" content="/product/app-screenshot.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      rel="stylesheet"
-      href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&display=swap"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
@@ -53,13 +49,12 @@ const {
             <span>ace</span>
           </a>
           <p class="footer-copy">
-            Agent operations for real codebases: threads, review, recovery, and provider handoff in
-            one workspace.
+            Multi-provider agent workspace: handoff, browser and editor review, parallel PRs. Open
+            source—bring your own accounts; we do not resell model access.
           </p>
         </div>
         <div class="footer-links">
           <a href="https://github.com/arpan404/ace" target="_blank" rel="noopener noreferrer">GitHub</a>
-          <a href="https://discord.gg/jn4EGJjrvv" target="_blank" rel="noopener noreferrer">Discord</a>
           <a href="/changelog">Changelog</a>
           <a href="mailto:contact@arpan.sh">Contact</a>
         </div>
@@ -79,9 +74,11 @@ const {
     const revealObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          entry.target.classList.add("is-visible");
-          revealObserver.unobserve(entry.target);
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          } else {
+            entry.target.classList.remove("is-visible");
+          }
         });
       },
       { rootMargin: "0px 0px -12% 0px", threshold: 0.12 },
@@ -108,15 +105,17 @@ const {
           const rawProgress = (center - viewportCenter) / viewportCenter;
           const progress = Math.max(-1, Math.min(1, rawProgress));
           const strength = Number(item.dataset.scrollStrength ?? "1");
-          const rotateX = -progress * 5.2 * strength;
-          const rotateY = progress * 2.8 * strength;
-          const translateY = -progress * 18 * strength;
-          const scale = 1 - Math.abs(progress) * 0.018 * strength;
-          const shadow = 1 - Math.abs(progress) * 0.22;
+          const rotateX = -progress * 14 * strength;
+          const rotateY = progress * 8 * strength;
+          const translateY = -progress * 45 * strength;
+          const translateZ = Math.abs(progress) * -80 * strength;
+          const scale = 1 - Math.abs(progress) * 0.04 * strength;
+          const shadow = 1 - Math.abs(progress) * 0.4;
 
           item.style.setProperty("--scroll-rotate-x", `${rotateX.toFixed(3)}deg`);
           item.style.setProperty("--scroll-rotate-y", `${rotateY.toFixed(3)}deg`);
           item.style.setProperty("--scroll-translate-y", `${translateY.toFixed(3)}px`);
+          item.style.setProperty("--scroll-translate-z", `${translateZ.toFixed(3)}px`);
           item.style.setProperty("--scroll-scale", scale.toFixed(4));
           item.style.setProperty("--scroll-shadow", shadow.toFixed(4));
         });
@@ -154,31 +153,38 @@ const {
 
 <style is:global>
   :root {
-    --bg: #05080d;
-    --bg-soft: #0a0f16;
-    --surface: #0f141d;
-    --surface-strong: #edf2fb;
-    --ink: #0d1219;
-    --fg: #edf2fb;
-    --fg-muted: rgba(237, 242, 251, 0.74);
-    --fg-dim: rgba(237, 242, 251, 0.5);
-    --primary: #d3dae4;
-    --primary-deep: #7b8694;
-    --accent: #d3dae4;
-    --accent-deep: #7b8694;
-    --review: #b9c0c9;
-    --risk: #f1786d;
-    --success: #bcc6d2;
-    --clay: #96a0ad;
-    --line: rgba(237, 242, 251, 0.12);
-    --line-strong: rgba(237, 242, 251, 0.23);
+    --bg: #000000;
+    --bg-elevated: #0a0a0a;
+    --surface: #111111;
+    --surface-strong: #ffffff;
+    --ink: #000000;
+    --fg: #ffffff;
+    --fg-muted: #888888;
+    --fg-dim: #555555;
+    --primary: #ffffff;
+    --accent: #ffffff;
+    --accent-secondary: #ffffff;
+    --accent-warm: #ffffff;
+    --accent-deep: #444444;
+    --accent-soft: rgba(255, 255, 255, 0.08);
+    --accent-glow: rgba(255, 255, 255, 0.15);
+    --accent-glow-strong: rgba(255, 255, 255, 0.3);
+    --violet: #ffffff;
+    --review: #ffffff;
+    --risk: #ff453a;
+    --success: #32d74b;
+    --clay: #888888;
+    --line: #1f1f1f;
+    --line-strong: #333333;
     --border: var(--line);
     --border-bright: var(--line-strong);
-    --accent-glow: rgba(211, 218, 228, 0.16);
-    --shadow: rgba(0, 0, 0, 0.42);
-    --radius: 10px;
-    --font-sans: "Cabinet Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
-    --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
+    --shadow: rgba(0, 0, 0, 0.8);
+    --radius: 12px;
+    --site-pad: clamp(1.25rem, 5vw, 2.5rem);
+    --site-max: 1200px;
+    --font-display: "Outfit", system-ui, sans-serif;
+    --font-sans: "DM Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
   }
 
   * {
@@ -196,14 +202,10 @@ const {
   body {
     min-height: 100vh;
     overflow-x: hidden;
-    background:
-      radial-gradient(circle at top left, rgba(207, 216, 227, 0.04), transparent 24%),
-      radial-gradient(circle at top right, rgba(255, 255, 255, 0.02), transparent 20%),
-      linear-gradient(180deg, #090d14 0%, #05080d 28rem, #05080d 100%);
+    background-color: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
-    font-feature-settings: "ss01" 1, "ss03" 1;
-    line-height: 1.5;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -227,33 +229,37 @@ const {
 
   a:focus-visible,
   button:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--accent-secondary);
     outline-offset: 4px;
   }
 
   .motion-ready [data-reveal] {
     opacity: 0;
-    transform: translate3d(0, 18px, 0);
+    transform: translate3d(0, 48px, 0) scale(0.98);
+    filter: blur(12px);
     transition:
-      opacity 360ms ease,
-      transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 1s cubic-bezier(0.16, 1, 0.3, 1),
+      filter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
     transition-delay: var(--reveal-delay, 0ms);
-    will-change: opacity, transform;
+    will-change: opacity, transform, filter;
   }
 
   .motion-ready [data-reveal].is-visible {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
   }
 
   .motion-ready [data-scroll-3d] {
     --scroll-rotate-x: 0deg;
     --scroll-rotate-y: 0deg;
     --scroll-translate-y: 0px;
+    --scroll-translate-z: 0px;
     --scroll-scale: 1;
     --scroll-shadow: 1;
-    transform: perspective(1100px) rotateX(var(--scroll-rotate-x)) rotateY(var(--scroll-rotate-y))
-      translate3d(0, var(--scroll-translate-y), 0) scale(var(--scroll-scale));
+    transform: perspective(1200px) rotateX(var(--scroll-rotate-x)) rotateY(var(--scroll-rotate-y))
+      translate3d(0, var(--scroll-translate-y), var(--scroll-translate-z)) scale(var(--scroll-scale));
     transform-style: preserve-3d;
     will-change: transform;
   }
@@ -272,8 +278,8 @@ const {
     pointer-events: none;
     background: radial-gradient(
       circle at var(--pointer-x) var(--pointer-y),
-      rgba(255, 255, 255, 0.16),
-      transparent 34%
+      rgba(94, 234, 212, 0.22),
+      transparent 42%
     );
     opacity: 0;
     transition: opacity 160ms ease;
@@ -301,6 +307,8 @@ const {
     .motion-ready [data-reveal] {
       opacity: 1;
       transform: none;
+      filter: none;
+      transition: opacity 380ms ease, transform 420ms ease;
     }
   }
 
@@ -309,17 +317,30 @@ const {
     left: 1rem;
     top: 1rem;
     z-index: 20;
-    transform: translateY(-180%);
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
     border-radius: 6px;
     background: var(--surface-strong);
     color: var(--ink);
-    padding: 0.7rem 0.9rem;
+    padding: 0;
     font-weight: 700;
-    transition: transform 180ms ease;
+    white-space: nowrap;
   }
 
-  .skip-link:focus {
-    transform: translateY(0);
+  .skip-link:focus-visible {
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    padding: 0.7rem 0.9rem;
+    background: var(--accent-secondary);
+    color: var(--ink);
   }
 
   .sr-only {
@@ -357,14 +378,26 @@ const {
   }
 
   .footer {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 2rem;
-    width: min(100% - 2rem, 1180px);
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) auto;
+    align-items: end;
+    gap: 2.5rem 2rem;
+    width: min(100% - 2rem, var(--site-max, 1200px));
     margin: 0 auto;
     border-top: 1px solid var(--line);
-    padding: 2.4rem 0 3rem;
+    padding: 2.75rem 0 3.25rem;
+    position: relative;
+  }
+
+  .footer::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: 0;
+    width: min(12rem, 35%);
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent-secondary), transparent);
+    opacity: 0.7;
   }
 
   .footer-brand-block {
@@ -376,8 +409,10 @@ const {
     display: inline-flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 1.05rem;
-    font-weight: 800;
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 
   .footer-brand img {
@@ -387,9 +422,10 @@ const {
   }
 
   .footer-copy {
-    max-width: 30rem;
+    max-width: 32rem;
     color: var(--fg-dim);
-    font-size: 0.96rem;
+    font-size: 0.94rem;
+    line-height: 1.58;
   }
 
   .footer-links {
@@ -406,13 +442,13 @@ const {
   }
 
   .footer-links a:hover {
-    color: var(--fg);
+    color: var(--accent-secondary);
   }
 
   @media (max-width: 780px) {
     .footer {
+      grid-template-columns: 1fr;
       align-items: flex-start;
-      flex-direction: column;
       padding-bottom: 2rem;
     }
 
