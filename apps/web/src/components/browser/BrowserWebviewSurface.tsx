@@ -1438,6 +1438,7 @@ export function BrowserTabWebview(props: {
     position: { x: number; y: number },
     requestedAt: number,
   ) => void;
+  onOpenUrlInNewTab?: (url: string) => void;
   tab: BrowserTabState;
   onHandleChange: (tabId: string, handle: BrowserTabHandle | null) => void;
   onSnapshotChange: (
@@ -1456,6 +1457,7 @@ export function BrowserTabWebview(props: {
     onDesignCaptureError,
     onDesignCaptureSubmit,
     onContextMenuFallbackRequest,
+    onOpenUrlInNewTab,
     tab,
     onHandleChange,
     onSnapshotChange,
@@ -1526,6 +1528,9 @@ export function BrowserTabWebview(props: {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
     },
   );
+  const requestOpenUrlInNewTab = useEffectEvent((url: string) => {
+    onOpenUrlInNewTab?.(url);
+  });
   const commitHoveredElementCapture = useCallback(
     (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
       hoveredElementCaptureRef.current = capture;
@@ -2219,6 +2224,14 @@ export function BrowserTabWebview(props: {
         performance.now(),
       );
     };
+    const handleNewWindow = (event: Event) => {
+      const detail = event as Event & { url?: string };
+      if (typeof detail.url !== "string" || detail.url.trim().length === 0) {
+        return;
+      }
+      event.preventDefault();
+      requestOpenUrlInNewTab(detail.url);
+    };
     const handleConsoleMessage = (event: Event) => {
       const detail = event as Event & {
         level?: number | string;
@@ -2265,6 +2278,7 @@ export function BrowserTabWebview(props: {
     webview.addEventListener("page-title-updated", handleNavigation);
     webview.addEventListener("did-fail-load", handleFailLoad);
     webview.addEventListener("contextmenu", handleContextMenu);
+    webview.addEventListener("new-window", handleNewWindow);
     webview.addEventListener("console-message", handleConsoleMessage);
     webview.addEventListener("render-process-gone", handleRenderProcessGone);
 
@@ -2282,6 +2296,7 @@ export function BrowserTabWebview(props: {
       webview.removeEventListener("page-title-updated", handleNavigation);
       webview.removeEventListener("did-fail-load", handleFailLoad);
       webview.removeEventListener("contextmenu", handleContextMenu);
+      webview.removeEventListener("new-window", handleNewWindow);
       webview.removeEventListener("console-message", handleConsoleMessage);
       webview.removeEventListener("render-process-gone", handleRenderProcessGone);
       stopWebviewBeforeRemoval(webview);
