@@ -923,6 +923,11 @@ export function buildBrowserElementCaptureScript(
     "list-item",
   ]);
   const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+  const pageHeight = Math.max(
+    window.innerHeight,
+    document.documentElement?.scrollHeight || 0,
+    document.body?.scrollHeight || 0,
+  );
   const measureTextRect = (element) => {
     if (!isElementNode(element)) return null;
     const textContent = (element.textContent || "").replace(/\\s+/g, " ").trim();
@@ -977,14 +982,25 @@ export function buildBrowserElementCaptureScript(
       area > viewportArea * 0.72 ||
       (rect.width > window.innerWidth * 0.97 && rect.height > window.innerHeight * 0.52) ||
       rect.height > window.innerHeight * 0.88;
+    const isPageSized =
+      rect.width >= window.innerWidth * 0.96 &&
+      (rect.height >= window.innerHeight * 0.86 || rect.height >= pageHeight * 0.72);
+    const isDecorativeBackground =
+      !isInteractive &&
+      hasVisualBox &&
+      isPageSized &&
+      textLength < 24 &&
+      childCount <= 2;
     return {
       area,
       areaRatio: area / viewportArea,
       childCount,
       display: style.display,
       hasVisualBox,
+      isDecorativeBackground,
       isCustomElement,
       isHuge,
+      isPageSized,
       isInline,
       isInteractive,
       rect,
@@ -1019,7 +1035,7 @@ export function buildBrowserElementCaptureScript(
     );
   };
   const isSurfaceSelectable = (metrics, childMetrics) => {
-    if (!metrics || metrics.isHuge) {
+    if (!metrics || metrics.isHuge || metrics.isDecorativeBackground) {
       return false;
     }
     const hasOwnSurface =
@@ -1059,6 +1075,7 @@ export function buildBrowserElementCaptureScript(
   };
   const isMeaningfulChild = (metrics) => {
     if (!metrics) return false;
+    if (metrics.isDecorativeBackground) return false;
     return (
       metrics.hasVisualBox ||
       metrics.isInteractive ||
@@ -1073,6 +1090,7 @@ export function buildBrowserElementCaptureScript(
   };
   const isWeakLeafCandidate = (metrics) => {
     if (!metrics) return false;
+    if (metrics.isDecorativeBackground) return true;
     if (
       metrics.isInteractive ||
       metrics.hasVisualBox ||
@@ -1092,6 +1110,7 @@ export function buildBrowserElementCaptureScript(
   const resolveSelectableCandidate = (element, depth, pathChild) => {
     const metrics = getMetrics(element);
     if (!metrics) return null;
+    if (metrics.isDecorativeBackground) return null;
     const childMetrics = getMetrics(pathChild);
     const isTextCandidate = isTextSelectable(metrics);
     const isSurfaceCandidate = isSurfaceSelectable(metrics, childMetrics);
@@ -1236,6 +1255,14 @@ export function buildBrowserElementCaptureScript(
     }
     candidates.push(...bestCandidateByElement.values());
     if (candidates.length === 0) {
+      const initialMetrics = getMetrics(initialTarget);
+      if (
+        !initialMetrics ||
+        initialMetrics.isDecorativeBackground ||
+        (initialMetrics.isHuge && !initialMetrics.isInteractive)
+      ) {
+        return null;
+      }
       return { element: initialTarget, rect: toRect(initialTarget), score: 0, depth: 0 };
     }
     candidates.sort((left, right) => right.score - left.score || left.depth - right.depth);
@@ -2552,6 +2579,7 @@ export function BrowserTabWebview(props: {
       lastElementCommentWheelAtRef.current = Date.now();
       elementHoverRequestTokenRef.current += 1;
       pendingElementHoverPointRef.current = null;
+      commitHoveredElementCapture(null, null);
       if (elementHoverFrameRef.current !== null) {
         window.cancelAnimationFrame(elementHoverFrameRef.current);
         elementHoverFrameRef.current = null;
@@ -2582,7 +2610,14 @@ export function BrowserTabWebview(props: {
           window.requestAnimationFrame(flushElementCommentWheel);
       }
     },
-    [active, designDraft, designerModeActive, designerTool, flushElementCommentWheel],
+    [
+      active,
+      commitHoveredElementCapture,
+      designDraft,
+      designerModeActive,
+      designerTool,
+      flushElementCommentWheel,
+    ],
   );
 
   const startCapturedDraft = useCallback(
@@ -2841,13 +2876,13 @@ export function BrowserTabWebview(props: {
     },
     [
       active,
+      commitHoveredElementCapture,
       designDraft,
       designerModeActive,
       designerTool,
       inspectBrowserPoint,
       selectionRect,
       startCapturedDraft,
-      commitHoveredElementCapture,
     ],
   );
 
