@@ -36,7 +36,7 @@ Current default coverage includes:
 
 - Sidebar: `search.open`, `sidebar.toggle`, `navigation.back`, `navigation.forward`, `project.add`
 - Terminal: `terminal.toggle`, `terminal.split`, `terminal.new`, `terminal.close`
-- Right panel: `rightPanel.toggle`, `rightPanel.review.open`, `rightPanel.browser.open`, `rightPanel.editor.open`
+- Right panel: `rightPanel.toggle`, `rightPanel.review.open`, `rightPanel.browser.open`, `rightPanel.editor.open`, `rightPanel.fullscreen.toggle`, `rightPanel.floatingChat.toggle`
 - Browser: `browser.back`, `browser.forward`, `browser.newTab`, `browser.closeTab`, `browser.focusAddressBar`, `browser.reload`, `browser.devtools`, `browser.previousTab`, `browser.nextTab`, `browser.designer.areaComment`, `browser.designer.elementComment`
 - Chat: `chat.new`, `chat.newLocal`, `chat.togglePlanMode`, `chat.toggleHeader`
 - Editor: `editor.openFavorite`, `editor.newFile`, `editor.newFolder`, `editor.rename`, `editor.split`, `editor.splitDown`, `editor.toggleWordWrap`, `editor.closeTab`, `editor.closeOtherTabs`, `editor.closeTabsToRight`, `editor.reopenClosedTab`, `editor.closeWindow`, `editor.focusNextWindow`, `editor.focusPreviousWindow`, `editor.nextTab`, `editor.previousTab`, `editor.moveTabLeft`, `editor.moveTabRight`
@@ -51,6 +51,16 @@ Selected defaults:
   { "key": "mod+d", "command": "rightPanel.review.open", "when": "!terminalFocus" },
   { "key": "mod+b", "command": "rightPanel.browser.open", "when": "!terminalFocus" },
   { "key": "mod+e", "command": "rightPanel.editor.open", "when": "!terminalFocus" },
+  {
+    "key": "mod+alt+f",
+    "command": "rightPanel.fullscreen.toggle",
+    "when": "rightPanelOpen && !terminalFocus"
+  },
+  {
+    "key": "mod+alt+c",
+    "command": "rightPanel.floatingChat.toggle",
+    "when": "rightPanelFullscreen && !terminalFocus"
+  },
   { "key": "mod+shift+p", "command": "chat.togglePlanMode", "when": "!terminalFocus" },
   { "key": "mod+shift+h", "command": "chat.toggleHeader", "when": "!terminalFocus" },
   { "key": "mod+[", "command": "browser.back", "when": "browserOpen && !terminalFocus" },
@@ -101,6 +111,8 @@ individually and reported as config issues.
 - `rightPanel.review.open`: open the Review tab
 - `rightPanel.browser.open`: open the Browser tab
 - `rightPanel.editor.open`: open the Editor tab
+- `rightPanel.fullscreen.toggle`: enter/exit full-screen mode for the right side panel
+- `rightPanel.floatingChat.toggle`: show/hide the floating chat input in full-screen side panel mode
 - `browser.back`: navigate browser history backward
 - `browser.forward`: navigate browser history forward
 - `browser.newTab`: add a Browser tab

@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon } from "lucide-react";
+import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon, RotateCwIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -116,10 +116,27 @@ function resolveBrowserFaviconSources(url: string): string[] {
   }
 }
 
+function formatBrowserLoadFailureMessage(input: { code?: number; description?: string }): string {
+  const description = input.description?.trim();
+  if (description) {
+    return description.replace(/^ERR_/u, "").replaceAll("_", " ");
+  }
+  if (typeof input.code === "number") {
+    return `Network error ${String(input.code)}`;
+  }
+  return "The page is unreachable.";
+}
+
 interface BrowserPageElementCapture {
   targetRect: BrowserDesignSelectionRect | null;
   target: BrowserDesignElementDescriptor | null;
   mainContainer: BrowserDesignElementDescriptor | null;
+}
+
+interface BrowserLoadFailure {
+  code: number | null;
+  message: string;
+  url: string;
 }
 
 interface ActiveDragSelection {
@@ -1424,6 +1441,218 @@ export function BrowserFavicon(props: {
   );
 }
 
+function BrowserOfflineRunner() {
+  const fieldRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<{
+    crashed: boolean;
+    lastAt: number;
+    obstacleX: number;
+    raf: number | null;
+    running: boolean;
+    score: number;
+    velocityY: number;
+    y: number;
+  }>({
+    crashed: false,
+    lastAt: 0,
+    obstacleX: 420,
+    raf: null,
+    running: false,
+    score: 0,
+    velocityY: 0,
+    y: 0,
+  });
+  const [frame, setFrame] = useState({
+    crashed: false,
+    obstacleX: 420,
+    running: false,
+    score: 0,
+    y: 0,
+  });
+
+  const publishFrame = useCallback(() => {
+    const current = frameRef.current;
+    setFrame({
+      crashed: current.crashed,
+      obstacleX: current.obstacleX,
+      running: current.running,
+      score: Math.floor(current.score),
+      y: current.y,
+    });
+  }, []);
+
+  const stopLoop = useCallback(() => {
+    const current = frameRef.current;
+    if (current.raf !== null) {
+      window.cancelAnimationFrame(current.raf);
+      current.raf = null;
+    }
+  }, []);
+
+  const tick = useCallback(
+    (now: number) => {
+      const current = frameRef.current;
+      if (!current.running) {
+        current.raf = null;
+        publishFrame();
+        return;
+      }
+
+      const width = Math.max(280, fieldRef.current?.clientWidth ?? 420);
+      const delta = current.lastAt > 0 ? Math.min(34, now - current.lastAt) : 16;
+      current.lastAt = now;
+
+      current.velocityY -= 0.045 * delta;
+      current.y = Math.max(0, current.y + current.velocityY * delta);
+      if (current.y === 0 && current.velocityY < 0) {
+        current.velocityY = 0;
+      }
+
+      current.score += delta * 0.045;
+      current.obstacleX -= (0.22 + Math.min(0.18, current.score / 2400)) * delta;
+      if (current.obstacleX < -22) {
+        current.obstacleX = width + 24 + Math.random() * 90;
+      }
+
+      const obstacleNearRunner = current.obstacleX > 42 && current.obstacleX < 86;
+      if (obstacleNearRunner && current.y < 34) {
+        current.crashed = true;
+        current.running = false;
+        publishFrame();
+        current.raf = null;
+        return;
+      }
+
+      publishFrame();
+      current.raf = window.requestAnimationFrame(tick);
+    },
+    [publishFrame],
+  );
+
+  const startLoop = useCallback(() => {
+    const current = frameRef.current;
+    if (current.raf === null) {
+      current.lastAt = 0;
+      current.raf = window.requestAnimationFrame(tick);
+    }
+  }, [tick]);
+
+  const jumpOrRestart = useCallback(() => {
+    const current = frameRef.current;
+    if (current.crashed) {
+      current.crashed = false;
+      current.running = true;
+      current.score = 0;
+      current.y = 0;
+      current.velocityY = 0;
+      current.obstacleX = Math.max(280, fieldRef.current?.clientWidth ?? 420) - 40;
+      publishFrame();
+      startLoop();
+      return;
+    }
+    if (!current.running) {
+      current.running = true;
+      publishFrame();
+      startLoop();
+    }
+    if (current.y <= 1) {
+      current.velocityY = 0.92;
+    }
+  }, [publishFrame, startLoop]);
+
+  useEffect(() => stopLoop, [stopLoop]);
+
+  return (
+    <button
+      type="button"
+      className="group relative h-32 w-full max-w-[520px] overflow-hidden rounded-lg border border-border/70 bg-background text-left shadow-sm outline-none transition-colors hover:border-foreground/24 focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={jumpOrRestart}
+      onKeyDown={(event) => {
+        if (event.key === " " || event.key === "ArrowUp" || event.key === "Enter") {
+          event.preventDefault();
+          jumpOrRestart();
+        }
+      }}
+      aria-label="Offline dinosaur runner. Press Space to jump."
+    >
+      <div ref={fieldRef} className="absolute inset-x-4 bottom-7 top-4">
+        <div className="absolute inset-x-0 bottom-0 border-t border-dashed border-muted-foreground/35" />
+        <div
+          className="absolute bottom-0 left-12 h-9 w-10 transition-[filter]"
+          style={{ transform: `translateY(${-frame.y}px)` }}
+          aria-hidden="true"
+        >
+          <div className="absolute bottom-1 left-0 h-5 w-8 rounded-sm bg-foreground" />
+          <div className="absolute bottom-5 left-5 h-4 w-5 rounded-t-sm bg-foreground" />
+          <div className="absolute bottom-7 left-8 size-1 rounded-full bg-background" />
+          <div className="absolute bottom-0 left-2 h-2 w-1.5 bg-foreground" />
+          <div className="absolute bottom-0 left-6 h-2 w-1.5 bg-foreground" />
+          <div className="absolute bottom-2 -left-2 h-1.5 w-4 rounded-l-full bg-foreground" />
+        </div>
+        <div
+          className="absolute bottom-0 h-8 w-4"
+          style={{ transform: `translateX(${frame.obstacleX}px)` }}
+          aria-hidden="true"
+        >
+          <div className="absolute bottom-0 left-1.5 h-8 w-2 rounded-t-sm bg-muted-foreground" />
+          <div className="absolute bottom-3 left-0 h-1.5 w-5 rounded-full bg-muted-foreground" />
+        </div>
+      </div>
+      <div className="absolute right-4 top-3 font-mono text-[11px] text-muted-foreground">
+        {String(frame.score).padStart(4, "0")}
+      </div>
+      <div className="absolute inset-x-4 bottom-2 flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>{frame.crashed ? "Crashed. Click to restart." : "Click or press Space to jump"}</span>
+        <span>{frame.running ? "Running" : "Ready"}</span>
+      </div>
+    </button>
+  );
+}
+
+function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () => void }) {
+  const hostLabel = useMemo(() => {
+    try {
+      return new URL(props.failure.url).host;
+    } catch {
+      return props.failure.url;
+    }
+  }, [props.failure.url]);
+
+  return (
+    <div className="absolute inset-0 z-10 flex min-h-0 items-center justify-center overflow-auto bg-background px-6 py-10 text-foreground">
+      <div className="grid w-full max-w-3xl gap-7">
+        <div className="space-y-3">
+          <div className="flex size-12 items-center justify-center rounded-lg border border-border bg-muted/45">
+            <GlobeIcon className="size-6 text-muted-foreground" aria-hidden="true" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold tracking-normal">This page could not load</h2>
+            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+              Ace could not reach <span className="font-medium text-foreground">{hostLabel}</span>.
+              Check the address or your connection, then try again.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={props.onRetry}
+            >
+              <RotateCwIcon className="size-4" aria-hidden="true" />
+              Retry
+            </button>
+            <span className="rounded-md border border-border bg-muted/35 px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
+              {props.failure.code !== null ? `ERR ${String(props.failure.code)}: ` : ""}
+              {props.failure.message}
+            </span>
+          </div>
+        </div>
+        <BrowserOfflineRunner />
+      </div>
+    </div>
+  );
+}
+
 export function BrowserTabWebview(props: {
   active: boolean;
   connectionUrl?: string | null | undefined;
@@ -1509,6 +1738,7 @@ export function BrowserTabWebview(props: {
   );
   const [designRequestPanelPosition, setDesignRequestPanelPosition] =
     useState<DesignRequestPanelPosition | null>(null);
+  const [loadFailure, setLoadFailure] = useState<BrowserLoadFailure | null>(null);
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
@@ -1653,6 +1883,7 @@ export function BrowserTabWebview(props: {
 
   const navigate = useCallback(
     (url: string) => {
+      setLoadFailure(null);
       requestedUrlRef.current = url;
       const webview = webviewRef.current;
       if (!webview || !readyRef.current) {
@@ -1665,7 +1896,14 @@ export function BrowserTabWebview(props: {
         return;
       }
 
-      loadWebviewUrl(webview, resolveLoadUrl(url), reportBrowserLoadError);
+      loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
+        setLoadFailure({
+          code: null,
+          message,
+          url,
+        });
+        reportBrowserLoadError(message);
+      });
     },
     [resolveLoadUrl, scheduleEmitSnapshot],
   );
@@ -2171,12 +2409,20 @@ export function BrowserTabWebview(props: {
         normalizeBrowserHttpUrl(pendingUrl) !==
           normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()))
       ) {
-        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), reportBrowserLoadError);
+        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), (message) => {
+          setLoadFailure({
+            code: null,
+            message,
+            url: pendingUrl,
+          });
+          reportBrowserLoadError(message);
+        });
         return;
       }
       scheduleEmitSnapshot({ persistTab: true });
     };
     const handleLoadStart = () => {
+      setLoadFailure(null);
       emitTabSnapshotChange(
         {
           canGoBack: readyRef.current ? webview.canGoBack() : false,
@@ -2190,6 +2436,7 @@ export function BrowserTabWebview(props: {
       );
     };
     const handleNavigation = () => {
+      setLoadFailure(null);
       scheduleEmitSnapshot({ persistTab: true });
     };
     const handleLoadStop = () => {
@@ -2199,12 +2446,30 @@ export function BrowserTabWebview(props: {
       scheduleEmitSnapshot({ persistTab: true, recordHistory: true });
     };
     const handleFailLoad = (event: Event) => {
-      const detail = event as Event & { errorCode?: number };
+      const detail = event as Event & {
+        errorCode?: number;
+        errorDescription?: string;
+        isMainFrame?: boolean;
+        validatedURL?: string;
+      };
       if (detail.errorCode === -3) {
         return;
       }
+      if (detail.isMainFrame === false) {
+        return;
+      }
       cancelScheduledSnapshot();
-      const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+      const resolvedUrl = resolveSnapshotUrl(detail.validatedURL ?? webview.getURL());
+      setLoadFailure({
+        code: typeof detail.errorCode === "number" ? detail.errorCode : null,
+        message: formatBrowserLoadFailureMessage({
+          ...(typeof detail.errorCode === "number" ? { code: detail.errorCode } : {}),
+          ...(typeof detail.errorDescription === "string"
+            ? { description: detail.errorDescription }
+            : {}),
+        }),
+        url: resolvedUrl,
+      });
       emitTabSnapshotChange(
         {
           canGoBack: readyRef.current ? webview.canGoBack() : false,
@@ -2982,6 +3247,13 @@ export function BrowserTabWebview(props: {
         ? 0
         : 180;
   const canSubmitDesignDraft = designDraft ? designInstructions.trim().length > 0 : false;
+  const retryFailedLoad = useCallback(() => {
+    const failedUrl = loadFailure?.url;
+    if (!failedUrl) {
+      return;
+    }
+    navigate(failedUrl);
+  }, [loadFailure?.url, navigate]);
 
   return (
     <div
@@ -2989,6 +3261,9 @@ export function BrowserTabWebview(props: {
       className={cn("absolute inset-0 min-h-0 [&_webview]:size-full", active ? "block" : "hidden")}
     >
       <div ref={hostRef} className="size-full min-h-0" />
+      {loadFailure ? (
+        <BrowserLoadErrorPage failure={loadFailure} onRetry={retryFailedLoad} />
+      ) : null}
       {agentPointer?.visible ? (
         <div className="pointer-events-none absolute inset-0 z-[35] overflow-hidden">
           <div

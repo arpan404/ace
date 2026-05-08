@@ -59,6 +59,18 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedBrowserOpen.command, "rightPanel.browser.open");
 
+    const parsedRightPanelFullscreenToggle = yield* decode(KeybindingRule, {
+      key: "mod+alt+f",
+      command: "rightPanel.fullscreen.toggle",
+    });
+    assert.strictEqual(parsedRightPanelFullscreenToggle.command, "rightPanel.fullscreen.toggle");
+
+    const parsedFloatingChatToggle = yield* decode(KeybindingRule, {
+      key: "mod+alt+c",
+      command: "rightPanel.floatingChat.toggle",
+    });
+    assert.strictEqual(parsedFloatingChatToggle.command, "rightPanel.floatingChat.toggle");
+
     const parsedBrowserReload = yield* decode(KeybindingRule, {
       key: "mod+r",
       command: "browser.reload",
