@@ -11,6 +11,7 @@ import {
   type ProjectId,
   type ServerConfig,
   type ServerLifecycleWelcomePayload,
+  type KeybindingShortcut,
   type ThreadId,
   type TurnId,
   WS_METHODS,
@@ -25,6 +26,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { render } from "vitest-browser-react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
+import { formatShortcutLabel } from "../keybindings";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
@@ -1127,9 +1129,15 @@ async function waitForNewThreadShortcutLabel(): Promise<void> {
   const newThreadButton = page.getByTestId("new-thread-button");
   await expect.element(newThreadButton).toBeInTheDocument();
   await newThreadButton.hover();
-  const shortcutLabel = isMacPlatform(navigator.platform)
-    ? "New thread (⇧⌘O)"
-    : "New thread (Ctrl+Shift+O)";
+  const shortcut: KeybindingShortcut = {
+    key: "o",
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: true,
+    altKey: false,
+    modKey: true,
+  };
+  const shortcutLabel = `New thread (${formatShortcutLabel(shortcut, navigator.platform)})`;
   await expect.element(page.getByText(shortcutLabel)).toBeInTheDocument();
 }
 

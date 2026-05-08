@@ -121,6 +121,7 @@ function resolveViewportHeight(): number {
 export type InAppBrowserMode = "full" | "split";
 
 interface UseInAppBrowserStateOptions {
+  active?: boolean;
   designerModeEnabled?: boolean;
   mode: InAppBrowserMode;
   open: boolean;
@@ -129,6 +130,8 @@ interface UseInAppBrowserStateOptions {
   onClose?: () => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onResizeViewport?: (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult;
+  onToggleRightPanelFloatingChat?: () => void;
+  onToggleRightPanelFullscreen?: () => void;
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
@@ -503,12 +506,15 @@ export function shouldShowBrowserAddressBarSuggestions(options: {
 
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const {
+    active = true,
     designerModeEnabled = true,
     mode,
     onActiveRuntimeStateChange,
     onClose,
     onControllerChange,
     onResizeViewport,
+    onToggleRightPanelFloatingChat,
+    onToggleRightPanelFullscreen,
     open,
     scopeId,
   } = options;
@@ -2106,7 +2112,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       return;
     }
     return window.desktopBridge.onBrowserShortcutAction((action) => {
-      if (!open) {
+      if (!open || !active) {
         return;
       }
       switch (action) {
@@ -2143,6 +2149,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "reload":
           reload();
           return;
+        case "right-panel-floating-chat-toggle":
+          onToggleRightPanelFloatingChat?.();
+          return;
+        case "right-panel-fullscreen-toggle":
+          onToggleRightPanelFullscreen?.();
+          return;
         case "toggle-designer-mode":
           if (!designerModeEnabled || activeTabIsInternal) {
             return;
@@ -2167,8 +2179,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     goBack,
     goForward,
     moveTabSelection,
+    active,
     open,
     openNewTab,
+    onToggleRightPanelFloatingChat,
+    onToggleRightPanelFullscreen,
     reload,
     setActiveTabByIndex,
     setDesignerModeActive,

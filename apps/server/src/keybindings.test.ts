@@ -186,7 +186,12 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("browser.designer.elementComment"), "mod+alt+2");
       assert.equal(defaultsByCommand.get("rightPanel.review.open"), "mod+d");
       assert.equal(defaultsByCommand.get("rightPanel.editor.open"), "mod+e");
+      assert.equal(defaultsByCommand.get("rightPanel.fullscreen.toggle"), "mod+alt+f");
+      assert.equal(defaultsByCommand.get("rightPanel.floatingChat.toggle"), "mod+alt+c");
       assert.equal(defaultsByCommand.get("chat.toggleHeader"), "mod+shift+h");
+      assert.equal(defaultsByCommand.get("editor.openFilePalette"), "mod+p");
+      assert.equal(defaultsByCommand.get("editor.openCommandPalette"), "mod+shift+p");
+      assert.equal(defaultsByCommand.get("editor.findInActiveEditor"), "mod+shift+f");
       assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");
