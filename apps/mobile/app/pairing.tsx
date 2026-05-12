@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 10,
     padding: 10,
-    borderRadius: 24,
+    borderRadius: 0,
     backgroundColor: "rgba(0,0,0,0.4)",
   },
 
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 0,
     alignItems: "center",
     marginHorizontal: 40,
   },
@@ -455,28 +455,24 @@ const styles = StyleSheet.create({
     left: 0,
     borderTopWidth: 3,
     borderLeftWidth: 3,
-    borderTopLeftRadius: 16,
   },
   topRight: {
     top: 0,
     right: 0,
     borderTopWidth: 3,
     borderRightWidth: 3,
-    borderTopRightRadius: 16,
   },
   bottomLeft: {
     bottom: 0,
     left: 0,
     borderBottomWidth: 3,
     borderLeftWidth: 3,
-    borderBottomLeftRadius: 16,
   },
   bottomRight: {
     bottom: 0,
     right: 0,
     borderBottomWidth: 3,
     borderRightWidth: 3,
-    borderBottomRightRadius: 16,
   },
 
   // Animated scan line
@@ -529,7 +525,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 14,
     paddingVertical: 13,
-    borderRadius: 12,
+    borderRadius: 0,
     borderWidth: 1,
   },
   connectBtnText: {
@@ -568,7 +564,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   tabBarInner: {
-    borderRadius: 16,
+    borderRadius: 0,
     padding: 4,
     borderWidth: StyleSheet.hairlineWidth,
   },

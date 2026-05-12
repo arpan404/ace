@@ -9,16 +9,16 @@ export const Layout = {
 } as const;
 
 export const Radius = {
-  panel: 16,
-  card: 16,
-  row: 12,
-  pill: 9999,
-  input: 10,
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
+  panel: 0,
+  card: 0,
+  row: 0,
+  pill: 0,
+  input: 0,
+  xs: 0,
+  sm: 0,
+  md: 0,
+  lg: 0,
+  xl: 0,
 } as const;
 
 export function withAlpha(color: string, alpha: number): string {

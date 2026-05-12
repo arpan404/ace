@@ -35,7 +35,7 @@ export default function TabsLayout() {
           shadowOpacity: 0,
         },
         tabBarItemStyle: {
-          borderRadius: 10,
+          borderRadius: 0,
           marginHorizontal: 4,
         },
         tabBarIconStyle: {

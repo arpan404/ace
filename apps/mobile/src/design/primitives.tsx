@@ -991,7 +991,7 @@ const styles = StyleSheet.create({
   badgeDot: {
     width: 5,
     height: 5,
-    borderRadius: 3,
+    borderRadius: 0,
   },
   badgeLabel: {
     ...Typography.roles.micro,
@@ -1025,7 +1025,7 @@ const styles = StyleSheet.create({
   inlineDot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: 0,
   },
   metricRail: {
     flexDirection: "row",

@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
   },
   defaultBadge: {
     alignItems: "center",
-    borderRadius: 999,
+    borderRadius: 0,
     flexDirection: "row",
     gap: 4,
     paddingHorizontal: 8,

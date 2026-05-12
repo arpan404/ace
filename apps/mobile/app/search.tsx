@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   resultIcon: {
     width: 40,
     height: 40,
-    borderRadius: 15,
+    borderRadius: 0,
     alignItems: "center",
     justifyContent: "center",
   },
