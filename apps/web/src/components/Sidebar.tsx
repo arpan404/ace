@@ -1,4 +1,5 @@
 import { IconSearch, IconSettings } from "@tabler/icons-react";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import {
   ArrowUpIcon,
   ChevronLeftIcon,
@@ -4622,7 +4623,7 @@ export default function Sidebar() {
               render={
                 <SidebarMenuAction
                   render={
-                    <button
+                    <Button
                       type="button"
                       aria-label={`Create new thread in ${project.name}`}
                       data-testid="new-thread-button"
@@ -4722,7 +4723,7 @@ export default function Sidebar() {
             {projectExpanded && hasHiddenThreads ? (
               <SidebarMenuSubItem className="w-full">
                 <SidebarMenuSubButton
-                  render={<button type="button" />}
+                  render={<Button type="button" />}
                   data-thread-selection-safe
                   size="sm"
                   className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -4737,7 +4738,7 @@ export default function Sidebar() {
             {projectExpanded && canCollapseThreadList ? (
               <SidebarMenuSubItem className="w-full">
                 <SidebarMenuSubButton
-                  render={<button type="button" />}
+                  render={<Button type="button" />}
                   data-thread-selection-safe
                   size="sm"
                   className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -5098,14 +5099,15 @@ export default function Sidebar() {
         <Tooltip>
           <TooltipTrigger
             render={
-              <button
+              <Button
                 type="button"
-                className={sidebarHeaderNavButtonClassName}
+                variant="ghost"
+                size="icon-sm"
                 aria-label="Go back"
                 onClick={() => window.history.back()}
               >
                 <ChevronLeftIcon className="size-4.5" strokeWidth={2.25} />
-              </button>
+              </Button>
             }
           />
           <TooltipPopup side="bottom" sideOffset={4}>
@@ -5115,14 +5117,15 @@ export default function Sidebar() {
         <Tooltip>
           <TooltipTrigger
             render={
-              <button
+              <Button
                 type="button"
-                className={sidebarHeaderNavButtonClassName}
+                variant="ghost"
+                size="icon-sm"
                 aria-label="Go forward"
                 onClick={() => window.history.forward()}
               >
                 <ChevronRightIcon className="size-4.5" strokeWidth={2.25} />
-              </button>
+              </Button>
             }
           />
           <TooltipPopup side="bottom" sideOffset={4}>
@@ -5170,7 +5173,7 @@ export default function Sidebar() {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Icon</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <button
+                    <Button
                       type="button"
                       className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
                         editingProjectIcon === null
@@ -5187,7 +5190,7 @@ export default function Sidebar() {
                         className="size-5"
                       />
                       <span>Favicon</span>
-                    </button>
+                    </Button>
                     {PROJECT_ICON_OPTIONS.map((option) => {
                       const previewIcon = {
                         glyph: option.glyph,
@@ -5195,7 +5198,7 @@ export default function Sidebar() {
                       } as const;
                       const isSelected = editingProjectIcon?.glyph === option.glyph;
                       return (
-                        <button
+                        <Button
                           key={option.glyph}
                           type="button"
                           className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
@@ -5207,7 +5210,7 @@ export default function Sidebar() {
                         >
                           <ProjectGlyphIcon icon={previewIcon} className="size-5" />
                           <span>{option.label}</span>
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>
@@ -5219,7 +5222,7 @@ export default function Sidebar() {
                       {PROJECT_ICON_COLOR_OPTIONS.map((option) => {
                         const isSelected = editingProjectIcon.color === option.color;
                         return (
-                          <button
+                          <Button
                             key={option.color}
                             type="button"
                             className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${
@@ -5235,7 +5238,7 @@ export default function Sidebar() {
                           >
                             <span className={`size-3 rounded-full ${option.swatchClassName}`} />
                             <span>{option.label}</span>
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
@@ -5343,7 +5346,7 @@ export default function Sidebar() {
         >
           <MenuTrigger
             render={
-              <button
+              <Button
                 type="button"
                 tabIndex={-1}
                 aria-hidden="true"
@@ -5413,9 +5416,10 @@ export default function Sidebar() {
       >
         <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0  rounded-xl">
           <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
-            <button
+            <Button
               type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95 disabled:opacity-50"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 if (projectPickerStep === "environment") {
                   setAddingProject(false);
@@ -5441,7 +5445,7 @@ export default function Sidebar() {
               }
             >
               <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
-            </button>
+            </Button>
             <input
               ref={addProjectInputRef}
               className={`h-9 min-w-0 flex-1 rounded-lg border bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all ${
@@ -5465,9 +5469,9 @@ export default function Sidebar() {
               autoFocus
             />
             {projectPickerStep === "directory" ? (
-              <button
+              <Button
                 type="button"
-                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-60"
+                size="sm"
                 onClick={handleAddProject}
                 disabled={!canAddProject}
               >
@@ -5475,7 +5479,7 @@ export default function Sidebar() {
                 <span className="rounded border border-primary-foreground/30 bg-primary-foreground/15 px-1.5 py-0.5 text-[9px] font-medium text-primary-foreground/90">
                   Enter
                 </span>
-              </button>
+              </Button>
             ) : null}
           </div>
 
@@ -5496,11 +5500,11 @@ export default function Sidebar() {
                   </p>
                 ) : null}
               </div>
-              <div ref={projectPickerListRef} className="min-h-0 flex-1 overflow-y-auto">
+              <ScrollArea ref={projectPickerListRef} className="min-h-0 flex-1">
                 {projectPickerStep === "environment" ? (
                   filteredPickerEnvironments.length > 0 ? (
                     filteredPickerEnvironments.map((environment, index) => (
-                      <button
+                      <Button
                         key={environment.id}
                         type="button"
                         data-project-picker-environment-index={index}
@@ -5547,7 +5551,7 @@ export default function Sidebar() {
                             Connected
                           </span>
                         ) : null}
-                      </button>
+                      </Button>
                     ))
                   ) : (
                     <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
@@ -5560,7 +5564,7 @@ export default function Sidebar() {
                   </p>
                 ) : (
                   <>
-                    <button
+                    <Button
                       type="button"
                       className="flex w-full items-center gap-3 border-border/20 border-b px-4 py-2.5 text-left text-sm font-medium text-muted-foreground/70 transition-all hover:bg-accent/40 hover:text-foreground"
                       onClick={handleBrowseParentPath}
@@ -5568,10 +5572,10 @@ export default function Sidebar() {
                     >
                       <ArrowUpIcon className="size-4" strokeWidth={2} />
                       <span className="font-semibold">..</span>
-                    </button>
+                    </Button>
                     {currentProjectBrowseResult?.entries.length ? (
                       currentProjectBrowseResult.entries.map((entry, index) => (
-                        <button
+                        <Button
                           key={entry.fullPath}
                           type="button"
                           data-project-picker-index={index}
@@ -5592,7 +5596,7 @@ export default function Sidebar() {
                             strokeWidth={2}
                           />
                           <span className="truncate font-medium text-sm">{entry.name}</span>
-                        </button>
+                        </Button>
                       ))
                     ) : (
                       <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
@@ -5601,7 +5605,7 @@ export default function Sidebar() {
                     )}
                   </>
                 )}
-              </div>
+              </ScrollArea>
               {addProjectError ? (
                 <p className="pt-2 text-xs leading-tight text-red-400/80 font-medium">
                   {addProjectError}
@@ -5686,7 +5690,7 @@ export default function Sidebar() {
           ) : null}
           <SidebarGroup className="px-2.5 pt-5 pb-0">
             <div className="flex flex-col gap-1">
-              <button
+              <Button
                 type="button"
                 className="group/sidebar-new-chat flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={handleStartSidebarNewChat}
@@ -5695,8 +5699,8 @@ export default function Sidebar() {
               >
                 <SquarePenIcon className="size-3.5 shrink-0 transition-colors group-hover/sidebar-new-chat:text-sidebar-accent-foreground" />
                 <span className="min-w-0 flex-1 truncate">New chat</span>
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="group/sidebar-search flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 onClick={openSearchPalette}
@@ -5709,13 +5713,13 @@ export default function Sidebar() {
                     {searchShortcutLabel}
                   </span>
                 ) : null}
-              </button>
+              </Button>
             </div>
           </SidebarGroup>
           <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
             {sortedRenderedPinnedItems.length > 0 ? (
               <SidebarGroup className="px-2.5 pt-5 pb-2">
-                <button
+                <Button
                   type="button"
                   className="group/section-header mb-1.5 flex h-5 w-full cursor-pointer items-center gap-1.5 bg-transparent pl-2 pr-1.5 text-left"
                   aria-expanded={pinnedSectionExpanded}
@@ -5729,7 +5733,7 @@ export default function Sidebar() {
                       pinnedSectionExpanded ? "rotate-90" : ""
                     }`}
                   />
-                </button>
+                </Button>
                 <div
                   aria-hidden={!pinnedSectionExpanded}
                   className={cn(
