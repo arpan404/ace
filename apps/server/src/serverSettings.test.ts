@@ -47,6 +47,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           remoteRelay: {
             enabled: false,
           },
+          workspaceSummaryGenerationMode: "auto",
           textGenerationModelSelection: {
             options: {
               fastMode: false,
@@ -57,6 +58,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           remoteRelay: {
             enabled: false,
           },
+          workspaceSummaryGenerationMode: "auto",
           textGenerationModelSelection: {
             options: {
               fastMode: false,
@@ -99,6 +101,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
         providerCliMaxOpen: 7,
+        workspaceSummaryGenerationMode: "auto",
         textGenerationModelSelection: {
           options: {
             fastMode: false,
@@ -110,18 +113,26 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/codex",
         homePath: "/Users/julius/.codex",
+        launchEnv: {},
         customModels: [],
+        instances: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {
         enabled: true,
         binaryPath: "/usr/local/bin/claude",
+        configDir: "",
+        launchEnv: {},
         customModels: ["claude-custom"],
+        instances: [],
       });
       assert.deepEqual(next.providers.githubCopilot, {
         enabled: true,
         binaryPath: "copilot",
+        homePath: "",
         cliUrl: "",
+        launchEnv: {},
         customModels: [],
+        instances: [],
       });
       assert.deepEqual(next.textGenerationModelSelection, {
         provider: "codex",
@@ -132,6 +143,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
       assert.equal(next.providerCliMaxOpen, 7);
+      assert.equal(next.workspaceSummaryGenerationMode, "auto");
       assert.equal(
         next.providerCliIdleTtlSeconds,
         DEFAULT_SERVER_SETTINGS.providerCliIdleTtlSeconds,
@@ -196,18 +208,26 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/codex",
         homePath: "",
+        launchEnv: {},
         customModels: [],
+        instances: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/claude",
+        configDir: "",
+        launchEnv: {},
         customModels: [],
+        instances: [],
       });
       assert.deepEqual(next.providers.githubCopilot, {
         enabled: true,
         binaryPath: "copilot",
+        homePath: "",
         cliUrl: "",
+        launchEnv: {},
         customModels: [],
+        instances: [],
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

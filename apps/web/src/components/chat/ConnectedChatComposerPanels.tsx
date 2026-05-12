@@ -5,6 +5,8 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   ProviderModelOptions,
+  ProviderSessionConfigOption,
+  ProviderSlashCommand,
   RuntimeMode,
   ServerProvider,
   ServerProviderModel,
@@ -36,6 +38,10 @@ import { createPortal } from "react-dom";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
+import {
+  providerSlashCommandExtensionKind,
+  type ProviderExtensionCommandKind,
+} from "@ace/shared/providerSlashCommands";
 
 import {
   clampCollapsedComposerCursor,
@@ -46,10 +52,14 @@ import {
   extendReplacementRangeForTrailingSpace,
   replaceTextRange,
 } from "../../composer-logic";
-import { createMarkedIssueReferenceToken } from "../../composer-editor-mentions";
+import {
+  createMarkedIssueReferenceToken,
+  createMarkedProviderCommandToken,
+} from "../../composer-editor-mentions";
 import {
   deriveEffectiveComposerExecutionModeState,
   type ComposerImageAttachment,
+  type ModelSelectionByProvider,
   type PersistedComposerImageAttachment,
   useComposerDraftStore,
   useComposerThreadDraft,
@@ -65,6 +75,7 @@ import {
 import { useEffectEvent } from "../../hooks/useEffectEvent";
 import { gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
 import { basenameOfPath } from "../../vscode-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
@@ -84,7 +95,43 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
-const EMPTY_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> = Object.freeze({});
+const EMPTY_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
+
+function normalizeSlashCommandName(name: string): string {
+  return name
+    .trim()
+    .replace(/^[/@$]+/, "")
+    .toLowerCase();
+}
+
+function providerCommandKind(command: ProviderSlashCommand): ProviderExtensionCommandKind | null {
+  const normalizedName = normalizeSlashCommandName(command.name);
+  if (!normalizedName) {
+    return null;
+  }
+  return providerSlashCommandExtensionKind(command, normalizedName);
+}
+
+function providerCommandDescription(
+  command: ProviderSlashCommand,
+  commandKind: ProviderExtensionCommandKind,
+): string {
+  const noun = commandKind === "plugin" ? "Plugin" : "Skill";
+  return command.inputHint
+    ? `${command.description ?? noun} - ${command.inputHint}`
+    : (command.description ?? noun);
+}
+
+function commandMatchesComposerQuery(command: ProviderSlashCommand, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  const normalizedQuery = query.trim().toLowerCase();
+  return (
+    normalizeSlashCommandName(command.name).includes(normalizedQuery) ||
+    command.description?.toLowerCase().includes(normalizedQuery) === true
+  );
+}
 
 export interface ConnectedChatComposerPanelsHandle {
   focusAt(cursor: number): boolean;
@@ -149,14 +196,21 @@ interface ConnectedChatComposerPanelsProps {
   readonly threadInteractionMode: ProviderInteractionMode | null | undefined;
   readonly composerModelOptions: ProviderModelOptions | null;
   readonly selectedProvider: ProviderKind;
+  readonly selectedProviderInstanceId?: string | undefined;
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  readonly sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
+  readonly providerCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
   readonly modelOptionsByProvider: ComponentProps<
     typeof ChatComposerPanel
   >["modelOptionsByProvider"];
+  readonly modelSelectionByProvider?: ModelSelectionByProvider | undefined;
+  readonly providerInstancesByProvider?: ComponentProps<
+    typeof ChatComposerPanel
+  >["providerInstancesByProvider"];
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
   readonly interactionModeShortcutLabel: string | null;
@@ -165,6 +219,10 @@ interface ConnectedChatComposerPanelsProps {
     typeof ChatComposerPanel
   >["queuedComposerMessages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ChatComposerPanel>["queuedSteerMessageId"];
+  readonly canSendQueuedMessages: ComponentProps<typeof ChatComposerPanel>["canSendQueuedMessages"];
+  readonly pendingComposerComments: ComponentProps<
+    typeof ChatComposerPanel
+  >["pendingComposerComments"];
   readonly liveTurnInProgress: boolean;
   readonly isConnecting: boolean;
   readonly isPreparingWorktree: boolean;
@@ -224,9 +282,18 @@ interface ConnectedChatComposerPanelsProps {
   readonly onClearQueuedComposerMessages: ComponentProps<
     typeof ChatComposerPanel
   >["onClearQueuedComposerMessages"];
+  readonly onDismissPendingComposerComment: ComponentProps<
+    typeof ChatComposerPanel
+  >["onDismissPendingComposerComment"];
+  readonly onClearPendingComposerComments: ComponentProps<
+    typeof ChatComposerPanel
+  >["onClearPendingComposerComments"];
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ChatComposerPanel
   >["onReorderQueuedComposerMessages"];
+  readonly onSendQueuedComposerMessage: ComponentProps<
+    typeof ChatComposerPanel
+  >["onSendQueuedComposerMessage"];
   readonly onSteerQueuedComposerMessage: ComponentProps<
     typeof ChatComposerPanel
   >["onSteerQueuedComposerMessage"];
@@ -531,42 +598,96 @@ export const ConnectedChatComposerPanels = memo(
           }));
         }
         if (composerTrigger.kind === "slash-command") {
+          const query = composerTrigger.query.trim().toLowerCase();
+          const providerCommandItems = props.providerCommands
+            .map((command) => {
+              const commandKind = providerCommandKind(command);
+              return commandKind ? { command, commandKind } : null;
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                command: ProviderSlashCommand;
+                commandKind: ProviderExtensionCommandKind;
+              } => Boolean(item),
+            )
+            .filter(({ command }) => commandMatchesComposerQuery(command, query))
+            .map(({ command, commandKind }) => ({
+              id: `provider-slash:${commandKind}:${command.name}`,
+              type: "provider-command" as const,
+              command: command.name,
+              commandKind,
+              label: formatCommandDisplayLabel(command.name),
+              description: providerCommandDescription(command, commandKind),
+            }));
+          const providerCommandNames = new Set(
+            props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
+          );
+          const slashTriggerAtPromptStart =
+            prompt.slice(0, composerTrigger.rangeStart).trim().length === 0;
+          const planCommandSupported = providerCommandNames.has("plan");
+          const interactionModeCommandItems =
+            interactionMode === "plan"
+              ? ([
+                  {
+                    id: "slash:default",
+                    type: "slash-command" as const,
+                    command: "default" as const,
+                    commandSource: "ace" as const,
+                    label: formatCommandDisplayLabel("default"),
+                    description: "Switch this thread back to normal chat mode",
+                  },
+                ] as const)
+              : planCommandSupported
+                ? ([
+                    {
+                      id: "slash:plan",
+                      type: "slash-command" as const,
+                      command: "plan" as const,
+                      commandSource: "ace" as const,
+                      label: formatCommandDisplayLabel("plan"),
+                      description: "Switch this thread into plan mode",
+                    },
+                  ] as const)
+                : [];
           const slashCommandItems = [
             {
               id: "slash:model",
               type: "slash-command" as const,
               command: "model" as const,
-              label: "/model",
+              commandSource: "ace" as const,
+              label: formatCommandDisplayLabel("model"),
               description: "Switch response model for this thread",
             },
-            {
-              id: "slash:plan",
-              type: "slash-command" as const,
-              command: "plan" as const,
-              label: "/plan",
-              description: "Switch this thread into plan mode",
-            },
-            {
-              id: "slash:default",
-              type: "slash-command" as const,
-              command: "default" as const,
-              label: "/default",
-              description: "Switch this thread back to normal chat mode",
-            },
-            {
-              id: "slash:issues",
-              type: "slash-command" as const,
-              command: "issues" as const,
-              label: "/issues",
-              description: "Attach GitHub issue context to this message",
-            },
-          ];
-          const query = composerTrigger.query.trim().toLowerCase();
+            ...interactionModeCommandItems,
+            ...(props.selectedProvider === "codex" &&
+            providerCommandNames.has("goal") &&
+            slashTriggerAtPromptStart
+              ? ([
+                  {
+                    id: "slash:goal",
+                    type: "slash-command" as const,
+                    command: "goal" as const,
+                    commandSource: "ace" as const,
+                    label: formatCommandDisplayLabel("goal"),
+                    description: "Set or inspect the active long-running goal",
+                  },
+                ] as const)
+              : []),
+          ].filter((item) =>
+            item.command === "goal" || item.command === "plan" || item.command === "default"
+              ? true
+              : !providerCommandNames.has(normalizeSlashCommandName(item.command)),
+          );
+          const allSlashCommandItems = [...slashCommandItems, ...providerCommandItems];
           if (!query) {
-            return [...slashCommandItems];
+            return allSlashCommandItems;
           }
-          return slashCommandItems.filter(
-            (item) => item.command.includes(query) || item.label.slice(1).includes(query),
+          return allSlashCommandItems.filter(
+            (item) =>
+              normalizeSlashCommandName(item.command).includes(query) ||
+              item.label.toLowerCase().includes(query),
           );
         }
         return searchableModelOptions
@@ -587,7 +708,16 @@ export const ConnectedChatComposerPanels = memo(
             label: name,
             description: `${providerLabel} · ${slug}`,
           }));
-      }, [composerTrigger, issueTriggerMatches, searchableModelOptions, workspaceEntries]);
+      }, [
+        composerTrigger,
+        interactionMode,
+        issueTriggerMatches,
+        prompt,
+        props.providerCommands,
+        props.selectedProvider,
+        searchableModelOptions,
+        workspaceEntries,
+      ]);
       const composerMenuOpen = Boolean(composerTrigger);
       const activeComposerMenuItem = useMemo(
         () =>
@@ -611,6 +741,7 @@ export const ConnectedChatComposerPanels = memo(
         props.pendingUserInputs.length === 0 &&
         /^\/issues\s*$/i.test(prompt.trimStart());
       const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
+      const hasPendingComposerComments = props.pendingComposerComments.length > 0;
 
       const setPrompt = useCallback(
         (nextPrompt: string) => {
@@ -762,31 +893,37 @@ export const ConnectedChatComposerPanels = memo(
         onInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
       }, [interactionMode, onInteractionModeChange]);
 
-      const onProviderModelSelect = useEffectEvent((provider: ProviderKind, model: string) => {
-        if (props.lockedProvider !== null && provider !== props.lockedProvider) {
+      const onProviderModelSelect = useEffectEvent(
+        (provider: ProviderKind, model: string, providerInstanceId?: string) => {
+          if (props.lockedProvider !== null && provider !== props.lockedProvider) {
+            scheduleComposerFocus();
+            return;
+          }
+          const resolvedProvider = resolveSelectableProvider(props.providers, provider);
+          const resolvedModel = resolveAppModelSelection(
+            resolvedProvider,
+            props.modelSettings,
+            props.providers,
+            model,
+            providerInstanceId,
+          );
+          const nextModelSelection: ModelSelection = {
+            provider: resolvedProvider,
+            ...(providerInstanceId && providerInstanceId !== "default"
+              ? { providerInstanceId }
+              : {}),
+            model: resolvedModel,
+          };
+          if (resolvedProvider === "cursor") {
+            setComposerDraftProviderModelOptions(props.threadId, "cursor", undefined, {
+              persistSticky: true,
+            });
+          }
+          setComposerDraftModelSelection(props.threadId, nextModelSelection);
+          setStickyComposerModelSelection(nextModelSelection);
           scheduleComposerFocus();
-          return;
-        }
-        const resolvedProvider = resolveSelectableProvider(props.providers, provider);
-        const resolvedModel = resolveAppModelSelection(
-          resolvedProvider,
-          props.modelSettings,
-          props.providers,
-          model,
-        );
-        const nextModelSelection: ModelSelection = {
-          provider: resolvedProvider,
-          model: resolvedModel,
-        };
-        if (resolvedProvider === "cursor") {
-          setComposerDraftProviderModelOptions(props.threadId, "cursor", undefined, {
-            persistSticky: true,
-          });
-        }
-        setComposerDraftModelSelection(props.threadId, nextModelSelection);
-        setStickyComposerModelSelection(nextModelSelection);
-        scheduleComposerFocus();
-      });
+        },
+      );
 
       const applyPromptReplacement = useCallback(
         (
@@ -901,9 +1038,30 @@ export const ConnectedChatComposerPanels = memo(
             }
             return;
           }
+          if (item.type === "provider-command") {
+            const replacement = `${createMarkedProviderCommandToken(item.command)} `;
+            const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+              snapshot.value,
+              trigger.rangeEnd,
+              replacement,
+            );
+            if (
+              applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+                expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+              })
+            ) {
+              setComposerHighlightedItemId(null);
+            }
+            return;
+          }
           if (item.type === "slash-command") {
-            if (item.command === "model" || item.command === "issues") {
-              const replacement = item.command === "model" ? "/model " : "/issues ";
+            if (item.command === "model" || item.command === "issues" || item.command === "goal") {
+              const replacement =
+                item.command === "model"
+                  ? "/model "
+                  : item.command === "issues"
+                    ? "/issues "
+                    : `${createMarkedProviderCommandToken("goal")} `;
               const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
                 snapshot.value,
                 trigger.rangeEnd,
@@ -1286,17 +1444,23 @@ export const ConnectedChatComposerPanels = memo(
             composerTerminalContexts={composerTerminalContexts}
             queuedComposerMessages={props.queuedComposerMessages}
             queuedSteerMessageId={props.queuedSteerMessageId}
+            canSendQueuedMessages={props.canSendQueuedMessages}
+            pendingComposerComments={props.pendingComposerComments}
             composerProviderState={composerProviderState}
             selectedProvider={props.selectedProvider}
+            selectedProviderInstanceId={props.selectedProviderInstanceId}
             selectedModel={props.selectedModel}
             selectedProviderModels={props.selectedProviderModels}
             selectedProviderModelOptions={props.selectedProviderModelOptions}
+            sessionConfigOptions={props.sessionConfigOptions}
             selectedModelForPickerWithCustomFallback={
               props.selectedModelForPickerWithCustomFallback
             }
             lockedProvider={props.lockedProvider}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            modelSelectionByProvider={props.modelSelectionByProvider}
+            providerInstancesByProvider={props.providerInstancesByProvider}
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}
             handoffDisabled={props.handoffDisabled}
@@ -1305,8 +1469,11 @@ export const ConnectedChatComposerPanels = memo(
             interactionModeShortcutLabel={props.interactionModeShortcutLabel}
             activeContextWindow={props.activeContextWindow}
             promptHasText={prompt.trim().length > 0}
-            hasSendableContent={composerSendState.hasSendableContent}
-            canQueueMessage={composerSendState.hasSendableContent && props.allowQueueWhenSendable}
+            hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
+            canQueueMessage={
+              (composerSendState.hasSendableContent || hasPendingComposerComments) &&
+              props.allowQueueWhenSendable
+            }
             activePendingApproval={props.activePendingApproval}
             pendingApprovalsCount={props.pendingApprovalsCount}
             pendingUserInputs={props.pendingUserInputs}
@@ -1335,7 +1502,10 @@ export const ConnectedChatComposerPanels = memo(
             onEditQueuedComposerMessage={props.onEditQueuedComposerMessage}
             onDeleteQueuedComposerMessage={props.onDeleteQueuedComposerMessage}
             onClearQueuedComposerMessages={props.onClearQueuedComposerMessages}
+            onDismissPendingComposerComment={props.onDismissPendingComposerComment}
+            onClearPendingComposerComments={props.onClearPendingComposerComments}
             onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
+            onSendQueuedComposerMessage={props.onSendQueuedComposerMessage}
             onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
             onPreviewComposerImage={onPreviewComposerImage}
             onRemoveComposerImage={removeComposerImage}
@@ -1391,17 +1561,23 @@ export const ConnectedChatComposerPanels = memo(
             composerTerminalContexts={composerTerminalContexts}
             queuedComposerMessages={props.queuedComposerMessages}
             queuedSteerMessageId={props.queuedSteerMessageId}
+            canSendQueuedMessages={props.canSendQueuedMessages}
+            pendingComposerComments={props.pendingComposerComments}
             composerProviderState={composerProviderState}
             selectedProvider={props.selectedProvider}
+            selectedProviderInstanceId={props.selectedProviderInstanceId}
             selectedModel={props.selectedModel}
             selectedProviderModels={props.selectedProviderModels}
             selectedProviderModelOptions={props.selectedProviderModelOptions}
+            sessionConfigOptions={props.sessionConfigOptions}
             selectedModelForPickerWithCustomFallback={
               props.selectedModelForPickerWithCustomFallback
             }
             lockedProvider={props.lockedProvider}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            modelSelectionByProvider={props.modelSelectionByProvider}
+            providerInstancesByProvider={props.providerInstancesByProvider}
             isServerThread={props.isServerThread}
             handoffTargetProviders={props.handoffTargetProviders}
             handoffDisabled={props.handoffDisabled}
@@ -1410,8 +1586,11 @@ export const ConnectedChatComposerPanels = memo(
             interactionModeShortcutLabel={props.interactionModeShortcutLabel}
             activeContextWindow={props.activeContextWindow}
             promptHasText={prompt.trim().length > 0}
-            hasSendableContent={composerSendState.hasSendableContent}
-            canQueueMessage={composerSendState.hasSendableContent && props.allowQueueWhenSendable}
+            hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
+            canQueueMessage={
+              (composerSendState.hasSendableContent || hasPendingComposerComments) &&
+              props.allowQueueWhenSendable
+            }
             activePendingApproval={props.activePendingApproval}
             pendingApprovalsCount={props.pendingApprovalsCount}
             pendingUserInputs={props.pendingUserInputs}
@@ -1440,7 +1619,10 @@ export const ConnectedChatComposerPanels = memo(
             onEditQueuedComposerMessage={props.onEditQueuedComposerMessage}
             onDeleteQueuedComposerMessage={props.onDeleteQueuedComposerMessage}
             onClearQueuedComposerMessages={props.onClearQueuedComposerMessages}
+            onDismissPendingComposerComment={props.onDismissPendingComposerComment}
+            onClearPendingComposerComments={props.onClearPendingComposerComments}
             onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
+            onSendQueuedComposerMessage={props.onSendQueuedComposerMessage}
             onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
             onPreviewComposerImage={onPreviewComposerImage}
             onRemoveComposerImage={removeComposerImage}

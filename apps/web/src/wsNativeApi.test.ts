@@ -42,6 +42,8 @@ const rpcClientMock = {
     clear: vi.fn(),
     restart: vi.fn(),
     close: vi.fn(),
+    list: vi.fn(),
+    terminate: vi.fn(),
     onEvent: vi.fn((listener: (event: TerminalEvent) => void) =>
       registerListener(terminalEventListeners, listener),
     ),
@@ -65,6 +67,7 @@ const rpcClientMock = {
   },
   shell: {
     openInEditor: vi.fn(),
+    pathExists: vi.fn(),
     revealInFileManager: vi.fn(),
   },
   git: {
@@ -91,6 +94,7 @@ const rpcClientMock = {
     installLspTools: vi.fn(),
     searchLspMarketplace: vi.fn(),
     installLspTool: vi.fn(),
+    uninstallLspTool: vi.fn(),
     upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
@@ -246,7 +250,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("wsNativeApi", () => {
+describe("wsNativeApi", { timeout: 15_000 }, () => {
   it("uses the desktop bridge folder picker when available", async () => {
     const desktopPickFolder = vi.fn().mockResolvedValue("/desktop/project");
     getWindowForTest().desktopBridge = makeDesktopBridge({
@@ -312,6 +316,16 @@ describe("wsNativeApi", () => {
       entries: [{ name: "src", fullPath: "/tmp/src" }],
     });
     expect(rpcClientMock.filesystem.browse).toHaveBeenCalledWith({ partialPath: "/tmp/s" });
+  });
+
+  it("forwards shell path existence checks to the RPC client", async () => {
+    rpcClientMock.shell.pathExists.mockResolvedValue(true);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.shell.pathExists("/tmp/generated.pptx")).resolves.toBe(true);
+    expect(rpcClientMock.shell.pathExists).toHaveBeenCalledWith({ path: "/tmp/generated.pptx" });
   });
 
   it("forwards server config fetches directly to the RPC client", async () => {

@@ -62,6 +62,8 @@ import type {
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
+  ServerUninstallLspToolInput,
+  ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingResult,
 } from "./server";
 import type {
@@ -69,11 +71,19 @@ import type {
   TerminalCloseInput,
   TerminalEvent,
   TerminalOpenInput,
+  TerminalProcessListInput,
+  TerminalProcessSummary,
   TerminalResizeInput,
   TerminalRestartInput,
   TerminalSessionSnapshot,
+  TerminalTerminateInput,
   TerminalWriteInput,
 } from "./terminal";
+import type {
+  BrowserBridgeRequest,
+  BrowserBridgeResolveInput,
+  BrowserBridgeResolveResult,
+} from "./browserBridge";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
@@ -114,6 +124,7 @@ export type DesktopUpdateStatus =
   | "up-to-date"
   | "available"
   | "downloading"
+  | "installing"
   | "downloaded"
   | "error";
 
@@ -124,8 +135,6 @@ export type BrowserShortcutAction =
   | "close-tab"
   | "devtools"
   | "designer-area-comment"
-  | "designer-cursor"
-  | "designer-draw-comment"
   | "designer-element-comment"
   | "duplicate-tab"
   | "focus-address-bar"
@@ -136,6 +145,8 @@ export type BrowserShortcutAction =
   | "next-tab"
   | "previous-tab"
   | "reload"
+  | "right-panel-floating-chat-toggle"
+  | "right-panel-fullscreen-toggle"
   | "toggle-designer-mode"
   | "select-tab-1"
   | "select-tab-2"
@@ -256,6 +267,16 @@ export type DesktopNotificationPermission = "granted" | "denied" | "default" | "
 export type DesktopZoomAction = "zoom-in" | "zoom-out" | "zoom-reset";
 export type DesktopWindowResumeReason = "focus" | "resume" | "unlock-screen";
 
+export interface DesktopDetachedBrowserOpenInput {
+  scopeId?: string;
+  initialUrl?: string;
+}
+
+export interface DesktopDetachedEditorOpenInput {
+  threadId: string;
+  connectionUrl?: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
@@ -277,6 +298,8 @@ export interface DesktopBridge {
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
+  openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
+  openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
@@ -303,6 +326,8 @@ export interface NativeApi {
   };
   browser: {
     repairStorage: () => Promise<boolean>;
+    resolveBridgeRequest: (input: BrowserBridgeResolveInput) => Promise<BrowserBridgeResolveResult>;
+    onBridgeRequest: (callback: (request: BrowserBridgeRequest) => void) => () => void;
   };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;
@@ -311,6 +336,10 @@ export interface NativeApi {
     clear: (input: typeof TerminalClearInput.Encoded) => Promise<void>;
     restart: (input: typeof TerminalRestartInput.Encoded) => Promise<TerminalSessionSnapshot>;
     close: (input: typeof TerminalCloseInput.Encoded) => Promise<void>;
+    list: (
+      input?: typeof TerminalProcessListInput.Encoded,
+    ) => Promise<ReadonlyArray<TerminalProcessSummary>>;
+    terminate: (input: typeof TerminalTerminateInput.Encoded) => Promise<TerminalSessionSnapshot>;
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
   };
   projects: {
@@ -344,6 +373,10 @@ export interface NativeApi {
       path: string,
       options?: { readonly connectionUrl?: string | null | undefined },
     ) => Promise<void>;
+    pathExists: (
+      path: string,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<boolean>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {
@@ -376,12 +409,16 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    upgradeProviderCli: (
+      input: ServerUpgradeProviderCliInput,
+    ) => Promise<ServerProviderUpdatedPayload>;
     getLspToolsStatus: () => Promise<ServerLspToolsStatus>;
     installLspTools: (input?: ServerInstallLspToolsInput) => Promise<ServerLspToolsStatus>;
     searchLspMarketplace: (
       input: ServerLspMarketplaceSearchInput,
     ) => Promise<ServerLspMarketplaceSearchResult>;
     installLspTool: (input: ServerInstallLspToolInput) => Promise<ServerLspToolsStatus>;
+    uninstallLspTool: (input: ServerUninstallLspToolInput) => Promise<ServerLspToolsStatus>;
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;

@@ -19,11 +19,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "../ui/sidebar";
-import {
-  ThreadStatusLabel,
-  type SidebarThreadRowProps,
-  SidebarThreadRow,
-} from "./SidebarThreadRow";
+import { type SidebarThreadRowProps, SidebarThreadRow } from "./SidebarThreadRow";
 import { type SortableProjectHandleProps } from "./SortableProjectItem";
 import { deriveSidebarLocalProjectRenderState } from "./localProjectRenderState";
 import { useProjectById, useSidebarThreadSummariesByProjectId } from "../../storeSelectors";
@@ -210,20 +206,26 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
           }}
         >
           {!projectExpanded && renderState.projectStatus ? (
-            <span
-              aria-hidden="true"
-              title={renderState.projectStatus.label}
-              className={`-ml-0.5 relative inline-flex size-3.5 shrink-0 items-center justify-center ${renderState.projectStatus.colorClass}`}
-            >
-              <span className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/project-header:opacity-0">
-                <span
-                  className={`size-[9px] rounded-full ${renderState.projectStatus.dotClass} ${
-                    renderState.projectStatus.pulse ? "animate-pulse" : ""
-                  }`}
-                />
-              </span>
-              <ChevronRightIcon className="absolute inset-0 m-auto size-3.5 text-muted-foreground/70 opacity-0 transition-opacity duration-150 group-hover/project-header:opacity-100" />
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    aria-label={renderState.projectStatus.label}
+                    className={`-ml-0.5 relative inline-flex size-3.5 shrink-0 items-center justify-center ${renderState.projectStatus.colorClass}`}
+                  >
+                    <span className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/project-header:opacity-0">
+                      <span
+                        className={`size-[9px] rounded-full ${renderState.projectStatus.dotClass} ${
+                          renderState.projectStatus.pulse ? "animate-pulse" : ""
+                        }`}
+                      />
+                    </span>
+                    <ChevronRightIcon className="absolute inset-0 m-auto size-3.5 text-muted-foreground/70 opacity-0 transition-opacity duration-150 group-hover/project-header:opacity-100" />
+                  </span>
+                }
+              />
+              <TooltipPopup side="top">{renderState.projectStatus.label}</TooltipPopup>
+            </Tooltip>
           ) : (
             <ChevronRightIcon
               className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
@@ -328,9 +330,6 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
                 }}
               >
                 <span className="flex min-w-0 flex-1 items-center gap-2">
-                  {renderState.hiddenThreadStatus ? (
-                    <ThreadStatusLabel status={renderState.hiddenThreadStatus} compact />
-                  ) : null}
                   <span>Show {Math.min(5, renderState.hiddenThreadCount)} more</span>
                 </span>
               </SidebarMenuSubButton>

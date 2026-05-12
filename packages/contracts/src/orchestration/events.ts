@@ -23,6 +23,7 @@ import {
   ProviderInteractionMode,
   ProviderUserInputAnswers,
   QueuedComposerMessage,
+  QueuedDispatchRequest,
   QueuedSteerRequest,
   RuntimeMode,
   TurnCountRange,
@@ -62,6 +63,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.checkpoint-revert-requested",
   "thread.reverted",
   "thread.session-stop-requested",
+  "thread.workspace-summary-regenerate-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
@@ -142,6 +144,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   queuedComposerMessages: Schema.optional(Schema.Array(QueuedComposerMessage)),
+  queuedDispatchRequest: Schema.optional(QueuedDispatchRequest),
   queuedSteerRequest: Schema.optional(Schema.NullOr(QueuedSteerRequest)),
   updatedAt: IsoDateTime,
 });
@@ -218,6 +221,11 @@ export const ThreadRevertedPayload = Schema.Struct({
 });
 
 export const ThreadSessionStopRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
+export const ThreadWorkspaceSummaryRegenerateRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   createdAt: IsoDateTime,
 });
@@ -354,6 +362,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.session-stop-requested"),
     payload: ThreadSessionStopRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.workspace-summary-regenerate-requested"),
+    payload: ThreadWorkspaceSummaryRegenerateRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

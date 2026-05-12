@@ -8,6 +8,7 @@ import {
   extractChangedFiles,
   extractEmbeddedIntentText,
   extractToolCommand,
+  extractToolDetail,
   extractToolTitle,
   extractWorkLogItemType,
   extractWorkLogRequestKind,
@@ -109,6 +110,9 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
   if (activity.summary === "Checkpoint captured") {
     return false;
   }
+  if (activity.kind === "workspace.summary.generated") {
+    return false;
+  }
   return !isPlanBoundaryToolActivity(activity);
 }
 
@@ -145,7 +149,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? (activity.payload as Record<string, unknown>)
       : null;
   const command = extractToolCommand(payload);
-  const changedFiles = extractChangedFiles(payload);
+  const rawChangedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
   const embeddedIntentText = extractEmbeddedIntentText(payload);
   const entry: DerivedWorkLogEntry = {
@@ -162,9 +166,15 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           ? "info"
           : activity.tone,
     activityKind: activity.kind,
+    ...(activity.kind === "runtime.error"
+      ? { diagnosticKind: "runtime-error" as const }
+      : activity.kind === "runtime.warning"
+        ? { diagnosticKind: "runtime-warning" as const }
+        : {}),
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
+  const changedFiles = requestKind === "file-change" ? rawChangedFiles : [];
   const isRuntimeDiagnostic =
     activity.kind === "runtime.error" || activity.kind === "runtime.warning";
   if (isRuntimeDiagnostic && payload) {
@@ -193,9 +203,20 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.detail = combined;
     }
   } else if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
-    const detail = stripTrailingExitCode(sanitizeWorkLogText(payload.detail)).output;
+    const extractedDetail = extractToolDetail(payload);
+    const detail = extractedDetail
+      ? stripTrailingExitCode(sanitizeWorkLogText(extractedDetail)).output
+      : null;
     if (detail) {
       entry.detail = detail;
+    }
+  } else if (payload) {
+    const detail = extractToolDetail(payload);
+    if (detail) {
+      const normalizedDetail = stripTrailingExitCode(sanitizeWorkLogText(detail)).output;
+      if (normalizedDetail) {
+        entry.detail = normalizedDetail;
+      }
     }
   }
   if (command) {
@@ -221,13 +242,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.collapseKey = collapseKey;
   }
   return entry;
-}
-
-function isRenderableDerivedWorkLogEntry(entry: DerivedWorkLogEntry): boolean {
-  if (entry.activityKind === "reasoning.completed" && !entry.detail) {
-    return false;
-  }
-  return true;
 }
 
 function collapseDerivedWorkLogEntries(
@@ -311,7 +325,11 @@ function mergeDerivedWorkLogEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
-  const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
+  const requestKind = next.requestKind ?? previous.requestKind;
+  const changedFiles =
+    requestKind === "file-change"
+      ? mergeChangedFiles(previous.changedFiles, next.changedFiles)
+      : [];
   const detail =
     previous.tone === "thinking" && next.tone === "thinking"
       ? mergeThinkingWorkLogDetail(previous.detail, next.detail)
@@ -319,7 +337,6 @@ function mergeDerivedWorkLogEntries(
   const command = next.command ?? previous.command;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
-  const requestKind = next.requestKind ?? previous.requestKind;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
   return {
     ...previous,
@@ -451,10 +468,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter(isRenderableWorkLogActivity)
     .map(toDerivedWorkLogEntry);
-  // Drop terminal reasoning-completed shell activities that carry no detail.
-  // Some providers emit these after the assistant message, which otherwise creates
-  // a stray trailing "1 reasoning step" disclosure with no useful content.
-  return collapseDerivedWorkLogEntries(entries.filter(isRenderableDerivedWorkLogEntry)).map(
+  return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
 }

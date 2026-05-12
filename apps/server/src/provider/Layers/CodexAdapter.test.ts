@@ -150,7 +150,10 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
 
 const validationManager = new FakeCodexManager();
 const validationLayer = it.layer(
-  makeCodexAdapterLive({ manager: validationManager }).pipe(
+  makeCodexAdapterLive({
+    manager: validationManager,
+    resolveGoalsFeatureEnabled: () => false,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -262,7 +265,10 @@ sessionErrorManager.sendTurnImpl.mockImplementation(async () => {
   throw new Error("Unknown session: sess-missing");
 });
 const sessionErrorLayer = it.layer(
-  makeCodexAdapterLive({ manager: sessionErrorManager }).pipe(
+  makeCodexAdapterLive({
+    manager: sessionErrorManager,
+    resolveGoalsFeatureEnabled: () => false,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -331,13 +337,68 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
 
 const lifecycleManager = new FakeCodexManager();
 const lifecycleLayer = it.layer(
-  makeCodexAdapterLive({ manager: lifecycleManager }).pipe(
+  makeCodexAdapterLive({
+    manager: lifecycleManager,
+    resolveGoalsFeatureEnabled: () => false,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
     Layer.provideMerge(NodeServices.layer),
   ),
 );
+
+const goalFeatureManager = new FakeCodexManager();
+const goalFeatureLayer = it.layer(
+  makeCodexAdapterLive({
+    manager: goalFeatureManager,
+    resolveGoalsFeatureEnabled: () => true,
+  }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+goalFeatureLayer("CodexAdapterLive goal feature discovery", (it) => {
+  it.effect("emits /goal on session/ready only when Codex CLI goals are enabled", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-goal-feature-enabled");
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
+        Effect.forkChild,
+      );
+
+      goalFeatureManager.emit("event", {
+        id: asEventId("evt-session-ready-goal"),
+        kind: "notification",
+        provider: "codex",
+        threadId,
+        createdAt: new Date().toISOString(),
+        method: "session/ready",
+      } satisfies ProviderEvent);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.equal(events[0]?.type, "session.state.changed");
+      assert.equal(events[1]?.type, "session.configured");
+      if (events[1]?.type !== "session.configured") {
+        return;
+      }
+      const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
+        .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+      assert.equal(
+        availableCommands.some((command) => command.name === "goal"),
+        true,
+      );
+    }),
+  );
+});
 
 lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
   it.effect("maps completed agent message items to canonical item.completed events", () =>
@@ -376,6 +437,135 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(firstEvent.value.itemId, "msg_1");
       assert.equal(firstEvent.value.turnId, "turn-1");
       assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+    }),
+  );
+
+  it.effect("maps image generation completions to assistant image output", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const imageBase64 = "A".repeat(96);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-image-generation-complete"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("image_1"),
+        payload: {
+          item: {
+            type: "imageGeneration",
+            id: "image_1",
+            revisedPrompt: "A polished dashboard mockup",
+            result: imageBase64,
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "item.completed");
+      if (firstEvent.value.type !== "item.completed") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+      assert.equal(firstEvent.value.payload.title, "Assistant message");
+      assert.equal(firstEvent.value.payload.detail, undefined);
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
+    }),
+  );
+
+  it.effect("maps raw response image generation completions to assistant image output", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const imageBase64 = "A".repeat(96);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-raw-image-generation-complete"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "rawResponseItem/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("ig_1"),
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "image_generation_call",
+            id: "ig_1",
+            status: "completed",
+            revised_prompt: "A polished dashboard mockup",
+            result: imageBase64,
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "item.completed");
+      if (firstEvent.value.type !== "item.completed") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+      assert.equal(firstEvent.value.payload.title, "Assistant message");
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
+    }),
+  );
+
+  it.effect("maps image generation starts to assistant placeholder output", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-image-generation-start"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "item/started",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("image_1"),
+        payload: {
+          item: {
+            type: "imageGeneration",
+            id: "image_1",
+            size: "1536x1024",
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "item.started");
+      if (firstEvent.value.type !== "item.started") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+      assert.equal(firstEvent.value.payload.status, "inProgress");
+      assert.equal(firstEvent.value.payload.title, "Assistant message");
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
     }),
   );
 
@@ -484,6 +674,95 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(firstEvent.value.threadId, "thread-1");
       assert.equal(firstEvent.value.payload.reason, "Session stopped");
       assert.equal(firstEvent.value.payload.processPid, process.pid);
+    }),
+  );
+
+  it.effect(
+    "maps session/configured notifications and preserves CLI-advertised slash commands",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const threadId = asThreadId("thread-session-configured");
+        yield* adapter.startSession({
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+        lifecycleManager.emit("event", {
+          id: asEventId("evt-session-configured"),
+          kind: "notification",
+          provider: "codex",
+          threadId,
+          createdAt: new Date().toISOString(),
+          method: "session/configured",
+          payload: {
+            availableCommands: [
+              {
+                name: "goal",
+                description: "Manage long-running goals",
+              },
+            ],
+          },
+        } satisfies ProviderEvent);
+
+        const firstEvent = yield* Fiber.join(firstEventFiber);
+        assert.equal(firstEvent._tag, "Some");
+        if (firstEvent._tag !== "Some") {
+          return;
+        }
+        assert.equal(firstEvent.value.type, "session.configured");
+        if (firstEvent.value.type !== "session.configured") {
+          return;
+        }
+        const availableCommands = ((
+          firstEvent.value.payload.config as { availableCommands?: unknown }
+        ).availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+        assert.equal(
+          availableCommands.some((command) => command.name === "goal"),
+          true,
+        );
+      }),
+  );
+
+  it.effect("maps session/started command metadata into a session.configured event", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-session-started-commands");
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
+        Effect.forkChild,
+      );
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-session-started-goal"),
+        kind: "notification",
+        provider: "codex",
+        threadId,
+        createdAt: new Date().toISOString(),
+        method: "session/started",
+        payload: {
+          availableCommands: [{ name: "goal" }],
+        },
+      } satisfies ProviderEvent);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.equal(events[0]?.type, "session.started");
+      assert.equal(events[1]?.type, "session.configured");
+      if (events[1]?.type !== "session.configured") {
+        return;
+      }
+      const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
+        .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+      assert.equal(
+        availableCommands.some((command) => command.name === "goal"),
+        true,
+      );
     }),
   );
 
@@ -626,6 +905,135 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         return;
       }
       assert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
+    }),
+  );
+
+  it.effect("maps dynamic tool call requests with original args", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-dynamic-tool-call"),
+        kind: "request",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/tool/call",
+        turnId: asTurnId("turn-1"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          callId: "dyn-image-1",
+          namespace: null,
+          tool: "image_generation",
+          arguments: {
+            size: "1536x1024",
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "request.opened");
+      if (firstEvent.value.type !== "request.opened") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.requestType, "dynamic_tool_call");
+      assert.deepEqual(firstEvent.value.payload.args, event.payload);
+    }),
+  );
+
+  it.effect("maps Codex hook lifecycle notifications", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-hook-start"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "hook/started",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          run: {
+            id: "hook-run-1",
+            eventName: "preToolUse",
+            handlerType: "command",
+            status: "running",
+            entries: [],
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "hook.started");
+      if (firstEvent.value.type !== "hook.started") {
+        return;
+      }
+      assert.deepEqual(firstEvent.value.payload, {
+        hookId: "hook-run-1",
+        hookName: "command",
+        hookEvent: "preToolUse",
+      });
+    }),
+  );
+
+  it.effect("maps Codex hook completion output", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-hook-complete"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "hook/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          run: {
+            id: "hook-run-1",
+            eventName: "preToolUse",
+            handlerType: "command",
+            status: "completed",
+            entries: [{ kind: "context", text: "hook output" }],
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "hook.completed");
+      if (firstEvent.value.type !== "hook.completed") {
+        return;
+      }
+      assert.deepEqual(firstEvent.value.payload, {
+        hookId: "hook-run-1",
+        outcome: "success",
+        output: "hook output",
+      });
     }),
   );
 

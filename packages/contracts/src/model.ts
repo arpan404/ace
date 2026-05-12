@@ -34,6 +34,22 @@ export const CursorModelOptions = Schema.Struct({
 });
 export type CursorModelOptions = typeof CursorModelOptions.Type;
 
+export const PI_THOUGHT_LEVEL_OPTIONS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+export type PiThoughtLevel = (typeof PI_THOUGHT_LEVEL_OPTIONS)[number];
+
+export const PiModelOptions = Schema.Struct({
+  thoughtLevel: Schema.optional(Schema.Literals(PI_THOUGHT_LEVEL_OPTIONS)),
+  reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
+});
+export type PiModelOptions = typeof PiModelOptions.Type;
+
 export const CursorModelMetadata = Schema.Struct({
   familySlug: TrimmedNonEmptyString,
   familyName: TrimmedNonEmptyString,
@@ -58,6 +74,7 @@ export const ProviderModelOptions = Schema.Struct({
   claudeAgent: Schema.optional(ClaudeModelOptions),
   githubCopilot: Schema.optional(GitHubCopilotModelOptions),
   cursor: Schema.optional(CursorModelOptions),
+  pi: Schema.optional(PiModelOptions),
   gemini: Schema.optional(GeminiModelOptions),
   opencode: Schema.optional(OpenCodeModelOptions),
 });
@@ -92,6 +109,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   claudeAgent: "claude-sonnet-4-6",
   githubCopilot: "gpt-5",
   cursor: "auto",
+  pi: "openai/gpt-5.4-mini",
   gemini: "gemini-2.5-pro",
   opencode: "auto",
 };
@@ -104,6 +122,7 @@ export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind,
   claudeAgent: "claude-haiku-4-5",
   githubCopilot: "gpt-5-mini",
   cursor: "auto",
+  pi: "openai/gpt-5.4-mini",
   gemini: "gemini-2.5-flash",
   opencode: "auto",
 };
@@ -147,6 +166,9 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "sonnet-4": "claude-4-sonnet",
     "sonnet-4-thinking": "claude-4-sonnet-thinking",
   },
+  pi: {
+    default: "openai/gpt-5.4-mini",
+  },
   gemini: {
     auto: "auto",
     pro: "gemini-2.5-pro",
@@ -167,6 +189,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   claudeAgent: "Claude",
   githubCopilot: "Copilot",
   cursor: "Cursor",
+  pi: "Pi",
   gemini: "Gemini",
   opencode: "OpenCode",
 };

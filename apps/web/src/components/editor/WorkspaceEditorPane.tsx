@@ -3,10 +3,14 @@ import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/co
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
+  ArrowUpRightIcon,
   Columns2Icon,
+  EyeIcon,
   FolderIcon,
+  PencilIcon,
   RefreshCwIcon,
   Rows2Icon,
+  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import type { editor as MonacoEditor } from "monaco-editor";
@@ -22,10 +26,16 @@ import {
   useState,
 } from "react";
 
-import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
+import {
+  buildWorkspaceSelectionContext,
+  countOpenWorkspaceCodeComments,
+  createWorkspaceCodeComment,
+  type WorkspaceCodeComment,
+  type WorkspaceSelectionContext,
+} from "~/lib/editor/workspaceDesigner";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -35,6 +45,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import MermaidDiagram from "../MermaidDiagram";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   EDITOR_TAB_TRANSFER_TYPE,
   readEditorTabTransfer,
@@ -42,9 +53,7 @@ import {
 } from "./dragTransfer";
 import {
   buildWorkspacePreviewUrl,
-  canOpenFileExternallyFromReadError,
   detectWorkspacePreviewKind,
-  joinWorkspaceAbsolutePath,
   type WorkspacePreviewKind,
 } from "./workspaceFileUtils";
 
@@ -60,6 +69,9 @@ interface WorkspaceEditorPaneProps {
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
   editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
   gitCwd: string | null;
+  codeComments: readonly WorkspaceCodeComment[];
+  onAddCodeComment: (comment: WorkspaceCodeComment) => void;
+  onAddCodeCommentAndSend?: (comment: WorkspaceCodeComment) => Promise<boolean> | boolean;
   onCloseFile: (paneId: string, filePath: string) => void;
   onCloseOtherTabs: (paneId: string, filePath: string) => void;
   onClosePane: (paneId: string) => void;
@@ -75,6 +87,17 @@ interface WorkspaceEditorPaneProps {
   }) => void;
   onOpenFileInPane: (paneId: string, filePath: string, targetIndex?: number) => void;
   onOpenFileToSide: (paneId: string, filePath: string) => void;
+  onProblemsChange: (
+    paneId: string,
+    activeFilePath: string | null,
+    problems: readonly WorkspaceEditorPaneProblem[],
+  ) => void;
+  onSymbolsChange: (
+    paneId: string,
+    activeFilePath: string | null,
+    symbols: readonly WorkspaceEditorPaneSymbol[],
+  ) => void;
+  onQueueSelectionContext: (context: WorkspaceSelectionContext, prompt: string) => void;
   onReopenClosedTab: (paneId: string) => void;
   onRetryActiveFile: () => void;
   onSaveFile: (relativePath: string, contents: string) => void;
@@ -87,6 +110,42 @@ interface WorkspaceEditorPaneProps {
   paneIndex: number;
   resolvedTheme: "light" | "dark";
   savingFilePath: string | null;
+  problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null;
+  symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null;
+  findRequestToken?: number;
+}
+
+export interface WorkspaceEditorPaneProblem {
+  readonly code?: string | number;
+  readonly endColumn: number;
+  readonly endLineNumber: number;
+  readonly message: string;
+  readonly owner: string;
+  readonly severity: number;
+  readonly source?: string;
+  readonly startColumn: number;
+  readonly startLineNumber: number;
+}
+
+export interface WorkspaceEditorProblemNavigationTarget {
+  readonly id: number;
+  readonly location: WorkspaceEditorLocation;
+}
+
+export interface WorkspaceEditorPaneSymbol {
+  readonly depth: number;
+  readonly detail?: string;
+  readonly endColumn: number;
+  readonly endLineNumber: number;
+  readonly kind: string;
+  readonly name: string;
+  readonly startColumn: number;
+  readonly startLineNumber: number;
+}
+
+export interface WorkspaceEditorSymbolNavigationTarget {
+  readonly id: number;
+  readonly location: WorkspaceEditorLocation;
 }
 
 function formatFileSize(sizeBytes: number): string {
@@ -108,6 +167,13 @@ const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as con
 const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
 type MonacoApi = typeof import("monaco-editor");
+
+interface ActiveSelectionState {
+  readonly id: string;
+  readonly context: WorkspaceSelectionContext;
+  readonly top: number;
+  readonly left: number;
+}
 
 function normalizeWorkspaceRelativePath(filePath: string): string {
   return filePath
@@ -176,6 +242,24 @@ function toWorkspaceLocationFromSelection(
     endLine: Math.max(0, selection.endLineNumber - 1),
     endColumn: Math.max(selection.endColumn - 1, selection.selectionStartColumn - 1),
   };
+}
+
+function workspaceSelectionId(input: {
+  relativePath: string;
+  selection: {
+    selectionStartLineNumber: number;
+    selectionStartColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  };
+}): string {
+  return [
+    input.relativePath,
+    input.selection.selectionStartLineNumber,
+    input.selection.selectionStartColumn,
+    input.selection.endLineNumber,
+    input.selection.endColumn,
+  ].join(":");
 }
 
 function resolveRelativePathFromEditorModel(
@@ -259,6 +343,174 @@ function formatProblemSummary(
   ].filter((value): value is string => value !== null);
 
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function toWorkspaceEditorPaneProblem(marker: MonacoEditor.IMarker): WorkspaceEditorPaneProblem {
+  const problem: {
+    code?: string | number;
+    endColumn: number;
+    endLineNumber: number;
+    message: string;
+    owner: string;
+    severity: number;
+    source?: string;
+    startColumn: number;
+    startLineNumber: number;
+  } = {
+    endColumn: marker.endColumn,
+    endLineNumber: marker.endLineNumber,
+    message: marker.message,
+    owner: marker.owner,
+    severity: marker.severity,
+    startColumn: marker.startColumn,
+    startLineNumber: marker.startLineNumber,
+  };
+
+  if (typeof marker.code === "string" || typeof marker.code === "number") {
+    problem.code = marker.code;
+  }
+  if (marker.source) {
+    problem.source = marker.source;
+  }
+
+  return problem;
+}
+
+function createWorkspaceEditorPaneSymbol(input: {
+  detail?: string;
+  kind: string;
+  line: string;
+  lineNumber: number;
+  matchIndex: number;
+  name: string;
+}): WorkspaceEditorPaneSymbol {
+  const indentation = input.line.match(/^\s*/u)?.[0].length ?? 0;
+  const startColumn = input.matchIndex + 1;
+  const symbol: {
+    depth: number;
+    detail?: string;
+    endColumn: number;
+    endLineNumber: number;
+    kind: string;
+    name: string;
+    startColumn: number;
+    startLineNumber: number;
+  } = {
+    depth: Math.min(6, Math.floor(indentation / 2)),
+    endColumn: Math.max(startColumn + input.name.length, input.line.trimEnd().length + 1),
+    endLineNumber: input.lineNumber,
+    kind: input.kind,
+    name: input.name,
+    startColumn,
+    startLineNumber: input.lineNumber,
+  };
+  if (input.detail) {
+    symbol.detail = input.detail;
+  }
+  return symbol;
+}
+
+function extractWorkspaceEditorPaneSymbols(
+  model: MonacoEditor.ITextModel,
+): WorkspaceEditorPaneSymbol[] {
+  const symbols: WorkspaceEditorPaneSymbol[] = [];
+  for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber += 1) {
+    const line = model.getLineContent(lineNumber);
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const patterns: Array<{
+      detail?: (match: RegExpExecArray) => string | undefined;
+      kind: string;
+      nameIndex: number;
+      pattern: RegExp;
+    }> = [
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern:
+          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern:
+          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u,
+      },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u,
+      },
+      { kind: "function", nameIndex: 1, pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u },
+      {
+        kind: "function",
+        nameIndex: 1,
+        pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u,
+      },
+      { kind: "class", nameIndex: 1, pattern: /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/u },
+      { kind: "class", nameIndex: 1, pattern: /^\s*class\s+([A-Za-z_]\w*)\b/u },
+      {
+        kind: "interface",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u,
+      },
+      { kind: "type", nameIndex: 1, pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/u },
+      { kind: "type", nameIndex: 1, pattern: /^\s*type\s+([A-Za-z_]\w*)\b/u },
+      { kind: "struct", nameIndex: 1, pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b/u },
+      { kind: "enum", nameIndex: 1, pattern: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\b/u },
+      { kind: "enum", nameIndex: 1, pattern: /^\s*(?:pub\s+)?enum\s+([A-Za-z_]\w*)\b/u },
+      { kind: "trait", nameIndex: 1, pattern: /^\s*(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b/u },
+      { kind: "impl", nameIndex: 1, pattern: /^\s*impl(?:<[^>]+>)?\s+([A-Za-z_][\w:]*)\b/u },
+      {
+        kind: "variable",
+        nameIndex: 1,
+        pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u,
+      },
+      { kind: "variable", nameIndex: 1, pattern: /^\s*(?:const|var)\s+([A-Za-z_]\w*)\b/u },
+    ];
+
+    for (const entry of patterns) {
+      const match = entry.pattern.exec(line);
+      const name = match?.[entry.nameIndex];
+      if (!match || !name) {
+        continue;
+      }
+      const symbolInput: {
+        detail?: string;
+        kind: string;
+        line: string;
+        lineNumber: number;
+        matchIndex: number;
+        name: string;
+      } = {
+        kind: entry.kind,
+        line,
+        lineNumber,
+        matchIndex: match.index + match[0].indexOf(name),
+        name,
+      };
+      const detail = entry.detail?.(match);
+      if (detail) {
+        symbolInput.detail = detail;
+      }
+      symbols.push(createWorkspaceEditorPaneSymbol(symbolInput));
+      break;
+    }
+  }
+  return symbols;
 }
 
 function severityFromMarkerValue(severity: number): WorkspaceEditorDiagnostic["severity"] {
@@ -364,6 +616,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const onOpenFileInPane = props.onOpenFileInPane;
   const onReopenClosedTab = props.onReopenClosedTab;
   const onSaveFile = props.onSaveFile;
+  const onProblemsChange = props.onProblemsChange;
+  const onSymbolsChange = props.onSymbolsChange;
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [diagnosticSummary, setDiagnosticSummary] = useState<string | null>(null);
@@ -371,7 +625,15 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [problems, setProblems] = useState<readonly MonacoEditor.IMarker[]>([]);
+  const [cursorLabel, setCursorLabel] = useState("Ln 1, Col 1");
+  const [activeSelection, setActiveSelection] = useState<ActiveSelectionState | null>(null);
+  const [selectionActionsExpanded, setSelectionActionsExpanded] = useState(false);
+  const [selectionCommentSubmitting, setSelectionCommentSubmitting] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
   const [editorMountVersion, setEditorMountVersion] = useState(0);
+  const [textPreviewFilePaths, setTextPreviewFilePaths] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -382,7 +644,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     [pane.activeFilePath],
   );
   const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
-  const isTextPreviewMode = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
+  const textPreviewAvailable = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
+  const isTextPreviewMode =
+    textPreviewAvailable &&
+    pane.activeFilePath !== null &&
+    textPreviewFilePaths.has(pane.activeFilePath);
   const isPreviewMode =
     (isBinaryPreviewMode || isTextPreviewMode) &&
     pane.activeFilePath !== null &&
@@ -438,6 +704,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ? "Mermaid preview"
         : "Preview mode";
   const activeMonacoLanguage = resolveMonacoLanguageFromFilePath(props.pane.activeFilePath);
+  const activeFileCommentCount = useMemo(
+    () => countOpenWorkspaceCodeComments(props.codeComments, props.pane.activeFilePath),
+    [props.codeComments, props.pane.activeFilePath],
+  );
   const activeModelPath = pane.activeFilePath
     ? createWorkspaceModelUriString(pane.activeFilePath)
     : undefined;
@@ -448,6 +718,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     paneId: pane.id,
     activeFilePath: pane.activeFilePath,
   });
+  const activeSelectionIdRef = useRef<string | null>(null);
   const onOpenFileInPaneRef = useRef(onOpenFileInPane);
   const draftsByFilePathRef = useRef(props.draftsByFilePath);
 
@@ -465,6 +736,43 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   useEffect(() => {
     draftsByFilePathRef.current = props.draftsByFilePath;
   }, [props.draftsByFilePath]);
+
+  useEffect(() => {
+    setTextPreviewFilePaths((current) => {
+      if (current.size === 0) {
+        return current;
+      }
+      const next = new Set(
+        Array.from(current).filter((filePath) => props.pane.openFilePaths.includes(filePath)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [props.pane.openFilePaths]);
+
+  const setActiveTextPreviewOpen = useCallback(
+    (open: boolean) => {
+      const activeFilePath = pane.activeFilePath;
+      if (!activeFilePath || !textPreviewAvailable) {
+        return;
+      }
+      setTextPreviewFilePaths((current) => {
+        const next = new Set(current);
+        if (open) {
+          next.add(activeFilePath);
+        } else {
+          next.delete(activeFilePath);
+        }
+        if (
+          next.size === current.size &&
+          next.has(activeFilePath) === current.has(activeFilePath)
+        ) {
+          return current;
+        }
+        return next;
+      });
+    },
+    [pane.activeFilePath, textPreviewAvailable],
+  );
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -495,12 +803,90 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     if (!editor || !monacoInstance || !model) {
       setProblems([]);
       setDiagnosticSummary(null);
+      onProblemsChange(pane.id, pane.activeFilePath, []);
       return;
     }
     const nextProblems = monacoInstance.editor.getModelMarkers({ resource: model.uri });
     setProblems(nextProblems);
     setDiagnosticSummary(formatProblemSummary(monacoInstance, nextProblems));
-  }, []);
+    onProblemsChange(pane.id, pane.activeFilePath, nextProblems.map(toWorkspaceEditorPaneProblem));
+  }, [onProblemsChange, pane.activeFilePath, pane.id]);
+
+  const syncSymbolState = useCallback(() => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model || isPreviewMode) {
+      onSymbolsChange(pane.id, pane.activeFilePath, []);
+      return;
+    }
+    onSymbolsChange(pane.id, pane.activeFilePath, extractWorkspaceEditorPaneSymbols(model));
+  }, [isPreviewMode, onSymbolsChange, pane.activeFilePath, pane.id]);
+
+  const syncEditorSelectionContext = useCallback(() => {
+    const editor = editorRef.current;
+    const monacoInstance = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monacoInstance || !model || !workspaceCwd || isPreviewMode) {
+      setActiveSelection(null);
+      setSelectionActionsExpanded(false);
+      activeSelectionIdRef.current = null;
+      return;
+    }
+    const position = editor.getPosition();
+    if (position) {
+      setCursorLabel(`Ln ${position.lineNumber}, Col ${position.column}`);
+    }
+    const selection = editor.getSelection();
+    const relativePath = resolveRelativePathFromEditorModel(
+      model,
+      latestPaneStateRef.current.activeFilePath,
+    );
+    if (!selection || selection.isEmpty() || !relativePath) {
+      setActiveSelection(null);
+      setSelectionActionsExpanded(false);
+      activeSelectionIdRef.current = null;
+      return;
+    }
+    const text = model.getValueInRange(selection);
+    if (text.trim().length === 0) {
+      setActiveSelection(null);
+      setSelectionActionsExpanded(false);
+      activeSelectionIdRef.current = null;
+      return;
+    }
+    const selectionId = workspaceSelectionId({ relativePath, selection });
+    if (activeSelectionIdRef.current !== selectionId) {
+      activeSelectionIdRef.current = selectionId;
+      setSelectionActionsExpanded(false);
+      setCommentDraft("");
+    }
+    const location = toWorkspaceLocationFromSelection(relativePath, selection);
+    const visiblePosition = editor.getScrolledVisiblePosition({
+      lineNumber: selection.getStartPosition().lineNumber,
+      column: selection.getStartPosition().column,
+    });
+    const context = buildWorkspaceSelectionContext({
+      cwd: workspaceCwd,
+      diagnostics: problems.map((problem) => ({
+        endColumn: Math.max(0, problem.endColumn - 1),
+        endLine: Math.max(0, problem.endLineNumber - 1),
+        message: problem.message,
+        severity: toWorkspaceSeverity(monacoInstance, problem.severity),
+        ...(problem.source ? { source: problem.source } : {}),
+        startColumn: Math.max(0, problem.startColumn - 1),
+        startLine: Math.max(0, problem.startLineNumber - 1),
+      })),
+      languageId: activeMonacoLanguage ?? null,
+      range: location,
+      text,
+    });
+    setActiveSelection({
+      id: selectionId,
+      context,
+      left: Math.max(12, Math.min((visiblePosition?.left ?? 24) + 8, 360)),
+      top: Math.max(12, (visiblePosition?.top ?? 24) + 28),
+    });
+  }, [activeMonacoLanguage, isPreviewMode, problems, workspaceCwd]);
 
   const activeFileReady =
     pane.activeFilePath !== null &&
@@ -695,6 +1081,18 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         }
         onOpenFileInPaneRef.current(latestPaneState.paneId, nextRelativePath);
       });
+      editor.onDidChangeCursorPosition(() => {
+        const position = editor.getPosition();
+        if (position) {
+          setCursorLabel(`Ln ${position.lineNumber}, Col ${position.column}`);
+        }
+      });
+      editor.onDidChangeCursorSelection(() => {
+        window.setTimeout(syncEditorSelectionContext, 0);
+      });
+      editor.onDidChangeModelContent(() => {
+        syncSymbolState();
+      });
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
         saveActionRef.current();
       });
@@ -726,6 +1124,47 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL,
         () => {
           void runEditorAction(editor, "editor.action.selectHighlights");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd |
+          monacoInstance.KeyMod.Alt |
+          monacoInstance.KeyCode.DownArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.insertCursorBelow");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.UpArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.insertCursorAbove");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.KeyI,
+        () => {
+          void runEditorAction(editor, "editor.action.insertCursorAtEndOfEachLineSelected");
+        },
+      );
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyU, () => {
+        void runEditorAction(editor, "cursorUndo");
+      });
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyK,
+        () => {
+          void runEditorAction(editor, "editor.action.deleteLines");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.DownArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.copyLinesDownAction");
+        },
+      );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.UpArrow,
+        () => {
+          void runEditorAction(editor, "editor.action.copyLinesUpAction");
         },
       );
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.BracketRight, () => {
@@ -760,8 +1199,17 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         monacoRef.current = null;
       });
       syncProblemState();
+      syncSymbolState();
+      syncEditorSelectionContext();
     },
-    [navigateToDefinitionAtPosition, onFocusPane, pane.id, syncProblemState],
+    [
+      navigateToDefinitionAtPosition,
+      onFocusPane,
+      pane.id,
+      syncEditorSelectionContext,
+      syncProblemState,
+      syncSymbolState,
+    ],
   );
 
   useEffect(() => {
@@ -779,6 +1227,39 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editor.revealRangeInCenter(range);
     setPendingNavigationTarget(null);
   }, [editorMountVersion, pane.activeFilePath, pendingNavigationTarget]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const target = props.problemNavigationTarget;
+    if (!editor || !target || pane.activeFilePath !== target.location.relativePath) {
+      return;
+    }
+    const range = toMonacoRangeFromWorkspaceLocation(target.location);
+    editor.focus();
+    editor.setSelection(range);
+    editor.revealRangeInCenter(range);
+  }, [editorMountVersion, pane.activeFilePath, props.problemNavigationTarget]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const target = props.symbolNavigationTarget;
+    if (!editor || !target || pane.activeFilePath !== target.location.relativePath) {
+      return;
+    }
+    const range = toMonacoRangeFromWorkspaceLocation(target.location);
+    editor.focus();
+    editor.setSelection(range);
+    editor.revealRangeInCenter(range);
+  }, [editorMountVersion, pane.activeFilePath, props.symbolNavigationTarget]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !props.active || !props.findRequestToken) {
+      return;
+    }
+    editor.focus();
+    void runEditorAction(editor, "actions.find");
+  }, [editorMountVersion, props.active, props.findRequestToken]);
 
   useEffect(() => {
     syncRequestIdRef.current += 1;
@@ -912,6 +1393,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       disposable.dispose();
     };
   }, [editorMountVersion, pane.activeFilePath, syncProblemState]);
+
+  useEffect(() => {
+    syncEditorSelectionContext();
+  }, [pane.activeFilePath, problems, syncEditorSelectionContext]);
+
+  useEffect(() => {
+    syncSymbolState();
+  }, [activeFileContents, editorMountVersion, pane.activeFilePath, syncSymbolState]);
 
   useEffect(() => {
     const monacoInstance = monacoRef.current;
@@ -1276,20 +1765,43 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     });
   }, []);
 
-  const handleOpenInExternalEditor = useCallback(async () => {
-    if (!api || !props.gitCwd || !pane.activeFilePath) {
+  const handleAddAndSendSelectionComment = useCallback(async () => {
+    if (
+      !activeSelection ||
+      !workspaceCwd ||
+      commentDraft.trim().length === 0 ||
+      !props.onAddCodeCommentAndSend ||
+      selectionCommentSubmitting
+    ) {
       return;
     }
+    setSelectionCommentSubmitting(true);
+    let sent = false;
     try {
-      setActionError(null);
-      await openInPreferredEditor(
-        api,
-        joinWorkspaceAbsolutePath(props.gitCwd, pane.activeFilePath),
+      sent = await props.onAddCodeCommentAndSend(
+        createWorkspaceCodeComment({
+          body: commentDraft,
+          code: activeSelection.context.text,
+          createdAt: new Date().toISOString(),
+          cwd: workspaceCwd,
+          id:
+            typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `comment-${Date.now().toString(36)}`,
+          range: activeSelection.context.range,
+        }),
       );
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to open file in editor.");
+    } catch {
+      sent = false;
+    } finally {
+      setSelectionCommentSubmitting(false);
     }
-  }, [api, pane.activeFilePath, props.gitCwd]);
+    if (!sent) {
+      return;
+    }
+    setCommentDraft("");
+    setSelectionActionsExpanded(false);
+  }, [activeSelection, commentDraft, props, selectionCommentSubmitting, workspaceCwd]);
 
   useEffect(() => {
     setActionError(null);
@@ -1301,8 +1813,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     activeFileQuery.error instanceof Error
       ? activeFileQuery.error.message
       : "An unexpected error occurred.";
-  const canOpenAnyway =
-    activeFileQuery.isError && canOpenFileExternallyFromReadError(activeFileErrorMessage);
   return (
     <section
       data-pane-active={props.active ? "true" : "false"}
@@ -1315,7 +1825,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-[35px] shrink-0 items-center overflow-hidden border-b border-border/60 bg-card/78 scrollbar-none",
+          "flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1328,7 +1838,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden scrollbar-none"
+          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1338,75 +1848,84 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 {dropTargetIndex === props.pane.openFilePaths.indexOf(filePath) ? (
                   <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85" />
                 ) : null}
-                <button
-                  type="button"
-                  data-editor-tab="true"
-                  className={cn(
-                    "group/tab relative flex h-[35px] shrink-0 items-center gap-1.5 border-r px-3 text-[12px] transition-colors",
-                    isActive
-                      ? "border-border/60 bg-background text-foreground"
-                      : "border-border/60 bg-card/88 text-muted-foreground hover:bg-card hover:text-foreground",
-                  )}
-                  draggable
-                  onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    props.onSetActiveFile(props.pane.id, filePath);
-                    void openTabContextMenu(event, filePath);
-                  }}
-                  onMouseDown={(event) => {
-                    if (event.button !== 1) {
-                      return;
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-editor-tab="true"
+                        className={cn(
+                          "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
+                          isActive
+                            ? "border-border/70 bg-background text-foreground"
+                            : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                        )}
+                        draggable
+                        onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          props.onSetActiveFile(props.pane.id, filePath);
+                          void openTabContextMenu(event, filePath);
+                        }}
+                        onMouseDown={(event) => {
+                          if (event.button !== 1) {
+                            return;
+                          }
+                          event.preventDefault();
+                          props.onCloseFile(props.pane.id, filePath);
+                        }}
+                        onDragStart={(event) => {
+                          props.onFocusPane(props.pane.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          const payload = JSON.stringify({
+                            filePath,
+                            sourcePaneId: props.pane.id,
+                          });
+                          event.dataTransfer.setData(EDITOR_TAB_TRANSFER_TYPE, payload);
+                          event.dataTransfer.setData("text/plain", payload);
+                        }}
+                        onDragEnd={clearDropTarget}
+                        onDragOver={(event) =>
+                          handleTabDragOver(event, props.pane.openFilePaths.indexOf(filePath))
+                        }
+                        onDrop={(event) =>
+                          handleTabDrop(event, props.pane.openFilePaths.indexOf(filePath))
+                        }
+                        aria-label={filePath}
+                      />
                     }
-                    event.preventDefault();
-                    props.onCloseFile(props.pane.id, filePath);
-                  }}
-                  onDragStart={(event) => {
-                    props.onFocusPane(props.pane.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    const payload = JSON.stringify({
-                      filePath,
-                      sourcePaneId: props.pane.id,
-                    });
-                    event.dataTransfer.setData(EDITOR_TAB_TRANSFER_TYPE, payload);
-                    event.dataTransfer.setData("text/plain", payload);
-                  }}
-                  onDragEnd={clearDropTarget}
-                  onDragOver={(event) =>
-                    handleTabDragOver(event, props.pane.openFilePaths.indexOf(filePath))
-                  }
-                  onDrop={(event) =>
-                    handleTabDrop(event, props.pane.openFilePaths.indexOf(filePath))
-                  }
-                  title={filePath}
-                >
-                  {isActive && (
-                    <div className={cn("absolute right-0 bottom-0 left-0 h-px", "bg-background")} />
-                  )}
-                  <VscodeEntryIcon
-                    pathValue={filePath}
-                    kind="file"
-                    theme={props.resolvedTheme}
-                    className="size-[14px] shrink-0"
-                  />
-                  <span className="max-w-[140px] truncate">{basenameOfPath(filePath)}</span>
-                  {isDirty ? (
-                    <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
-                  ) : null}
-                  <span
-                    className={cn(
-                      "flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover/tab:opacity-100",
-                      "hover:bg-foreground/8",
-                      isDirty ? "hidden group-hover/tab:flex" : "",
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      props.onCloseFile(props.pane.id, filePath);
-                    }}
                   >
-                    <XIcon className="size-3" />
-                  </span>
-                </button>
+                    <VscodeEntryIcon
+                      pathValue={filePath}
+                      kind="file"
+                      theme={props.resolvedTheme}
+                      className="size-[14px] shrink-0"
+                    />
+                    <span className="max-w-[150px] truncate font-medium">
+                      {basenameOfPath(filePath)}
+                    </span>
+                    {isDirty ? (
+                      <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
+                    ) : null}
+                    <span
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
+                        isActive ? "opacity-100" : "group-hover/tab:opacity-100",
+                        "hover:bg-background/70",
+                        isDirty ? "hidden group-hover/tab:flex" : "",
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        props.onCloseFile(props.pane.id, filePath);
+                      }}
+                    >
+                      <XIcon className="size-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                    {filePath}
+                  </TooltipPopup>
+                </Tooltip>
               </div>
             );
           })}
@@ -1416,42 +1935,89 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
           ) : null}
         </div>
-        <div
-          className={cn("flex shrink-0 items-center gap-0.5 border-l px-1.5", "border-border/60")}
-        >
+        <div className={cn("flex shrink-0 items-center gap-0.5 border-l px-1", "border-border/70")}>
           {props.chromeActions ? (
             <div className="mr-1 flex shrink-0 items-center gap-0.5">{props.chromeActions}</div>
           ) : null}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-6 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
-            onClick={() => props.onSplitPane(props.pane.id)}
-            disabled={!props.canSplitPane}
-            title="Split Editor Right"
-          >
-            <Columns2Icon className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-6 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
-            onClick={() => props.onSplitPaneDown(props.pane.id)}
-            disabled={!props.canSplitPane}
-            title="Split Editor Down"
-          >
-            <Rows2Icon className="size-3.5" />
-          </Button>
-          {props.canClosePane ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-6 rounded-none text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
-              onClick={() => props.onClosePane(props.pane.id)}
-              title="Close Editor Group"
+          {textPreviewAvailable && props.gitCwd !== null ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className={cn(
+                      "size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+                      isTextPreviewMode && "bg-accent text-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setActiveTextPreviewOpen(!isTextPreviewMode)}
+                    aria-pressed={isTextPreviewMode}
+                    aria-label={isTextPreviewMode ? "Open editor" : "Open preview"}
+                  >
+                    {isTextPreviewMode ? (
+                      <PencilIcon className="size-3.5" />
+                    ) : (
+                      <EyeIcon className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">
+                {isTextPreviewMode ? "Open editor" : previewModeLabel}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => props.onSplitPane(props.pane.id)}
+                  disabled={!props.canSplitPane}
+                  aria-label="Split editor right"
+                />
+              }
             >
-              <XIcon className="size-3.5" />
-            </Button>
+              <Columns2Icon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Split editor right</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => props.onSplitPaneDown(props.pane.id)}
+                  disabled={!props.canSplitPane}
+                  aria-label="Split editor down"
+                />
+              }
+            >
+              <Rows2Icon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Split editor down</TooltipPopup>
+          </Tooltip>
+          {props.canClosePane ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-7 rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                    onClick={() => props.onClosePane(props.pane.id)}
+                    aria-label="Close editor group"
+                  />
+                }
+              >
+                <XIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">Close editor group</TooltipPopup>
+            </Tooltip>
           ) : null}
         </div>
       </div>
@@ -1504,14 +2070,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
             <div
               className={cn(
-                "flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
+                "flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
                 "border-border/60",
               )}
             >
               <span className="truncate">{previewModeLabel}</span>
-              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
-                Open in Editor
-              </Button>
             </div>
           </div>
         ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
@@ -1535,14 +2098,11 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
             <div
               className={cn(
-                "flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
+                "flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground",
                 "border-border/60",
               )}
             >
               <span className="truncate">{previewModeLabel}</span>
-              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
-                Open in Editor
-              </Button>
             </div>
           </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
@@ -1570,22 +2130,12 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   <RefreshCwIcon className="size-3.5" />
                   Retry
                 </Button>
-                {canOpenAnyway ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleOpenInExternalEditor()}
-                  >
-                    Open Anyway
-                  </Button>
-                ) : null}
               </div>
             </div>
           </div>
         ) : (
-          <div className="h-full min-h-0 min-w-0 overflow-hidden">
+          <div className="relative h-full min-h-0 min-w-0 overflow-hidden">
             <Editor
-              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.monacoTheme}`}
               height="100%"
               value={activeFileContents}
               theme={props.monacoTheme}
@@ -1600,16 +2150,84 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               {...(activeModelPath ? { path: activeModelPath } : {})}
               {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
             />
+            {activeSelection ? (
+              <div
+                className="absolute z-20"
+                style={{
+                  left: activeSelection.left,
+                  top: activeSelection.top,
+                }}
+              >
+                {!selectionActionsExpanded ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="inline-flex size-7 items-center justify-center rounded-full border border-border/70 bg-background/92 text-muted-foreground/75 shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
+                          onClick={() => setSelectionActionsExpanded((current) => !current)}
+                          aria-label="Open selection actions"
+                        />
+                      }
+                    >
+                      <SparklesIcon className="size-3 text-primary/85" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">Selection actions</TooltipPopup>
+                  </Tooltip>
+                ) : (
+                  <form
+                    className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleAddAndSendSelectionComment();
+                    }}
+                  >
+                    <input
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setSelectionActionsExpanded(false);
+                        }
+                      }}
+                      placeholder="Comment for the agent"
+                      className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
+                      autoFocus
+                    />
+                    {props.onAddCodeCommentAndSend ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="submit"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
+                              disabled={
+                                commentDraft.trim().length === 0 || selectionCommentSubmitting
+                              }
+                              aria-label="Submit comment"
+                            />
+                          }
+                        >
+                          <ArrowUpRightIcon className="size-4" />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Submit comment</TooltipPopup>
+                      </Tooltip>
+                    ) : null}
+                  </form>
+                )}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
 
       {!isPreviewMode && problemsOpen ? (
-        <section className={cn("shrink-0 border-t", "border-border/60 bg-card/72")}>
+        <section className={cn("shrink-0 border-t", "border-border bg-card/72")}>
           <header
             className={cn(
-              "flex h-7 items-center justify-between border-b px-2.5 text-[11px] text-muted-foreground",
-              "border-border/60",
+              "flex h-8 items-center justify-between border-b bg-transparent px-3 text-[11px] text-muted-foreground",
+              "border-border/70",
             )}
           >
             <span className="font-medium tracking-[0.08em] uppercase">Problems</span>
@@ -1626,7 +2244,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     <button
                       key={`${problem.owner}:${problem.startLineNumber}:${problem.startColumn}:${problem.message}`}
                       type="button"
-                      className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-foreground/5"
+                      className="mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] hover:bg-accent"
                       onClick={() => handleProblemClick(problem)}
                     >
                       <span
@@ -1658,63 +2276,116 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </section>
       ) : null}
 
-      <footer className="flex h-[22px] shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/78 px-2.5 text-[10.5px] text-muted-foreground">
+      <footer className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border bg-card/80 px-2.5 text-[10.5px] text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
           {props.pane.activeFilePath ? (
             <>
-              <span className="truncate">{props.pane.activeFilePath}</span>
+              <span className="truncate font-medium text-foreground/78">
+                {props.pane.activeFilePath}
+              </span>
               {activeFileSizeBytes !== null ? (
-                <span className="shrink-0 px-1.5 py-px text-foreground/72">
+                <span className="shrink-0 rounded-md bg-foreground/6 px-1.5 py-px text-foreground/72">
                   {formatFileSize(activeFileSizeBytes)}
                 </span>
               ) : null}
               {activeFileDirty ? (
-                <span className="shrink-0 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-foreground uppercase">
+                <span className="shrink-0 rounded-md bg-amber-500/12 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
                   Modified
+                </span>
+              ) : null}
+              {activeFileCommentCount > 0 ? (
+                <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-primary uppercase">
+                  {activeFileCommentCount} comments
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="px-1.5 py-px text-foreground/72">Ready</span>
+            <span className="rounded-md bg-foreground/6 px-1.5 py-px text-foreground/72">
+              Ready
+            </span>
           )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           {actionError ? (
-            <span className="max-w-[18rem] truncate text-destructive/80" title={actionError}>
-              {actionError}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="max-w-[18rem] truncate text-destructive/80">{actionError}</span>
+                }
+              />
+              <TooltipPopup side="top" align="end" className="max-w-96 whitespace-pre-wrap">
+                {actionError}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {previewError ? (
-            <span className="max-w-[18rem] truncate text-destructive/80" title={previewError}>
-              {previewError}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="max-w-[18rem] truncate text-destructive/80">{previewError}</span>
+                }
+              />
+              <TooltipPopup side="top" align="end" className="max-w-96 whitespace-pre-wrap">
+                {previewError}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {diagnosticError ? (
-            <span className="max-w-[18rem] truncate text-destructive/80" title={diagnosticError}>
-              {diagnosticError}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="max-w-[18rem] truncate text-destructive/80">
+                    {diagnosticError}
+                  </span>
+                }
+              />
+              <TooltipPopup side="top" align="end" className="max-w-96 whitespace-pre-wrap">
+                {diagnosticError}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {props.pane.activeFilePath && !isPreviewMode ? (
+            <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
+              {cursorLabel}
+            </span>
+          ) : null}
+          {activeMonacoLanguage && !isPreviewMode ? (
+            <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
+              {activeMonacoLanguage}
             </span>
           ) : null}
           {props.pane.activeFilePath && !isPreviewMode ? (
-            <button
-              type="button"
-              className="rounded-sm px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-foreground/8 hover:text-foreground"
-              onClick={() => {
-                setProblemsOpen((open) => !open);
-              }}
-              title={
-                diagnosticSummary
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="rounded-md px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      setProblemsOpen((open) => !open);
+                    }}
+                    aria-label={
+                      diagnosticSummary
+                        ? `${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`
+                        : `${problemsOpen ? "Hide" : "Show"} problems panel`
+                    }
+                  />
+                }
+              >
+                {diagnosticSummary ?? "No problems"}
+              </TooltipTrigger>
+              <TooltipPopup side="top" align="end">
+                {diagnosticSummary
                   ? `${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`
-                  : `${problemsOpen ? "Hide" : "Show"} problems panel`
-              }
-            >
-              {diagnosticSummary ?? "No problems"}
-            </button>
+                  : `${problemsOpen ? "Hide" : "Show"} problems panel`}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
               type="button"
-              className="rounded-sm px-1.5 py-px text-foreground/72 transition-[background-color,color] hover:bg-foreground/8 hover:text-foreground"
+              className="rounded-md px-1.5 py-px text-foreground/72 transition-[background-color,color] hover:bg-accent hover:text-foreground"
               onClick={() => props.onDiscardDraft(props.pane.activeFilePath!)}
             >
               Revert
@@ -1723,7 +2394,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
               type="button"
-              className="rounded-sm bg-foreground/10 px-1.5 py-px font-medium text-foreground transition-colors hover:bg-foreground/14"
+              className="rounded-md bg-foreground/10 px-1.5 py-px font-medium text-foreground transition-colors hover:bg-foreground/14"
               onClick={handleSave}
               disabled={props.savingFilePath === props.pane.activeFilePath}
             >

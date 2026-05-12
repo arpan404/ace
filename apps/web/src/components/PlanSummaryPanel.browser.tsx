@@ -54,6 +54,7 @@ describe("PlanSummaryPanel", () => {
             implementedAt: null,
             implementationThreadId: null,
           }}
+          generatedWorkspaceSummary={null}
           activeProvider="codex"
           markdownCwd={undefined}
           workspaceDiffSummary={null}
@@ -63,8 +64,8 @@ describe("PlanSummaryPanel", () => {
     );
 
     try {
-      const expandButton = Array.from(document.querySelectorAll("button")).find(
-        (button) => button.textContent?.trim() === "Open plan preview",
+      const expandButton = Array.from(document.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Long summary plan"),
       ) as HTMLButtonElement | undefined;
       expect(expandButton).toBeTruthy();
       expandButton?.click();
@@ -97,6 +98,48 @@ describe("PlanSummaryPanel", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("shows a visible loading state while a summary is being generated", async () => {
+    let resolveSummaryRequest: ((value?: void | PromiseLike<void>) => void) | undefined;
+    const onRegenerateSummary = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSummaryRequest = resolve;
+        }),
+    );
+    const screen = await render(
+      <div style={{ display: "flex", height: "320px", width: "360px" }}>
+        <PlanSummaryPanel
+          activePlan={null}
+          activeProposedPlan={null}
+          generatedWorkspaceSummary={null}
+          activeProvider="codex"
+          markdownCwd={undefined}
+          onRegenerateSummary={onRegenerateSummary}
+          workspaceDiffSummary={{ additions: 12, deletions: 4, fileCount: 2 }}
+          workspaceRoot={undefined}
+        />
+      </div>,
+    );
+
+    try {
+      const generateButton = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Generate summary"]',
+      );
+      expect(generateButton).toBeTruthy();
+      generateButton?.click();
+
+      await vi.waitFor(() => {
+        expect(onRegenerateSummary).toHaveBeenCalledTimes(1);
+        expect(document.body.textContent).toContain("Generating");
+        expect(document.body.textContent).toContain("Generating summary...");
+        expect(document.querySelector('[role="status"]')).toBeTruthy();
+      });
+    } finally {
+      resolveSummaryRequest?.();
       await screen.unmount();
     }
   });

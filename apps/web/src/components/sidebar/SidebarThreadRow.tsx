@@ -71,31 +71,38 @@ export function ThreadStatusLabel({
   const shellClassName = compact ? "size-4" : "size-4.5";
 
   return (
-    <span
-      title={status.label}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-transparent ${shellClassName} ${status.colorClass}`}
-    >
-      {status.label === "Error" ? (
-        <TriangleAlert className={iconClassName} strokeWidth={2.1} />
-      ) : status.label === "Completed" ? (
-        <CircleCheckBig className={iconClassName} strokeWidth={2.1} />
-      ) : status.label === "Awaiting Input" ? (
-        <TextCursorInput
-          className={`${iconClassName} sidebar-thread-status-awaiting`}
-          strokeWidth={2.05}
-        />
-      ) : status.label === "Plan Ready" ? (
-        <SparklesIcon className={iconClassName} strokeWidth={2.05} />
-      ) : status.label === "Pending Approval" ? (
-        <CircleAlertIcon className={iconClassName} strokeWidth={2.1} />
-      ) : (
-        <LoaderCircleIcon
-          className={`${iconClassName} ${status.pulse ? "animate-spin" : ""}`}
-          strokeWidth={2.05}
-        />
-      )}
-      <span className="sr-only">{status.label}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            aria-label={status.label}
+            className={`inline-flex shrink-0 items-center justify-center rounded-full bg-transparent ${shellClassName} ${status.colorClass}`}
+          >
+            {status.label === "Error" ? (
+              <TriangleAlert className={iconClassName} strokeWidth={2.1} />
+            ) : status.label === "Completed" ? (
+              <CircleCheckBig className={iconClassName} strokeWidth={2.1} />
+            ) : status.label === "Awaiting Input" ? (
+              <TextCursorInput
+                className={`${iconClassName} sidebar-thread-status-awaiting`}
+                strokeWidth={2.05}
+              />
+            ) : status.label === "Plan Ready" ? (
+              <SparklesIcon className={iconClassName} strokeWidth={2.05} />
+            ) : status.label === "Pending Approval" ? (
+              <CircleAlertIcon className={iconClassName} strokeWidth={2.1} />
+            ) : (
+              <LoaderCircleIcon
+                className={`${iconClassName} ${status.pulse ? "animate-spin" : ""}`}
+                strokeWidth={2.05}
+              />
+            )}
+            <span className="sr-only">{status.label}</span>
+          </span>
+        }
+      />
+      <TooltipPopup side="top">{status.label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -366,14 +373,22 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {terminalStatus && (
-            <span
-              role="img"
-              aria-label={terminalStatus.label}
-              title={terminalStatus.label}
-              className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-            >
-              <IconTerminal className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    role="img"
+                    aria-label={terminalStatus.label}
+                    className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
+                  >
+                    <IconTerminal
+                      className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
+                    />
+                  </span>
+                }
+              />
+              <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
+            </Tooltip>
           )}
           <div className="flex min-w-12 justify-end">
             {isConfirmingArchive ? (
@@ -504,7 +519,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                         <span
                           aria-label={worktreeStatus.label}
                           className="inline-flex items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
-                          title={worktreeStatus.label}
                         >
                           <GitBranchPlusIcon className="size-3" />
                         </span>
@@ -536,10 +550,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             )}
             <span className={cn(threadMetaClassName, "inline-flex items-center")}>
               {props.showThreadJumpHints && props.jumpLabel ? (
-                <span
-                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground "
-                  title={props.jumpLabel}
-                >
+                <span className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground ">
                   {props.jumpLabel}
                 </span>
               ) : (

@@ -214,6 +214,14 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
+    const generateWorkspaceSummary = vi.fn<TextGenerationShape["generateWorkspaceSummary"]>((_) =>
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateWorkspaceSummary",
+          detail: "disabled in test harness",
+        }),
+      ),
+    );
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
@@ -257,6 +265,7 @@ describe("ProviderCommandReactor", () => {
         Layer.mock(TextGeneration, {
           generateBranchName,
           generateThreadTitle,
+          generateWorkspaceSummary,
         }),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest(input?.serverSettings ?? {})),
@@ -311,6 +320,7 @@ describe("ProviderCommandReactor", () => {
       renameBranch,
       generateBranchName,
       generateThreadTitle,
+      generateWorkspaceSummary,
       stateDir,
       drain,
     };
@@ -510,6 +520,98 @@ describe("ProviderCommandReactor", () => {
     expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
       input: "second queued message",
     });
+  });
+
+  it("dispatches an explicitly sent queued message after an interrupted turn", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-start-before-interrupt"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-before-interrupt"),
+          role: "user",
+          text: "start and interrupt",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-interrupt-before-queue-send"),
+        threadId,
+        turnId: asTurnId("turn-1"),
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.makeUnsafe("cmd-mark-interrupted-before-queue-send"),
+        threadId,
+        turnId: asTurnId("turn-1"),
+        completedAt: now,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-interrupted-before-queue-send"),
+        status: "missing",
+        source: "git-checkpoint",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-queue-after-interrupt"),
+        threadId,
+        position: "back",
+        message: {
+          id: asMessageId("queued-after-interrupt"),
+          prompt: "send queued after interrupt",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.dispatch",
+        commandId: CommandId.makeUnsafe("cmd-send-queued-after-interrupt"),
+        threadId,
+        messageId: asMessageId("queued-after-interrupt"),
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
+      input: "send queued after interrupt",
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.queuedSteerRequest).toBeNull();
   });
 
   it("does not start a queued OpenCode steer turn while the live provider turn is still running", async () => {
@@ -1264,7 +1366,7 @@ describe("ProviderCommandReactor", () => {
           sourceThreadId: ThreadId.makeUnsafe("thread-1"),
           fromProvider: "codex",
           toProvider: "codex",
-          mode: "transcript",
+          mode: "best",
           createdAt: now,
         },
         createdAt: now,
@@ -1293,7 +1395,7 @@ describe("ProviderCommandReactor", () => {
       | undefined;
     expect(startInput?.replayTurns?.length).toBeGreaterThan(0);
     expect(startInput?.replayTurns?.[0]?.prompt).toContain(
-      "Handoff context from a prior provider session.",
+      "Best-effort handoff context from a prior provider session.",
     );
     expect(
       startInput?.replayTurns?.some((turn) => turn.prompt.includes("source thread context")),
@@ -2226,6 +2328,57 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession.mock.calls.length).toBe(1);
     expect(harness.stopSession.mock.calls.length).toBe(0);
+  });
+
+  it("restarts a projected session when the provider no longer has a live runtime session", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-missing-live-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-missing-live-1"),
+          role: "user",
+          text: "first",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.runtimeSessions.splice(0);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-missing-live-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-missing-live-2"),
+          role: "user",
+          text: "second",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      runtimeMode: "approval-required",
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    });
   });
 
   it("restarts claude sessions when claude effort changes", async () => {

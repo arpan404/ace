@@ -4,15 +4,20 @@
  * @module ProviderRegistryLive
  */
 import { freemem, totalmem } from "node:os";
-import type { ProviderKind, ServerProvider } from "@ace/contracts";
-import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
+import type { ProviderKind, ServerProvider, ServerSettings } from "@ace/contracts";
+import { Effect, Equal, FileSystem, Layer, Path, PubSub, Ref, Stream } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { ClaudeProviderLive } from "./ClaudeProvider";
-import { CodexProviderLive } from "./CodexProvider";
-import { CursorProviderLive } from "./CursorProvider";
-import { GeminiProviderLive } from "./GeminiProvider";
-import { GitHubCopilotProviderLive } from "./GitHubCopilotProvider";
-import { OpenCodeProviderLive } from "./OpenCodeProvider";
+import { checkClaudeProviderStatus, ClaudeProviderLive } from "./ClaudeProvider";
+import { checkCodexProviderStatus, CodexProviderLive } from "./CodexProvider";
+import { checkCursorProviderStatus, CursorProviderLive } from "./CursorProvider";
+import { checkGeminiProviderStatus, GeminiProviderLive } from "./GeminiProvider";
+import {
+  checkGitHubCopilotProviderStatus,
+  GitHubCopilotProviderLive,
+} from "./GitHubCopilotProvider";
+import { checkOpenCodeProviderStatus, OpenCodeProviderLive } from "./OpenCodeProvider";
+import { checkPiProviderStatus, PiProviderLive } from "./PiProvider";
 import type { ClaudeProviderShape } from "../Services/ClaudeProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import type { CodexProviderShape } from "../Services/CodexProvider";
@@ -25,14 +30,19 @@ import type { GitHubCopilotProviderShape } from "../Services/GitHubCopilotProvid
 import { GitHubCopilotProvider } from "../Services/GitHubCopilotProvider";
 import type { OpenCodeProviderShape } from "../Services/OpenCodeProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
+import type { PiProviderShape } from "../Services/PiProvider";
+import { PiProvider } from "../Services/PiProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
+import { ServerSettingsService } from "../../serverSettings";
 import { withStartupTiming } from "../../startupDiagnostics";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 const PROVIDER_LABEL_BY_KIND: Record<ProviderKind, string> = {
   codex: "Codex",
   claudeAgent: "Claude",
   githubCopilot: "GitHub Copilot",
   cursor: "Cursor",
+  pi: "Pi",
   gemini: "Gemini",
   opencode: "OpenCode",
 };
@@ -78,6 +88,33 @@ export function fallbackProviderSnapshot(
   };
 }
 
+function providerSnapshotKey(provider: ProviderKind, providerInstanceId?: string): string {
+  return `${provider}:${providerInstanceId ?? "default"}`;
+}
+
+function tagProviderSnapshot(
+  snapshot: ServerProvider,
+  input: {
+    readonly providerInstanceId?: string;
+    readonly providerInstanceLabel?: string;
+  },
+): ServerProvider {
+  return {
+    ...snapshot,
+    ...(input.providerInstanceId
+      ? {
+          providerInstanceId: input.providerInstanceId,
+          providerInstanceLabel: input.providerInstanceLabel,
+          isDefaultProviderInstance: false,
+        }
+      : { isDefaultProviderInstance: true }),
+  };
+}
+
+function makeStaticSettingsService(settings: ServerSettings) {
+  return ServerSettingsService.layerTest(settings);
+}
+
 export function loadProviderSnapshotSafely<R, E>(
   provider: ProviderKind,
   snapshot: Effect.Effect<ServerProvider, E, R>,
@@ -97,51 +134,133 @@ const loadProviders = (
   claudeProvider: ClaudeProviderShape,
   gitHubCopilotProvider: GitHubCopilotProviderShape,
   cursorProvider: CursorProviderShape,
+  piProvider: PiProviderShape,
   geminiProvider: GeminiProviderShape,
   openCodeProvider: OpenCodeProviderShape,
+  settings: ServerSettings,
+  childProcessSpawner: unknown,
+  fileSystem: FileSystem.FileSystem,
+  path: Path.Path,
   previousProviders: ReadonlyArray<ServerProvider> = [],
 ): Effect.Effect<ReadonlyArray<ServerProvider>> => {
-  const previousProviderByKind = new Map(
-    previousProviders.map((provider) => [provider.provider, provider]),
+  const previousProviderByKey = new Map(
+    previousProviders.map((provider) => [
+      providerSnapshotKey(provider.provider, provider.providerInstanceId),
+      provider,
+    ]),
   );
+
+  const loadScopedSnapshot = (
+    provider: ProviderKind,
+    providerInstanceId: string,
+    providerInstanceLabel: string,
+  ): Effect.Effect<ServerProvider, never> => {
+    const scopedSettings: ServerSettings = {
+      ...settings,
+      providers: {
+        ...settings.providers,
+        [provider]: resolveProviderSettings(settings, provider, providerInstanceId),
+      } as ServerSettings["providers"],
+    };
+    const settingsLayer = makeStaticSettingsService(scopedSettings);
+    const previousProvider = previousProviderByKey.get(
+      providerSnapshotKey(provider, providerInstanceId),
+    );
+
+    const snapshotEffect =
+      provider === "codex"
+        ? checkCodexProviderStatus().pipe(
+            Effect.provide(settingsLayer),
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.provideService(
+              ChildProcessSpawner.ChildProcessSpawner,
+              childProcessSpawner as never,
+            ),
+          )
+        : provider === "claudeAgent"
+          ? checkClaudeProviderStatus().pipe(
+              Effect.provide(settingsLayer),
+              Effect.provideService(
+                ChildProcessSpawner.ChildProcessSpawner,
+                childProcessSpawner as never,
+              ),
+            )
+          : provider === "githubCopilot"
+            ? checkGitHubCopilotProviderStatus().pipe(Effect.provide(settingsLayer))
+            : provider === "cursor"
+              ? checkCursorProviderStatus().pipe(
+                  Effect.provide(settingsLayer),
+                  Effect.provideService(
+                    ChildProcessSpawner.ChildProcessSpawner,
+                    childProcessSpawner as never,
+                  ),
+                )
+              : provider === "pi"
+                ? checkPiProviderStatus().pipe(
+                    Effect.provide(settingsLayer),
+                    Effect.provideService(
+                      ChildProcessSpawner.ChildProcessSpawner,
+                      childProcessSpawner as never,
+                    ),
+                  )
+                : provider === "gemini"
+                  ? checkGeminiProviderStatus().pipe(
+                      Effect.provide(settingsLayer),
+                      Effect.provideService(
+                        ChildProcessSpawner.ChildProcessSpawner,
+                        childProcessSpawner as never,
+                      ),
+                    )
+                  : checkOpenCodeProviderStatus().pipe(Effect.provide(settingsLayer));
+
+    return loadProviderSnapshotSafely(provider, snapshotEffect, previousProvider).pipe(
+      Effect.map((snapshot) =>
+        tagProviderSnapshot(snapshot, {
+          providerInstanceId,
+          providerInstanceLabel,
+        }),
+      ),
+    );
+  };
+
+  const loadProviderFamily = (
+    provider: ProviderKind,
+    defaultSnapshot: Effect.Effect<ServerProvider>,
+  ): Effect.Effect<ReadonlyArray<ServerProvider>, never> => {
+    const defaultProvider = settings.providers[provider];
+    const instanceSnapshots = defaultProvider.instances.map((instance) =>
+      loadScopedSnapshot(provider, instance.id, instance.label),
+    );
+    return Effect.all(
+      [
+        loadProviderSnapshotSafely(
+          provider,
+          defaultSnapshot,
+          previousProviderByKey.get(providerSnapshotKey(provider)),
+        ).pipe(Effect.map((snapshot) => tagProviderSnapshot(snapshot, {}))),
+        ...instanceSnapshots,
+      ],
+      {
+        concurrency: "unbounded",
+      },
+    );
+  };
 
   return Effect.all(
     [
-      loadProviderSnapshotSafely(
-        "codex",
-        codexProvider.getSnapshot,
-        previousProviderByKind.get("codex"),
-      ),
-      loadProviderSnapshotSafely(
-        "claudeAgent",
-        claudeProvider.getSnapshot,
-        previousProviderByKind.get("claudeAgent"),
-      ),
-      loadProviderSnapshotSafely(
-        "githubCopilot",
-        gitHubCopilotProvider.getSnapshot,
-        previousProviderByKind.get("githubCopilot"),
-      ),
-      loadProviderSnapshotSafely(
-        "cursor",
-        cursorProvider.getSnapshot,
-        previousProviderByKind.get("cursor"),
-      ),
-      loadProviderSnapshotSafely(
-        "gemini",
-        geminiProvider.getSnapshot,
-        previousProviderByKind.get("gemini"),
-      ),
-      loadProviderSnapshotSafely(
-        "opencode",
-        openCodeProvider.getSnapshot,
-        previousProviderByKind.get("opencode"),
-      ),
+      loadProviderFamily("codex", codexProvider.getSnapshot),
+      loadProviderFamily("claudeAgent", claudeProvider.getSnapshot),
+      loadProviderFamily("githubCopilot", gitHubCopilotProvider.getSnapshot),
+      loadProviderFamily("cursor", cursorProvider.getSnapshot),
+      loadProviderFamily("pi", piProvider.getSnapshot),
+      loadProviderFamily("gemini", geminiProvider.getSnapshot),
+      loadProviderFamily("opencode", openCodeProvider.getSnapshot),
     ],
     {
       concurrency: "unbounded",
     },
-  );
+  ).pipe(Effect.map((families) => families.flat()));
 };
 
 export const haveProvidersChanged = (
@@ -157,11 +276,16 @@ export const ProviderRegistryLive = Layer.effect(
       claudeProvider,
       gitHubCopilotProvider,
       cursorProvider,
+      piProvider,
       geminiProvider,
       openCodeProvider,
+      serverSettings,
+      childProcessSpawner,
+      fileSystem,
+      path,
     ] = yield* withStartupTiming(
       "providers",
-      "Initializing provider services",
+      "Initializing provider services and dependencies",
       Effect.all(
         [
           withStartupTiming(
@@ -186,6 +310,11 @@ export const ProviderRegistryLive = Layer.effect(
           ),
           withStartupTiming(
             "providers",
+            "Initializing Pi provider service",
+            Effect.service(PiProvider),
+          ),
+          withStartupTiming(
+            "providers",
             "Initializing Gemini provider service",
             Effect.service(GeminiProvider),
           ),
@@ -194,6 +323,22 @@ export const ProviderRegistryLive = Layer.effect(
             "Initializing OpenCode provider service",
             Effect.service(OpenCodeProvider),
           ),
+          withStartupTiming(
+            "providers",
+            "Resolving server settings service",
+            Effect.service(ServerSettingsService),
+          ),
+          withStartupTiming(
+            "providers",
+            "Resolving child process spawner",
+            Effect.service(ChildProcessSpawner.ChildProcessSpawner),
+          ),
+          withStartupTiming(
+            "providers",
+            "Resolving file system",
+            Effect.service(FileSystem.FileSystem),
+          ),
+          withStartupTiming("providers", "Resolving path service", Effect.service(Path.Path)),
         ] as const,
         {
           concurrency: "unbounded",
@@ -218,8 +363,13 @@ export const ProviderRegistryLive = Layer.effect(
           claudeProvider,
           gitHubCopilotProvider,
           cursorProvider,
+          piProvider,
           geminiProvider,
           openCodeProvider,
+          yield* serverSettings.getSettings,
+          childProcessSpawner,
+          fileSystem,
+          path,
         ),
         {
           endDetail: (providers) => ({
@@ -237,13 +387,19 @@ export const ProviderRegistryLive = Layer.effect(
       readonly publish?: boolean;
     }) {
       const previousProviders = yield* Ref.get(providersRef);
+      const settings = yield* serverSettings.getSettings;
       const providers = yield* loadProviders(
         codexProvider,
         claudeProvider,
         gitHubCopilotProvider,
         cursorProvider,
+        piProvider,
         geminiProvider,
         openCodeProvider,
+        settings,
+        childProcessSpawner,
+        fileSystem,
+        path,
         previousProviders,
       );
       yield* Ref.set(providersRef, providers);
@@ -255,22 +411,7 @@ export const ProviderRegistryLive = Layer.effect(
       return providers;
     });
 
-    yield* Stream.runForEach(codexProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(claudeProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(gitHubCopilotProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(cursorProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(geminiProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(openCodeProvider.streamChanges, () => syncProviders()).pipe(
+    yield* Stream.runForEach(serverSettings.streamChanges, () => syncProviders()).pipe(
       Effect.forkScoped,
     );
 
@@ -288,6 +429,9 @@ export const ProviderRegistryLive = Layer.effect(
         case "cursor":
           yield* cursorProvider.refresh;
           break;
+        case "pi":
+          yield* piProvider.refresh;
+          break;
         case "gemini":
           yield* geminiProvider.refresh;
           break;
@@ -303,6 +447,7 @@ export const ProviderRegistryLive = Layer.effect(
                 claudeProvider.refresh,
                 gitHubCopilotProvider.refresh,
                 cursorProvider.refresh,
+                piProvider.refresh,
                 geminiProvider.refresh,
                 openCodeProvider.refresh,
               ],
@@ -317,10 +462,7 @@ export const ProviderRegistryLive = Layer.effect(
     });
 
     return {
-      getProviders: syncProviders({ publish: false }).pipe(
-        Effect.tapError(Effect.logError),
-        Effect.orElseSucceed(() => []),
-      ),
+      getProviders: Ref.get(providersRef),
       refresh: (provider?: ProviderKind) =>
         refresh(provider).pipe(
           Effect.tapError(Effect.logError),
@@ -336,6 +478,7 @@ export const ProviderRegistryLive = Layer.effect(
   Layer.provideMerge(ClaudeProviderLive),
   Layer.provideMerge(GitHubCopilotProviderLive),
   Layer.provideMerge(CursorProviderLive),
+  Layer.provideMerge(PiProviderLive),
   Layer.provideMerge(GeminiProviderLive),
   Layer.provideMerge(OpenCodeProviderLive),
 );

@@ -139,6 +139,153 @@ describe("BrowserTabWebview lifecycle", () => {
 
     await screen.unmount();
   });
+
+  it("routes webview popup requests to an in-app browser tab", async () => {
+    const createdWebviews: Array<HTMLElement & { stop: ReturnType<typeof vi.fn> }> = [];
+    Object.defineProperty(document, "createElement", {
+      configurable: true,
+      value: ((tagName: string, options?: ElementCreationOptions) => {
+        if (tagName.toLowerCase() !== "webview") {
+          return originalCreateElement(tagName, options);
+        }
+        const webview = originalCreateElement("webview") as HTMLElement & {
+          canGoBack: () => boolean;
+          canGoForward: () => boolean;
+          closeDevTools: () => void;
+          getTitle: () => string;
+          getURL: () => string;
+          isDevToolsOpened: () => boolean;
+          isLoading: () => boolean;
+          loadURL: (url: string) => Promise<void>;
+          openDevTools: () => void;
+          reload: () => void;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        webview.canGoBack = () => false;
+        webview.canGoForward = () => false;
+        webview.closeDevTools = () => undefined;
+        webview.getTitle = () => "Example";
+        webview.getURL = () => "https://example.com/";
+        webview.isDevToolsOpened = () => false;
+        webview.isLoading = () => false;
+        webview.loadURL = async () => undefined;
+        webview.openDevTools = () => undefined;
+        webview.reload = () => undefined;
+        webview.stop = vi.fn();
+        createdWebviews.push(webview);
+        return webview;
+      }) as typeof document.createElement,
+    });
+
+    const onOpenUrlInNewTab = vi.fn();
+    const screen = await render(
+      <div style={{ height: "320px", width: "480px" }}>
+        <BrowserTabWebview
+          active
+          onContextMenuFallbackRequest={() => undefined}
+          onHandleChange={() => undefined}
+          onOpenUrlInNewTab={onOpenUrlInNewTab}
+          onSnapshotChange={() => undefined}
+          tab={{
+            id: "tab-1",
+            title: "Example",
+            url: "https://example.com/",
+          }}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() => {
+      expect(createdWebviews).toHaveLength(1);
+    });
+
+    const event = new Event("new-window", { cancelable: true }) as Event & { url: string };
+    event.url = "https://openai.com/";
+    createdWebviews[0]?.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onOpenUrlInNewTab).toHaveBeenCalledWith("https://openai.com/");
+
+    await screen.unmount();
+  });
+
+  it("shows a playable error page when the main frame fails to load", async () => {
+    const createdWebviews: Array<HTMLElement & { stop: ReturnType<typeof vi.fn> }> = [];
+    Object.defineProperty(document, "createElement", {
+      configurable: true,
+      value: ((tagName: string, options?: ElementCreationOptions) => {
+        if (tagName.toLowerCase() !== "webview") {
+          return originalCreateElement(tagName, options);
+        }
+        const webview = originalCreateElement("webview") as HTMLElement & {
+          canGoBack: () => boolean;
+          canGoForward: () => boolean;
+          closeDevTools: () => void;
+          getTitle: () => string;
+          getURL: () => string;
+          isDevToolsOpened: () => boolean;
+          isLoading: () => boolean;
+          loadURL: (url: string) => Promise<void>;
+          openDevTools: () => void;
+          reload: () => void;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        webview.canGoBack = () => false;
+        webview.canGoForward = () => false;
+        webview.closeDevTools = () => undefined;
+        webview.getTitle = () => "";
+        webview.getURL = () => "https://missing.example/";
+        webview.isDevToolsOpened = () => false;
+        webview.isLoading = () => false;
+        webview.loadURL = async () => undefined;
+        webview.openDevTools = () => undefined;
+        webview.reload = () => undefined;
+        webview.stop = vi.fn();
+        createdWebviews.push(webview);
+        return webview;
+      }) as typeof document.createElement,
+    });
+
+    const screen = await render(
+      <div style={{ height: "320px", width: "480px" }}>
+        <BrowserTabWebview
+          active
+          onContextMenuFallbackRequest={() => undefined}
+          onHandleChange={() => undefined}
+          onSnapshotChange={() => undefined}
+          tab={{
+            id: "tab-1",
+            title: "Missing",
+            url: "https://missing.example/",
+          }}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() => {
+      expect(createdWebviews).toHaveLength(1);
+    });
+
+    const event = new Event("did-fail-load") as Event & {
+      errorCode: number;
+      errorDescription: string;
+      isMainFrame: boolean;
+      validatedURL: string;
+    };
+    event.errorCode = -105;
+    event.errorDescription = "ERR_NAME_NOT_RESOLVED";
+    event.isMainFrame = true;
+    event.validatedURL = "https://missing.example/";
+    createdWebviews[0]?.dispatchEvent(event);
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("This page could not load");
+      expect(document.body.textContent).toContain("NAME NOT RESOLVED");
+    });
+    expect(document.body.textContent).not.toContain("Click or press Space to jump");
+
+    await screen.unmount();
+  });
 });
 
 describe("designer element capture", () => {
@@ -351,6 +498,58 @@ describe("designer element capture", () => {
         width: 572,
       }),
     );
+  });
+
+  it("ignores full-page decorative backgrounds instead of selecting a huge surface", () => {
+    document.body.innerHTML = `
+      <main id="root" style="position: relative; width: 1280px; min-height: 4200px;">
+        <div
+          id="background"
+          style="
+            position: absolute;
+            inset: 0;
+            min-height: 4200px;
+            background: linear-gradient(180deg, #0f172a, #111827);
+          "
+        ></div>
+      </main>
+    `;
+    const root = document.getElementById("root");
+    const background = document.getElementById("background");
+
+    expect(root).toBeTruthy();
+    expect(background).toBeTruthy();
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 720,
+    });
+    mockRect(root!, {
+      bottom: 4200,
+      height: 4200,
+      left: 0,
+      right: 1280,
+      top: 0,
+      width: 1280,
+    });
+    mockRect(background!, {
+      bottom: 4200,
+      height: 4200,
+      left: 0,
+      right: 1280,
+      top: 0,
+      width: 1280,
+    });
+    mockHitStack([background!, root!, document.body, document.documentElement]);
+
+    const result = evaluateDesignerCapture({ x: 640, y: 360 });
+
+    expect(result.target).toBeNull();
+    expect(result.targetRect).toBeNull();
   });
 
   it("maps guest rects back into the host overlay coordinate space", () => {

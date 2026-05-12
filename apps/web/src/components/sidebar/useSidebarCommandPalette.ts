@@ -54,6 +54,7 @@ interface UseSidebarCommandPaletteInput {
   }) => void;
   readonly onFocusMostRecentThreadForProject: (projectId: ProjectId) => void;
   readonly onNavigateSettings: () => void;
+  readonly onNavigateTerminals: () => void;
   readonly onNavigateToThread: (threadId: ThreadId) => void;
   readonly onNavigateToThreadOnConnection: (connectionUrl: string, threadId: ThreadId) => void;
 }
@@ -63,6 +64,7 @@ interface UseSidebarCommandPaletteResult {
   readonly searchPaletteMode: SearchPaletteMode;
   readonly searchPaletteQuery: string;
   readonly searchPaletteActiveIndex: number;
+  readonly searchPaletteKeyboardNavigationId: number;
   readonly searchPaletteInputRef: React.RefObject<HTMLInputElement | null>;
   readonly normalizedSearchPaletteQuery: string;
   readonly searchPaletteItems: ReadonlyArray<SearchPaletteItem>;
@@ -87,6 +89,7 @@ export function useSidebarCommandPalette(
   const [searchPaletteMode, setSearchPaletteMode] = useState<SearchPaletteMode>("root");
   const [searchPaletteQuery, setSearchPaletteQuery] = useState("");
   const [searchPaletteActiveIndex, setSearchPaletteActiveIndex] = useState(-1);
+  const [searchPaletteKeyboardNavigationId, setSearchPaletteKeyboardNavigationId] = useState(0);
   const searchPaletteInputRef = useRef<HTMLInputElement | null>(null);
 
   const combinedSidebarSnapshot = useMemo<CombinedSidebarSnapshot>(() => {
@@ -241,6 +244,12 @@ export function useSidebarCommandPalette(
         label: "Open settings",
         description: "Settings",
       },
+      {
+        id: "action-open-terminals",
+        type: "action.open-terminals",
+        label: "Open terminals",
+        description: "Manage running terminal processes.",
+      },
     ];
 
     const allProjectItems = combinedSidebarSnapshot.projects.map((project): SearchPaletteItem => {
@@ -306,7 +315,8 @@ export function useSidebarCommandPalette(
         (item) =>
           item.type === "action.new-thread" ||
           item.type === "action.new-project" ||
-          item.type === "action.open-settings",
+          item.type === "action.open-settings" ||
+          item.type === "action.open-terminals",
       ),
     [searchPaletteItems],
   );
@@ -373,6 +383,11 @@ export function useSidebarCommandPalette(
       if (item.type === "action.open-settings") {
         closeSearchPalette();
         input.onNavigateSettings();
+        return;
+      }
+      if (item.type === "action.open-terminals") {
+        closeSearchPalette();
+        input.onNavigateTerminals();
         return;
       }
       if (item.type === "project") {
@@ -448,6 +463,9 @@ export function useSidebarCommandPalette(
           }
           return Math.min(currentIndex + 1, searchPaletteItems.length - 1);
         });
+        if (searchPaletteItems.length > 0) {
+          setSearchPaletteKeyboardNavigationId((current) => current + 1);
+        }
         return;
       }
       if (event.key === "ArrowUp") {
@@ -458,6 +476,9 @@ export function useSidebarCommandPalette(
           }
           return currentIndex <= 0 ? 0 : currentIndex - 1;
         });
+        if (searchPaletteItems.length > 0) {
+          setSearchPaletteKeyboardNavigationId((current) => current + 1);
+        }
         return;
       }
       if (event.key === "Enter") {
@@ -534,6 +555,7 @@ export function useSidebarCommandPalette(
     searchPaletteMode,
     searchPaletteQuery,
     searchPaletteActiveIndex,
+    searchPaletteKeyboardNavigationId,
     searchPaletteInputRef,
     normalizedSearchPaletteQuery,
     searchPaletteItems,

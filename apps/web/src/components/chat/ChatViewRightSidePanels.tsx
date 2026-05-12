@@ -98,44 +98,52 @@ function RightSidePanelBrowserTab(props: {
     useSortable({ id: props.tab.id });
 
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={props.className(props.active, isDragging, isOver)}
-      {...attributes}
-      aria-pressed={props.active}
-      title={props.tab.title}
-      onClick={() => {
-        if (props.suppressClickAfterDragRef.current) {
-          return;
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            ref={setNodeRef}
+            type="button"
+            style={{ transform: CSS.Translate.toString(transform), transition }}
+            className={props.className(props.active, isDragging, isOver)}
+            {...attributes}
+            aria-pressed={props.active}
+            onClick={() => {
+              if (props.suppressClickAfterDragRef.current) {
+                return;
+              }
+              props.onSelect(props.tab.id);
+            }}
+            {...listeners}
+          />
         }
-        props.onSelect(props.tab.id);
-      }}
-      {...listeners}
-    >
-      <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-        <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-        <span
-          role="button"
-          tabIndex={-1}
-          className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-          aria-label={`Close ${props.tab.title}`}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onClose(props.tab.id);
-          }}
-        >
-          <XIcon className="size-3.5" />
+      >
+        <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+          <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+          <span
+            role="button"
+            tabIndex={-1}
+            className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            aria-label={`Close ${props.tab.title}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onClose(props.tab.id);
+            }}
+          >
+            <XIcon className="size-3.5" />
+          </span>
         </span>
-      </span>
-      <span className="max-w-48 truncate">{props.tab.title}</span>
-    </button>
+        <span className="max-w-48 truncate">{props.tab.title}</span>
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+        {props.tab.title}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -156,7 +164,7 @@ function RightSidePanelAddTabMenu(props: {
         <TooltipTrigger
           render={
             <MenuTrigger
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label="Open side panel tab"
             />
           }
@@ -214,7 +222,9 @@ export function RightSidePanelTabStrip(props: {
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
   editorOpen: boolean;
+  floatingChatShortcutLabel: string | null;
   fullscreen: boolean;
+  fullscreenShortcutLabel: string | null;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
   floatingChatOpen: boolean;
@@ -246,10 +256,22 @@ export function RightSidePanelTabStrip(props: {
   const panelToggleTooltipLabel = props.panelToggleShortcutLabel
     ? `Close panel (${props.panelToggleShortcutLabel})`
     : "Close panel";
+  const floatingChatTooltipLabel = props.floatingChatOpen
+    ? "Hide floating chat input"
+    : "Show floating chat input";
+  const floatingChatTooltipWithShortcut = props.floatingChatShortcutLabel
+    ? `${floatingChatTooltipLabel} (${props.floatingChatShortcutLabel})`
+    : floatingChatTooltipLabel;
+  const fullscreenTooltipLabel = props.fullscreen
+    ? "Exit full screen side panel"
+    : "Enter full screen side panel";
+  const fullscreenTooltipWithShortcut = props.fullscreenShortcutLabel
+    ? `${fullscreenTooltipLabel} (${props.fullscreenShortcutLabel})`
+    : fullscreenTooltipLabel;
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
-      "group/tab inline-flex h-9 min-w-max shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-medium transition-colors",
+      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
       active
         ? "bg-accent text-foreground"
         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -460,15 +482,13 @@ export function RightSidePanelTabStrip(props: {
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
+                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
                   props.floatingChatOpen
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
                 aria-pressed={props.floatingChatOpen}
-                aria-label={
-                  props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"
-                }
+                aria-label={floatingChatTooltipWithShortcut}
                 onClick={props.onToggleFloatingChat}
               />
             }
@@ -476,7 +496,7 @@ export function RightSidePanelTabStrip(props: {
             <MessageSquareIcon className="size-4.5" />
           </TooltipTrigger>
           <TooltipPopup side="bottom" align="end">
-            {props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"}
+            {floatingChatTooltipWithShortcut}
           </TooltipPopup>
         </Tooltip>
       ) : null}
@@ -485,10 +505,8 @@ export function RightSidePanelTabStrip(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label={
-                props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"
-              }
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={fullscreenTooltipWithShortcut}
               onClick={props.onToggleFullscreen}
             />
           }
@@ -500,7 +518,7 @@ export function RightSidePanelTabStrip(props: {
           )}
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
-          {props.fullscreen ? "Exit full screen" : "Enter full screen"}
+          {fullscreenTooltipWithShortcut}
         </TooltipPopup>
       </Tooltip>
       <Tooltip>
@@ -508,7 +526,8 @@ export function RightSidePanelTabStrip(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-pressed="true"
               aria-label={panelToggleTooltipLabel}
               onClick={props.onTogglePanelVisibility}
             />

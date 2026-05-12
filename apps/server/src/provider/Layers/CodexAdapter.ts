@@ -11,6 +11,7 @@ import {
   type CanonicalRequestType,
   type ProviderEvent,
   type ProviderRuntimeEvent,
+  type ProviderSlashCommand,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   RuntimeItemId,
@@ -45,7 +46,14 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
+import {
+  mergeProviderSlashCommands,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { discoverCodexExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
+import { CODEX_GOAL_SLASH_COMMAND, isCodexGoalsFeatureEnabled } from "../codexGoalFeature.ts";
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
@@ -63,6 +71,12 @@ export interface CodexAdapterLiveOptions {
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly resolveGoalsFeatureEnabled?: (input: {
+    readonly binaryPath: string;
+    readonly cwd: string;
+    readonly homePath?: string;
+    readonly launchEnv?: Readonly<Record<string, string>>;
+  }) => boolean;
 }
 
 interface CodexReplayBootstrapState {
@@ -108,10 +122,63 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
 }
 
 const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
+const SESSION_CONFIG_COMMAND_KEYS = [
+  "availableCommands",
+  "available_commands",
+  "slashCommands",
+  "slash_commands",
+  "commands",
+] as const;
 
 function isFatalCodexProcessStderrMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return FATAL_CODEX_STDERR_SNIPPETS.some((snippet) => normalized.includes(snippet));
+}
+
+function readSessionConfigCommandEntries(value: unknown): ReadonlyArray<unknown> | undefined {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  const record = asObject(value);
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of SESSION_CONFIG_COMMAND_KEYS) {
+    const entries = asArray(record[key]);
+    if (entries) {
+      return entries;
+    }
+  }
+  return undefined;
+}
+
+function readSessionConfiguredCommandEntries(
+  payload: Record<string, unknown> | undefined,
+): ReadonlyArray<unknown> | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  return (
+    readSessionConfigCommandEntries(payload) ??
+    readSessionConfigCommandEntries(payload.config) ??
+    readSessionConfigCommandEntries(payload.session) ??
+    readSessionConfigCommandEntries(asObject(payload.session)?.config)
+  );
+}
+
+function mergeSessionConfiguredCommandEntries(
+  providerCommands: ReadonlyArray<unknown> | undefined,
+  extensionCommands: ReadonlyArray<ProviderSlashCommand>,
+): ReadonlyArray<unknown> | undefined {
+  if (providerCommands === undefined) {
+    return extensionCommands.length > 0 ? extensionCommands : undefined;
+  }
+  if (extensionCommands.length === 0) {
+    return providerCommands;
+  }
+  return [...providerCommands, ...extensionCommands];
 }
 
 function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
@@ -213,6 +280,27 @@ function toCanonicalItemType(raw: unknown): CanonicalItemType {
   return "unknown";
 }
 
+function isImageGenerationItem(source: Record<string, unknown>): boolean {
+  return normalizeItemType(source.type ?? source.kind).includes("image generation");
+}
+
+function imageGenerationAssistantLifecycleEvent(
+  event: ProviderEvent,
+  canonicalThreadId: ThreadId,
+  lifecycle: "item.started" | "item.completed",
+): ProviderRuntimeEvent {
+  return {
+    ...runtimeEventBase(event, canonicalThreadId),
+    type: lifecycle,
+    payload: {
+      itemType: "assistant_message",
+      status: lifecycle === "item.started" ? "inProgress" : "completed",
+      title: "Assistant message",
+      ...(event.payload !== undefined ? { data: event.payload } : {}),
+    },
+  };
+}
+
 function itemTitle(itemType: CanonicalItemType): string | undefined {
   switch (itemType) {
     case "assistant_message":
@@ -242,6 +330,28 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
   }
 }
 
+function itemTitleForSource(
+  itemType: CanonicalItemType,
+  source: Record<string, unknown>,
+): string | undefined {
+  const normalizedType = normalizeItemType(source.type ?? source.kind);
+  if (normalizedType.includes("image generation")) {
+    return "Image generation";
+  }
+  if (itemType === "file_change") {
+    const detail = itemDetail(source, source)?.trim().toLowerCase();
+    if (
+      detail === "read" ||
+      detail === "read file" ||
+      detail === "open file" ||
+      detail === "view file"
+    ) {
+      return "Read file";
+    }
+  }
+  return itemTitle(itemType);
+}
+
 function itemDetail(
   item: Record<string, unknown>,
   payload: Record<string, unknown>,
@@ -254,6 +364,7 @@ function itemDetail(
     asString(item.text),
     asString(item.path),
     asString(item.prompt),
+    asString(item.revisedPrompt),
     asString(nestedResult?.command),
     asString(payload.command),
     asString(payload.message),
@@ -567,6 +678,7 @@ function mapItemLifecycle(
   }
 
   const detail = itemDetail(source, payload ?? {});
+  const title = itemTitleForSource(itemType, source);
   const status =
     lifecycle === "item.started"
       ? "inProgress"
@@ -580,16 +692,43 @@ function mapItemLifecycle(
     payload: {
       itemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
+      ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };
 }
 
+function hookOutputText(run: Record<string, unknown> | undefined): string | undefined {
+  const entries = asArray(run?.entries);
+  if (!entries) {
+    return undefined;
+  }
+
+  const text = entries
+    .map((entry) => asString(asObject(entry)?.text)?.trim())
+    .filter((entry): entry is string => entry !== undefined && entry.length > 0)
+    .join("\n");
+  return text.length > 0 ? text : undefined;
+}
+
+function hookOutcome(value: unknown): "success" | "error" | "cancelled" {
+  switch (asString(value)) {
+    case "completed":
+      return "success";
+    case "stopped":
+      return "cancelled";
+    case "failed":
+    case "blocked":
+    default:
+      return "error";
+  }
+}
+
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
+  availableCommands: ReadonlyArray<ProviderSlashCommand> = providerFallbackSlashCommands(PROVIDER),
 ): ReadonlyArray<ProviderRuntimeEvent> {
   const payload = asObject(event.payload);
   const turn = asObject(payload?.turn);
@@ -679,6 +818,20 @@ function mapToRuntimeEvents(
 
   if (event.method === "session/ready") {
     const processPid = toProcessPid(payload);
+    const configuredEvent =
+      availableCommands.length > 0
+        ? [
+            {
+              ...runtimeEventBase(event, canonicalThreadId),
+              type: "session.configured" as const,
+              payload: {
+                config: {
+                  availableCommands,
+                },
+              },
+            },
+          ]
+        : [];
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -689,11 +842,16 @@ function mapToRuntimeEvents(
           ...(processPid !== undefined ? { processPid } : {}),
         },
       },
+      ...configuredEvent,
     ];
   }
 
   if (event.method === "session/started") {
     const processPid = toProcessPid(payload);
+    const mergedCommands = mergeSessionConfiguredCommandEntries(
+      readSessionConfiguredCommandEntries(payload),
+      availableCommands,
+    );
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -702,6 +860,33 @@ function mapToRuntimeEvents(
           ...(event.message ? { message: event.message } : {}),
           ...(event.payload !== undefined ? { resume: event.payload } : {}),
           ...(processPid !== undefined ? { processPid } : {}),
+        },
+      },
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "session.configured",
+        payload: {
+          config: mergedCommands ? { availableCommands: mergedCommands } : {},
+        },
+      },
+    ];
+  }
+
+  if (event.method === "session/configured") {
+    const mergedCommands = mergeSessionConfiguredCommandEntries(
+      readSessionConfiguredCommandEntries(payload),
+      availableCommands,
+    );
+    const configPayload = asObject(payload?.config) ?? payload ?? {};
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "session.configured",
+        payload: {
+          config: {
+            ...configPayload,
+            ...(mergedCommands ? { availableCommands: mergedCommands } : {}),
+          },
         },
       },
     ];
@@ -870,6 +1055,39 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "hook/started") {
+    const run = asObject(payload?.run);
+    const hookId = asString(run?.id) ?? String(event.id);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "hook.started",
+        payload: {
+          hookId,
+          hookName: asString(run?.handlerType) ?? "hook",
+          hookEvent: asString(run?.eventName) ?? "hook",
+        },
+      },
+    ];
+  }
+
+  if (event.method === "hook/completed") {
+    const run = asObject(payload?.run);
+    const hookId = asString(run?.id) ?? String(event.id);
+    const output = hookOutputText(run);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "hook.completed",
+        payload: {
+          hookId,
+          outcome: hookOutcome(run?.status),
+          ...(output ? { output } : {}),
+        },
+      },
+    ];
+  }
+
   if (event.method === "turn/diff/updated") {
     return [
       {
@@ -886,7 +1104,23 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "rawResponseItem/completed") {
+    const payload = asObject(event.payload);
+    const item = asObject(payload?.item);
+    const source = item ?? payload;
+    if (source && isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.completed")];
+    }
+    return [];
+  }
+
   if (event.method === "item/started") {
+    const payload = asObject(event.payload);
+    const item = asObject(payload?.item);
+    const source = item ?? payload;
+    if (source && isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.started")];
+    }
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
     return started ? [started] : [];
   }
@@ -897,6 +1131,9 @@ function mapToRuntimeEvents(
     const source = item ?? payload;
     if (!source) {
       return [];
+    }
+    if (isImageGenerationItem(source)) {
+      return [imageGenerationAssistantLifecycleEvent(event, canonicalThreadId, "item.completed")];
     }
     const itemType = source ? toCanonicalItemType(source.type ?? source.kind) : "unknown";
     if (itemType === "plan") {
@@ -1394,6 +1631,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   );
   const serverSettingsService = yield* ServerSettingsService;
   const replayBootstrapByThreadId = new Map<ThreadId, CodexReplayBootstrapState>();
+  const extensionCommandsByThreadId = new Map<ThreadId, ReadonlyArray<ProviderSlashCommand>>();
 
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
@@ -1406,7 +1644,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       }
 
       const codexSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+        Effect.map((settings) =>
+          resolveProviderSettings(settings, "codex", input.providerInstanceId),
+        ),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -1419,14 +1659,40 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      const cwd = input.cwd ?? process.cwd();
+      const discoveredCommands = discoverCodexExtensionSlashCommands({
+        cwd: input.cwd,
+        codexHome: homePath,
+      });
+      const goalsFeatureEnabled = (
+        options?.resolveGoalsFeatureEnabled ?? isCodexGoalsFeatureEnabled
+      )({
+        binaryPath,
+        cwd,
+        ...(homePath ? { homePath } : {}),
+        ...(Object.keys(codexSettings.launchEnv).length > 0
+          ? { launchEnv: codexSettings.launchEnv }
+          : {}),
+      });
+      extensionCommandsByThreadId.set(
+        input.threadId,
+        mergeProviderSlashCommands(
+          discoveredCommands,
+          goalsFeatureEnabled ? [CODEX_GOAL_SLASH_COMMAND] : [],
+        ),
+      );
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         runtimeMode: input.runtimeMode,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         binaryPath,
         ...(homePath ? { homePath } : {}),
+        ...(Object.keys(codexSettings.launchEnv).length > 0
+          ? { launchEnv: codexSettings.launchEnv }
+          : {}),
         ...(input.modelSelection?.provider === "codex"
           ? { model: input.modelSelection.model }
           : {}),
@@ -1444,13 +1710,20 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             detail: toMessage(cause, "Failed to start Codex adapter session."),
             cause,
           }),
-      });
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => extensionCommandsByThreadId.delete(input.threadId)),
+        ),
+      );
       const replayTurns = cloneReplayTurns(input.replayTurns);
       replayBootstrapByThreadId.set(input.threadId, {
         replayTurns,
         pendingBootstrapReset: replayTurns.length > 0,
       });
-      return session;
+      return {
+        ...session,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
+      };
     },
   );
 
@@ -1621,6 +1894,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
     Effect.sync(() => {
       replayBootstrapByThreadId.delete(threadId);
+      extensionCommandsByThreadId.delete(threadId);
       manager.stopSession(threadId);
     });
 
@@ -1633,6 +1907,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const stopAll: CodexAdapterShape["stopAll"] = () =>
     Effect.sync(() => {
       replayBootstrapByThreadId.clear();
+      extensionCommandsByThreadId.clear();
       manager.stopAll();
     });
 
@@ -1649,7 +1924,11 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     const services = yield* Effect.services<never>();
     const listenerEffect = Effect.fn("listener")(function* (event: ProviderEvent) {
       yield* writeNativeEvent(event);
-      const runtimeEvents = mapToRuntimeEvents(event, event.threadId);
+      const runtimeEvents = mapToRuntimeEvents(
+        event,
+        event.threadId,
+        extensionCommandsByThreadId.get(event.threadId),
+      );
       if (runtimeEvents.length === 0) {
         yield* Effect.logDebug("ignoring unhandled Codex provider event", {
           method: event.method,

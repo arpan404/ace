@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   DEFAULT_TERMINAL_ID,
   type TerminalEvent,
+  type TerminalProcessSummary,
   type TerminalSessionSnapshot,
   type TerminalSessionStatus,
 } from "@ace/contracts";
@@ -151,6 +152,19 @@ function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
     history: session.history,
     exitCode: session.exitCode,
     exitSignal: session.exitSignal,
+    updatedAt: session.updatedAt,
+  };
+}
+
+function processSummary(session: TerminalSessionState): TerminalProcessSummary {
+  return {
+    threadId: session.threadId,
+    terminalId: session.terminalId,
+    cwd: session.cwd,
+    title: session.title,
+    status: session.status,
+    pid: session.pid,
+    hasRunningSubprocess: session.hasRunningSubprocess,
     updatedAt: session.updatedAt,
   };
 }
@@ -1875,6 +1889,65 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         }),
       );
 
+    const list: TerminalManagerShape["list"] = (input = {}) =>
+      readManagerState.pipe(
+        Effect.map((state) =>
+          [...state.sessions.values()]
+            .filter((session) => {
+              if (input.threadId && session.threadId !== input.threadId) {
+                return false;
+              }
+              if (input.runningOnly === false) {
+                return true;
+              }
+              return session.status === "running" && session.process !== null;
+            })
+            .sort((left, right) => {
+              const threadCompare = left.threadId.localeCompare(right.threadId);
+              if (threadCompare !== 0) {
+                return threadCompare;
+              }
+              return left.terminalId.localeCompare(right.terminalId);
+            })
+            .map(processSummary),
+        ),
+      );
+
+    const terminate: TerminalManagerShape["terminate"] = (input) =>
+      withThreadLock(
+        input.threadId,
+        Effect.gen(function* () {
+          const terminalId = input.terminalId ?? DEFAULT_TERMINAL_ID;
+          const session = yield* requireSession(input.threadId, terminalId);
+          if (!session.process || session.status !== "running") {
+            return yield* new TerminalNotRunningError({
+              threadId: input.threadId,
+              terminalId,
+            });
+          }
+
+          yield* stopProcess(session);
+          yield* persistHistory(input.threadId, terminalId, session.history);
+          const createdAt = new Date().toISOString();
+          yield* publishEvent({
+            type: "activity",
+            threadId: input.threadId,
+            terminalId,
+            createdAt,
+            hasRunningSubprocess: false,
+          });
+          yield* publishEvent({
+            type: "exited",
+            threadId: input.threadId,
+            terminalId,
+            createdAt,
+            exitCode: null,
+            exitSignal: null,
+          });
+          return snapshot(session);
+        }),
+      );
+
     return {
       open,
       write,
@@ -1882,6 +1955,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       clear,
       restart,
       close,
+      list,
+      terminate,
       subscribe: (listener) =>
         Effect.sync(() => {
           terminalEventListeners.add(listener);

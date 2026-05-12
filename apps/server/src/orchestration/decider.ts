@@ -2,6 +2,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationThread,
 } from "@ace/contracts";
 import { Effect } from "effect";
 
@@ -45,6 +46,10 @@ function withEventBase(
     correlationId: input.commandId,
     metadata: input.metadata ?? {},
   };
+}
+
+function resolveHandoffSourceProvider(thread: OrchestrationThread) {
+  return thread.handoff?.toProvider ?? thread.modelSelection.provider;
 }
 
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
@@ -170,10 +175,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             detail: `Handoff source thread '${command.handoff.sourceThreadId}' belongs to a different project.`,
           });
         }
-        if (handoffSourceThread.modelSelection.provider !== command.handoff.fromProvider) {
+        const expectedHandoffSourceProvider = resolveHandoffSourceProvider(handoffSourceThread);
+        if (expectedHandoffSourceProvider !== command.handoff.fromProvider) {
           return yield* new OrchestrationCommandInvariantError({
             commandType: command.type,
-            detail: `Handoff source provider '${command.handoff.fromProvider}' does not match source thread provider '${handoffSourceThread.modelSelection.provider}'.`,
+            detail: `Handoff source provider '${command.handoff.fromProvider}' does not match source thread provider '${expectedHandoffSourceProvider}'.`,
           });
         }
         if (command.handoff.toProvider !== command.modelSelection.provider) {
@@ -475,6 +481,47 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           queuedComposerMessages: [],
+          queuedSteerRequest: null,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.dispatch": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const messageIndex = thread.queuedComposerMessages.findIndex(
+        (message) => message.id === command.messageId,
+      );
+      if (messageIndex < 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not exist.`,
+        });
+      }
+      const queuedComposerMessages = [...thread.queuedComposerMessages];
+      const [message] = queuedComposerMessages.splice(messageIndex, 1);
+      if (message) {
+        queuedComposerMessages.unshift(message);
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages,
+          queuedDispatchRequest: {
+            messageId: command.messageId,
+          },
           queuedSteerRequest: null,
           updatedAt: occurredAt,
         },
@@ -788,6 +835,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.workspace-summary.regenerate": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.workspace-summary-regenerate-requested",
+        payload: {
+          threadId: command.threadId,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.session.set": {
       yield* requireThread({
         readModel,
@@ -885,6 +953,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.messageId,
           role: "assistant",
           text: "",
+          ...(command.attachments !== undefined ? { attachments: command.attachments } : {}),
           turnId: command.turnId ?? null,
           streaming: false,
           ...(command.sequence !== undefined ? { sequence: command.sequence } : {}),

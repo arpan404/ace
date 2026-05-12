@@ -13,6 +13,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { ClaudeModelSelection } from "@ace/contracts";
 import { resolveApiModelId } from "@ace/shared/model";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { TextGenerationError } from "@ace/contracts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
@@ -21,12 +22,17 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  sanitizeWorkspaceSummaryHeadline,
+  sanitizeWorkspaceSummaryKeyChanges,
+  sanitizeWorkspaceSummaryParagraph,
+  sanitizeWorkspaceSummaryRisks,
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { normalizeClaudeModelOptionsWithCapabilities } from "@ace/shared/model";
@@ -77,7 +83,8 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -95,9 +102,8 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       ...(normalizedOptions?.fastMode ? { fastMode: true } : {}),
     };
 
-    const claudeSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.claudeAgent,
+    const claudeSettings = yield* Effect.map(serverSettingsService.getSettings, (settings) =>
+      resolveProviderSettings(settings, "claudeAgent", modelSelection.providerInstanceId),
     ).pipe(Effect.catch(() => Effect.undefined));
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
@@ -116,6 +122,11 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
           "--dangerously-skip-permissions",
         ],
         {
+          env: {
+            ...process.env,
+            ...claudeSettings?.launchEnv,
+            ...(claudeSettings?.configDir ? { CLAUDE_CONFIG_DIR: claudeSettings.configDir } : {}),
+          },
           cwd,
           shell: process.platform === "win32",
           stdin: {
@@ -328,11 +339,46 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateWorkspaceSummary: TextGenerationShape["generateWorkspaceSummary"] = Effect.fn(
+    "ClaudeTextGeneration.generateWorkspaceSummary",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildWorkspaceSummaryPrompt({
+      turnState: input.turnState,
+      userRequests: input.userRequests,
+      assistantWork: input.assistantWork,
+      workingTreeSummary: input.workingTreeSummary,
+      workingTreeDiff: input.workingTreeDiff,
+    });
+
+    if (input.modelSelection.provider !== "claudeAgent") {
+      return yield* new TextGenerationError({
+        operation: "generateWorkspaceSummary",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runClaudeJson({
+      operation: "generateWorkspaceSummary",
+      cwd: input.cwd,
+      prompt,
+      outputSchemaJson: outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return {
+      headline: sanitizeWorkspaceSummaryHeadline(generated.headline),
+      summary: sanitizeWorkspaceSummaryParagraph(generated.summary),
+      keyChanges: sanitizeWorkspaceSummaryKeyChanges(generated.keyChanges),
+      risks: sanitizeWorkspaceSummaryRisks(generated.risks),
+    };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateWorkspaceSummary,
   } satisfies TextGenerationShape;
 });
 

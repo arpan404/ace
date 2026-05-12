@@ -16,12 +16,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconTerminal } from "@tabler/icons-react";
-import { GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpIcon, GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { type MessageId, type ModelSelection } from "@ace/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { formatQueuedComposerMessagePreview } from "~/lib/chat/queuedComposerPreview";
 
 export interface ComposerQueuedMessageItem {
   id: MessageId;
@@ -37,16 +39,22 @@ function SortableQueuedMessageRow(props: {
   draggedMessageId: MessageId | null;
   persistedPositionByMessageId: ReadonlyMap<MessageId, number>;
   steerMessageId: MessageId | null | undefined;
+  canSendNow: boolean;
   onEdit: (messageId: MessageId) => void;
   onDelete: (messageId: MessageId) => void;
+  onSend: (messageId: MessageId) => void;
   onSteer: (messageId: MessageId) => void;
   onOptimisticallySteer: (messageId: MessageId) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition } =
     useSortable({ id: props.message.id });
-  const textPreview = props.message.prompt.replace(/\s+/g, " ").trim();
-  const preview = textPreview.length > 0 ? textPreview : "Queue Message";
+  const preview = formatQueuedComposerMessagePreview({
+    prompt: props.message.prompt,
+    imageCount: props.message.images.length,
+    terminalContextCount: props.message.terminalContexts.length,
+  });
   const isSteered = props.steerMessageId === props.message.id;
+  const showSteerAction = !props.canSendNow && (props.steerMessageId == null || isSteered);
 
   return (
     <div
@@ -58,17 +66,23 @@ function SortableQueuedMessageRow(props: {
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground/55 opacity-0 transition-opacity group-hover/queue-row:opacity-100 group-focus-within/queue-row:opacity-100 active:cursor-grabbing"
-          {...attributes}
-          {...listeners}
-          aria-label="Reorder queued message"
-          title="Reorder queued message"
-        >
-          <GripVerticalIcon className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                ref={setActivatorNodeRef}
+                className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground/55 opacity-0 transition-opacity group-hover/queue-row:opacity-100 group-focus-within/queue-row:opacity-100 active:cursor-grabbing"
+                {...attributes}
+                {...listeners}
+                aria-label="Reorder queued message"
+              />
+            }
+          >
+            <GripVerticalIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Reorder queued message</TooltipPopup>
+        </Tooltip>
         <span className="shrink-0 text-muted-foreground/62">↳</span>
         <span className="shrink-0 rounded-sm border border-border/55 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/72">
           {(() => {
@@ -96,27 +110,64 @@ function SortableQueuedMessageRow(props: {
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
-            isSteered
-              ? "border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16 motion-safe:animate-pulse"
-              : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
-          )}
-          onClick={() => {
-            props.onOptimisticallySteer(props.message.id);
-            props.onSteer(props.message.id);
-          }}
-          aria-label={isSteered ? "Steering queued message" : "Steer queued message"}
-        >
-          <span className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}>
-            ↳
-          </span>
-          {isSteered ? "Steering" : "Steer"}
-        </Button>
+        {props.canSendNow ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 rounded-md bg-primary/10 px-2.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/16 hover:text-primary"
+                  onClick={() => {
+                    props.onSend(props.message.id);
+                  }}
+                  aria-label="Send queued message"
+                />
+              }
+            >
+              <ArrowUpIcon className="mr-1 size-3.5" />
+              Send
+            </TooltipTrigger>
+            <TooltipPopup side="top">Send queued message</TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {showSteerAction ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
+                    isSteered
+                      ? "animate-pulse border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
+                      : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
+                  )}
+                  onClick={() => {
+                    if (!isSteered) {
+                      props.onOptimisticallySteer(props.message.id);
+                    }
+                    props.onSteer(props.message.id);
+                  }}
+                  aria-label={isSteered ? "Steering message" : "Steer queued message"}
+                />
+              }
+            >
+              <span
+                className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}
+              >
+                ↳
+              </span>
+              {isSteered ? "Steering" : "Steer"}
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {isSteered ? "Move back to queue" : "Steer queued message"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
         <Button
           type="button"
           size="icon-xs"
@@ -154,6 +205,8 @@ export function ComposerQueuedMessages(props: {
   onDelete: (messageId: MessageId) => void;
   onClearAll: () => void;
   onReorder: (draggedMessageId: MessageId, targetMessageId: MessageId) => void;
+  canSendNow?: boolean;
+  onSend?: (messageId: MessageId) => void;
   onSteer: (messageId: MessageId) => void;
 }) {
   const hasMessages = props.messages.length > 0;
@@ -244,18 +297,24 @@ export function ComposerQueuedMessages(props: {
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-45"
-            onClick={props.onClearAll}
-            disabled={!hasMessages}
-            aria-label="Clear queued messages"
-            title="Clear queue"
-          >
-            Clear all
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-45"
+                  onClick={props.onClearAll}
+                  disabled={!hasMessages}
+                  aria-label="Clear queued messages"
+                />
+              }
+            >
+              Clear all
+            </TooltipTrigger>
+            <TooltipPopup side="top">Clear queue</TooltipPopup>
+          </Tooltip>
         </div>
       </div>
       <div className="max-h-[126px] overflow-y-auto">
@@ -281,8 +340,10 @@ export function ComposerQueuedMessages(props: {
                   draggedMessageId={draggedMessageId}
                   persistedPositionByMessageId={persistedPositionByMessageId}
                   steerMessageId={props.steerMessageId}
+                  canSendNow={props.canSendNow === true}
                   onEdit={props.onEdit}
                   onDelete={props.onDelete}
+                  onSend={props.onSend ?? props.onSteer}
                   onSteer={props.onSteer}
                   onOptimisticallySteer={(messageId) => {
                     setOptimisticOrder((current) => {

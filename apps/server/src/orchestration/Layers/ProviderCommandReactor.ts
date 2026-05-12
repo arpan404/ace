@@ -173,7 +173,10 @@ function resolveThreadProvider(thread: OrchestrationThread): ProviderKind {
   return thread.modelSelection.provider;
 }
 
-function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
+function threadCanDispatchQueuedMessage(
+  thread: OrchestrationThread,
+  options?: { readonly allowInterruptedDispatch?: boolean },
+): boolean {
   if (thread.deletedAt !== null || thread.archivedAt !== null) {
     return false;
   }
@@ -183,7 +186,11 @@ function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
   if (thread.latestTurn?.state === "running") {
     return false;
   }
-  if (thread.latestTurn?.state === "interrupted" && thread.queuedSteerRequest === null) {
+  if (
+    thread.latestTurn?.state === "interrupted" &&
+    thread.queuedSteerRequest === null &&
+    options?.allowInterruptedDispatch !== true
+  ) {
     return false;
   }
   if (thread.session?.status === "running" || (thread.session?.activeTurnId ?? null) !== null) {
@@ -394,6 +401,7 @@ const make = Effect.gen(function* () {
     ThreadId,
     { readonly createdAt: string; readonly messageId: MessageId }
   >();
+  const queuedDispatchRequestsByThreadId = new Map<ThreadId, MessageId>();
   const pausedQueueDispatchByThreadId = new Set<ThreadId>();
   const nativeSteerReservationsByThreadId = new Set<ThreadId>();
 
@@ -511,6 +519,8 @@ const make = Effect.gen(function* () {
               : "stopped",
           providerName: provider,
           ...(capabilities ? { capabilities } : {}),
+          configOptions: input.thread.session?.configOptions ?? [],
+          commands: input.thread.session?.commands ?? [],
           runtimeMode:
             input.liveSession?.runtimeMode ??
             input.thread.session?.runtimeMode ??
@@ -797,8 +807,12 @@ const make = Effect.gen(function* () {
   });
 
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const queuedDispatchMessageId = queuedDispatchRequestsByThreadId.get(threadId) ?? null;
     if (pausedQueueDispatchByThreadId.has(threadId)) {
-      return;
+      if (queuedDispatchMessageId === null) {
+        return;
+      }
+      pausedQueueDispatchByThreadId.delete(threadId);
     }
     if (queueDispatchReservationsByThreadId.has(threadId)) {
       return;
@@ -829,7 +843,20 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    if (!thread || !threadCanDispatchQueuedMessage(thread)) {
+    if (
+      thread &&
+      queuedDispatchMessageId !== null &&
+      !thread.queuedComposerMessages.some((message) => message.id === queuedDispatchMessageId)
+    ) {
+      queuedDispatchRequestsByThreadId.delete(threadId);
+    }
+
+    if (
+      !thread ||
+      !threadCanDispatchQueuedMessage(thread, {
+        allowInterruptedDispatch: queuedDispatchMessageId !== null,
+      })
+    ) {
       return;
     }
 
@@ -845,6 +872,10 @@ const make = Effect.gen(function* () {
 
     const nextQueuedMessage = thread.queuedComposerMessages[0];
     if (!nextQueuedMessage) {
+      return;
+    }
+    if (queuedDispatchMessageId !== null && nextQueuedMessage.id !== queuedDispatchMessageId) {
+      queuedDispatchRequestsByThreadId.delete(threadId);
       return;
     }
 
@@ -891,6 +922,7 @@ const make = Effect.gen(function* () {
       threadId,
       messageId: nextQueuedMessage.id,
     });
+    queuedDispatchRequestsByThreadId.delete(threadId);
 
     const titleSeed = buildQueuedMessageTitleSeed(nextQueuedMessage);
     queueDispatchReservationsByThreadId.set(threadId, {
@@ -972,6 +1004,7 @@ const make = Effect.gen(function* () {
     }
 
     const desiredRuntimeMode = thread.runtimeMode;
+    const desiredInteractionMode = thread.interactionMode;
     const currentProvider: ProviderKind | undefined = Schema.is(ProviderKind)(
       thread.session?.providerName,
     )
@@ -1016,6 +1049,7 @@ const make = Effect.gen(function* () {
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
         runtimeMode: desiredRuntimeMode,
+        interactionMode: desiredInteractionMode,
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -1025,6 +1059,8 @@ const make = Effect.gen(function* () {
           threadId,
           status: mapProviderSessionStatusToOrchestrationStatus(session.status),
           providerName: session.provider,
+          configOptions: thread.session?.configOptions ?? [],
+          commands: thread.session?.commands ?? [],
           runtimeMode: desiredRuntimeMode,
           // Provider turn ids are not orchestration turn ids.
           activeTurnId: null,
@@ -1067,8 +1103,7 @@ const make = Effect.gen(function* () {
         options?.preferFreshSession === true &&
         sessionModelSwitch === "restart-session" &&
         thread.session?.activeTurnId === null;
-      const shouldRestartMissingLiveSession =
-        options?.preferFreshSession === true && activeSession === undefined;
+      const shouldRestartMissingLiveSession = activeSession === undefined;
 
       if (
         !runtimeModeChanged &&
@@ -1601,6 +1636,8 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
         status: "stopped",
         providerName: thread.session?.providerName ?? null,
+        configOptions: thread.session?.configOptions ?? [],
+        commands: thread.session?.commands ?? [],
         runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
         lastError: thread.session?.lastError ?? null,
@@ -1709,6 +1746,15 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-diff-completed" ||
         event.type === "thread.activity-appended"
       ) {
+        if (
+          event.type === "thread.meta-updated" &&
+          event.payload.queuedDispatchRequest !== undefined
+        ) {
+          queuedDispatchRequestsByThreadId.set(
+            event.payload.threadId,
+            event.payload.queuedDispatchRequest.messageId,
+          );
+        }
         if (event.type === "thread.turn-diff-completed") {
           yield* releaseQueueDispatchReservationForCompletedTurn({
             threadId: event.payload.threadId,

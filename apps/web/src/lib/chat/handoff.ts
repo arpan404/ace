@@ -66,18 +66,40 @@ function formatProviderLabel(provider: ProviderKind): string {
 export function formatHandoffMarkerText(handoff: ThreadHandoff): string {
   const fromLabel = formatProviderLabel(handoff.fromProvider);
   const toLabel = formatProviderLabel(handoff.toProvider);
-  const modeLabel = handoff.mode === "compact" ? "compact summary" : "full transcript";
-  return `Handoff from ${fromLabel} to ${toLabel} — ${modeLabel} passed along.`;
+  return `Handoff from ${fromLabel} to ${toLabel}`;
 }
 
-export function buildHandoffMarkerMessage(handoff: ThreadHandoff): ChatMessage {
+function resolveThreadHandoffProvider(thread: Pick<Thread, "handoff" | "modelSelection">) {
+  return thread.handoff?.toProvider ?? thread.modelSelection.provider;
+}
+
+function formatHandoffMarkerTextForTimeline(input: {
+  readonly handoff: ThreadHandoff;
+  readonly sourceThread?: Pick<Thread, "handoff" | "modelSelection"> | null | undefined;
+}): string {
+  if (!input.sourceThread) {
+    return formatHandoffMarkerText(input.handoff);
+  }
+  const fromLabel = formatProviderLabel(resolveThreadHandoffProvider(input.sourceThread));
+  const toLabel = formatProviderLabel(input.handoff.toProvider);
+  return `Handoff from ${fromLabel} to ${toLabel}`;
+}
+
+export function resolveHandoffSourceProvider(thread: Pick<Thread, "handoff" | "modelSelection">) {
+  return resolveThreadHandoffProvider(thread);
+}
+
+export function buildHandoffMarkerMessage(
+  handoff: ThreadHandoff,
+  sourceThread?: Pick<Thread, "handoff" | "modelSelection"> | null | undefined,
+): ChatMessage {
   const messageId = MessageId.makeUnsafe(
     `${HANDOFF_MESSAGE_PREFIX}:${handoff.createdAt}:${handoff.sourceThreadId}:${handoff.toProvider}`,
   );
   return {
     id: messageId,
     role: "system",
-    text: formatHandoffMarkerText(handoff),
+    text: formatHandoffMarkerTextForTimeline({ handoff, sourceThread }),
     createdAt: handoff.createdAt,
     streaming: false,
   };
@@ -160,7 +182,7 @@ export function buildHandoffTimeline(input: {
     }
     const nextThread = orderedThreads[index + 1];
     if (nextThread?.handoff) {
-      messages.push(buildHandoffMarkerMessage(nextThread.handoff));
+      messages.push(buildHandoffMarkerMessage(nextThread.handoff, thread));
     }
   }
 

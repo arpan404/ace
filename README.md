@@ -1,44 +1,146 @@
 # ace
 
-ace is a fast, minimal GUI for coding agents.
+ace is an agentic coding environment for running local coding-agent CLIs through one web, desktop, and remote-control workspace.
 
-> **Attribution:** ace is a fork of **T3 Code** by **T3 Tools Inc.** and is released under the MIT License, copyright (c) 2026 **arpan404**.
+It starts provider CLIs behind a shared server, normalizes their runtime events, and streams session state to the UI over WebSocket.
 
-## Quick start
+The project is actively developed and already used as a daily coding workspace. Expect regular improvements as provider CLIs and desktop release flows evolve.
 
-### 1. Install one provider CLI and sign in
+## Providers
 
-- Codex: [Codex CLI](https://github.com/openai/codex) + `codex login`
-- Claude: Claude Code + `claude auth login`
-- GitHub Copilot: [GitHub Copilot CLI](https://docs.github.com/copilot)
-- Cursor: [Cursor](https://cursor.com) + installed `cursor-agent`
-- Gemini: [Gemini CLI](https://github.com/google-gemini/gemini-cli)
-- OpenCode: [OpenCode](https://opencode.ai/docs)
+ace currently includes integrations for:
 
-### 2. Run ace
+- Codex
+- Claude
+- Cursor
+- Gemini
+- GitHub Copilot
+- OpenCode
+- Pi
 
-```bash
-ace serve
-```
+Provider CLIs are installed and authenticated separately. ace does not replace provider accounts or provider-specific auth flows.
 
-## Local development
+Provider-specific features are implemented natively where ace can expose them cleanly. Codex currently has the deepest native integration, including plugins, skills, image generation, and Browser Use inside ace's in-app browser. More provider-specific capabilities are coming across Claude, Cursor, Gemini, GitHub Copilot, OpenCode, and Pi.
+
+See [FEATURES.md](./FEATURES.md) for the current feature map.
+
+## Quick Start
+
+1. Install dependencies:
 
 ```bash
 bun install
-bun dev
 ```
 
-Useful commands:
+2. Install and sign in to at least one supported provider CLI:
 
-- `bun dev` – web app + mobile app + local backend + contracts
-- `bun dev:web` – web app + local backend (paired dev flow)
-- `bun dev:server` – server only
-- `bun dev:marketing` – Astro marketing site
-- `bun dev:desktop` – desktop app
-- `bun dev:mobile` – mobile app (Expo) + server + contracts
-- `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
+Examples:
 
-Dev runner modes default to `~/.ace/dev` for local development data isolation. `bun dev:web` uses `~/.ace/dev/web`, and desktop development uses `~/.ace/dev/desktop`.
+- Codex: `codex login`
+- Claude: `claude auth login`
+- Gemini: install Gemini CLI and sign in
+- Cursor: install `cursor-agent`
+- GitHub Copilot: configure through ace app settings; availability is checked through the Copilot runtime
+- OpenCode: install `opencode`
+- Pi: install the Pi CLI, for example `npm install -g @mariozechner/pi-coding-agent`
+
+3. Check local setup:
+
+```bash
+bun apps/server/src/bin.ts doctor
+```
+
+4. Start the app:
+
+```bash
+bun dev:web
+```
+
+This starts the web app and local server together.
+
+## Desktop Releases
+
+The Electron desktop app lives in `apps/desktop`.
+
+Current desktop release state:
+
+- macOS release artifacts are available.
+- Windows and Linux packaging are part of the release workflow but need more real-device validation before production use.
+- macOS signing/notarization and Windows signing require maintainer-owned signing credentials.
+
+Generated release artifacts should stay out of git. Use ignored release directories such as `release/` or `release-mac-*/`.
+
+From macOS, Linux AppImage artifacts can be built locally in Docker:
+
+```bash
+bun run dist:desktop:linux:docker
+```
+
+The Docker build intentionally uses a Linux `node_modules` volume so platform-native dependencies are installed inside the container instead of reusing host macOS dependencies. Windows installers should still be built on Windows or in the GitHub Actions release matrix because the desktop app includes native dependencies.
+
+## Mobile
+
+The mobile app is in development in `apps/mobile`. It is part of the ace workspace direction for remote supervision and companion workflows, but the web and desktop apps are the primary daily-use surfaces today.
+
+## CLI
+
+The `ace` CLI can start/open the app, manage the daemon, diagnose provider setup, control telemetry, inspect terminals, and manage local/remote runtime state.
+
+Quick examples:
+
+```bash
+# Open the app (reuses or starts daemon)
+ace web
+
+# Check local setup
+ace doctor
+
+# Start daemon in background
+ace daemon start
+
+# Stop daemon (same as `ace daemon stop`)
+ace stop
+
+# Restart daemon
+ace daemon restart
+
+# Telemetry and runtime controls
+ace telemetry off
+ace telemetry status
+ace daemon start --telemetry on
+
+# Managed terminals
+ace terminal list
+```
+
+Full CLI guide with first-run setup, diagnostics, telemetry/privacy controls, terminal management, remote pairing, troubleshooting, and automation examples:
+
+- [docs/cli.md](./docs/cli.md)
+
+## Development
+
+Requirements:
+
+- Bun `1.3.9` or compatible with `package.json`
+- Node `24.13.1` or compatible with `package.json`
+- at least one supported provider CLI installed locally
+
+Common commands:
+
+```bash
+bun dev:web
+```
+
+- `bun dev` - full dev runner
+- `bun dev:web` - web app + server
+- `bun dev:server` - server only
+- `bun dev:desktop` - desktop app
+- `bun dev:mobile` - mobile app
+- `bun dev:marketing` - marketing site
+- `bun fmt`
+- `bun lint`
+- `bun typecheck`
+- `bun run test`
 
 Before considering a change complete, run:
 
@@ -48,85 +150,35 @@ bun lint
 bun typecheck
 ```
 
-OpenCode model behavior:
+Use `bun run test` for tests. Do not use `bun test`; the repo scripts route tests through Turbo/Vitest.
 
-- Provider status/model selection uses provider-grouped OpenCode catalog data.
-- You can select from fetched OpenCode models and add custom OpenCode model slugs in Settings.
+## Architecture
 
-## Desktop app
+- `apps/server` manages provider sessions, daemon lifecycle, CLI commands, and WebSocket routing.
+- `apps/web` is the main React/Vite UI.
+- `apps/desktop` wraps the app in Electron and owns native desktop lifecycle/update behavior.
+- Provider runtime activity is projected into shared orchestration events for the client.
+- Some internals are still Codex-first today, but the product and provider layer are designed to support multiple backends.
 
-Download the latest desktop build from [GitHub Releases](https://github.com/arpan404/ace/releases).
-Packaged desktop builds auto-install the `ace` CLI in the background and register daemon autostart at login.
+## Repo Structure
 
-## Remote control modes
+- `apps/web` - React/Vite UI
+- `apps/server` - WebSocket server and provider/session orchestration
+- `apps/desktop` - Electron desktop shell
+- `apps/mobile` - React Native / Expo mobile app
+- `apps/marketing` - marketing site
+- `apps/relay` - relay app
+- `packages/contracts` - shared schemas and protocol types
+- `packages/shared` - shared runtime utilities
 
-- **Desktop app**: manages local agents and multiple remote hosts.
-- **URL/web mode**: manages a single remote host at a time.
-- **Mobile app**: manages multiple hosts with host switching.
-- **Initial authentication**: host-managed direct pairing links (QR or connection string) from **Settings → Devices**.
+## Contributing
 
-## Pairing and direct network access
+Small reliability, performance, cross-platform, and docs improvements are the easiest contributions to review. Open an issue before large features, provider integrations, or protocol changes.
 
-ace remote access uses direct host networking plus one-time pairing sessions.
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-- Host creates one-time pairing links that include a claim endpoint and short-lived secret.
-- Remote clients claim that pairing link, then wait for host approval.
-- Approved devices receive authenticated session credentials for future reconnects.
+## License And Attribution
 
-Development defaults:
+ace is released under the MIT License.
 
-- Server default URL: `ws://127.0.0.1:3773/ws`
-- For LAN/tailnet access, run the host with `ace serve --host <private-ip>`
-- See [REMOTE.md](./REMOTE.md) for end-to-end remote setup details and security notes.
-
-## Mobile app (Expo)
-
-The mobile app lives in `apps/mobile` and connects to the same ace server over WebSocket RPC.
-
-```bash
-bun dev:mobile
-```
-
-or run separately:
-
-```bash
-bun dev:server
-bun --cwd apps/mobile run dev
-```
-
-Mobile app highlights:
-
-- Bottom tabs: **Projects**, **Threads**, **Alerts**, **Hosts**, **Settings**
-- Multi-host instances (manual + pairing QR/connection string import) with active-host switching
-- Project dashboard with working/completed/pending agent counts
-
-Default host behavior:
-
-- `bun dev:mobile` starts the ace server and Expo app together.
-- The dev runner passes the selected server port through `EXPO_PUBLIC_ACE_PORT`.
-- The app infers your desktop host from Expo runtime and targets `ws://<desktop-host>:<port>/ws`.
-- For physical devices, run the host on a reachable interface, for example `bun dev:mobile --host 0.0.0.0`.
-- Override defaults with:
-  - `EXPO_PUBLIC_ACE_HOST` (host/IP only)
-  - `EXPO_PUBLIC_ACE_PORT` (port)
-  - or full `EXPO_PUBLIC_ACE_WS_URL`
-
-## Repo structure
-
-- `apps/web` – React/Vite frontend
-- `apps/mobile` – React Native/Expo mobile app
-- `apps/server` – WebSocket server and provider/session orchestration
-- `apps/desktop` – Electron shell
-- `apps/marketing` – Astro marketing site
-- `packages/contracts` – shared schemas and protocol types
-- `packages/shared` – shared runtime utilities
-
-## Keybindings
-
-Keybinding commands, parsing, defaults, and UI metadata are documented in [KEYBINDINGS.md](./KEYBINDINGS.md).
-
-## Project status
-
-ace is still early-stage and changing quickly. Expect rough edges.
-
-If you want to contribute, read [CONTRIBUTING.md](./CONTRIBUTING.md) first.
+This project began as a fork of T3 Code by T3 Tools Inc. and is now maintained as ace by arpan404.

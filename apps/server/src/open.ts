@@ -31,9 +31,18 @@ export interface RevealInFileManagerInput {
   readonly path: string;
 }
 
+export interface PathExistsInput {
+  readonly path: string;
+}
+
 interface EditorLaunch {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+}
+
+interface LinuxDesktopToolStatus {
+  readonly opener: "xdg-open" | "gio" | null;
+  readonly folderPicker: "zenity" | "kdialog" | null;
 }
 
 interface FolderPickerLaunch {
@@ -62,6 +71,30 @@ function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
     default:
       return "xdg-open";
   }
+}
+
+function resolveLinuxOpenLaunch(
+  targetPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): EditorLaunch | null {
+  if (isCommandAvailable("xdg-open", { platform: "linux", env })) {
+    return { command: "xdg-open", args: [targetPath] };
+  }
+  if (isCommandAvailable("gio", { platform: "linux", env })) {
+    return { command: "gio", args: ["open", targetPath] };
+  }
+  return null;
+}
+
+function fileManagerLaunchForPlatform(
+  platform: NodeJS.Platform,
+  targetPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): EditorLaunch | null {
+  if (platform === "linux") {
+    return resolveLinuxOpenLaunch(targetPath, env);
+  }
+  return { command: fileManagerCommandForPlatform(platform), args: [targetPath] };
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -197,6 +230,23 @@ function resolveLinuxFolderPickerLaunch(
   return null;
 }
 
+export function inspectLinuxDesktopTools(
+  env: NodeJS.ProcessEnv = process.env,
+): LinuxDesktopToolStatus {
+  return {
+    opener: isCommandAvailable("xdg-open", { platform: "linux", env })
+      ? "xdg-open"
+      : isCommandAvailable("gio", { platform: "linux", env })
+        ? "gio"
+        : null,
+    folderPicker: isCommandAvailable("zenity", { platform: "linux", env })
+      ? "zenity"
+      : isCommandAvailable("kdialog", { platform: "linux", env })
+        ? "kdialog"
+        : null,
+  };
+}
+
 function resolveFolderPickerUnavailableMessage(platform: NodeJS.Platform): string {
   if (platform === "linux") {
     return "Folder picker is unavailable. Install zenity or kdialog, or enter the path manually.";
@@ -244,6 +294,13 @@ export function resolveAvailableEditors(
 
   for (const editor of EDITORS) {
     const command = editor.command ?? fileManagerCommandForPlatform(platform);
+    if (editor.id === "file-manager" && editor.command === null) {
+      if (fileManagerLaunchForPlatform(platform, ".", env) !== null) {
+        available.push(editor.id);
+      }
+      continue;
+    }
+
     if (isCommandAvailable(command, { platform, env })) {
       available.push(editor.id);
     }
@@ -382,6 +439,11 @@ export interface OpenShape {
    * Reveal a file or directory in the operating system file manager.
    */
   readonly revealInFileManager: (input: RevealInFileManagerInput) => Effect.Effect<void, OpenError>;
+
+  /**
+   * Check whether a local filesystem path exists.
+   */
+  readonly pathExists: (input: PathExistsInput) => Effect.Effect<boolean>;
 }
 
 /**
@@ -396,6 +458,7 @@ export class Open extends ServiceMap.Service<Open, OpenShape>()("ace/open") {}
 export const resolveEditorLaunch = Effect.fnUntraced(function* (
   input: OpenInEditorInput,
   platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): Effect.fn.Return<EditorLaunch, OpenError> {
   const editorDef = EDITORS.find((editor) => editor.id === input.editor);
   if (!editorDef) {
@@ -412,12 +475,19 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
     return yield* new OpenError({ message: `Unsupported editor: ${input.editor}` });
   }
 
-  return { command: fileManagerCommandForPlatform(platform), args: [input.cwd] };
+  const launch = fileManagerLaunchForPlatform(platform, input.cwd, env);
+  if (!launch) {
+    return yield* new OpenError({
+      message: "File manager is unavailable. Install xdg-utils or GLib gio.",
+    });
+  }
+  return launch;
 });
 
 export const resolveRevealInFileManagerLaunch = Effect.fnUntraced(function* (
   input: RevealInFileManagerInput,
   platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): Effect.fn.Return<EditorLaunch, OpenError> {
   const targetPath = input.path.trim();
   if (targetPath.length === 0) {
@@ -437,7 +507,13 @@ export const resolveRevealInFileManagerLaunch = Effect.fnUntraced(function* (
           return dirname(targetPath);
         }
       });
-      return { command: "xdg-open", args: [openPath] };
+      const launch = resolveLinuxOpenLaunch(openPath, env);
+      if (!launch) {
+        return yield* new OpenError({
+          message: "File manager is unavailable. Install xdg-utils or GLib gio.",
+        });
+      }
+      return launch;
     }
   }
 });
@@ -490,6 +566,19 @@ const make = Effect.gen(function* () {
     openInEditor: (input) => Effect.flatMap(resolveEditorLaunch(input), launchDetached),
     revealInFileManager: (input) =>
       Effect.flatMap(resolveRevealInFileManagerLaunch(input), launchDetached),
+    pathExists: (input) =>
+      Effect.sync(() => {
+        const targetPath = input.path.trim().replace(LINE_COLUMN_SUFFIX_PATTERN, "");
+        if (targetPath.length === 0) {
+          return false;
+        }
+        try {
+          statSync(targetPath);
+          return true;
+        } catch {
+          return false;
+        }
+      }),
   } satisfies OpenShape;
 });
 

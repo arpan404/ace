@@ -7,6 +7,7 @@ import {
   ApprovalRequestId,
   EventId,
   ProviderItemId,
+  type ProviderInstanceId,
   ProviderRequestKind,
   type ProviderUserInputAnswers,
   ThreadId,
@@ -17,6 +18,7 @@ import {
   type ProviderTurnStartResult,
   RuntimeMode,
   ProviderInteractionMode,
+  type BrowserBridgeOperation,
 } from "@ace/contracts";
 import { normalizeModelSlug } from "@ace/shared/model";
 import { Effect, ServiceMap } from "effect";
@@ -27,11 +29,13 @@ import {
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
 import {
+  CODEX_SPARK_MODEL,
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+import { browserBridge } from "./browserBridge";
 
 export { buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
@@ -66,6 +70,19 @@ interface PendingUserInputRequest {
   itemId?: ProviderItemId;
 }
 
+interface CodexDynamicToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly deferLoading?: boolean;
+}
+
+interface CodexRuntimeModelInfo {
+  readonly slug: string;
+  readonly supportsImageGeneration: boolean;
+  readonly isDefault: boolean;
+}
+
 interface CodexUserInputAnswer {
   answers: string[];
 }
@@ -79,8 +96,10 @@ interface CodexSessionContext {
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
+  modelsBySlug: Map<string, CodexRuntimeModelInfo>;
   nextRequestId: number;
   stopping: boolean;
+  imageGenerationPreflightEnabled: boolean;
 }
 
 interface JsonRpcError {
@@ -124,12 +143,14 @@ export interface CodexAppServerSteerTurnInput {
 export interface CodexAppServerStartSessionInput {
   readonly threadId: ThreadId;
   readonly provider?: "codex";
+  readonly providerInstanceId?: ProviderInstanceId;
   readonly cwd?: string;
   readonly model?: string;
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly launchEnv?: Readonly<Record<string, string>>;
   readonly runtimeMode: RuntimeMode;
 }
 
@@ -163,6 +184,279 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "missing rollout",
   "rollout not found",
 ];
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME = "image_generation_prehook";
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES = new Set([
+  "image generation prehook",
+  "imagegen",
+  "image gen",
+  "image generation",
+]);
+const CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS = `
+## Image Generation Preflight
+
+When you are about to create or edit a raster image with the native image generation capability, first call the \`${CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME}\` tool exactly once for that image request. This tool only opens Ace's live image placeholder; it does not create the image. After it returns, continue with the native image generation capability and do not treat the preflight tool result as the final answer.
+`.trim();
+const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL: CodexDynamicToolSpec = {
+  name: CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME,
+  description:
+    "Open Ace's live image-generation placeholder before using the native image generation capability. This tool does not generate an image; call it once immediately before native raster image generation.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      prompt: {
+        type: "string",
+        description: "Brief description of the image that will be generated.",
+      },
+      size: {
+        type: "string",
+        description: "Requested image dimensions, such as 1536x1024 or 1024x1536.",
+      },
+      width: {
+        type: "number",
+        description: "Requested image width in pixels, when known.",
+      },
+      height: {
+        type: "number",
+        description: "Requested image height in pixels, when known.",
+      },
+      aspectRatio: {
+        type: "string",
+        description: "Requested aspect ratio, when known.",
+      },
+    },
+  },
+};
+const CODEX_BROWSER_BRIDGE_TOOL_NAME = "ace_browser";
+const CODEX_BROWSER_BRIDGE_TOOL_NAMES = new Set(["ace browser", "ace_browser"]);
+const CODEX_BROWSER_BRIDGE_OPERATIONS: readonly BrowserBridgeOperation[] = [
+  "open_url",
+  "navigate_tab_url",
+  "list_tabs",
+  "selected_tab",
+  "get_tab",
+  "select_tab",
+  "switch_tab",
+  "activate_tab",
+  "next_tab",
+  "previous_tab",
+  "select_next_tab",
+  "select_previous_tab",
+  "create_tab",
+  "new_tab",
+  "close_tab",
+  "dom_snapshot",
+  "playwright_dom_snapshot",
+  "dom_cua_get_visible_dom",
+  "screenshot",
+  "playwright_screenshot",
+  "cua_get_visible_screenshot",
+  "click",
+  "cua_click",
+  "cua_double_click",
+  "cua_drag",
+  "cua_keypress",
+  "cua_move",
+  "cua_scroll",
+  "cua_type",
+  "dom_cua_click",
+  "dom_cua_double_click",
+  "dom_cua_keypress",
+  "dom_cua_scroll",
+  "dom_cua_type",
+  "fill",
+  "playwright_locator_click",
+  "playwright_locator_count",
+  "playwright_locator_dblclick",
+  "playwright_locator_fill",
+  "playwright_locator_get_attribute",
+  "playwright_locator_inner_text",
+  "playwright_locator_is_enabled",
+  "playwright_locator_is_visible",
+  "playwright_locator_press",
+  "playwright_locator_select_option",
+  "playwright_locator_set_checked",
+  "playwright_locator_text_content",
+  "playwright_locator_wait_for",
+  "playwright_wait_for_load_state",
+  "playwright_wait_for_timeout",
+  "playwright_wait_for_url",
+  "tab_clipboard_read_text",
+  "tab_clipboard_write_text",
+  "tab_dev_logs",
+  "set_viewport_size",
+  "resize_browser",
+  "get_viewport_size",
+  "get_browser_zoom",
+  "set_browser_zoom",
+  "reset_browser_zoom",
+  "zoom_browser",
+  "name_session",
+  "back",
+  "navigate_tab_back",
+  "forward",
+  "navigate_tab_forward",
+  "reload",
+  "navigate_tab_reload",
+];
+const CODEX_BROWSER_BRIDGE_INSTRUCTIONS = `
+## Ace Browser Bridge
+
+When you need browser automation, use the \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\` dynamic tool. It controls Ace's in-app browser for this thread. Prefer it over any separate/native browser surface when opening pages, inspecting DOM, taking screenshots, clicking, filling, typing, scrolling, navigating tabs, reading clipboard text, or reading console logs.
+
+If the user selected or refers to Browser Use, browser-use, or an in-app browser skill/plugin, fulfill those browser actions through \`${CODEX_BROWSER_BRIDGE_TOOL_NAME}\`. Do not bootstrap a separate browser-client runtime or use Codex's native browser for Ace browser tasks.
+
+Use the official Browser Use operation names when possible: navigate_tab_url, create_tab, selected_tab, list_tabs, close_tab, playwright_dom_snapshot, playwright_screenshot, playwright_locator_*, dom_cua_*, cua_*, tab_clipboard_*, tab_dev_logs, and wait operations. Use select_tab/switch_tab/activate_tab with tabId or index when you need to move between existing tabs, or next_tab/previous_tab for adjacent tab selection. When opening the first URL, use navigate_tab_url or open_url on the selected tab; Ace reuses the initial blank tab instead of leaving an extra "New tab" behind. Use set_viewport_size or resize_browser with a width when testing responsive layouts; Ace will resize the right browser panel and report the resulting viewport. Use get_browser_zoom, set_browser_zoom, reset_browser_zoom, or zoom_browser when zoom matters. You may also use the shorter compatibility names open_url, dom_snapshot, screenshot, click, fill, back, forward, and reload.
+
+Use playwright_dom_snapshot for readable page content and locator ground truth. Use dom_cua_get_visible_dom when you need node ids for DOM CUA actions. For page scrolling, prefer dom_cua_scroll with x/y deltas or cua_scroll with scrollX/scrollY and viewport coordinates; do not use cua_keypress or dom_cua_keypress for page scrolling unless a focused control explicitly needs a keypress.
+
+Screenshots are normalized to the browser viewport's CSS-pixel coordinate space. Use the returned pageViewport, browserZoomFactor, and coordinateSpace metadata before coordinate-based CUA actions if the Ace app or in-app browser is zoomed.
+
+Do not request Browser Use site-access approval for pages controlled through Ace's in-app browser bridge. The bridge is the browser surface for this thread.
+`.trim();
+const CODEX_BROWSER_BRIDGE_TOOL: CodexDynamicToolSpec = {
+  name: CODEX_BROWSER_BRIDGE_TOOL_NAME,
+  description: "Control Ace's in-app browser for this thread with Browser Use-style operations.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: true,
+    required: ["operation"],
+    properties: {
+      operation: {
+        type: "string",
+        enum: [...CODEX_BROWSER_BRIDGE_OPERATIONS],
+        description: "Browser operation to run.",
+      },
+      url: {
+        type: "string",
+        description: "URL for open_url or navigate_tab_url.",
+      },
+      newTab: {
+        type: "boolean",
+        description: "Open the URL in a new in-app browser tab.",
+      },
+      tabId: {
+        type: "string",
+        description: "Optional target Ace browser tab id. Defaults to the selected tab.",
+      },
+      tab_id: {
+        type: "string",
+        description: "Browser Use-style tab id alias.",
+      },
+      index: {
+        type: "number",
+        description: "Zero-based tab index for select_tab/switch_tab/activate_tab.",
+      },
+      tabIndex: {
+        type: "number",
+        description: "Zero-based tab index alias.",
+      },
+      tabNumber: {
+        type: "number",
+        description: "One-based tab number alias.",
+      },
+      forceNewTab: {
+        type: "boolean",
+        description:
+          "Force create_tab/open_url to create a new tab even when the initial blank tab can be reused.",
+      },
+      selector: {
+        type: "string",
+        description: "CSS selector for locator operations.",
+      },
+      node_id: {
+        type: "string",
+        description: "DOM node id from dom_cua_get_visible_dom.",
+      },
+      x: {
+        type: "number",
+        description: "Viewport x coordinate for CUA operations.",
+      },
+      y: {
+        type: "number",
+        description: "Viewport y coordinate for CUA operations.",
+      },
+      scrollX: {
+        type: "number",
+        description: "Horizontal scroll delta for Browser Use scroll operations.",
+      },
+      scrollY: {
+        type: "number",
+        description: "Vertical scroll delta for Browser Use scroll operations.",
+      },
+      width: {
+        type: "number",
+        description: "Requested browser viewport width in CSS pixels for set_viewport_size.",
+      },
+      height: {
+        type: "number",
+        description:
+          "Requested browser viewport height in CSS pixels. Ace reports the actual available height.",
+      },
+      panelWidth: {
+        type: "number",
+        description: "Requested Ace right side browser panel width in CSS pixels.",
+      },
+      rightSidePanelWidth: {
+        type: "number",
+        description: "Alias for panelWidth.",
+      },
+      zoomFactor: {
+        type: "number",
+        description: "Requested browser zoom factor for set_browser_zoom or zoom_browser.",
+      },
+      factor: {
+        type: "number",
+        description: "Alias for zoomFactor.",
+      },
+      zoom: {
+        type: "number",
+        description: "Alias for zoomFactor.",
+      },
+      delta: {
+        type: "number",
+        description: "Relative zoom delta for zoom_browser, such as 0.1 or -0.1.",
+      },
+      value: {
+        type: "string",
+        description: "Value for fill, typing, keypress, attribute name, or select option.",
+      },
+      keys: {
+        type: "array",
+        items: {
+          type: "string",
+        },
+        description: "Key names for Browser Use keypress operations.",
+      },
+      text: {
+        type: "string",
+        description: "Text matcher or text to type.",
+      },
+      timeoutMs: {
+        type: "number",
+        description: "Optional timeout in milliseconds.",
+      },
+    },
+  },
+};
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asStringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asBooleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asUnknownArray(value: unknown): ReadonlyArray<unknown> | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
 
 function messageFromUnknownError(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -303,6 +597,19 @@ The \`request_user_input\` tool is unavailable in Default mode. If you call it w
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 </collaboration_mode>`;
 
+function withAceDynamicToolInstructions(instructions: string): string {
+  const extraInstructions = [
+    CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS,
+    CODEX_BROWSER_BRIDGE_INSTRUCTIONS,
+  ].filter((instruction) => !instructions.includes(instruction));
+
+  if (extraInstructions.length === 0) {
+    return instructions;
+  }
+
+  return `${instructions}\n\n${extraInstructions.join("\n\n")}`;
+}
+
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: "on-request" | "never";
   readonly sandbox: "workspace-write" | "danger-full-access";
@@ -345,10 +652,56 @@ export function normalizeCodexModelSlug(
   return normalized;
 }
 
+export function readCodexRuntimeModels(response: unknown): Map<string, CodexRuntimeModelInfo> {
+  const record = asRecord(response);
+  const entries =
+    asUnknownArray(response) ??
+    asUnknownArray(record?.data) ??
+    asUnknownArray(record?.models) ??
+    asUnknownArray(record?.items) ??
+    [];
+  const models = new Map<string, CodexRuntimeModelInfo>();
+
+  for (const entry of entries) {
+    const model = asRecord(entry);
+    if (!model) {
+      continue;
+    }
+
+    const id = asStringValue(model.id);
+    const modelName = asStringValue(model.model);
+    const slug = normalizeCodexModelSlug(id ?? modelName, id);
+    if (!slug) {
+      continue;
+    }
+
+    const inputModalities =
+      asUnknownArray(model.inputModalities) ?? asUnknownArray(model.input_modalities) ?? [];
+    const imageGenerationCapability =
+      asBooleanValue(model.imageGeneration) ??
+      asBooleanValue(model.supportsImageGeneration) ??
+      asBooleanValue(asRecord(model.capabilities)?.imageGeneration);
+    const supportsImageGeneration =
+      inputModalities.length > 0 || imageGenerationCapability !== undefined
+        ? inputModalities.some((modality) => asStringValue(modality)?.toLowerCase() === "image") ||
+          imageGenerationCapability === true
+        : slug !== CODEX_SPARK_MODEL;
+
+    models.set(slug, {
+      slug,
+      supportsImageGeneration,
+      isDefault: asBooleanValue(model.isDefault) === true,
+    });
+  }
+
+  return models;
+}
+
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly imageGenerationPreflightEnabled?: boolean;
 }):
   | {
       mode: "default" | "plan";
@@ -368,8 +721,13 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
+      developer_instructions: input.imageGenerationPreflightEnabled
+        ? withAceDynamicToolInstructions(
+            input.interactionMode === "plan"
+              ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+              : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          )
+        : input.interactionMode === "plan"
           ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
           : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
     },
@@ -463,6 +821,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const session: ProviderSession = {
         provider: "codex",
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         status: "connecting",
         runtimeMode: input.runtimeMode,
         model: normalizeCodexModelSlug(input.model),
@@ -478,11 +837,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        ...(input.launchEnv ? { launchEnv: input.launchEnv } : {}),
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
         env: {
           ...process.env,
+          ...input.launchEnv,
           ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -503,8 +864,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
+        modelsBySlug: new Map(),
         nextRequestId: 1,
         stopping: false,
+        imageGenerationPreflightEnabled: false,
       };
 
       this.sessions.set(threadId, context);
@@ -516,7 +879,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       this.writeMessage(context, { method: "initialized" });
       try {
-        await this.sendRequest(context, "model/list", {});
+        const modelListResponse = await this.sendRequest(context, "model/list", {});
+        context.modelsBySlug = readCodexRuntimeModels(modelListResponse);
       } catch (error) {
         this.emitLifecycleEvent(
           context,
@@ -548,7 +912,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const threadStartParams = {
         ...sessionOverrides,
+        developerInstructions: [
+          CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS,
+          CODEX_BROWSER_BRIDGE_INSTRUCTIONS,
+        ].join("\n\n"),
+        dynamicTools: [CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL, CODEX_BROWSER_BRIDGE_TOOL],
         experimentalRawEvents: false,
+        persistExtendedHistory: true,
       };
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
@@ -593,6 +963,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           }
 
           threadOpenMethod = "thread/start";
+          context.imageGenerationPreflightEnabled = true;
           this.emitLifecycleEvent(
             context,
             "session/threadResumeFallback",
@@ -609,6 +980,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
       } else {
         threadOpenMethod = "thread/start";
+        context.imageGenerationPreflightEnabled = true;
         threadOpenResponse = await this.sendRequest(context, "thread/start", threadStartParams);
       }
 
@@ -717,12 +1089,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: providerThreadId,
       input: turnInput,
     };
-    const normalizedModel = resolveCodexModelForAccount(
+    const requestedModel = resolveCodexModelForAccount(
       normalizeCodexModelSlug(input.model ?? context.session.model),
       context.account,
     );
-    if (normalizedModel) {
-      turnStartParams.model = normalizedModel;
+    if (requestedModel) {
+      turnStartParams.model = requestedModel;
     }
     if (input.serviceTier !== undefined) {
       turnStartParams.serviceTier = input.serviceTier;
@@ -732,8 +1104,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const collaborationMode = buildCodexCollaborationMode({
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
-      ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
+      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      imageGenerationPreflightEnabled: context.imageGenerationPreflightEnabled,
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
@@ -1180,6 +1553,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
+      if (!this.shouldApplyActiveTurnTerminalNotification(context, rawRoute.turnId)) {
+        return;
+      }
       context.collabReceiverTurns.clear();
       const turn = this.readObject(notification.params, "turn");
       const status = this.readString(turn, "status");
@@ -1196,6 +1572,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
+      if (!this.shouldApplyActiveTurnTerminalNotification(context, rawRoute.turnId)) {
+        return;
+      }
       context.collabReceiverTurns.clear();
       this.updateSession(context, {
         status: "ready",
@@ -1210,9 +1589,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       const message = this.readString(this.readObject(notification.params)?.error, "message");
       const willRetry = this.readBoolean(notification.params, "willRetry");
+      const hasUnscopedActiveTurnError =
+        context.session.activeTurnId !== undefined && rawRoute.turnId === undefined;
 
       this.updateSession(context, {
-        status: willRetry ? "running" : "error",
+        status: willRetry || hasUnscopedActiveTurnError ? "running" : "error",
         lastError: message ?? context.session.lastError,
       });
     }
@@ -1273,6 +1654,27 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (request.method === "item/tool/requestUserInput") {
+      return;
+    }
+
+    if (this.isImageGenerationPreflightRequest(request)) {
+      this.writeMessage(context, {
+        id: request.id,
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text: "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.",
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    if (this.isAceBrowserBridgeRequest(request)) {
+      void this.handleAceBrowserBridgeRequest(context, request);
       return;
     }
 
@@ -1452,6 +1854,115 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return undefined;
   }
 
+  private isImageGenerationPreflightRequest(request: JsonRpcRequest): boolean {
+    if (request.method !== "item/tool/call") {
+      return false;
+    }
+
+    const tool = this.normalizeDynamicToolName(this.readString(request.params, "tool"));
+    return tool !== undefined && CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAMES.has(tool);
+  }
+
+  private isAceBrowserBridgeRequest(request: JsonRpcRequest): boolean {
+    if (request.method !== "item/tool/call") {
+      return false;
+    }
+
+    const tool = this.normalizeDynamicToolName(this.readString(request.params, "tool"));
+    return tool !== undefined && CODEX_BROWSER_BRIDGE_TOOL_NAMES.has(tool);
+  }
+
+  private async handleAceBrowserBridgeRequest(
+    context: CodexSessionContext,
+    request: JsonRpcRequest,
+  ): Promise<void> {
+    try {
+      const args = this.readObject(request.params, "arguments") ?? {};
+      const operation = this.readBrowserBridgeOperation(args);
+      const result = await browserBridge.request({
+        args,
+        operation,
+        threadId: context.session.threadId,
+      });
+
+      this.writeMessage(context, {
+        id: request.id,
+        result: {
+          success: true,
+          contentItems: this.formatBrowserBridgeContentItems(result),
+        },
+      });
+    } catch (error) {
+      this.writeMessage(context, {
+        id: request.id,
+        result: {
+          success: false,
+          contentItems: [
+            {
+              type: "inputText",
+              text: `Ace browser bridge failed: ${messageFromUnknownError(error)}`,
+            },
+          ],
+        },
+      });
+    }
+  }
+
+  private readBrowserBridgeOperation(args: Record<string, unknown>): BrowserBridgeOperation {
+    const operation = this.readString(args, "operation");
+    if (
+      operation &&
+      CODEX_BROWSER_BRIDGE_OPERATIONS.includes(operation as BrowserBridgeOperation)
+    ) {
+      return operation as BrowserBridgeOperation;
+    }
+
+    throw new Error("Ace browser bridge request is missing a supported operation.");
+  }
+
+  private formatBrowserBridgeContentItems(
+    result: Record<string, unknown>,
+  ): Array<{ type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }> {
+    const imageDataUrl = typeof result.imageDataUrl === "string" ? result.imageDataUrl : undefined;
+    const domSnapshot = typeof result.domSnapshot === "string" ? result.domSnapshot : undefined;
+    const textResult: Record<string, unknown> = { ...result };
+    delete textResult.domSnapshot;
+    delete textResult.imageDataUrl;
+
+    const contentItems: Array<
+      { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }
+    > = [];
+
+    if (domSnapshot) {
+      const metadata =
+        Object.keys(textResult).length > 0 ? `\n\nMetadata: ${JSON.stringify(textResult)}` : "";
+      contentItems.push({
+        type: "inputText",
+        text: `Ace browser DOM snapshot:\n${domSnapshot}${metadata}`,
+      });
+    } else {
+      contentItems.push({
+        type: "inputText",
+        text: `Ace browser result: ${JSON.stringify(textResult)}`,
+      });
+    }
+
+    if (imageDataUrl) {
+      contentItems.push({ type: "inputImage", imageUrl: imageDataUrl });
+    }
+
+    return contentItems;
+  }
+
+  private normalizeDynamicToolName(tool: string | undefined): string | undefined {
+    return tool
+      ?.trim()
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[._/-]/g, " ")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  }
+
   private parseThreadSnapshot(method: string, response: unknown): CodexThreadSnapshot {
     const responseRecord = this.readObject(response);
     const thread = this.readObject(responseRecord, "thread");
@@ -1596,6 +2107,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
   }
 
+  private shouldApplyActiveTurnTerminalNotification(
+    context: CodexSessionContext,
+    turnId: TurnId | undefined,
+  ): boolean {
+    const activeTurnId = context.session.activeTurnId;
+    if (!activeTurnId) {
+      return true;
+    }
+    if (!turnId) {
+      return false;
+    }
+    return turnId === activeTurnId;
+  }
+
   private readObject(value: unknown, key?: string): Record<string, unknown> | undefined {
     const target =
       key === undefined
@@ -1656,11 +2181,13 @@ function assertSupportedCodexCliVersion(input: {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly homePath?: string;
+  readonly launchEnv?: Readonly<Record<string, string>>;
 }): void {
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
     env: {
       ...process.env,
+      ...input.launchEnv,
       ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
     },
     encoding: "utf8",

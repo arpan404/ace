@@ -185,6 +185,34 @@ describe("deriveAgentAttentionRequests", () => {
     expect(request?.body).toBe("Review the file read approval request.");
   });
 
+  it("includes generic provider permission approval requests", () => {
+    const [request] = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-permission",
+        title: "Browser check",
+        activities: [
+          makeActivity({
+            id: "approval-open",
+            kind: "approval.requested",
+            summary: "Permission approval requested",
+            tone: "approval",
+            payload: {
+              requestId: "req-permission",
+              requestType: "dynamic_tool_call",
+              detail: "Use Browser Use",
+            },
+          }),
+        ],
+      }),
+    ]);
+
+    expect(request).toMatchObject({
+      key: "thread-permission:req-permission",
+      kind: "approval",
+      body: "Permission approval: Use Browser Use",
+    });
+  });
+
   it("includes completed turns with a stable key and assistant preview", () => {
     const [request] = deriveAgentAttentionRequests([
       makeThread({

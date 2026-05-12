@@ -41,6 +41,7 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
 import { type DeepPartial, deepMerge } from "@ace/shared/Struct";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { fromLenientJson } from "@ace/shared/schemaJson";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
@@ -97,6 +98,7 @@ const PROVIDER_ORDER: readonly ProviderKind[] = [
   "claudeAgent",
   "githubCopilot",
   "cursor",
+  "pi",
   "gemini",
   "opencode",
 ];
@@ -109,11 +111,18 @@ const PROVIDER_ORDER: readonly ProviderKind[] = [
  */
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   const selection = settings.textGenerationModelSelection;
-  if (settings.providers[selection.provider].enabled) {
+  if (resolveProviderSettings(settings, selection.provider, selection.providerInstanceId).enabled) {
     return settings;
   }
 
-  const fallback = PROVIDER_ORDER.find((p) => settings.providers[p].enabled);
+  const fallback = PROVIDER_ORDER.map((provider) => {
+    const providerSettings = settings.providers[provider];
+    if (providerSettings.enabled) {
+      return { provider };
+    }
+    const instance = providerSettings.instances.find((candidate) => candidate.enabled);
+    return instance ? { provider, providerInstanceId: instance.id } : null;
+  }).find((candidate) => candidate !== null);
   if (!fallback) {
     // No providers enabled — return as-is; callers will report the error.
     return settings;
@@ -122,8 +131,9 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
   return {
     ...settings,
     textGenerationModelSelection: {
-      provider: fallback,
-      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback],
+      provider: fallback.provider,
+      ...(fallback.providerInstanceId ? { providerInstanceId: fallback.providerInstanceId } : {}),
+      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback.provider],
     } as ModelSelection,
   };
 }

@@ -7,8 +7,11 @@ import {
   TerminalCloseInput,
   TerminalEvent,
   TerminalOpenInput,
+  TerminalProcessListInput,
+  TerminalProcessSummary,
   TerminalResizeInput,
   TerminalSessionSnapshot,
+  TerminalTerminateInput,
   TerminalThreadInput,
   TerminalWriteInput,
 } from "./terminal";
@@ -150,6 +153,24 @@ describe("TerminalCloseInput", () => {
   });
 });
 
+describe("TerminalProcessInput", () => {
+  it("accepts process list filters", () => {
+    expect(
+      decodes(TerminalProcessListInput, {
+        threadId: "thread-1",
+        runningOnly: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("defaults terminal id for terminate input", () => {
+    const parsed = decodeSync(TerminalTerminateInput, {
+      threadId: "thread-1",
+    });
+    expect(parsed.terminalId).toBe(DEFAULT_TERMINAL_ID);
+  });
+});
+
 describe("TerminalSessionSnapshot", () => {
   it("accepts running snapshots", () => {
     expect(
@@ -163,6 +184,23 @@ describe("TerminalSessionSnapshot", () => {
         history: "hello\n",
         exitCode: null,
         exitSignal: null,
+        updatedAt: new Date().toISOString(),
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("TerminalProcessSummary", () => {
+  it("accepts process summaries without history", () => {
+    expect(
+      decodes(TerminalProcessSummary, {
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cwd: "/tmp/project",
+        title: "bun dev",
+        status: "running",
+        pid: 1234,
+        hasRunningSubprocess: true,
         updatedAt: new Date().toISOString(),
       }),
     ).toBe(true);

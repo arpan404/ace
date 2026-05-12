@@ -46,6 +46,7 @@ import {
   resolveEffort,
   trimOrNull,
 } from "@ace/shared/model";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import {
   Cause,
   DateTime,
@@ -92,7 +93,11 @@ type ClaudeToolResultStreamKind = Extract<
   "command_output" | "file_change_output"
 >;
 type ClaudeUserMessageContent = SDKUserMessage["message"]["content"];
-type ClaudeUserMessageContentBlock = ClaudeUserMessageContent[number];
+type ClaudeUserMessageContentBlock = Extract<ClaudeUserMessageContent, readonly unknown[]>[number];
+type ClaudeImageMediaType = Extract<
+  Extract<ClaudeUserMessageContentBlock, { readonly type: "image" }>["source"],
+  { readonly type: "base64" }
+>["media_type"];
 
 type PromptQueueItem =
   | {
@@ -445,6 +450,17 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
     return "command_execution";
   }
   if (
+    normalized.includes("grep") ||
+    normalized.includes("glob") ||
+    normalized.includes("search") ||
+    normalized.includes("find")
+  ) {
+    return "web_search";
+  }
+  if (normalized.includes("read") || normalized.includes("open") || normalized.includes("view")) {
+    return "dynamic_tool_call";
+  }
+  if (
     normalized.includes("edit") ||
     normalized.includes("write") ||
     normalized.includes("file") ||
@@ -526,12 +542,15 @@ function titleForTool(itemType: CanonicalItemType): string {
   }
 }
 
-const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
+const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set<ClaudeImageMediaType>([
   "image/gif",
   "image/jpeg",
   "image/png",
   "image/webp",
 ]);
+function isClaudeImageMediaType(mimeType: string): mimeType is ClaudeImageMediaType {
+  return SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(mimeType as ClaudeImageMediaType);
+}
 const CLAUDE_SETTING_SOURCES = [
   "user",
   "project",
@@ -575,7 +594,7 @@ function buildClaudeTextContentBlock(text: string): ClaudeUserMessageContentBloc
 }
 
 function buildClaudeImageContentBlock(input: {
-  readonly mimeType: string;
+  readonly mimeType: ClaudeImageMediaType;
   readonly bytes: Uint8Array;
 }): ClaudeUserMessageContentBlock {
   return {
@@ -607,7 +626,7 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
       continue;
     }
 
-    if (!SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+    if (!isClaudeImageMediaType(attachment.mimeType)) {
       return yield* new ProviderAdapterRequestError({
         provider: PROVIDER,
         method: "turn/start",
@@ -2708,7 +2727,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
 
       const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.claudeAgent),
+        Effect.map((settings) =>
+          resolveProviderSettings(settings, "claudeAgent", input.providerInstanceId),
+        ),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -2755,7 +2776,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
         canUseTool,
-        env: process.env,
+        env: {
+          ...process.env,
+          ...claudeSettings.launchEnv,
+          ...(claudeSettings.configDir ? { CLAUDE_CONFIG_DIR: claudeSettings.configDir } : {}),
+        },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
       };
 
@@ -2779,6 +2804,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const session: ProviderSession = {
         threadId,
         provider: PROVIDER,
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         status: "ready",
         runtimeMode: input.runtimeMode,
         ...(input.cwd ? { cwd: input.cwd } : {}),

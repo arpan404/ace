@@ -4,6 +4,16 @@ function isForwardedKeyInputType(type: string): boolean {
   return type === "keyDown" || type === "rawKeyDown";
 }
 
+function resolveInputKey(input: Electron.Input): string {
+  const key = input.key.toLowerCase();
+  if (/^[a-z0-9[\]]$/.test(key)) return key;
+  if (/^Key[A-Z]$/.test(input.code)) return input.code.slice(3).toLowerCase();
+  if (/^Digit[0-9]$/.test(input.code)) return input.code.slice(5);
+  if (input.code === "BracketLeft") return "[";
+  if (input.code === "BracketRight") return "]";
+  return key;
+}
+
 export function resolveBrowserShortcutAction(
   input: Electron.Input,
   platform: NodeJS.Platform = process.platform,
@@ -17,14 +27,14 @@ export function resolveBrowserShortcutAction(
     return null;
   }
 
-  const key = input.key.toLowerCase();
+  const key = resolveInputKey(input);
   if (input.alt === true) {
+    if (key === "c") return "right-panel-floating-chat-toggle";
+    if (key === "f") return "right-panel-fullscreen-toggle";
     if (key === "[") return "move-tab-left";
     if (key === "]") return "move-tab-right";
-    if (key === "1") return "designer-cursor";
-    if (key === "2") return "designer-area-comment";
-    if (key === "3") return "designer-draw-comment";
-    if (key === "4") return "designer-element-comment";
+    if (key === "1") return "designer-area-comment";
+    if (key === "2") return "designer-element-comment";
     return null;
   }
 

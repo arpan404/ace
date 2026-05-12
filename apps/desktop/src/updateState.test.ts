@@ -98,6 +98,18 @@ describe("getAutoUpdateDisabledReason", () => {
       }),
     ).toContain("AppImage");
   });
+
+  it("reports unknown platforms as unsupported", () => {
+    expect(
+      getAutoUpdateDisabledReason({
+        isDevelopment: false,
+        isPackaged: true,
+        platform: "freebsd",
+        appImage: undefined,
+        disabledByEnv: false,
+      }),
+    ).toContain("freebsd");
+  });
 });
 
 describe("nextStatusAfterDownloadFailure", () => {

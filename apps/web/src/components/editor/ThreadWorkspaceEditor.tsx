@@ -6,21 +6,36 @@ import type {
   ProjectReadFileResult,
   ResolvedKeybindingsConfig,
   ThreadId,
+  WorkspaceEditorLocation,
 } from "@ace/contracts";
 import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  BoxIcon,
+  CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CircleDotIcon,
+  ClipboardListIcon,
+  Code2Icon,
+  ExternalLinkIcon,
   FilePlus2Icon,
+  FolderTreeIcon,
   FolderPlusIcon,
+  GitBranchIcon,
   GitForkIcon,
+  HashIcon,
+  ListTreeIcon,
+  MessageSquareTextIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   SearchIcon,
 } from "lucide-react";
 import {
   memo,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -36,7 +51,6 @@ import {
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
-import { usePreferredEditor } from "~/editorPreferences";
 import { useAppearancePrefs } from "~/appearancePrefs";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -50,6 +64,14 @@ import {
   searchWorkspaceEntriesLocally,
   shouldRunWorkspaceRemoteSearch,
 } from "~/lib/editor/workspaceEntrySearch";
+import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
+import {
+  buildWorkspaceCodeCommentPrompt,
+  countOpenWorkspaceCodeComments,
+  formatWorkspaceCodeCommentTitle,
+  type WorkspaceCodeComment,
+  type WorkspaceSelectionContext,
+} from "~/lib/editor/workspaceDesigner";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
 import {
@@ -65,7 +87,6 @@ import { basenameOfPath } from "~/vscode-icons";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
-import { OpenInEditorMenuSection, resolveOpenInEditorOptions } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -78,12 +99,21 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
 import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
-import WorkspaceEditorPane from "./WorkspaceEditorPane";
+import WorkspaceEditorPane, {
+  type WorkspaceEditorPaneProblem,
+  type WorkspaceEditorPaneSymbol,
+  type WorkspaceEditorProblemNavigationTarget,
+  type WorkspaceEditorSymbolNavigationTarget,
+} from "./WorkspaceEditorPane";
+import {
+  WorkspaceCommandPalette,
+  type WorkspaceCommandAction,
+  type WorkspaceCommandPaletteMode,
+} from "./WorkspaceCommandPalette";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
@@ -96,6 +126,32 @@ interface SaveConflictState {
   readonly expectedVersion?: string;
   readonly localContents: string;
   readonly relativePath: string;
+}
+
+interface WorkspaceProblemReport {
+  readonly paneId: string;
+  readonly relativePath: string;
+  readonly problem: WorkspaceEditorPaneProblem;
+}
+
+interface WorkspaceSymbolReport {
+  readonly paneId: string;
+  readonly relativePath: string;
+  readonly symbol: WorkspaceEditorPaneSymbol;
+}
+
+interface WorkspaceOutlineSymbolNode {
+  readonly depth: number;
+  readonly hasChildren: boolean;
+  readonly id: string;
+  readonly report: WorkspaceSymbolReport;
+}
+
+interface WorkspaceOutlineFileGroup {
+  readonly id: string;
+  readonly relativePath: string;
+  readonly symbolCount: number;
+  readonly symbols: readonly WorkspaceOutlineSymbolNode[];
 }
 
 function readConflictField(error: unknown, key: string): unknown {
@@ -124,113 +180,6 @@ function parseSaveConflictState(
     ...(typeof expectedVersion === "string" ? { expectedVersion } : {}),
   };
 }
-
-const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
-  connectionUrl,
-  gitCwd,
-  keybindings,
-  availableEditors,
-}: {
-  connectionUrl?: string | null | undefined;
-  gitCwd: string | null;
-  keybindings: ResolvedKeybindingsConfig;
-  availableEditors: ReadonlyArray<EditorId>;
-}) {
-  const api = readNativeApi();
-  const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
-  const openFavoriteEditorShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "editor.openFavorite"),
-    [keybindings],
-  );
-  const editorOptions = useMemo(
-    () => resolveOpenInEditorOptions(navigator.platform, availableEditors),
-    [availableEditors],
-  );
-  const preferredEditorOption = useMemo(
-    () =>
-      (preferredEditor
-        ? (editorOptions.find((option) => option.value === preferredEditor) ?? null)
-        : null) ??
-      editorOptions[0] ??
-      null,
-    [editorOptions, preferredEditor],
-  );
-  const handleOpenPreferredEditor = useCallback(() => {
-    if (!api || !gitCwd || !preferredEditorOption) {
-      return;
-    }
-    void api.shell.openInEditor(gitCwd, preferredEditorOption.value, { connectionUrl });
-    setPreferredEditor(preferredEditorOption.value);
-  }, [api, connectionUrl, gitCwd, preferredEditorOption, setPreferredEditor]);
-
-  if (!gitCwd) {
-    return null;
-  }
-
-  return (
-    <div className="flex shrink-0 items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 min-w-0 max-w-[15rem] shrink-0 gap-1.5 rounded-[var(--control-radius)] border-border/60 bg-background/84 px-2.5 text-[11px] font-medium text-foreground/84 shadow-none hover:bg-background"
-              aria-label={
-                preferredEditorOption
-                  ? `Open workspace in ${preferredEditorOption.label}`
-                  : "Open workspace in external editor"
-              }
-              onClick={handleOpenPreferredEditor}
-              disabled={!preferredEditorOption}
-            >
-              {preferredEditorOption ? (
-                <preferredEditorOption.Icon className="size-3.5 shrink-0" />
-              ) : null}
-              <span className="truncate">
-                {preferredEditorOption ? preferredEditorOption.label : "Open in editor"}
-              </span>
-            </Button>
-          }
-        />
-        <TooltipPopup side="bottom" align="start" className="max-w-xs">
-          {preferredEditorOption
-            ? `Open this workspace in ${preferredEditorOption.label}.`
-            : "Open this workspace in an installed editor."}
-          {openFavoriteEditorShortcutLabel ? (
-            <>
-              {" "}
-              <span className="text-muted-foreground">
-                Favorite: {openFavoriteEditorShortcutLabel}
-              </span>
-            </>
-          ) : null}
-        </TooltipPopup>
-      </Tooltip>
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button
-              variant="outline"
-              size="icon-xs"
-              className="size-7 shrink-0 rounded-[var(--control-radius)] border-border/60 bg-background/84 text-muted-foreground/78 shadow-none hover:bg-background hover:text-foreground"
-              aria-label="Choose external editor"
-            />
-          }
-        >
-          <ChevronDownIcon className="size-3.5" />
-        </MenuTrigger>
-        <MenuPopup align="start" className="min-w-48">
-          <OpenInEditorMenuSection
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={gitCwd}
-          />
-        </MenuPopup>
-      </Menu>
-    </div>
-  );
-});
 
 type TreeRow =
   | {
@@ -278,6 +227,20 @@ type ExplorerRenderRow =
       kind: "inline";
       state: ExplorerInlineEntryState;
     };
+
+type WorkspaceSidebarMode = "explorer" | "source-control" | "outline" | "problems" | "notes";
+
+interface QueuedWorkspaceContext {
+  readonly context: WorkspaceSelectionContext;
+  readonly createdAt: string;
+  readonly id: string;
+  readonly prompt: string;
+}
+
+interface WorkspaceAgentNoteSubmission {
+  readonly mode: "queue" | "send";
+  readonly prompt: string;
+}
 
 function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number {
   if (left.kind !== right.kind) {
@@ -424,6 +387,139 @@ function gitDecorationClass(status: GitWorkingTreeFileStatus): string {
   }
 }
 
+function problemSeverityRank(severity: number): number {
+  return severity;
+}
+
+function problemSeverityLabel(severity: number): string {
+  if (severity >= 8) {
+    return "error";
+  }
+  if (severity >= 4) {
+    return "warning";
+  }
+  if (severity >= 2) {
+    return "info";
+  }
+  return "hint";
+}
+
+function problemSeverityClass(severity: number): string {
+  const label = problemSeverityLabel(severity);
+  switch (label) {
+    case "error":
+      return "bg-destructive/15 text-destructive";
+    case "warning":
+      return "bg-amber-500/15 text-amber-600";
+    case "info":
+      return "bg-sky-500/15 text-sky-600";
+    default:
+      return "bg-foreground/10 text-muted-foreground";
+  }
+}
+
+function workspaceSymbolNodeId(report: WorkspaceSymbolReport): string {
+  return [
+    report.paneId,
+    report.relativePath,
+    report.symbol.kind,
+    report.symbol.name,
+    report.symbol.startLineNumber,
+    report.symbol.startColumn,
+    report.symbol.endLineNumber,
+    report.symbol.endColumn,
+  ].join(":");
+}
+
+function symbolKindLabel(kind: string): string {
+  switch (kind) {
+    case "function":
+      return "fn";
+    case "method":
+      return "method";
+    case "interface":
+      return "iface";
+    case "class":
+      return "class";
+    case "struct":
+      return "struct";
+    case "property":
+      return "prop";
+    case "field":
+      return "field";
+    case "enum":
+      return "enum";
+    case "type":
+      return "type";
+    case "variable":
+      return "var";
+    default:
+      return kind;
+  }
+}
+
+function symbolKindClass(kind: string): string {
+  switch (kind) {
+    case "function":
+      return "bg-sky-500/12 text-sky-600";
+    case "class":
+    case "struct":
+      return "bg-violet-500/12 text-violet-600";
+    case "interface":
+    case "trait":
+      return "bg-emerald-500/12 text-emerald-600";
+    case "type":
+    case "enum":
+      return "bg-amber-500/12 text-amber-600";
+    case "variable":
+      return "bg-foreground/10 text-muted-foreground";
+    default:
+      return "bg-primary/12 text-primary";
+  }
+}
+
+function symbolKindIcon(kind: string): ReactNode {
+  const className = "size-3.5 shrink-0";
+  switch (kind) {
+    case "function":
+      return <Code2Icon className={`${className} text-sky-600`} />;
+    case "method":
+      return <Code2Icon className={`${className} text-indigo-600`} />;
+    case "class":
+    case "struct":
+      return <BoxIcon className={`${className} text-violet-600`} />;
+    case "interface":
+    case "trait":
+      return <ListTreeIcon className={`${className} text-emerald-600`} />;
+    case "property":
+    case "field":
+      return <CircleDotIcon className={`${className} text-cyan-600`} />;
+    case "type":
+    case "enum":
+      return <HashIcon className={`${className} text-amber-600`} />;
+    case "impl":
+      return <GitBranchIcon className={`${className} text-primary`} />;
+    case "variable":
+      return <CircleDotIcon className={`${className} text-muted-foreground/70`} />;
+    default:
+      return <CircleDotIcon className={`${className} text-muted-foreground/62`} />;
+  }
+}
+
+function buildCombinedAgentNotesPrompt(
+  contexts: readonly QueuedWorkspaceContext[],
+  comments: readonly WorkspaceCodeComment[],
+): string {
+  const sections: string[] = [];
+  for (const entry of contexts) {
+    sections.push(entry.prompt.trim());
+  }
+  for (const comment of comments) {
+    sections.push(buildWorkspaceCodeCommentPrompt(comment));
+  }
+  return sections.join("\n\n");
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -467,14 +563,14 @@ const FileTreeRow = memo(function FileTreeRow(props: {
     <button
       type="button"
       className={cn(
-        "group flex h-[22px] w-full items-center gap-1.5 px-2 text-left text-[12px] transition-colors",
+        "group mx-1 flex h-[24px] w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-lg px-2 text-left text-[12px] transition-colors",
         isFocused
-          ? "bg-foreground/10 text-foreground"
+          ? "bg-accent text-foreground"
           : isSelected
-            ? "bg-foreground/7 text-foreground"
+            ? "bg-accent/70 text-foreground"
             : isDropTarget
-              ? "bg-foreground/9 text-foreground"
-              : "text-muted-foreground/90 hover:bg-foreground/5 hover:text-foreground",
+              ? "bg-accent/80 text-foreground"
+              : "text-muted-foreground/90 hover:bg-accent/60 hover:text-foreground",
       )}
       data-explorer-path={props.row.entry.path}
       style={{
@@ -527,7 +623,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
           y: event.clientY,
         });
       }}
-      title={
+      aria-label={
         props.row.kind === "file"
           ? `${props.row.entry.path} • Option-click to open in a new window • Right-click for actions`
           : props.row.entry.path
@@ -556,9 +652,9 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         pathValue={props.row.entry.path}
         kind={props.row.entry.kind}
         theme={props.resolvedTheme}
-        className="size-[15px]"
+        className="size-[15px] shrink-0"
       />
-      <span className="min-w-0 flex-1 truncate">{props.row.name}</span>
+      <span className="min-w-0 flex-1 truncate font-medium">{props.row.name}</span>
       {props.searchMode && props.row.entry.parentPath ? (
         <span className="min-w-0 max-w-[34%] truncate text-[10px] text-muted-foreground/65">
           {props.row.entry.parentPath}
@@ -590,7 +686,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 }) {
   return (
     <div
-      className="flex h-[22px] w-full items-center gap-1.5 bg-foreground/6 px-2"
+      className="mx-1 flex h-[24px] w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-lg bg-accent px-2"
       style={{
         paddingLeft: `${props.searchMode ? 8 : 8 + props.depth * 10}px`,
       }}
@@ -630,12 +726,48 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
             props.onCancel();
           }
         }}
-        className="h-6 rounded-none border-border/60 bg-background/90 px-1.5 shadow-none"
+        className="h-6 rounded-md border-border/60 bg-background/90 px-1.5 shadow-none"
         size="sm"
       />
     </div>
   );
 });
+
+function WorkspaceActivityButton(props: {
+  active: boolean;
+  badge?: number;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={props.label}
+            className={cn(
+              "relative my-0.5 flex size-8 items-center justify-center rounded-lg outline-none transition-colors focus-visible:outline-none focus-visible:ring-0",
+              props.active
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+            )}
+            onClick={props.onClick}
+          />
+        }
+      >
+        {props.icon}
+        {props.badge && props.badge > 0 ? (
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-card bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground shadow-sm">
+            {props.badge > 9 ? "9+" : props.badge}
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipPopup side="right">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
@@ -645,16 +777,43 @@ function ThreadWorkspaceEditor(inputProps: {
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
+  detachEnabled?: boolean;
+  onDetached?: () => void;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
   workspaceMode?: ThreadWorkspaceMode | undefined;
+  onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
   const editorStateScopeId = useMemo(
     () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
     [inputProps.gitCwd, inputProps.threadId],
   );
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
+  const detachedEditorConnectionUrl = inputProps.connectionUrl;
+  const detachedEditorThreadId = inputProps.threadId;
+  const onEditorDetached = inputProps.onDetached;
+  const canDetachEditor =
+    inputProps.detachEnabled !== false && Boolean(window.desktopBridge?.openDetachedEditor);
+  const detachEditor = useCallback(async () => {
+    const openDetachedEditor = window.desktopBridge?.openDetachedEditor;
+    if (!openDetachedEditor) {
+      return;
+    }
+    const detached = await openDetachedEditor({
+      threadId: detachedEditorThreadId,
+      ...(detachedEditorConnectionUrl ? { connectionUrl: detachedEditorConnectionUrl } : {}),
+    });
+    if (detached) {
+      onEditorDetached?.();
+      return;
+    }
+    toastManager.add({
+      title: "Could not detach editor",
+      description: "The desktop app did not open a detached editor window.",
+      type: "error",
+    });
+  }, [detachedEditorConnectionUrl, detachedEditorThreadId, onEditorDetached]);
 
   const { resolvedTheme } = useTheme();
   const { themePreset } = useAppearancePrefs();
@@ -686,6 +845,14 @@ function ThreadWorkspaceEditor(inputProps: {
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [treeSearch, setTreeSearch] = useState("");
+  const [sidebarMode, setSidebarMode] = useState<WorkspaceSidebarMode>("explorer");
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteMode, setCommandPaletteMode] =
+    useState<WorkspaceCommandPaletteMode>("commands");
+  const [queuedWorkspaceContexts, setQueuedWorkspaceContexts] = useState<
+    readonly QueuedWorkspaceContext[]
+  >([]);
+  const [agentNoteSubmissionBusy, setAgentNoteSubmissionBusy] = useState(false);
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -715,6 +882,9 @@ function ThreadWorkspaceEditor(inputProps: {
   const syncTree = useEditorStateStore((state) => state.syncTree);
   const toggleDirectory = useEditorStateStore((state) => state.toggleDirectory);
   const updateDraft = useEditorStateStore((state) => state.updateDraft);
+  const addCodeComment = useEditorStateStore((state) => state.addCodeComment);
+  const removeCodeComment = useEditorStateStore((state) => state.removeCodeComment);
+  const updateCodeCommentStatus = useEditorStateStore((state) => state.updateCodeCommentStatus);
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
   const inlineEntryFocusKey =
@@ -725,6 +895,24 @@ function ThreadWorkspaceEditor(inputProps: {
         : null;
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
+  const [problemReportsByPaneId, setProblemReportsByPaneId] = useState<
+    Record<
+      string,
+      { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+    >
+  >({});
+  const [symbolReportsByPaneId, setSymbolReportsByPaneId] = useState<
+    Record<string, { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }>
+  >({});
+  const [problemNavigationTarget, setProblemNavigationTarget] =
+    useState<WorkspaceEditorProblemNavigationTarget | null>(null);
+  const [symbolNavigationTarget, setSymbolNavigationTarget] =
+    useState<WorkspaceEditorSymbolNavigationTarget | null>(null);
+  const [findRequestToken, setFindRequestToken] = useState(0);
+  const [collapsedOutlineIds, setCollapsedOutlineIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [activeOutlineSymbolId, setActiveOutlineSymbolId] = useState<string | null>(null);
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -745,6 +933,7 @@ function ThreadWorkspaceEditor(inputProps: {
   );
   const {
     activePaneId,
+    codeComments,
     draftsByFilePath,
     expandedDirectoryPaths,
     explorerOpen,
@@ -757,6 +946,180 @@ function ThreadWorkspaceEditor(inputProps: {
     () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
     [activePaneId, panes],
   );
+  const workspaceProblems = useMemo<readonly WorkspaceProblemReport[]>(
+    () =>
+      Object.entries(problemReportsByPaneId)
+        .flatMap(([paneId, report]) =>
+          report.activeFilePath
+            ? report.problems.map((problem) => ({
+                paneId,
+                problem,
+                relativePath: report.activeFilePath!,
+              }))
+            : [],
+        )
+        .toSorted((left, right) => {
+          const severityDelta =
+            problemSeverityRank(right.problem.severity) -
+            problemSeverityRank(left.problem.severity);
+          if (severityDelta !== 0) {
+            return severityDelta;
+          }
+          const pathDelta = left.relativePath.localeCompare(right.relativePath);
+          if (pathDelta !== 0) {
+            return pathDelta;
+          }
+          if (left.problem.startLineNumber !== right.problem.startLineNumber) {
+            return left.problem.startLineNumber - right.problem.startLineNumber;
+          }
+          return left.problem.startColumn - right.problem.startColumn;
+        }),
+    [problemReportsByPaneId],
+  );
+  const workspaceSymbols = useMemo<readonly WorkspaceSymbolReport[]>(
+    () =>
+      Object.entries(symbolReportsByPaneId)
+        .flatMap(([paneId, report]) =>
+          report.activeFilePath
+            ? report.symbols.map((symbol) => ({
+                paneId,
+                relativePath: report.activeFilePath!,
+                symbol,
+              }))
+            : [],
+        )
+        .toSorted((left, right) => {
+          const pathDelta = left.relativePath.localeCompare(right.relativePath);
+          if (pathDelta !== 0) {
+            return pathDelta;
+          }
+          if (left.symbol.startLineNumber !== right.symbol.startLineNumber) {
+            return left.symbol.startLineNumber - right.symbol.startLineNumber;
+          }
+          return left.symbol.startColumn - right.symbol.startColumn;
+        }),
+    [symbolReportsByPaneId],
+  );
+  const outlineFileGroups = useMemo<readonly WorkspaceOutlineFileGroup[]>(() => {
+    const symbolsByPath = new Map<string, WorkspaceSymbolReport[]>();
+    for (const report of workspaceSymbols) {
+      const existing = symbolsByPath.get(report.relativePath);
+      if (existing) {
+        existing.push(report);
+      } else {
+        symbolsByPath.set(report.relativePath, [report]);
+      }
+    }
+
+    return Array.from(symbolsByPath.entries()).map(([relativePath, reports]) => {
+      const baseDepth = reports.reduce(
+        (minimum, report) => Math.min(minimum, report.symbol.depth),
+        Number.POSITIVE_INFINITY,
+      );
+      const normalizedBaseDepth = Number.isFinite(baseDepth) ? baseDepth : 0;
+      const stack: number[] = [];
+      const nodes: Array<{
+        depth: number;
+        hasChildren: boolean;
+        id: string;
+        report: WorkspaceSymbolReport;
+      }> = [];
+      for (const [index, report] of reports.entries()) {
+        const depth = Math.max(0, report.symbol.depth - normalizedBaseDepth);
+        while (stack.length > depth) {
+          stack.pop();
+        }
+        const parentIndex = depth > 0 ? stack[depth - 1] : undefined;
+        nodes.push({
+          depth,
+          hasChildren: false,
+          id: workspaceSymbolNodeId(report),
+          report,
+        });
+        if (parentIndex !== undefined) {
+          const parent = nodes[parentIndex];
+          if (parent) {
+            parent.hasChildren = true;
+          }
+        }
+        stack[depth] = index;
+        stack.length = depth + 1;
+      }
+
+      return {
+        id: `file:${relativePath}`,
+        relativePath,
+        symbolCount: nodes.length,
+        symbols: nodes,
+      };
+    });
+  }, [workspaceSymbols]);
+  const visibleOutlineGroups = useMemo<readonly WorkspaceOutlineFileGroup[]>(() => {
+    return outlineFileGroups.map((group) => {
+      if (collapsedOutlineIds.has(group.id)) {
+        return { ...group, symbols: [] };
+      }
+      const visibleSymbols: WorkspaceOutlineSymbolNode[] = [];
+      let hiddenDepth: number | null = null;
+      for (const node of group.symbols) {
+        if (hiddenDepth !== null) {
+          if (node.depth > hiddenDepth) {
+            continue;
+          }
+          hiddenDepth = null;
+        }
+        visibleSymbols.push(node);
+        if (node.hasChildren && collapsedOutlineIds.has(node.id)) {
+          hiddenDepth = node.depth;
+        }
+      }
+      return { ...group, symbols: visibleSymbols };
+    });
+  }, [collapsedOutlineIds, outlineFileGroups]);
+  useEffect(() => {
+    const validIds = new Set<string>();
+    for (const group of outlineFileGroups) {
+      validIds.add(group.id);
+      for (const node of group.symbols) {
+        validIds.add(node.id);
+      }
+    }
+    setCollapsedOutlineIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of current) {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+    setActiveOutlineSymbolId((current) => {
+      if (!current || validIds.has(current)) {
+        return current;
+      }
+      return null;
+    });
+  }, [outlineFileGroups]);
+  useEffect(() => {
+    const paneIds = new Set(panes.map((pane) => pane.id));
+    setProblemReportsByPaneId((current) => {
+      const nextEntries = Object.entries(current).filter(([paneId]) => paneIds.has(paneId));
+      if (nextEntries.length === Object.keys(current).length) {
+        return current;
+      }
+      return Object.fromEntries(nextEntries);
+    });
+    setSymbolReportsByPaneId((current) => {
+      const nextEntries = Object.entries(current).filter(([paneId]) => paneIds.has(paneId));
+      if (nextEntries.length === Object.keys(current).length) {
+        return current;
+      }
+      return Object.fromEntries(nextEntries);
+    });
+  }, [panes]);
   const revealEntryLabel = useMemo(() => revealInFileManagerLabel(), []);
   const revealWorkspaceLabel = useMemo(() => {
     if (revealEntryLabel === "Reveal in Finder") {
@@ -785,10 +1148,14 @@ function ThreadWorkspaceEditor(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
-  const monacoTheme = ensureMonacoConfigured({
-    resolvedTheme,
-    themePreset,
-  });
+  const monacoTheme = useMemo(
+    () =>
+      ensureMonacoConfigured({
+        resolvedTheme,
+        themePreset,
+      }),
+    [resolvedTheme, themePreset],
+  );
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -1120,6 +1487,261 @@ function ThreadWorkspaceEditor(inputProps: {
         .map((file) => [file.path, file.status] as const),
     );
   }, [gitStatusQuery.data?.workingTree.files]);
+  const changedFiles = gitStatusQuery.data?.workingTree.files ?? [];
+  const openCodeCommentCount = useMemo(
+    () => countOpenWorkspaceCodeComments(codeComments),
+    [codeComments],
+  );
+  const unresolvedCodeComments = useMemo(
+    () => codeComments.filter((comment) => comment.status !== "resolved"),
+    [codeComments],
+  );
+  const queueWorkspaceSelectionContext = useCallback(
+    (context: WorkspaceSelectionContext, prompt: string) => {
+      const id =
+        typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `selection-${Date.now().toString(36)}`;
+      setQueuedWorkspaceContexts((current) => [
+        ...current,
+        {
+          context,
+          createdAt: new Date().toISOString(),
+          id,
+          prompt,
+        },
+      ]);
+      setSidebarMode("notes");
+      setExplorerOpen(props.threadId, true);
+      toastManager.add({
+        description: `${context.relativePath}:${context.range.startLine + 1}-${context.range.endLine + 1}`,
+        title: "Editor context queued",
+        type: "success",
+      });
+    },
+    [props.threadId, setExplorerOpen],
+  );
+  const handlePaneProblemsChange = useCallback(
+    (
+      paneId: string,
+      activeFilePath: string | null,
+      problems: readonly WorkspaceEditorPaneProblem[],
+    ) => {
+      setProblemReportsByPaneId((current) => {
+        const previous = current[paneId];
+        if (
+          previous?.activeFilePath === activeFilePath &&
+          previous.problems.length === problems.length &&
+          previous.problems.every((problem, index) => {
+            const next = problems[index];
+            return (
+              next &&
+              problem.message === next.message &&
+              problem.severity === next.severity &&
+              problem.startLineNumber === next.startLineNumber &&
+              problem.startColumn === next.startColumn &&
+              problem.endLineNumber === next.endLineNumber &&
+              problem.endColumn === next.endColumn
+            );
+          })
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [paneId]: { activeFilePath, problems },
+        };
+      });
+    },
+    [],
+  );
+  const handlePaneSymbolsChange = useCallback(
+    (
+      paneId: string,
+      activeFilePath: string | null,
+      symbols: readonly WorkspaceEditorPaneSymbol[],
+    ) => {
+      setSymbolReportsByPaneId((current) => {
+        const previous = current[paneId];
+        if (
+          previous?.activeFilePath === activeFilePath &&
+          previous.symbols.length === symbols.length &&
+          previous.symbols.every((symbol, index) => {
+            const next = symbols[index];
+            return (
+              next &&
+              symbol.name === next.name &&
+              symbol.kind === next.kind &&
+              symbol.startLineNumber === next.startLineNumber &&
+              symbol.startColumn === next.startColumn &&
+              symbol.endLineNumber === next.endLineNumber &&
+              symbol.endColumn === next.endColumn &&
+              symbol.depth === next.depth
+            );
+          })
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [paneId]: { activeFilePath, symbols },
+        };
+      });
+    },
+    [],
+  );
+  const handleOpenProblem = useCallback(
+    (report: WorkspaceProblemReport) => {
+      const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+      if (!targetPaneId) {
+        return;
+      }
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, report.relativePath, targetPaneId);
+      const location: WorkspaceEditorLocation = {
+        relativePath: report.relativePath,
+        startLine: Math.max(0, report.problem.startLineNumber - 1),
+        startColumn: Math.max(0, report.problem.startColumn - 1),
+        endLine: Math.max(0, report.problem.endLineNumber - 1),
+        endColumn: Math.max(0, report.problem.endColumn - 1),
+      };
+      setProblemNavigationTarget({
+        id: Date.now(),
+        location,
+      });
+    },
+    [activePane?.id, openFile, panesById, props.threadId, setActivePane],
+  );
+  const handleOpenSymbol = useCallback(
+    (report: WorkspaceSymbolReport) => {
+      setActiveOutlineSymbolId(workspaceSymbolNodeId(report));
+      const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+      if (!targetPaneId) {
+        return;
+      }
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, report.relativePath, targetPaneId);
+      const location: WorkspaceEditorLocation = {
+        relativePath: report.relativePath,
+        startLine: Math.max(0, report.symbol.startLineNumber - 1),
+        startColumn: Math.max(0, report.symbol.startColumn - 1),
+        endLine: Math.max(0, report.symbol.endLineNumber - 1),
+        endColumn: Math.max(0, report.symbol.endColumn - 1),
+      };
+      setSymbolNavigationTarget({
+        id: Date.now(),
+        location,
+      });
+    },
+    [activePane?.id, openFile, panesById, props.threadId, setActivePane],
+  );
+  const toggleOutlineId = useCallback((id: string) => {
+    setCollapsedOutlineIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+  const handleAddCodeComment = useCallback(
+    (comment: WorkspaceCodeComment) => {
+      addCodeComment(props.threadId, comment);
+    },
+    [addCodeComment, props.threadId],
+  );
+  const submitAgentNotePrompt = useCallback(
+    async (submission: WorkspaceAgentNoteSubmission) => {
+      if (!inputProps.onSubmitAgentNote || agentNoteSubmissionBusy) {
+        return false;
+      }
+      const trimmedPrompt = submission.prompt.trim();
+      if (trimmedPrompt.length === 0) {
+        return false;
+      }
+      setAgentNoteSubmissionBusy(true);
+      try {
+        const sent = await inputProps.onSubmitAgentNote({
+          ...submission,
+          prompt: trimmedPrompt,
+        });
+        return sent;
+      } finally {
+        setAgentNoteSubmissionBusy(false);
+      }
+    },
+    [agentNoteSubmissionBusy, inputProps],
+  );
+  const handleAddAndSendCodeComment = useCallback(
+    async (comment: WorkspaceCodeComment) => {
+      addCodeComment(props.threadId, comment);
+      const sent = await submitAgentNotePrompt({
+        mode: "send",
+        prompt: buildWorkspaceCodeCommentPrompt(comment),
+      });
+      if (sent) {
+        updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+        return true;
+      }
+      const queued = await submitAgentNotePrompt({
+        mode: "queue",
+        prompt: buildWorkspaceCodeCommentPrompt(comment),
+      });
+      if (queued) {
+        updateCodeCommentStatus(props.threadId, comment.id, "queued");
+      }
+      return queued;
+    },
+    [addCodeComment, props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
+  );
+  const handleSendQueuedContext = useCallback(
+    async (entry: QueuedWorkspaceContext) => {
+      const sent = await submitAgentNotePrompt({ mode: "send", prompt: entry.prompt });
+      if (!sent) {
+        return;
+      }
+      setQueuedWorkspaceContexts((current) => current.filter((item) => item.id !== entry.id));
+    },
+    [submitAgentNotePrompt],
+  );
+  const handleSendCodeComment = useCallback(
+    async (comment: WorkspaceCodeComment) => {
+      const sent = await submitAgentNotePrompt({
+        mode: "send",
+        prompt: buildWorkspaceCodeCommentPrompt(comment),
+      });
+      if (!sent) {
+        return;
+      }
+      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+    },
+    [props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
+  );
+  const handleSendAllAgentNotes = useCallback(async () => {
+    if (queuedWorkspaceContexts.length === 0 && unresolvedCodeComments.length === 0) {
+      return;
+    }
+    const combinedPrompt = buildCombinedAgentNotesPrompt(
+      queuedWorkspaceContexts,
+      unresolvedCodeComments,
+    );
+    const sent = await submitAgentNotePrompt({ mode: "send", prompt: combinedPrompt });
+    if (!sent) {
+      return;
+    }
+    setQueuedWorkspaceContexts([]);
+    for (const comment of unresolvedCodeComments) {
+      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+    }
+  }, [
+    props.threadId,
+    queuedWorkspaceContexts,
+    submitAgentNotePrompt,
+    unresolvedCodeComments,
+    updateCodeCommentStatus,
+  ]);
 
   useEffect(() => {
     if (!activePane?.activeFilePath) {
@@ -1374,6 +1996,133 @@ function ThreadWorkspaceEditor(inputProps: {
       openFile(props.threadId, filePath, activePane?.id);
     },
     [activePane?.id, handleSplitPane, openFile, panes.length, props.threadId],
+  );
+  const openCommandPalette = useCallback((mode: WorkspaceCommandPaletteMode) => {
+    setCommandPaletteMode(mode);
+    setCommandPaletteOpen(true);
+  }, []);
+  const requestFindInActiveEditor = useCallback(() => {
+    setFindRequestToken((current) => current + 1);
+  }, []);
+  const editorShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        browserOpen: props.browserOpen,
+        editorFocus: true,
+        terminalFocus: false,
+        terminalOpen: props.terminalOpen,
+      },
+    }),
+    [props.browserOpen, props.terminalOpen],
+  );
+  const openFilePaletteShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        props.keybindings,
+        "editor.openFilePalette",
+        editorShortcutLabelOptions,
+      ),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
+  const findInActiveEditorShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        props.keybindings,
+        "editor.findInActiveEditor",
+        editorShortcutLabelOptions,
+      ),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
+  const workspaceCommandActions = useMemo<readonly WorkspaceCommandAction[]>(
+    () => [
+      {
+        id: "open-file",
+        icon: "search",
+        label: "Open File",
+        ...(openFilePaletteShortcutLabel ? { shortcut: openFilePaletteShortcutLabel } : {}),
+        run: () => openCommandPalette("files"),
+      },
+      {
+        id: "search-text",
+        description: "Open find in the active editor.",
+        icon: "search",
+        label: "Find in Active Editor",
+        ...(findInActiveEditorShortcutLabel ? { shortcut: findInActiveEditorShortcutLabel } : {}),
+        run: requestFindInActiveEditor,
+      },
+      {
+        id: "source-control",
+        description: `${changedFiles.length} changed files.`,
+        icon: "git",
+        label: "Open Source Control",
+        run: () => {
+          setSidebarMode("source-control");
+          setExplorerOpen(props.threadId, true);
+        },
+      },
+      {
+        id: "review-active-file",
+        disabled: !activePane?.activeFilePath,
+        icon: "agent",
+        label: "Review Active File",
+        run: () => {
+          if (!activePane?.activeFilePath || !props.gitCwd) {
+            return;
+          }
+          queueWorkspaceSelectionContext(
+            {
+              cwd: props.gitCwd,
+              diagnostics: [],
+              kind: "workspace-selection",
+              languageId: resolveMonacoLanguageFromFilePath(activePane.activeFilePath) ?? null,
+              range: {
+                relativePath: activePane.activeFilePath,
+                startLine: 0,
+                startColumn: 0,
+                endLine: 0,
+                endColumn: 0,
+              },
+              relativePath: activePane.activeFilePath,
+              text: "",
+            },
+            `Review ${activePane.activeFilePath}.`,
+          );
+        },
+      },
+      {
+        id: "split-right",
+        icon: "code",
+        label: "Split Editor Right",
+        run: () => handleSplitPane(activePane?.id, undefined, "right"),
+      },
+      {
+        id: "install-language-server",
+        description: "Open settings for language tooling.",
+        icon: "fix",
+        label: "Install Language Server",
+        run: () => {
+          toastManager.add({
+            description: "Language server management is available from settings.",
+            title: "Language tooling",
+            type: "info",
+          });
+        },
+      },
+    ],
+    [
+      activePane?.activeFilePath,
+      activePane?.id,
+      changedFiles.length,
+      findInActiveEditorShortcutLabel,
+      handleSplitPane,
+      openCommandPalette,
+      openFilePaletteShortcutLabel,
+      props.gitCwd,
+      props.threadId,
+      queueWorkspaceSelectionContext,
+      requestFindInActiveEditor,
+      setExplorerOpen,
+    ],
   );
   const handleOpenFileInPane = useCallback(
     (paneId: string, filePath: string, targetIndex?: number) => {
@@ -1895,6 +2644,34 @@ function ThreadWorkspaceEditor(inputProps: {
         return;
       }
 
+      if (command === "editor.openFilePalette") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette("files");
+        return;
+      }
+
+      if (command === "editor.openCommandPalette") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette("commands");
+        return;
+      }
+
+      if (command === "editor.findInActiveEditor") {
+        event.preventDefault();
+        event.stopPropagation();
+        requestFindInActiveEditor();
+        return;
+      }
+
+      if (command === "search.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        requestFindInActiveEditor();
+        return;
+      }
+
       if (command === "editor.split") {
         event.preventDefault();
         event.stopPropagation();
@@ -2108,6 +2885,7 @@ function ThreadWorkspaceEditor(inputProps: {
     handleReopenClosedTab,
     inlineEntryState,
     moveFile,
+    openCommandPalette,
     orderedPaneIds,
     panes,
     panesById,
@@ -2115,6 +2893,7 @@ function ThreadWorkspaceEditor(inputProps: {
     props.keybindings,
     props.terminalOpen,
     props.threadId,
+    requestFindInActiveEditor,
     setActiveFile,
     setActivePane,
     startInlineEntry,
@@ -2127,224 +2906,680 @@ function ThreadWorkspaceEditor(inputProps: {
         className="grid min-h-0 min-w-0 flex-1 bg-background"
         style={{
           gridTemplateColumns: explorerOpen
-            ? `minmax(220px, ${treeWidth}px) 4px minmax(0, 1fr)`
-            : "minmax(0, 1fr)",
+            ? `52px minmax(220px, ${treeWidth}px) 4px minmax(0, 1fr)`
+            : "52px minmax(0, 1fr)",
         }}
       >
+        <nav className="flex min-h-0 flex-col items-center border-r border-border bg-card/80 py-2">
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "explorer"}
+            icon={<FolderTreeIcon className="size-4" />}
+            label="Explorer"
+            onClick={() => {
+              setSidebarMode("explorer");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "source-control"}
+            badge={changedFiles.length}
+            icon={<GitBranchIcon className="size-4" />}
+            label="Source Control"
+            onClick={() => {
+              setSidebarMode("source-control");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "outline"}
+            icon={<ListTreeIcon className="size-4" />}
+            label="Outline"
+            onClick={() => {
+              setSidebarMode("outline");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "problems"}
+            badge={workspaceProblems.length}
+            icon={<CircleAlertIcon className="size-4" />}
+            label="Problems"
+            onClick={() => {
+              setSidebarMode("problems");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <div className="mt-auto">
+            <WorkspaceActivityButton
+              active={false}
+              icon={
+                explorerOpen ? (
+                  <PanelLeftCloseIcon className="size-4.5" />
+                ) : (
+                  <PanelLeftOpenIcon className="size-4.5" />
+                )
+              }
+              label={explorerOpen ? "Collapse sidebar" : "Open sidebar"}
+              onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
+            />
+          </div>
+        </nav>
         {explorerOpen ? (
           <>
-            <aside className="flex min-h-0 min-w-0 flex-col bg-card/72 text-foreground">
-              <div className="flex h-10 items-center gap-2 border-b border-border/60 px-3">
+            <aside className="flex min-h-0 min-w-0 flex-col border-r border-border bg-card/68 text-foreground">
+              <div className="flex h-12 items-center gap-2 border-b border-border bg-card/80 px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-                  <ExternalEditorOpenMenu
-                    availableEditors={props.availableEditors}
-                    connectionUrl={inputProps.connectionUrl}
-                    gitCwd={props.gitCwd}
-                    keybindings={props.keybindings}
-                  />
                   {activeWorktreePath ? (
-                    <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-[var(--control-radius)] border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76"
-                      title={activeWorktreePath}
-                    >
-                      <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
-                      <span>Worktree</span>
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[10.5px] font-medium text-foreground/76">
+                            <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
+                            <span>Worktree</span>
+                          </span>
+                        }
+                      />
+                      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                        {activeWorktreePath}
+                      </TooltipPopup>
+                    </Tooltip>
                   ) : null}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
-                    onClick={() =>
-                      startInlineEntry({
-                        kind: "create-file",
-                        parentPath:
-                          focusedExplorerEntry?.kind === "directory"
-                            ? focusedExplorerEntry.path
-                            : (focusedExplorerEntry?.parentPath ?? null),
-                        value: "",
-                      })
-                    }
-                    title="New File"
-                  >
-                    <FilePlus2Icon className="size-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
-                    onClick={() =>
-                      startInlineEntry({
-                        kind: "create-folder",
-                        parentPath:
-                          focusedExplorerEntry?.kind === "directory"
-                            ? focusedExplorerEntry.path
-                            : (focusedExplorerEntry?.parentPath ?? null),
-                        value: "",
-                      })
-                    }
-                    title="New Folder"
-                  >
-                    <FolderPlusIcon className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <div className="border-b border-border/60 px-2.5 py-2">
-                <div className="relative">
-                  <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
-                  <Input
-                    ref={treeSearchInputRef}
-                    nativeInput
-                    value={treeSearch}
-                    onChange={(event) => setTreeSearch(event.target.value)}
-                    placeholder="Search files or content"
-                    className="h-7 border-border/60 bg-background/88 pl-7 text-[12px] shadow-none focus-within:bg-background"
-                    size="sm"
-                    type="search"
-                  />
-                </div>
-              </div>
-              <div className="flex h-7 items-center gap-1.5 border-b border-border/60 px-2.5 text-[11px]">
-                <ChevronDownIcon
-                  className="size-3.5 shrink-0 text-muted-foreground/74"
-                  strokeWidth={2}
-                />
-                <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                  {searchMode ? "Search results" : "Files"}
-                </span>
-                {workspaceTreeQuery.data?.truncated ? (
-                  <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
-                    Partial index
-                  </span>
-                ) : null}
-                <span className="shrink-0 text-[10px] font-medium text-muted-foreground/76">
-                  {searchMode ? explorerRows.length : workspaceFileCount}
-                </span>
-              </div>
-              <div
-                ref={treeScrollRef}
-                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-0 py-1"
-                tabIndex={0}
-                onKeyDown={handleExplorerKeyDown}
-                onDragOver={(event) => {
-                  if (!readExplorerEntryTransferPath(event.dataTransfer)) {
-                    return;
-                  }
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  setDragTargetParentPath(null);
-                }}
-                onDrop={(event) => {
-                  const path = readExplorerEntryTransferPath(event.dataTransfer);
-                  if (!path) {
-                    return;
-                  }
-                  event.preventDefault();
-                  moveExplorerEntry(path, null);
-                }}
-                onContextMenu={(event) => {
-                  if (event.target !== event.currentTarget) {
-                    return;
-                  }
-                  event.preventDefault();
-                  setSelectedEntryPath(null);
-                  void openExplorerContextMenu(null, {
-                    x: event.clientX,
-                    y: event.clientY,
-                  });
-                }}
-              >
-                {explorerPending ? (
-                  <div className="space-y-1 px-2 py-2">
-                    {Array.from({ length: 10 }, (_, index) => (
-                      <div
-                        key={index}
-                        className="h-[22px] bg-foreground/5"
-                        style={{ opacity: 1 - index * 0.06 }}
+                  {canDetachEditor ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                            onClick={() => void detachEditor()}
+                            aria-label="Detach editor"
+                          >
+                            <ExternalLinkIcon className="size-3.5" />
+                          </Button>
+                        }
                       />
-                    ))}
-                  </div>
-                ) : explorerRows.length === 0 ? (
-                  <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-                    {searchMode ? "No files match this search." : "No files found."}
-                  </div>
-                ) : (
-                  <div
-                    className="relative"
-                    style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-                  >
-                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                      const row = explorerRows[virtualRow.index];
-                      if (!row) {
-                        return null;
+                      <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                          onClick={() =>
+                            startInlineEntry({
+                              kind: "create-file",
+                              parentPath:
+                                focusedExplorerEntry?.kind === "directory"
+                                  ? focusedExplorerEntry.path
+                                  : (focusedExplorerEntry?.parentPath ?? null),
+                              value: "",
+                            })
+                          }
+                          aria-label="New file"
+                        />
                       }
-                      return (
-                        <div
-                          key={row.key}
-                          className="absolute top-0 left-0 w-full"
-                          style={{ transform: `translateY(${virtualRow.start}px)` }}
-                        >
-                          {row.kind === "entry" ? (
-                            <FileTreeRow
-                              dragTargetPath={dragTargetParentPath}
-                              expandedDirectoryPaths={expandedDirectoryPathSet}
-                              focusedFilePath={activePane?.activeFilePath ?? null}
-                              gitStatus={gitStatusByPath.get(row.row.entry.path) ?? null}
-                              onDropEntry={(sourcePath, targetParentPath) => {
-                                moveExplorerEntry(sourcePath, targetParentPath);
-                              }}
-                              onFocusEntry={setSelectedEntryPath}
-                              onHoverDropTarget={setDragTargetParentPath}
-                              onOpenFile={handleOpenFile}
-                              onOpenRowContextMenu={(entry, position) => {
-                                void openExplorerContextMenu(entry, position);
-                              }}
-                              onSelectEntry={setSelectedEntryPath}
-                              onToggleDirectory={(directoryPath) =>
-                                toggleDirectory(props.threadId, directoryPath)
-                              }
-                              resolvedTheme={resolvedTheme}
-                              row={row.row}
-                              searchMode={searchMode}
-                              selectedEntryPath={selectedEntryPath}
-                            />
-                          ) : (
-                            <InlineExplorerRow
-                              depth={row.depth}
-                              inputRef={entryDialogInputRef}
-                              onCancel={cancelInlineEntry}
-                              onChangeValue={(value) =>
-                                setInlineEntryState((current) =>
-                                  current ? { ...current, value } : current,
-                                )
-                              }
-                              onCommit={submitInlineEntry}
-                              resolvedTheme={resolvedTheme}
-                              searchMode={searchMode}
-                              state={row.state}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                    >
+                      <FilePlus2Icon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="bottom">New file</TooltipPopup>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                          onClick={() =>
+                            startInlineEntry({
+                              kind: "create-folder",
+                              parentPath:
+                                focusedExplorerEntry?.kind === "directory"
+                                  ? focusedExplorerEntry.path
+                                  : (focusedExplorerEntry?.parentPath ?? null),
+                              value: "",
+                            })
+                          }
+                          aria-label="New folder"
+                        />
+                      }
+                    >
+                      <FolderPlusIcon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="bottom">New folder</TooltipPopup>
+                  </Tooltip>
+                </div>
               </div>
+              {sidebarMode === "explorer" ? (
+                <>
+                  <div className="border-b border-border/70 bg-background/35 px-2.5 py-2.5">
+                    <div className="relative">
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                      <Input
+                        ref={treeSearchInputRef}
+                        nativeInput
+                        value={treeSearch}
+                        onChange={(event) => setTreeSearch(event.target.value)}
+                        placeholder="Search files or content"
+                        className="h-8 rounded-lg border-border/60 bg-background/82 pl-7 text-[12px] shadow-none focus-within:border-primary/45 focus-within:bg-background"
+                        size="sm"
+                        type="search"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
+                    <ChevronDownIcon
+                      className="size-3.5 shrink-0 text-muted-foreground/74"
+                      strokeWidth={2}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      {searchMode ? "Search results" : "Files"}
+                    </span>
+                    {workspaceTreeQuery.data?.truncated ? (
+                      <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
+                        Partial index
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground/76">
+                      {searchMode ? explorerRows.length : workspaceFileCount}
+                    </span>
+                  </div>
+                  <div
+                    ref={treeScrollRef}
+                    className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1 py-1.5"
+                    tabIndex={0}
+                    onKeyDown={handleExplorerKeyDown}
+                    onDragOver={(event) => {
+                      if (!readExplorerEntryTransferPath(event.dataTransfer)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDragTargetParentPath(null);
+                    }}
+                    onDrop={(event) => {
+                      const path = readExplorerEntryTransferPath(event.dataTransfer);
+                      if (!path) {
+                        return;
+                      }
+                      event.preventDefault();
+                      moveExplorerEntry(path, null);
+                    }}
+                    onContextMenu={(event) => {
+                      if (event.target !== event.currentTarget) {
+                        return;
+                      }
+                      event.preventDefault();
+                      setSelectedEntryPath(null);
+                      void openExplorerContextMenu(null, {
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
+                    }}
+                  >
+                    {explorerPending ? (
+                      <div className="space-y-1 px-2 py-2">
+                        {Array.from({ length: 10 }, (_, index) => (
+                          <div
+                            key={index}
+                            className="h-[22px] rounded-md bg-foreground/5"
+                            style={{ opacity: 1 - index * 0.06 }}
+                          />
+                        ))}
+                      </div>
+                    ) : explorerRows.length === 0 ? (
+                      <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+                        {searchMode ? "No files match this search." : "No files found."}
+                      </div>
+                    ) : (
+                      <div
+                        className="relative"
+                        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                      >
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const row = explorerRows[virtualRow.index];
+                          if (!row) {
+                            return null;
+                          }
+                          return (
+                            <div
+                              key={row.key}
+                              className="absolute top-0 left-0 w-full"
+                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                            >
+                              {row.kind === "entry" ? (
+                                <FileTreeRow
+                                  dragTargetPath={dragTargetParentPath}
+                                  expandedDirectoryPaths={expandedDirectoryPathSet}
+                                  focusedFilePath={activePane?.activeFilePath ?? null}
+                                  gitStatus={gitStatusByPath.get(row.row.entry.path) ?? null}
+                                  onDropEntry={(sourcePath, targetParentPath) => {
+                                    moveExplorerEntry(sourcePath, targetParentPath);
+                                  }}
+                                  onFocusEntry={setSelectedEntryPath}
+                                  onHoverDropTarget={setDragTargetParentPath}
+                                  onOpenFile={handleOpenFile}
+                                  onOpenRowContextMenu={(entry, position) => {
+                                    void openExplorerContextMenu(entry, position);
+                                  }}
+                                  onSelectEntry={setSelectedEntryPath}
+                                  onToggleDirectory={(directoryPath) =>
+                                    toggleDirectory(props.threadId, directoryPath)
+                                  }
+                                  resolvedTheme={resolvedTheme}
+                                  row={row.row}
+                                  searchMode={searchMode}
+                                  selectedEntryPath={selectedEntryPath}
+                                />
+                              ) : (
+                                <InlineExplorerRow
+                                  depth={row.depth}
+                                  inputRef={entryDialogInputRef}
+                                  onCancel={cancelInlineEntry}
+                                  onChangeValue={(value) =>
+                                    setInlineEntryState((current) =>
+                                      current ? { ...current, value } : current,
+                                    )
+                                  }
+                                  onCommit={submitInlineEntry}
+                                  resolvedTheme={resolvedTheme}
+                                  searchMode={searchMode}
+                                  state={row.state}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : sidebarMode === "source-control" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
+                    <GitBranchIcon className="size-3.5 text-muted-foreground/74" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      Source Control
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/76">
+                      {changedFiles.length}
+                    </span>
+                  </div>
+                  {changedFiles.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <GitBranchIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      No working tree changes.
+                    </div>
+                  ) : (
+                    <div className="py-1.5">
+                      {changedFiles.map((file) => (
+                        <button
+                          key={file.path}
+                          type="button"
+                          className="group mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] text-muted-foreground/90 transition-colors hover:bg-accent hover:text-foreground"
+                          onClick={() => handleOpenFile(file.path, false)}
+                        >
+                          <VscodeEntryIcon
+                            pathValue={file.path}
+                            kind="file"
+                            theme={resolvedTheme}
+                            className="size-4"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium">{file.path}</span>
+                          {file.status ? (
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold",
+                                gitDecorationClass(file.status),
+                              )}
+                            >
+                              {file.status}
+                            </span>
+                          ) : null}
+                          <span className="rounded-sm bg-success/10 px-1 text-[10px] font-medium text-success">
+                            +{file.insertions}
+                          </span>
+                          <span className="rounded-sm bg-destructive/10 px-1 text-[10px] font-medium text-destructive">
+                            -{file.deletions}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : sidebarMode === "notes" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
+                    <MessageSquareTextIcon className="size-3.5 text-muted-foreground/74" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      Agent Notes
+                    </span>
+                    {inputProps.onSubmitAgentNote &&
+                    (queuedWorkspaceContexts.length > 0 || unresolvedCodeComments.length > 0) ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          void handleSendAllAgentNotes();
+                        }}
+                        disabled={agentNoteSubmissionBusy}
+                      >
+                        {agentNoteSubmissionBusy ? "Sending..." : "Send all"}
+                      </button>
+                    ) : null}
+                    <span className="text-[10px] text-muted-foreground/76">
+                      {openCodeCommentCount + queuedWorkspaceContexts.length}
+                    </span>
+                  </div>
+                  {queuedWorkspaceContexts.length === 0 && openCodeCommentCount === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <MessageSquareTextIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      Select code to queue context or add a file/range comment.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 p-2">
+                      {queuedWorkspaceContexts.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="overflow-hidden rounded-xl border border-primary/20 bg-primary/6"
+                        >
+                          <div className="flex items-start gap-2 p-2">
+                            <CircleDotIcon className="mt-0.5 size-3.5 text-primary" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[11px] font-semibold text-foreground">
+                                {entry.context.relativePath}:{entry.context.range.startLine + 1}-
+                                {entry.context.range.endLine + 1}
+                              </p>
+                              <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[10px] text-muted-foreground">
+                                {entry.prompt}
+                              </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1">
+                                {inputProps.onSubmitAgentNote ? (
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                    onClick={() => {
+                                      void handleSendQueuedContext(entry);
+                                    }}
+                                    disabled={agentNoteSubmissionBusy}
+                                  >
+                                    Send
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  onClick={() =>
+                                    setQueuedWorkspaceContexts((current) =>
+                                      current.filter((item) => item.id !== entry.id),
+                                    )
+                                  }
+                                  disabled={agentNoteSubmissionBusy}
+                                >
+                                  Dismiss
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {unresolvedCodeComments.map((comment) => (
+                        <div
+                          key={comment.id}
+                          className="overflow-hidden rounded-xl border border-border/60 bg-background/72"
+                        >
+                          <div className="flex items-start gap-2 border-l-2 border-primary/60 p-2">
+                            <ClipboardListIcon className="mt-0.5 size-3.5 text-primary/80" />
+                            <div className="min-w-0 flex-1">
+                              <button
+                                type="button"
+                                className="block max-w-full truncate text-left text-[11px] font-semibold text-foreground hover:underline"
+                                onClick={() => handleOpenFile(comment.relativePath, false)}
+                              >
+                                {formatWorkspaceCodeCommentTitle(comment)}
+                              </button>
+                              <pre className="mt-1 max-h-20 overflow-hidden rounded-sm border border-border/55 bg-foreground/4 p-1.5 font-mono text-[10px] leading-4 text-muted-foreground">
+                                {comment.code}
+                              </pre>
+                              <p className="mt-1 text-[11px] text-foreground/84">{comment.body}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1">
+                                {inputProps.onSubmitAgentNote ? (
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                    onClick={() => {
+                                      void handleSendCodeComment(comment);
+                                    }}
+                                    disabled={agentNoteSubmissionBusy}
+                                  >
+                                    Send
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="rounded-md bg-foreground/8 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80 hover:bg-foreground/12"
+                                  onClick={() =>
+                                    updateCodeCommentStatus(props.threadId, comment.id, "queued")
+                                  }
+                                  disabled={agentNoteSubmissionBusy || comment.status === "queued"}
+                                >
+                                  {comment.status === "queued" ? "Queued" : "Queue"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-md bg-foreground/8 px-1.5 py-0.5 text-[10px] hover:bg-foreground/12"
+                                  onClick={() =>
+                                    updateCodeCommentStatus(props.threadId, comment.id, "resolved")
+                                  }
+                                  disabled={agentNoteSubmissionBusy}
+                                >
+                                  Resolve
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  onClick={() => removeCodeComment(props.threadId, comment.id)}
+                                  disabled={agentNoteSubmissionBusy}
+                                >
+                                  Dismiss
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
+                    {sidebarMode === "outline" ? (
+                      <ListTreeIcon className="size-3.5 text-muted-foreground/74" />
+                    ) : (
+                      <CircleAlertIcon className="size-3.5 text-muted-foreground/74" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      {sidebarMode === "outline" ? "Outline" : "Problems"}
+                    </span>
+                    {sidebarMode === "outline" ? (
+                      <span className="text-[10px] text-muted-foreground/76">
+                        {workspaceSymbols.length}
+                      </span>
+                    ) : sidebarMode === "problems" ? (
+                      <span className="text-[10px] text-muted-foreground/76">
+                        {workspaceProblems.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  {sidebarMode === "outline" && workspaceSymbols.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <div className="mx-auto mb-2 flex size-7 items-center justify-center rounded-md border border-border/70 bg-background/70">
+                        <ListTreeIcon className="size-4 text-muted-foreground/55" />
+                      </div>
+                      No symbols detected in open editor files.
+                    </div>
+                  ) : sidebarMode === "outline" ? (
+                    <div className="space-y-1.5 p-1.5">
+                      {visibleOutlineGroups.map((group) => {
+                        const fileCollapsed = collapsedOutlineIds.has(group.id);
+                        const isActiveFile = activePane?.activeFilePath === group.relativePath;
+                        return (
+                          <div
+                            key={group.id}
+                            className={cn(
+                              "overflow-hidden rounded-[8px] border border-border/65 bg-background/52",
+                              isActiveFile && "border-border bg-accent/40",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              className={cn(
+                                "flex h-8 w-full items-center gap-2 border-b border-transparent px-2 text-left text-[11px] text-muted-foreground/88 transition-colors hover:bg-accent/55 hover:text-foreground",
+                                !fileCollapsed && "border-border/65",
+                              )}
+                              onClick={() => toggleOutlineId(group.id)}
+                            >
+                              {fileCollapsed ? (
+                                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/72" />
+                              ) : (
+                                <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/72" />
+                              )}
+                              <VscodeEntryIcon
+                                pathValue={group.relativePath}
+                                kind="file"
+                                theme={resolvedTheme}
+                                className="size-3.5"
+                              />
+                              <span className="min-w-0 flex-1 truncate font-medium text-foreground/92">
+                                {group.relativePath}
+                              </span>
+                              <span className="rounded-md bg-foreground/8 px-1.5 py-px text-[9px] tabular-nums text-muted-foreground/84">
+                                {group.symbolCount}
+                              </span>
+                            </button>
+                            {fileCollapsed ? null : (
+                              <div className="py-1">
+                                {group.symbols.map((node) => {
+                                  const nodeCollapsed =
+                                    node.hasChildren && collapsedOutlineIds.has(node.id);
+                                  const isActiveSymbol = activeOutlineSymbolId === node.id;
+                                  return (
+                                    <button
+                                      key={node.id}
+                                      type="button"
+                                      className={cn(
+                                        "group mx-1 my-0.5 flex h-7 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-left text-[11px] transition-colors",
+                                        isActiveSymbol
+                                          ? "bg-accent text-foreground"
+                                          : "text-muted-foreground/90 hover:bg-accent/65 hover:text-foreground",
+                                      )}
+                                      onClick={() => {
+                                        if (node.hasChildren) {
+                                          toggleOutlineId(node.id);
+                                          return;
+                                        }
+                                        handleOpenSymbol(node.report);
+                                      }}
+                                      onDoubleClick={() => handleOpenSymbol(node.report)}
+                                    >
+                                      <span
+                                        className="flex min-w-0 flex-1 items-center gap-1.5"
+                                        style={{
+                                          paddingLeft: `${Math.min(54, node.depth * 12)}px`,
+                                        }}
+                                      >
+                                        {node.hasChildren ? (
+                                          nodeCollapsed ? (
+                                            <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/70" />
+                                          ) : (
+                                            <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/70" />
+                                          )
+                                        ) : (
+                                          <span className="size-3 shrink-0" aria-hidden="true" />
+                                        )}
+                                        {symbolKindIcon(node.report.symbol.kind)}
+                                        <span className="min-w-0 flex-1 truncate font-medium text-foreground/95">
+                                          {node.report.symbol.name}
+                                        </span>
+                                      </span>
+                                      <span
+                                        className={cn(
+                                          "shrink-0 rounded-md px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.01em]",
+                                          symbolKindClass(node.report.symbol.kind),
+                                        )}
+                                      >
+                                        {symbolKindLabel(node.report.symbol.kind)}
+                                      </span>
+                                      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/75">
+                                        {node.report.symbol.startLineNumber}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : workspaceProblems.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      <CircleAlertIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      No problems detected in open editor files.
+                    </div>
+                  ) : (
+                    <div className="py-1.5">
+                      {workspaceProblems.map((report) => (
+                        <button
+                          key={`${report.paneId}:${report.relativePath}:${report.problem.owner}:${report.problem.startLineNumber}:${report.problem.startColumn}:${report.problem.message}`}
+                          type="button"
+                          className="group mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-accent"
+                          onClick={() => handleOpenProblem(report)}
+                        >
+                          <span
+                            className={cn(
+                              "mt-0.5 inline-flex min-w-[3.7rem] justify-center rounded px-1 py-px text-[9px] font-semibold uppercase",
+                              problemSeverityClass(report.problem.severity),
+                            )}
+                          >
+                            {problemSeverityLabel(report.problem.severity)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-foreground">
+                              {report.problem.message}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground/78">
+                              {report.relativePath}:{report.problem.startLineNumber}:
+                              {report.problem.startColumn}
+                              {report.problem.source ? ` · ${report.problem.source}` : ""}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </aside>
 
             <div
               aria-label="Resize workspace sidebar"
               role="separator"
               aria-orientation="vertical"
-              className="group relative cursor-col-resize bg-transparent hover:bg-foreground/6"
+              className="group relative cursor-col-resize bg-background hover:bg-accent"
               onPointerDown={handleTreeResizeStart}
               onPointerMove={handleTreeResizeMove}
               onPointerUp={handleTreeResizeEnd}
               onPointerCancel={handleTreeResizeEnd}
             >
-              <div className="mx-auto h-full w-px bg-border/60 transition-colors group-hover:bg-foreground/28" />
+              <div className="mx-auto h-full w-px bg-border transition-colors group-hover:bg-border" />
             </div>
           </>
         ) : null}
@@ -2386,33 +3621,49 @@ function ThreadWorkspaceEditor(inputProps: {
                             chromeActions={
                               rowIndex === 0 && paneIndex === row.panes.length - 1 ? (
                                 <>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    className="size-6 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
-                                    onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
-                                    title={
-                                      explorerOpen
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon-xs"
+                                          className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
+                                          onClick={() =>
+                                            setExplorerOpen(props.threadId, !explorerOpen)
+                                          }
+                                          aria-label={
+                                            explorerOpen
+                                              ? "Collapse workspace explorer"
+                                              : "Expand workspace explorer"
+                                          }
+                                        />
+                                      }
+                                    >
+                                      {explorerOpen ? (
+                                        <IconLayoutSidebarFilled className="size-3.5" />
+                                      ) : (
+                                        <IconLayoutSidebar className="size-3.5" />
+                                      )}
+                                    </TooltipTrigger>
+                                    <TooltipPopup side="bottom">
+                                      {explorerOpen
                                         ? "Collapse workspace explorer"
-                                        : "Expand workspace explorer"
-                                    }
-                                  >
-                                    {explorerOpen ? (
-                                      <IconLayoutSidebarFilled className="size-3.5" />
-                                    ) : (
-                                      <IconLayoutSidebar className="size-3.5" />
-                                    )}
-                                  </Button>
+                                        : "Expand workspace explorer"}
+                                    </TooltipPopup>
+                                  </Tooltip>
                                 </>
                               ) : undefined
                             }
                             connectionUrl={inputProps.connectionUrl}
+                            codeComments={codeComments}
                             diagnosticsCwd={diagnosticsCwd}
                             dirtyFilePaths={activeDirtyPaths}
                             draftsByFilePath={draftsByFilePath}
                             editorOptions={editorOptions}
                             gitCwd={props.gitCwd}
+                            onAddCodeComment={handleAddCodeComment}
+                            onAddCodeCommentAndSend={handleAddAndSendCodeComment}
                             onCloseFile={(paneId, filePath) =>
                               closeFile(props.threadId, filePath, paneId)
                             }
@@ -2429,6 +3680,9 @@ function ThreadWorkspaceEditor(inputProps: {
                             onMoveFile={(input) => moveFile(props.threadId, input)}
                             onOpenFileInPane={handleOpenFileInPane}
                             onOpenFileToSide={handleOpenFileToSide}
+                            onProblemsChange={handlePaneProblemsChange}
+                            onSymbolsChange={handlePaneSymbolsChange}
+                            onQueueSelectionContext={queueWorkspaceSelectionContext}
                             onReopenClosedTab={handleReopenClosedTab}
                             onRetryActiveFile={handleRetryActiveFile}
                             onSaveFile={handleSaveFile}
@@ -2443,12 +3697,15 @@ function ThreadWorkspaceEditor(inputProps: {
                             monacoTheme={monacoTheme}
                             pane={pane}
                             paneIndex={paneIndex}
+                            problemNavigationTarget={problemNavigationTarget}
                             resolvedTheme={resolvedTheme}
                             savingFilePath={
                               saveMutation.isPending
                                 ? (saveMutation.variables?.relativePath ?? null)
                                 : null
                             }
+                            symbolNavigationTarget={symbolNavigationTarget}
+                            findRequestToken={pane.id === activePaneId ? findRequestToken : 0}
                           />
                           {paneIndex < row.panes.length - 1 ? (
                             <div
@@ -2492,6 +3749,16 @@ function ThreadWorkspaceEditor(inputProps: {
           </div>
         </section>
       </div>
+      <WorkspaceCommandPalette
+        entries={treeEntries}
+        mode={commandPaletteMode}
+        onModeChange={setCommandPaletteMode}
+        onOpenChange={setCommandPaletteOpen}
+        onOpenFile={(path) => handleOpenFile(path, false)}
+        open={commandPaletteOpen}
+        resolvedTheme={resolvedTheme}
+        workspaceActions={workspaceCommandActions}
+      />
       <Dialog
         open={saveConflict !== null}
         onOpenChange={(open) => (!open ? setSaveConflict(null) : null)}

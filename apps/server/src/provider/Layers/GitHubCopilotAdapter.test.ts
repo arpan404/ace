@@ -39,6 +39,9 @@ function makeFakeClient(options: {
   readonly disconnect?: ReturnType<typeof vi.fn<() => Promise<void>>>;
   readonly send?: ReturnType<typeof vi.fn<(input: unknown) => Promise<string>>>;
   readonly abort?: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  readonly modeSet?: ReturnType<
+    typeof vi.fn<(input: { readonly mode: "interactive" | "plan" | "autopilot" }) => Promise<void>>
+  >;
   readonly planRead?: ReturnType<
     typeof vi.fn<() => Promise<{ exists: boolean; content: string | null; path: string | null }>>
   >;
@@ -89,11 +92,19 @@ function makeFakeClient(options: {
           content: null,
           path: options.workspacePath ? `${options.workspacePath}/plan.md` : null,
         }));
+      const modeSet =
+        options.modeSet ??
+        vi.fn(async (input: { readonly mode: "interactive" | "plan" | "autopilot" }) => {
+          void input;
+        });
 
       return {
         sessionId: "copilot-session-1",
         ...(options.workspacePath ? { workspacePath: options.workspacePath } : {}),
         rpc: {
+          mode: {
+            set: modeSet,
+          },
           plan: {
             read: planRead,
           },
@@ -162,6 +173,46 @@ const fastTimeoutLayer = it.layer(
 );
 
 layer("GitHubCopilotAdapterLive startSession", (it) => {
+  it.effect("syncs Ace Plan mode to the Copilot native session mode before sending", () =>
+    Effect.gen(function* () {
+      const modeSet = vi.fn(
+        async (input: { readonly mode: "interactive" | "plan" | "autopilot" }) => {
+          void input;
+        },
+      );
+      const send = vi.fn(async (_input: unknown) => "message-1");
+      const fakeClient = makeFakeClient({
+        models: [],
+        modeSet,
+        send,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-plan-mode-sync");
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        interactionMode: "plan",
+        input: "Create the implementation plan.",
+      });
+
+      assert.deepEqual(
+        modeSet.mock.calls.map(([input]) => input.mode),
+        ["interactive", "plan"],
+      );
+      assert.deepEqual(send.mock.calls[0]?.[0], {
+        prompt: "Create the implementation plan.",
+      });
+    }),
+  );
+
   it.effect("drops pending approval requests once the turn completes", () =>
     Effect.gen(function* () {
       const fakeClient = makeFakeClient({

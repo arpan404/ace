@@ -66,7 +66,13 @@ export interface WsRpcClient {
     readonly clear: RpcUnaryMethod<typeof WS_METHODS.terminalClear>;
     readonly restart: RpcUnaryMethod<typeof WS_METHODS.terminalRestart>;
     readonly close: RpcUnaryMethod<typeof WS_METHODS.terminalClose>;
+    readonly list: RpcUnaryMethod<typeof WS_METHODS.terminalList>;
+    readonly terminate: RpcUnaryMethod<typeof WS_METHODS.terminalTerminate>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTerminalEvents>;
+  };
+  readonly browserBridge: {
+    readonly resolve: RpcUnaryMethod<typeof WS_METHODS.browserBridgeResolve>;
+    readonly onRequest: RpcStreamMethod<typeof WS_METHODS.subscribeBrowserBridgeRequests>;
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
@@ -92,6 +98,9 @@ export interface WsRpcClient {
     readonly revealInFileManager: (input: {
       readonly path: Parameters<NativeApi["shell"]["revealInFileManager"]>[0];
     }) => ReturnType<NativeApi["shell"]["revealInFileManager"]>;
+    readonly pathExists: (input: {
+      readonly path: Parameters<NativeApi["shell"]["pathExists"]>[0];
+    }) => ReturnType<NativeApi["shell"]["pathExists"]>;
   };
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
@@ -121,10 +130,12 @@ export interface WsRpcClient {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly pickFolder: RpcUnaryMethod<typeof WS_METHODS.serverPickFolder>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly upgradeProviderCli: RpcUnaryMethod<typeof WS_METHODS.serverUpgradeProviderCli>;
     readonly getLspToolsStatus: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetLspToolsStatus>;
     readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
     readonly searchLspMarketplace: RpcUnaryMethod<typeof WS_METHODS.serverSearchLspMarketplace>;
     readonly installLspTool: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTool>;
+    readonly uninstallLspTool: RpcUnaryMethod<typeof WS_METHODS.serverUninstallLspTool>;
     readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
@@ -179,9 +190,21 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
       clear: (input) => transport.request((client) => client[WS_METHODS.terminalClear](input)),
       restart: (input) => transport.request((client) => client[WS_METHODS.terminalRestart](input)),
       close: (input) => transport.request((client) => client[WS_METHODS.terminalClose](input)),
+      list: (input) => transport.request((client) => client[WS_METHODS.terminalList](input)),
+      terminate: (input) =>
+        transport.request((client) => client[WS_METHODS.terminalTerminate](input)),
       onEvent: (listener) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTerminalEvents](streamIdentity),
+          listener,
+        ),
+    },
+    browserBridge: {
+      resolve: (input) =>
+        transport.request((client) => client[WS_METHODS.browserBridgeResolve](input)),
+      onRequest: (listener) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeBrowserBridgeRequests](streamIdentity),
           listener,
         ),
     },
@@ -218,6 +241,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.shellOpenInEditor](input)),
       revealInFileManager: (input) =>
         transport.request((client) => client[WS_METHODS.shellRevealInFileManager](input)),
+      pathExists: (input) =>
+        transport.request((client) => client[WS_METHODS.shellPathExists](input)),
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
@@ -271,6 +296,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.serverPickFolder](input)),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      upgradeProviderCli: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUpgradeProviderCli](input)),
       getLspToolsStatus: () =>
         transport.request((client) => client[WS_METHODS.serverGetLspToolsStatus]({})),
       installLspTools: (input) =>
@@ -279,6 +306,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.serverSearchLspMarketplace](input)),
       installLspTool: (input) =>
         transport.request((client) => client[WS_METHODS.serverInstallLspTool](input)),
+      uninstallLspTool: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUninstallLspTool](input)),
       searchOpenCodeModels: (input) =>
         transport.request((client) => client[WS_METHODS.serverSearchOpenCodeModels](input)),
       upsertKeybinding: (input) =>

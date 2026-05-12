@@ -1,4 +1,13 @@
-import { ArchiveIcon, ArchiveX, ChevronDownIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  ChevronDownIcon,
+  DownloadIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  WrenchIcon,
+} from "lucide-react";
+import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -11,6 +20,7 @@ import {
   ThreadId,
 } from "@ace/contracts";
 import {
+  BROWSER_MAX_MOUNTED_INSTANCES_LIMIT,
   DEFAULT_UI_FONT_FAMILY,
   DEFAULT_UI_FONT_SIZE_SCALE,
   DEFAULT_UI_LETTER_SPACING,
@@ -21,14 +31,11 @@ import {
   type UiLetterSpacing,
   type UiMonoFontFamily,
 } from "@ace/contracts/settings";
-import {
-  buildProviderModelSelection,
-  formatProviderModelDisplayName,
-  normalizeModelSlug,
-} from "@ace/shared/model";
+import { buildProviderModelSelection, formatProviderModelDisplayName } from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
+  DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL,
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
@@ -53,7 +60,6 @@ import {
   useDesktopCliInstallState,
 } from "../../lib/desktopCliInstallReactQuery";
 import {
-  MAX_CUSTOM_MODEL_LENGTH,
   getCustomModelOptionsByProvider,
   resolveAppModelSelectionState,
 } from "../../modelSelection";
@@ -95,7 +101,7 @@ import {
   getProviderSummary,
   getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
-import { useServerProviders } from "../../rpc/serverState";
+import { applyProvidersUpdated, useServerProviders } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
   {
@@ -144,6 +150,19 @@ const UI_LETTER_SPACING_OPTIONS: { value: UiLetterSpacing; label: string }[] = [
   { value: "normal", label: "Normal" },
   { value: "relaxed", label: "Relaxed" },
 ];
+
+const WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS = [
+  {
+    value: "manual",
+    label: "Manual",
+    description: "Only generate when you click the summary action.",
+  },
+  {
+    value: "auto",
+    label: "Automatic",
+    description: "Refresh after each completed diff capture.",
+  },
+] as const;
 
 const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.value));
 const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
@@ -197,6 +216,39 @@ function getLspToolSearchText(tool: ServerLspToolStatus): string {
     .toLowerCase();
 }
 
+function parseLspToolVersionFromSpecifier(
+  tool: Pick<ServerLspToolStatus, "installer" | "packageName">,
+  specifier: string,
+): string | null {
+  const trimmed = specifier.trim();
+  if (tool.installer === "uv-tool") {
+    const prefix = `${tool.packageName}==`;
+    return trimmed.startsWith(prefix) && trimmed.length > prefix.length
+      ? trimmed.slice(prefix.length)
+      : null;
+  }
+
+  const prefix = `${tool.packageName}@`;
+  return trimmed.startsWith(prefix) && trimmed.length > prefix.length
+    ? trimmed.slice(prefix.length)
+    : null;
+}
+
+function resolveLspToolVersionLabel(
+  tool: Pick<ServerLspToolStatus, "installer" | "installPackages" | "packageName" | "version">,
+): string {
+  if (tool.version) {
+    return tool.version;
+  }
+  for (const specifier of tool.installPackages) {
+    const version = parseLspToolVersionFromSpecifier(tool, specifier);
+    if (version) {
+      return version;
+    }
+  }
+  return "Latest";
+}
+
 function getLspToolStatusBadgeVariant(tool: ServerLspToolStatus): "success" | "warning" {
   return tool.installed ? "success" : "warning";
 }
@@ -214,6 +266,57 @@ function resolveNotificationSettingsUrl(): string | null {
     return "ms-settings:notifications";
   }
   return null;
+}
+
+function resolveCombinedNotificationPermission(
+  rendererPermission: AgentAttentionNotificationPermission,
+  desktopPermission: AgentAttentionNotificationPermission,
+): AgentAttentionNotificationPermission {
+  if (rendererPermission === "granted" || rendererPermission === "denied") {
+    return rendererPermission;
+  }
+  if (desktopPermission !== "unsupported") {
+    return desktopPermission;
+  }
+  return rendererPermission;
+}
+
+async function readSettingsNotificationPermission(): Promise<AgentAttentionNotificationPermission> {
+  const rendererPermission = readAgentAttentionNotificationPermission();
+  if (
+    !isElectron ||
+    typeof window === "undefined" ||
+    typeof window.desktopBridge?.getNotificationPermission !== "function"
+  ) {
+    return rendererPermission;
+  }
+
+  try {
+    const desktopPermission = await window.desktopBridge.getNotificationPermission();
+    return resolveCombinedNotificationPermission(rendererPermission, desktopPermission);
+  } catch {
+    return rendererPermission;
+  }
+}
+
+async function requestSettingsNotificationPermission(): Promise<AgentAttentionNotificationPermission> {
+  const rendererPermission = await requestAgentAttentionNotificationPermission();
+  if (
+    !isElectron ||
+    rendererPermission === "granted" ||
+    rendererPermission === "denied" ||
+    typeof window === "undefined" ||
+    typeof window.desktopBridge?.requestNotificationPermission !== "function"
+  ) {
+    return rendererPermission;
+  }
+
+  try {
+    const desktopPermission = await window.desktopBridge.requestNotificationPermission();
+    return resolveCombinedNotificationPermission(rendererPermission, desktopPermission);
+  } catch {
+    return rendererPermission;
+  }
 }
 
 type InstallProviderSettings = {
@@ -260,6 +363,12 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     binaryDescription: "Path to the Cursor Agent binary",
   },
   {
+    provider: "pi",
+    title: "Pi",
+    binaryPlaceholder: "Pi binary path",
+    binaryDescription: "Path to the Pi binary",
+  },
+  {
     provider: "gemini",
     title: "Gemini",
     binaryPlaceholder: "Gemini binary path",
@@ -303,6 +412,8 @@ const PROVIDER_STATUS_STYLES = {
     dot: "bg-warning",
   },
 } as const;
+
+const ONE_CLICK_UPGRADE_PROVIDERS = new Set<ProviderKind>(["codex", "gemini"]);
 
 function AboutVersionTitle() {
   return (
@@ -366,6 +477,18 @@ function AboutVersionSection() {
       return;
     }
 
+    if (action === "external-download") {
+      const api = readNativeApi() ?? ensureNativeApi();
+      void api.shell.openExternal(DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open download page",
+          description: error instanceof Error ? error.message : "Unable to open GitHub Releases.",
+        });
+      });
+      return;
+    }
+
     if (typeof bridge.checkForUpdate !== "function") return;
     void bridge
       .checkForUpdate()
@@ -399,10 +522,12 @@ function AboutVersionSection() {
   const actionLabel: Record<string, string> = {
     download: "Download",
     install: "Install",
+    "external-download": "Download latest",
   };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
+    installing: "Restarting…",
     "up-to-date": "Up to Date",
   };
   const buttonLabel =
@@ -410,7 +535,9 @@ function AboutVersionSection() {
   const description =
     action === "download" || action === "install"
       ? "Update available for desktop, web UI, server daemon, and CLI."
-      : "Current desktop, web UI, daemon runtime, and CLI version.";
+      : action === "external-download"
+        ? "Automatic update could not finish. Download the latest desktop build and install it manually."
+        : "Current desktop, web UI, daemon runtime, and CLI version.";
 
   return (
     <SettingsRow
@@ -622,6 +749,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine
         ? ["Browser search engine"]
         : []),
+      ...(settings.browserMaxMountedInstances !==
+      DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances
+        ? ["Max mounted browsers"]
+        : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -657,6 +788,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(settings.enableThinkingStreaming !== DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming
         ? ["Thinking activity"]
+        : []),
+      ...(settings.hideCompletedWorkMessages !== DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages
+        ? ["Completed work details"]
         : []),
       ...(settings.notifyOnAgentCompletion !== DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion
         ? ["Completion notifications"]
@@ -697,6 +831,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       areProviderSettingsDirty,
+      settings.browserMaxMountedInstances,
       settings.browserSearchEngine,
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
@@ -719,6 +854,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notifyOnUserInputRequired,
       settings.enableThinkingStreaming,
       settings.enableToolStreaming,
+      settings.hideCompletedWorkMessages,
       settings.threadHydrationCacheMemoryMb,
       settings.timestampFormat,
       settings.uiFontFamily,
@@ -753,7 +889,14 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-type SettingsPanelPage = "general" | "chat" | "editor" | "providers" | "advanced" | "about";
+type SettingsPanelPage =
+  | "general"
+  | "browser"
+  | "chat"
+  | "editor"
+  | "providers"
+  | "advanced"
+  | "about";
 
 function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
@@ -765,38 +908,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       isElectron ? "default" : readAgentAttentionNotificationPermission(),
     );
   const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
-  const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
-    codex: Boolean(
-      settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
-      settings.providers.codex.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
-      settings.providers.codex.customModels.length > 0,
-    ),
-    claudeAgent: Boolean(
-      settings.providers.claudeAgent.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.claudeAgent.binaryPath ||
-      settings.providers.claudeAgent.customModels.length > 0,
-    ),
-    githubCopilot: Boolean(
-      settings.providers.githubCopilot.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.githubCopilot.binaryPath ||
-      settings.providers.githubCopilot.customModels.length > 0,
-    ),
-    cursor: Boolean(
-      settings.providers.cursor.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.cursor.binaryPath ||
-      settings.providers.cursor.customModels.length > 0,
-    ),
-    gemini: Boolean(
-      settings.providers.gemini.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.gemini.binaryPath ||
-      settings.providers.gemini.customModels.length > 0,
-    ),
-    opencode: Boolean(
-      settings.providers.opencode.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.opencode.binaryPath ||
-      settings.providers.opencode.customModels.length > 0,
-    ),
-  });
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -804,6 +915,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     claudeAgent: "",
     githubCopilot: "",
     cursor: "",
+    pi: "",
     gemini: "",
     opencode: "",
   });
@@ -811,6 +923,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [upgradingRuntimeKey, setUpgradingRuntimeKey] = useState<string | null>(null);
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
@@ -856,6 +969,51 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         setIsRefreshingProviders(false);
       });
   }, []);
+  const upgradeProviderCli = useCallback(
+    (provider: ProviderKind, runtimeId: string) => {
+      if (upgradingRuntimeKey !== null) return;
+      const runtimeKey = `${provider}:${runtimeId}`;
+      setUpgradingRuntimeKey(runtimeKey);
+      const providerLabel =
+        PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
+      const toastId = toastManager.add({
+        type: "loading",
+        title: `Upgrading ${providerLabel}`,
+        description: "Installing the latest CLI version.",
+      });
+      void ensureNativeApi()
+        .server.upgradeProviderCli({ provider, runtimeId })
+        .then((payload) => {
+          applyProvidersUpdated(payload);
+          toastManager.update(toastId, {
+            type: "success",
+            title: `${providerLabel} upgraded`,
+            description: "Provider status was refreshed.",
+          });
+        })
+        .catch((error: unknown) => {
+          toastManager.update(toastId, {
+            type: "error",
+            title: `Unable to upgrade ${providerLabel}`,
+            description: getErrorMessage(error, "CLI upgrade failed."),
+          });
+        })
+        .finally(() => {
+          setUpgradingRuntimeKey(null);
+        });
+    },
+    [upgradingRuntimeKey],
+  );
+  const isUpgradingProvider = useCallback(
+    (provider: ProviderKind) =>
+      upgradingRuntimeKey !== null && upgradingRuntimeKey.startsWith(`${provider}:`),
+    [upgradingRuntimeKey],
+  );
+  const isUpgradingRuntime = useCallback(
+    (provider: ProviderKind, runtimeId: string) =>
+      upgradingRuntimeKey === `${provider}:${runtimeId}`,
+    [upgradingRuntimeKey],
+  );
   const canOpenNotificationSystemSettings = useMemo(
     () => isElectron && resolveNotificationSettingsUrl() !== null,
     [],
@@ -891,21 +1049,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     if (typeof window === "undefined") {
       return Promise.resolve<AgentAttentionNotificationPermission>("unsupported");
     }
-    if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
-      return window.desktopBridge
-        .getNotificationPermission()
-        .then((permission) => {
-          setNotificationPermission(permission);
-          return permission;
-        })
-        .catch(() => {
-          setNotificationPermission("unsupported");
-          return "unsupported" as const;
-        });
-    }
-    const permission = readAgentAttentionNotificationPermission();
-    setNotificationPermission(permission);
-    return Promise.resolve(permission);
+    return readSettingsNotificationPermission().then((permission) => {
+      setNotificationPermission(permission);
+      return permission;
+    });
   }, []);
 
   useEffect(() => {
@@ -913,18 +1060,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return;
     }
     const syncPermission = () => {
-      if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
-        void window.desktopBridge
-          .getNotificationPermission()
-          .then((permission) => {
-            setNotificationPermission(permission);
-          })
-          .catch(() => {
-            setNotificationPermission("unsupported");
-          });
-        return;
-      }
-      setNotificationPermission(readAgentAttentionNotificationPermission());
+      void readSettingsNotificationPermission()
+        .then((permission) => {
+          setNotificationPermission(permission);
+        })
+        .catch(() => {
+          setNotificationPermission("unsupported");
+        });
     };
     syncPermission();
     document.addEventListener("visibilitychange", syncPermission);
@@ -999,12 +1141,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const enableNotifications = useCallback(
     (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
       setIsUpdatingNotificationPermission(true);
-      const permissionRequest =
-        isElectron && typeof window.desktopBridge?.requestNotificationPermission === "function"
-          ? window.desktopBridge.requestNotificationPermission()
-          : requestAgentAttentionNotificationPermission();
 
-      void permissionRequest
+      void requestSettingsNotificationPermission()
         .then(async (permission) => {
           setNotificationPermission(permission);
           if (permission === "granted") {
@@ -1115,8 +1253,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 
   const serverProviders = useServerProviders();
-  const codexHomePath = settings.providers.codex.homePath;
-
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
   const textGenModel = textGenerationModelSelection.model;
@@ -1132,103 +1268,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
 
-  const addCustomModel = useCallback(
-    (provider: ProviderKind) => {
-      const customModelInput = customModelInputByProvider[provider];
-      const customModels = settings.providers[provider].customModels;
-      const normalized = normalizeModelSlug(customModelInput, provider);
-      if (!normalized) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: "Enter a model slug.",
-        }));
-        return;
-      }
-      if (
-        serverProviders
-          .find((candidate) => candidate.provider === provider)
-          ?.models.some((option) => !option.isCustom && option.slug === normalized)
-      ) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: "That model is already built in.",
-        }));
-        return;
-      }
-      if (normalized.length > MAX_CUSTOM_MODEL_LENGTH) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: `Model slugs must be ${MAX_CUSTOM_MODEL_LENGTH} characters or less.`,
-        }));
-        return;
-      }
-      if (customModels.includes(normalized)) {
-        setCustomModelErrorByProvider((existing) => ({
-          ...existing,
-          [provider]: "That custom model is already saved.",
-        }));
-        return;
-      }
-
-      updateSettings({
-        providers: {
-          ...settings.providers,
-          [provider]: {
-            ...settings.providers[provider],
-            customModels: [...customModels, normalized],
-          },
-        },
-      });
-      setCustomModelInputByProvider((existing) => ({
-        ...existing,
-        [provider]: "",
-      }));
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: null,
-      }));
-
-      const el = modelListRefs.current[provider];
-      if (!el) return;
-      const scrollToEnd = () => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      requestAnimationFrame(scrollToEnd);
-      const observer = new MutationObserver(() => {
-        scrollToEnd();
-        observer.disconnect();
-      });
-      observer.observe(el, { childList: true, subtree: true });
-      setTimeout(() => observer.disconnect(), 2_000);
-    },
-    [customModelInputByProvider, serverProviders, settings, updateSettings],
-  );
-
-  const removeCustomModel = useCallback(
-    (provider: ProviderKind, slug: string) => {
-      updateSettings({
-        providers: {
-          ...settings.providers,
-          [provider]: {
-            ...settings.providers[provider],
-            customModels: settings.providers[provider].customModels.filter(
-              (model) => model !== slug,
-            ),
-          },
-        },
-      });
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: null,
-      }));
-    },
-    [settings, updateSettings],
-  );
-
   const providerCards: ProviderCard[] = PROVIDER_SETTINGS.map((providerSettings) => {
-    const liveProvider = serverProviders.find(
+    const liveProviderSnapshots = serverProviders.filter(
       (candidate) => candidate.provider === providerSettings.provider,
     );
+    const liveProvider =
+      liveProviderSnapshots.find((candidate) => candidate.isDefaultProviderInstance === true) ??
+      liveProviderSnapshots.find((candidate) => !candidate.providerInstanceId) ??
+      liveProviderSnapshots[0];
     const providerConfig = settings.providers[providerSettings.provider];
-    const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
     const selectedModels = providerConfig.customModels.map((slug) => ({
@@ -1244,19 +1292,17 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       title: providerSettings.title,
       binaryPlaceholder: providerSettings.binaryPlaceholder,
       binaryDescription: providerSettings.binaryDescription,
+      canUpgradeCli:
+        liveProvider?.versionStatus === "upgrade-required" &&
+        ONE_CLICK_UPGRADE_PROVIDERS.has(providerSettings.provider),
       homePathKey: providerSettings.homePathKey,
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,
-      binaryPathValue: providerConfig.binaryPath,
-      cliUrlValue:
-        providerSettings.provider === "githubCopilot"
-          ? settings.providers.githubCopilot.cliUrl
-          : undefined,
       cliUrlPlaceholder: providerSettings.cliUrlPlaceholder,
       cliUrlDescription: providerSettings.cliUrlDescription,
-      isDirty: !Equal.equals(providerConfig, defaultProviderConfig),
       models,
-      providerConfig,
+      providerSnapshots: liveProviderSnapshots,
+      runtimes: liveProvider?.runtimes,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
@@ -1272,6 +1318,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       : null;
 
   const isGeneralPage = page === "general";
+  const isBrowserPage = page === "browser";
   const isChatPage = page === "chat";
   const isEditorPage = page === "editor";
   const isProvidersPage = page === "providers";
@@ -1310,6 +1357,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       ),
     [lspCatalogTools],
   );
+  const lspCatalogCategoryLabel =
+    lspCatalogCategory === "all" ? "All categories" : LSP_CATEGORY_LABELS[lspCatalogCategory];
 
   const refreshLspToolsStatus = useCallback(() => {
     void ensureNativeApi()
@@ -1387,6 +1436,28 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     },
     [installCustomLspTool],
   );
+
+  const uninstallCatalogTool = useCallback((tool: ServerLspToolStatus) => {
+    setIsInstallingCustomLsp(true);
+    setLspInstallTargetId(tool.id);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.uninstallLspTool({ id: tool.id })
+      .then((status) => {
+        setLspToolsStatus(status);
+        toastManager.add({
+          type: "success",
+          title: `Uninstalled ${tool.label}.`,
+        });
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(getErrorMessage(error, "Unable to uninstall language server."));
+      })
+      .finally(() => {
+        setIsInstallingCustomLsp(false);
+        setLspInstallTargetId(null);
+      });
+  }, []);
 
   const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
     if (tool) {
@@ -1903,6 +1974,65 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 />
               }
             />
+
+            <SettingsRow
+              title="Hide completed work details"
+              description="After an assistant turn finishes, hide tool and thinking rows and keep only the worked-for time."
+              resetAction={
+                settings.hideCompletedWorkMessages !==
+                DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages ? (
+                  <SettingResetButton
+                    label="completed work details"
+                    onClick={() =>
+                      updateSettings({
+                        hideCompletedWorkMessages:
+                          DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.hideCompletedWorkMessages}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ hideCompletedWorkMessages: Boolean(checked) })
+                  }
+                  aria-label="Hide completed work details"
+                />
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Comments">
+            <SettingsRow
+              title="Accumulate comments"
+              description="Hold browser and chat comments, then send them together with the next assistant request."
+              resetAction={
+                settings.commentSubmissionMode !==
+                DEFAULT_UNIFIED_SETTINGS.commentSubmissionMode ? (
+                  <SettingResetButton
+                    label="comment submission"
+                    onClick={() =>
+                      updateSettings({
+                        commentSubmissionMode: DEFAULT_UNIFIED_SETTINGS.commentSubmissionMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.commentSubmissionMode === "accumulate"}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      commentSubmissionMode: checked ? "accumulate" : "immediate",
+                    })
+                  }
+                  aria-label="Accumulate comments"
+                />
+              }
+            />
           </SettingsSection>
 
           <SettingsSection title="Confirmations">
@@ -2328,22 +2458,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Language server tools"
-              description="Install the core bundle, browse a curated LSP catalog, and keep custom servers inside ace."
               status={
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" size="sm">
-                    {lspCoreTools.filter((tool) => tool.installed).length}/{lspCoreTools.length}{" "}
-                    core
-                  </Badge>
-                  <Badge variant="outline" size="sm">
-                    {lspCatalogTools.filter((tool) => tool.installed).length}/
-                    {lspCatalogTools.length} curated
-                  </Badge>
-                  <Badge variant="outline" size="sm">
-                    {lspCustomTools.length} custom
-                  </Badge>
-                  {lspToolsError ? <div className="text-destructive">{lspToolsError}</div> : null}
-                </div>
+                lspToolsError ? (
+                  <span className="text-[11px] text-destructive">{lspToolsError}</span>
+                ) : null
               }
               control={
                 <div className="flex flex-wrap gap-2">
@@ -2353,6 +2471,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     onClick={refreshLspToolsStatus}
                     disabled={isInstallingLspTools}
                   >
+                    <RefreshCwIcon className="size-3.5" />
                     Refresh
                   </Button>
                   <Button
@@ -2360,6 +2479,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     onClick={() => installLspToolsFromSettings(lspCoreToolsInstalled)}
                     disabled={isInstallingLspTools}
                   >
+                    <DownloadIcon className="size-3.5" />
                     {isInstallingLspTools
                       ? "Installing..."
                       : lspCoreToolsInstalled
@@ -2370,198 +2490,153 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               }
             >
               <div className="mt-3 space-y-3">
-                <div className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="text-[13px] font-medium text-foreground/90">
-                        Curated marketplace for ace’s editor runtime
+                <div className="rounded-[var(--control-radius)] border border-border/45 bg-background/35 p-2.5">
+                  <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                    <div className="relative min-w-0">
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+                      <Input
+                        className="pl-8"
+                        value={lspCatalogQuery}
+                        onChange={(event) => setLspCatalogQuery(event.target.value)}
+                        placeholder="Search language, package, command, or file type"
+                      />
+                    </div>
+                    <Select
+                      value={lspCatalogCategory}
+                      onValueChange={(value) => {
+                        if (value === null) {
+                          return;
+                        }
+                        if (value === "all") {
+                          setLspCatalogCategory(value);
+                          return;
+                        }
+                        if (value !== "custom" && lspCatalogCategories.includes(value)) {
+                          setLspCatalogCategory(value);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="w-full lg:w-44"
+                        aria-label="Language server category filter"
+                      >
+                        <SelectValue>{lspCatalogCategoryLabel}</SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        <SelectItem hideIndicator value="all">
+                          All categories
+                        </SelectItem>
+                        {lspCatalogCategories.map((category) => (
+                          <SelectItem hideIndicator key={category} value={category}>
+                            {LSP_CATEGORY_LABELS[category]}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                  {filteredLspCatalogTools.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
+                      No language servers match this filter.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border/32">
+                      {filteredLspCatalogTools.map((tool) => {
+                        const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
+                        const versionLabel = resolveLspToolVersionLabel(tool);
+                        return (
+                          <div
+                            key={tool.id}
+                            className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                          >
+                            <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
+                              {tool.label}
+                            </div>
+                            <div className="justify-self-start text-[11px] font-medium text-muted-foreground/62 sm:justify-self-end">
+                              {versionLabel}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={tool.installed ? "outline" : "default"}
+                              onClick={() =>
+                                tool.installed
+                                  ? uninstallCatalogTool(tool)
+                                  : installCatalogTool(tool)
+                              }
+                              disabled={isInstallingCustomLsp}
+                              className="justify-self-start sm:justify-self-end"
+                            >
+                              {isWorking
+                                ? tool.installed
+                                  ? "Uninstalling..."
+                                  : "Installing..."
+                                : tool.installed
+                                  ? "Uninstall"
+                                  : "Install"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {lspCustomTools.length > 0 ? (
+                  <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                    <div className="border-b border-border/35 px-3 py-2">
+                      <div className="text-[12px] font-medium text-foreground/90">
+                        Custom servers
                       </div>
-                      <div className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
-                        Built-ins cover the common web stack. The catalog below adds popular config,
-                        schema, shell, infra, and component-file servers without leaving the app.
+                      <div className="text-[11px] text-muted-foreground/60">
+                        Saved package definitions outside the curated catalog.
                       </div>
                     </div>
-                    {lspToolsStatus?.installDir ? (
-                      <div className="rounded-[var(--control-radius)] border border-border/50 bg-background/55 px-3 py-2 text-[11px] text-muted-foreground">
-                        Install root
-                        <div className="mt-1 font-mono text-[10px] text-foreground">
-                          {lspToolsStatus.installDir}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="space-y-3 rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
-                  <Input
-                    value={lspCatalogQuery}
-                    onChange={(event) => setLspCatalogQuery(event.target.value)}
-                    placeholder="Search languages, frameworks, commands, or packages"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant={lspCatalogCategory === "all" ? "default" : "outline"}
-                      onClick={() => setLspCatalogCategory("all")}
-                    >
-                      All
-                    </Button>
-                    {lspCatalogCategories.map((category) => (
-                      <Button
-                        key={category}
-                        size="sm"
-                        variant={lspCatalogCategory === category ? "default" : "outline"}
-                        onClick={() => setLspCatalogCategory(category)}
-                      >
-                        {LSP_CATEGORY_LABELS[category]}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                {filteredLspCatalogTools.length === 0 ? (
-                  <div className="rounded-[var(--panel-radius)] border border-dashed border-border/60 px-4 py-6 text-center text-[13px] text-muted-foreground">
-                    No curated language servers match this filter.
-                  </div>
-                ) : (
-                  <div className="grid gap-2 lg:grid-cols-2">
-                    {filteredLspCatalogTools.map((tool) => (
-                      <div
-                        key={tool.id}
-                        className={cn(
-                          "rounded-[var(--panel-radius)] border p-3 transition-colors",
-                          tool.installed
-                            ? "border-emerald-500/25 bg-emerald-500/[0.05]"
-                            : "border-border/50 bg-background/35",
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
+                    <div className="divide-y divide-border/32">
+                      {lspCustomTools.map((tool) => (
+                        <div
+                          key={tool.id}
+                          className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                        >
                           <div className="min-w-0 space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-[13px] font-medium text-foreground/90">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                              <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
                                 {tool.label}
                               </div>
                               <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
-                                {tool.installed
-                                  ? tool.version
-                                    ? `Installed · ${tool.version}`
-                                    : "Installed"
-                                  : "Not installed"}
-                              </Badge>
-                              <Badge variant="outline" size="sm">
-                                {tool.builtin ? "Core" : LSP_CATEGORY_LABELS[tool.category]}
+                                {tool.installed ? "Installed" : "Missing"}
                               </Badge>
                               <Badge variant="outline" size="sm">
                                 {LSP_INSTALLER_LABELS[tool.installer]}
                               </Badge>
                             </div>
-                            <p className="text-[12px] leading-relaxed text-muted-foreground">
+                            <p className="text-[12px] leading-relaxed text-muted-foreground/68">
                               {tool.description}
                             </p>
                           </div>
                           <Button
                             size="sm"
-                            variant={tool.installed ? "outline" : "default"}
-                            onClick={() => installCatalogTool(tool)}
-                            disabled={isInstallingCustomLsp}
+                            variant="outline"
+                            onClick={() => seedCustomLspForm(tool)}
                           >
-                            {isInstallingCustomLsp && lspInstallTargetId === tool.id
-                              ? "Installing..."
-                              : tool.installed
-                                ? "Reinstall"
-                                : "Install"}
+                            Edit copy
                           </Button>
-                        </div>
-
-                        <div className="mt-3 space-y-2.5 text-[11px] text-muted-foreground">
-                          <div className="space-y-1">
-                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
-                              Package
-                            </div>
-                            <div className="font-mono text-foreground">{tool.packageName}</div>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
-                              Command
-                            </div>
-                            <div className="font-mono text-foreground">
-                              {tool.command}
-                              {tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {tool.languageIds.map((languageId) => (
-                              <Badge key={`${tool.id}-${languageId}`} variant="secondary" size="sm">
-                                {languageId}
-                              </Badge>
-                            ))}
-                            {tool.fileExtensions.map((extension) => (
-                              <Badge key={`${tool.id}-${extension}`} variant="outline" size="sm">
-                                {extension}
-                              </Badge>
-                            ))}
-                            {tool.fileNames.map((fileName) => (
-                              <Badge key={`${tool.id}-${fileName}`} variant="outline" size="sm">
-                                {fileName}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {lspCustomTools.length > 0 ? (
-                  <div className="space-y-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Custom servers
-                    </div>
-                    <div className="grid gap-2 lg:grid-cols-2">
-                      {lspCustomTools.map((tool) => (
-                        <div
-                          key={tool.id}
-                          className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-[13px] font-medium text-foreground/90">
-                                  {tool.label}
-                                </div>
-                                <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
-                                  {tool.installed ? "Installed" : "Missing"}
-                                </Badge>
-                                <Badge variant="outline" size="sm">
-                                  {LSP_INSTALLER_LABELS[tool.installer]}
-                                </Badge>
-                              </div>
-                              <p className="text-[12px] leading-relaxed text-muted-foreground">
-                                {tool.description}
-                              </p>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => seedCustomLspForm(tool)}
-                            >
-                              Edit copy
-                            </Button>
-                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 ) : null}
 
-                <div className="rounded-[var(--panel-radius)] border border-border/50 bg-background/35 p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-[13px] font-medium text-foreground/90">
-                        Custom package
+                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                  <div className="flex flex-col gap-2 border-b border-border/35 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-medium text-foreground/90">
+                        Register custom server
                       </div>
-                      <div className="text-[12px] text-muted-foreground">
-                        Register npm or uv-backed language servers with explicit file associations.
+                      <div className="text-[11px] text-muted-foreground/60">
+                        Add package-backed language servers with explicit file associations.
                       </div>
                     </div>
                     <Button
@@ -2569,108 +2644,131 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       variant="outline"
                       onClick={() => setIsLspCustomFormOpen((open) => !open)}
                     >
-                      {isLspCustomFormOpen ? "Hide form" : "Install custom LSP"}
+                      <WrenchIcon className="size-3.5" />
+                      {isLspCustomFormOpen ? "Hide form" : "Install custom"}
                     </Button>
                   </div>
 
                   {isLspCustomFormOpen ? (
-                    <div className="mt-3 space-y-3">
-                      <div className="flex flex-wrap gap-2">
+                    <div className="space-y-3 px-3 py-3">
+                      <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
                         {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
                           <Button
                             key={installer}
                             size="sm"
-                            variant={lspCustomForm.installer === installer ? "default" : "outline"}
+                            variant={lspCustomForm.installer === installer ? "default" : "ghost"}
                             onClick={() =>
                               setLspCustomForm((current) => ({
                                 ...current,
                                 installer,
                               }))
                             }
+                            className="shrink-0"
                           >
                             {LSP_INSTALLER_LABELS[installer]}
                           </Button>
                         ))}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <Input
-                          value={lspCustomForm.packageName}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              packageName: event.target.value,
-                            }))
-                          }
-                          placeholder={
-                            lspCustomForm.installer === "uv-tool"
-                              ? "Package name (e.g. basedpyright)"
-                              : lspCustomForm.installer === "go-install"
-                                ? "Package name (e.g. golang.org/x/tools/gopls)"
-                                : lspCustomForm.installer === "rustup"
-                                  ? "Package name (e.g. rust-analyzer)"
-                                  : "Package name (e.g. @tailwindcss/language-server)"
-                          }
-                        />
-                        <Input
-                          value={lspCustomForm.command}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              command: event.target.value,
-                            }))
-                          }
-                          placeholder="Command"
-                        />
-                        <Input
-                          value={lspCustomForm.label}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              label: event.target.value,
-                            }))
-                          }
-                          placeholder="Display label"
-                        />
-                        <Input
-                          value={lspCustomForm.args}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              args: event.target.value,
-                            }))
-                          }
-                          placeholder="Args (comma-separated, optional)"
-                        />
-                        <Input
-                          value={lspCustomForm.languageIds}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              languageIds: event.target.value,
-                            }))
-                          }
-                          placeholder="Language IDs (comma-separated)"
-                        />
-                        <Input
-                          value={lspCustomForm.fileExtensions}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              fileExtensions: event.target.value,
-                            }))
-                          }
-                          placeholder="File extensions (comma-separated)"
-                        />
-                        <Input
-                          value={lspCustomForm.fileNames}
-                          onChange={(event) =>
-                            setLspCustomForm((current) => ({
-                              ...current,
-                              fileNames: event.target.value,
-                            }))
-                          }
-                          placeholder="File names (comma-separated, optional)"
-                        />
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Package
+                          <Input
+                            value={lspCustomForm.packageName}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                packageName: event.target.value,
+                              }))
+                            }
+                            placeholder={
+                              lspCustomForm.installer === "uv-tool"
+                                ? "basedpyright"
+                                : lspCustomForm.installer === "go-install"
+                                  ? "golang.org/x/tools/gopls"
+                                  : lspCustomForm.installer === "rustup"
+                                    ? "rust-analyzer"
+                                    : "@tailwindcss/language-server"
+                            }
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Command
+                          <Input
+                            value={lspCustomForm.command}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                command: event.target.value,
+                              }))
+                            }
+                            placeholder="language-server-command"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Display label
+                          <Input
+                            value={lspCustomForm.label}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                label: event.target.value,
+                              }))
+                            }
+                            placeholder="Tailwind CSS"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Args
+                          <Input
+                            value={lspCustomForm.args}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                args: event.target.value,
+                              }))
+                            }
+                            placeholder="comma-separated, optional"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          Language IDs
+                          <Input
+                            value={lspCustomForm.languageIds}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                languageIds: event.target.value,
+                              }))
+                            }
+                            placeholder="typescript, javascript"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                          File extensions
+                          <Input
+                            value={lspCustomForm.fileExtensions}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                fileExtensions: event.target.value,
+                              }))
+                            }
+                            placeholder=".ts, .tsx"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2">
+                          File names
+                          <Input
+                            value={lspCustomForm.fileNames}
+                            onChange={(event) =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                fileNames: event.target.value,
+                              }))
+                            }
+                            placeholder="comma-separated, optional"
+                          />
+                        </label>
                       </div>
                       <div className="flex justify-end">
                         <Button
@@ -2678,6 +2776,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                           onClick={submitCustomLspInstall}
                           disabled={isInstallingCustomLsp}
                         >
+                          <DownloadIcon className="size-3.5" />
                           {isInstallingCustomLsp && lspInstallTargetId === "custom-form"
                             ? "Installing..."
                             : "Install custom LSP"}
@@ -2692,7 +2791,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         </>
       ) : null}
 
-      {isGeneralPage ? (
+      {isBrowserPage ? (
         <SettingsSection title="In-app browser">
           <SettingsRow
             title="Search engine"
@@ -2723,6 +2822,52 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               ))}
             </div>
           </SettingsRow>
+          <SettingsRow
+            title="Max mounted browsers"
+            description="Control how many thread browser surfaces stay mounted for fast switching. Higher values preserve more browser state but use more memory."
+            resetAction={
+              settings.browserMaxMountedInstances !==
+              DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances ? (
+                <SettingResetButton
+                  label="max mounted browsers"
+                  onClick={() =>
+                    updateSettings({
+                      browserMaxMountedInstances:
+                        DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={BROWSER_MAX_MOUNTED_INSTANCES_LIMIT}
+                  step={1}
+                  className="w-full sm:w-24"
+                  aria-label="Maximum mounted browser instances"
+                  value={String(settings.browserMaxMountedInstances)}
+                  onChange={(event) => {
+                    const nextValue = Number.parseInt(event.target.value, 10);
+                    if (!Number.isFinite(nextValue)) {
+                      return;
+                    }
+                    updateSettings({
+                      browserMaxMountedInstances: Math.min(
+                        BROWSER_MAX_MOUNTED_INSTANCES_LIMIT,
+                        Math.max(1, nextValue),
+                      ),
+                    });
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {settings.browserMaxMountedInstances === 1 ? "browser" : "browsers"}
+                </span>
+              </div>
+            }
+          />
         </SettingsSection>
       ) : null}
 
@@ -2748,18 +2893,34 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 <ProviderModelPicker
                   provider={textGenProvider}
+                  providerInstanceId={textGenerationModelSelection.providerInstanceId}
                   model={textGenModel}
                   lockedProvider={null}
                   providers={serverProviders}
                   modelOptionsByProvider={gitModelOptionsByProvider}
+                  providerInstancesByProvider={{
+                    codex: settings.providers.codex.instances,
+                    claudeAgent: settings.providers.claudeAgent.instances,
+                    githubCopilot: settings.providers.githubCopilot.instances,
+                    cursor: settings.providers.cursor.instances,
+                    pi: settings.providers.pi.instances,
+                    gemini: settings.providers.gemini.instances,
+                    opencode: settings.providers.opencode.instances,
+                  }}
                   triggerVariant="outline"
                   triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                  onProviderModelChange={(provider, model) => {
+                  onProviderModelChange={(provider, model, providerInstanceId) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
                         {
                           ...settings,
-                          textGenerationModelSelection: { provider, model },
+                          textGenerationModelSelection: {
+                            provider,
+                            ...(providerInstanceId && providerInstanceId !== "default"
+                              ? { providerInstanceId }
+                              : {}),
+                            model,
+                          },
                         },
                         serverProviders,
                       ),
@@ -2788,6 +2949,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             textGenProvider,
                             textGenModel,
                             nextOptions,
+                            textGenerationModelSelection.providerInstanceId,
                           ),
                         },
                         serverProviders,
@@ -2798,6 +2960,54 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               </div>
             }
           />
+
+          <SettingsRow
+            title="Summary generation"
+            description="Choose whether code summaries refresh automatically after each completed diff or only when requested manually."
+            resetAction={
+              settings.workspaceSummaryGenerationMode !==
+              DEFAULT_UNIFIED_SETTINGS.workspaceSummaryGenerationMode ? (
+                <SettingResetButton
+                  label="summary generation"
+                  onClick={() =>
+                    updateSettings({
+                      workspaceSummaryGenerationMode:
+                        DEFAULT_UNIFIED_SETTINGS.workspaceSummaryGenerationMode,
+                    })
+                  }
+                />
+              ) : null
+            }
+          >
+            <div className="mt-3 flex flex-wrap gap-2">
+              {WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => (
+                <Tooltip key={option.value}>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant={
+                          settings.workspaceSummaryGenerationMode === option.value
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() =>
+                          updateSettings({
+                            workspaceSummaryGenerationMode: option.value,
+                          })
+                        }
+                      >
+                        {option.label}
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
+                    {option.description}
+                  </TooltipPopup>
+                </Tooltip>
+              ))}
+            </div>
+          </SettingsRow>
         </SettingsSection>
       ) : null}
 
@@ -2886,22 +3096,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           </SettingsSection>
 
           <ProviderSettingsSection
-            addCustomModel={addCustomModel}
-            codexHomePath={codexHomePath}
             customModelErrorByProvider={customModelErrorByProvider}
             customModelInputByProvider={customModelInputByProvider}
             isRefreshingProviders={isRefreshingProviders}
+            isUpgradingProvider={isUpgradingProvider}
+            isUpgradingRuntime={isUpgradingRuntime}
             lastCheckedAt={lastCheckedAt}
             modelListRefs={modelListRefs}
-            openProviderDetails={openProviderDetails}
             providerCards={providerCards}
             refreshProviders={refreshProviders}
-            removeCustomModel={removeCustomModel}
             setCustomModelErrorByProvider={setCustomModelErrorByProvider}
             setCustomModelInputByProvider={setCustomModelInputByProvider}
-            setOpenProviderDetails={setOpenProviderDetails}
             settings={settings}
             textGenProvider={textGenProvider}
+            upgradeProviderCli={upgradeProviderCli}
             updateSettings={updateSettings}
           />
         </>
@@ -3019,6 +3227,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
 export function GeneralSettingsPanel() {
   return <SettingsPanel page="general" />;
+}
+
+export function BrowserSettingsPanel() {
+  return <SettingsPanel page="browser" />;
 }
 
 export function ChatSettingsPanel() {
@@ -3183,167 +3395,171 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <SettingsSection
-          title="By project"
-          icon={<ArchiveIcon />}
-          headerAction={
-            archivedGroups.length > 1 ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
-              >
-                {allGroupsExpanded ? "Collapse all" : "Expand all"}
-              </Button>
-            ) : null
-          }
-        >
-          {archivedGroups.map((group) => {
-            const project = group.project;
-            const isOpen = openGroupIds[project.id] !== false;
-            const archivedItemCount = group.threads.length + (project.archivedAt === null ? 0 : 1);
-
-            return (
-              <div key={project.id} className="border-t border-border/45 first:border-t-0">
-                <button
-                  type="button"
-                  className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-150 hover:bg-accent/25 sm:px-4"
-                  aria-expanded={isOpen}
-                  onClick={() => setGroupOpen(project.id, !isOpen)}
+        <section className="min-w-0 space-y-1.5">
+          <div className="flex h-6 min-w-0 items-center justify-between gap-3 pl-2 pr-1.5">
+            <h2 className="min-w-0 truncate text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              <span className="min-w-0 truncate">Archived</span>
+            </h2>
+            {archivedGroups.length > 1 ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={
+                        allGroupsExpanded ? "Collapse all projects" : "Expand all projects"
+                      }
+                      className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                      onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
+                    />
+                  }
                 >
-                  <ChevronDownIcon
-                    className={cn(
-                      "size-4 shrink-0 text-muted-foreground/55 transition-transform duration-200",
-                      !isOpen && "-rotate-90",
-                    )}
-                    aria-hidden="true"
-                  />
-                  <ProjectAvatar
-                    project={project}
-                    className="size-8 rounded-[var(--control-radius)]"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h3 className="truncate text-[13px] font-medium text-foreground/90">
-                        {project.name}
-                      </h3>
-                      {project.archivedAt !== null ? (
-                        <span className="shrink-0 rounded-[var(--control-radius)] border border-border/50 bg-background/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          Project
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {formatCountLabel(archivedItemCount, "archived item")} {"\u00b7 "}
-                      {formatCountLabel(group.threads.length, "thread")}
-                    </p>
-                  </div>
-                </button>
+                  {allGroupsExpanded ? (
+                    <IconArrowsDiagonalMinimize2 className="size-4" />
+                  ) : (
+                    <IconArrowsDiagonal className="size-4" />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  {allGroupsExpanded ? "Collapse all" : "Expand all"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
+          </div>
+          <div className="min-w-0 divide-y divide-border/35">
+            {archivedGroups.map((group) => {
+              const project = group.project;
+              const isOpen = openGroupIds[project.id] !== false;
+              const archivedItemCount =
+                group.threads.length + (project.archivedAt === null ? 0 : 1);
 
-                <Collapsible open={isOpen} onOpenChange={(open) => setGroupOpen(project.id, open)}>
-                  <CollapsibleContent>
-                    <div className="border-t border-border/45 bg-background/25">
-                      {project.archivedAt !== null ? (
-                        <div className="flex items-center justify-between gap-3 px-3 py-3 sm:px-4">
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/50 bg-card/40 text-muted-foreground">
-                              <ArchiveIcon className="size-4" />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <h4 className="truncate text-[13px] font-medium text-foreground/90">
+              return (
+                <div key={project.id} className="min-w-0 py-1">
+                  <button
+                    type="button"
+                    className="group flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left transition-colors duration-150 hover:bg-muted/20"
+                    aria-expanded={isOpen}
+                    onClick={() => setGroupOpen(project.id, !isOpen)}
+                  >
+                    <ChevronDownIcon
+                      className={cn(
+                        "size-3 shrink-0 text-muted-foreground/45 transition-transform duration-200",
+                        !isOpen && "-rotate-90",
+                      )}
+                      aria-hidden="true"
+                    />
+                    <ProjectAvatar
+                      project={project}
+                      className="size-3.5 rounded-[4px] opacity-70"
+                    />
+                    <h3 className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/84">
+                      {project.name}
+                    </h3>
+                    {project.archivedAt !== null ? (
+                      <span className="shrink-0 text-[10px] font-medium text-muted-foreground/48">
+                        project
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-[10px] text-muted-foreground/45 tabular-nums">
+                      {formatCountLabel(archivedItemCount, "item")} ·{" "}
+                      {formatCountLabel(group.threads.length, "thread")}
+                    </span>
+                  </button>
+
+                  <Collapsible
+                    open={isOpen}
+                    onOpenChange={(open) => setGroupOpen(project.id, open)}
+                  >
+                    <CollapsibleContent>
+                      <div className="mt-0.5 space-y-0.5 pl-6">
+                        {project.archivedAt !== null ? (
+                          <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/14">
+                            <div className="min-w-0">
+                              <h4 className="truncate text-[12px] font-medium text-foreground/82">
                                 Project archive
                               </h4>
-                              <p className="truncate text-xs text-muted-foreground">
-                                Archived{" "}
+                              <p className="truncate text-[10px] text-muted-foreground/50">
                                 {formatRelativeTimeLabel(
                                   project.archivedAt ??
                                     project.updatedAt ??
                                     project.createdAt ??
                                     "",
-                                )}
-                                {" \u00b7 "}
-                                {formatCountLabel(group.totalThreadCount, "total thread")}
+                                )}{" "}
+                                · {formatCountLabel(group.totalThreadCount, "thread")} total
                               </p>
                             </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 shrink-0 cursor-pointer gap-1 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground/64 hover:bg-muted/25 hover:text-foreground"
+                              onClick={() =>
+                                void restoreProject(project.id).catch((error) => {
+                                  toastManager.add({
+                                    type: "error",
+                                    title: "Failed to restore project",
+                                    description:
+                                      error instanceof Error ? error.message : "An error occurred.",
+                                  });
+                                })
+                              }
+                            >
+                              <ArchiveX className="size-3" />
+                              <span>Unarchive</span>
+                            </Button>
                           </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                            onClick={() =>
-                              void restoreProject(project.id).catch((error) => {
-                                toastManager.add({
-                                  type: "error",
-                                  title: "Failed to restore project",
-                                  description:
-                                    error instanceof Error ? error.message : "An error occurred.",
-                                });
-                              })
-                            }
-                          >
-                            <ArchiveX className="size-3.5" />
-                            <span>Restore</span>
-                          </Button>
-                        </div>
-                      ) : null}
+                        ) : null}
 
-                      {group.threads.map((thread) => (
-                        <div
-                          key={thread.id}
-                          className={cn(
-                            "flex items-center justify-between gap-3 border-t border-border/45 px-3 py-3 sm:px-4",
-                            project.archivedAt === null && "first:border-t-0",
-                          )}
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            void handleArchivedThreadContextMenu(thread.id, {
-                              x: event.clientX,
-                              y: event.clientY,
-                            });
-                          }}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <h4 className="truncate text-[13px] font-medium text-foreground/90">
-                              {thread.title}
-                            </h4>
-                            <p className="text-xs text-muted-foreground">
-                              Archived{" "}
-                              {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
-                              {" \u00b7 Created "}
-                              {formatRelativeTimeLabel(thread.createdAt)}
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                            onClick={() =>
-                              void unarchiveThread(thread.id).catch((error) => {
-                                toastManager.add({
-                                  type: "error",
-                                  title: "Failed to unarchive thread",
-                                  description:
-                                    error instanceof Error ? error.message : "An error occurred.",
-                                });
-                              })
-                            }
+                        {group.threads.map((thread) => (
+                          <div
+                            key={thread.id}
+                            className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/14"
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              void handleArchivedThreadContextMenu(thread.id, {
+                                x: event.clientX,
+                                y: event.clientY,
+                              });
+                            }}
                           >
-                            <ArchiveX className="size-3.5" />
-                            <span>Unarchive</span>
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            );
-          })}
-        </SettingsSection>
+                            <div className="min-w-0">
+                              <h4 className="truncate text-[12px] font-medium text-foreground/84">
+                                {thread.title}
+                              </h4>
+                              <p className="truncate text-[10px] text-muted-foreground/50">
+                                {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)} ·
+                                created {formatRelativeTimeLabel(thread.createdAt)}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 shrink-0 cursor-pointer gap-1 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground/64 hover:bg-muted/25 hover:text-foreground"
+                              onClick={() =>
+                                void unarchiveThread(thread.id).catch((error) => {
+                                  toastManager.add({
+                                    type: "error",
+                                    title: "Failed to unarchive thread",
+                                    description:
+                                      error instanceof Error ? error.message : "An error occurred.",
+                                  });
+                                })
+                              }
+                            >
+                              <ArchiveX className="size-3" />
+                              <span>Unarchive</span>
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </SettingsPageContainer>
   );

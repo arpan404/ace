@@ -2,6 +2,7 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   ProviderModelOptions,
+  ProviderSessionConfigOption,
   ServerProvider,
   ServerProviderModel,
   ThreadHandoffMode,
@@ -18,7 +19,7 @@ import {
   type RefObject,
 } from "react";
 
-import type { ComposerImageAttachment } from "../../composerDraftStore";
+import type { ComposerImageAttachment, ModelSelectionByProvider } from "../../composerDraftStore";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
@@ -30,6 +31,7 @@ import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
+import { ComposerPendingComments } from "./ComposerPendingComments";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
@@ -89,17 +91,25 @@ interface ChatComposerPanelProps {
   >["terminalContexts"];
   readonly queuedComposerMessages: ComponentProps<typeof ComposerQueuedMessages>["messages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
+  readonly canSendQueuedMessages: boolean;
+  readonly pendingComposerComments: ComponentProps<typeof ComposerPendingComments>["comments"];
   readonly composerProviderState: ComposerProviderState;
   readonly selectedProvider: ProviderKind;
+  readonly selectedProviderInstanceId?: string | undefined;
   readonly selectedModel: string;
   readonly selectedProviderModels: ReadonlyArray<ServerProviderModel>;
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  readonly sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly modelOptionsByProvider: ComponentProps<
     typeof ProviderModelPicker
   >["modelOptionsByProvider"];
+  readonly modelSelectionByProvider?: ModelSelectionByProvider | undefined;
+  readonly providerInstancesByProvider?: ComponentProps<
+    typeof ProviderModelPicker
+  >["providerInstancesByProvider"];
   readonly isServerThread: boolean;
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
@@ -153,9 +163,18 @@ interface ChatComposerPanelProps {
   readonly onClearQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onClearAll"];
+  readonly onDismissPendingComposerComment: ComponentProps<
+    typeof ComposerPendingComments
+  >["onDismiss"];
+  readonly onClearPendingComposerComments: ComponentProps<
+    typeof ComposerPendingComments
+  >["onClearAll"];
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onReorder"];
+  readonly onSendQueuedComposerMessage: NonNullable<
+    ComponentProps<typeof ComposerQueuedMessages>["onSend"]
+  >;
   readonly onSteerQueuedComposerMessage: ComponentProps<typeof ComposerQueuedMessages>["onSteer"];
   readonly onPreviewComposerImage: (imageId: string) => void;
   readonly onRemoveComposerImage: (imageId: string) => void;
@@ -179,7 +198,11 @@ interface ChatComposerPanelProps {
   readonly onAdvancePendingUserInput: ComponentProps<
     typeof ComposerPendingUserInputPanel
   >["onAdvance"];
-  readonly onProviderModelSelect: (provider: ProviderKind, model: string) => void;
+  readonly onProviderModelSelect: (
+    provider: ProviderKind,
+    model: string,
+    providerInstanceId?: string,
+  ) => void;
   readonly onHandoffToProvider: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
   readonly onToggleInteractionMode: () => void;
   readonly onRuntimeModeChange: (
@@ -257,6 +280,7 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
 });
 
 export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComposerPanelProps) {
+  const interactionModeDisabledReason = null;
   const providerTraitsMenuContent = useMemo(
     () =>
       renderProviderTraitsMenuContent({
@@ -267,6 +291,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         modelOptions: props.selectedProviderModelOptions,
         prompt: props.prompt,
         onPromptChange: props.onPromptChangeFromTraits,
+        sessionConfigOptions: props.sessionConfigOptions,
       }),
     [
       props.onPromptChangeFromTraits,
@@ -275,6 +300,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.selectedProvider,
       props.selectedProviderModelOptions,
       props.selectedProviderModels,
+      props.sessionConfigOptions,
       props.threadId,
     ],
   );
@@ -289,6 +315,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         prompt: props.prompt,
         onPromptChange: props.onPromptChangeFromTraits,
         showFastInTriggerLabel: false,
+        sessionConfigOptions: props.sessionConfigOptions,
       }),
     [
       props.onPromptChangeFromTraits,
@@ -297,6 +324,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.selectedProvider,
       props.selectedProviderModelOptions,
       props.selectedProviderModels,
+      props.sessionConfigOptions,
       props.threadId,
     ],
   );
@@ -333,22 +361,26 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.activePendingResolvedAnswers,
     ],
   );
-  const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(
-    () =>
-      props.isServerThread
-        ? {
-            providers: props.handoffTargetProviders,
-            disabled: props.handoffDisabled,
-            onSelect: props.onHandoffToProvider,
-          }
-        : undefined,
-    [
-      props.handoffDisabled,
-      props.handoffTargetProviders,
-      props.isServerThread,
-      props.onHandoffToProvider,
-    ],
-  );
+  const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(() => {
+    if (
+      !props.isServerThread ||
+      props.handoffDisabled ||
+      props.handoffTargetProviders.length === 0
+    ) {
+      return undefined;
+    }
+
+    return {
+      providers: props.handoffTargetProviders,
+      disabled: false,
+      onSelect: props.onHandoffToProvider,
+    };
+  }, [
+    props.handoffDisabled,
+    props.handoffTargetProviders,
+    props.isServerThread,
+    props.onHandoffToProvider,
+  ]);
 
   const isUltrathinkFrame =
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";
@@ -367,18 +399,28 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         data-chat-composer-form="true"
       >
         {(props.showQueue ?? true) ? (
-          <ComposerQueuedMessages
-            messages={props.queuedComposerMessages}
-            className="mb-2"
-            {...(props.queuedSteerMessageId !== undefined
-              ? { steerMessageId: props.queuedSteerMessageId }
-              : {})}
-            onEdit={props.onEditQueuedComposerMessage}
-            onDelete={props.onDeleteQueuedComposerMessage}
-            onClearAll={props.onClearQueuedComposerMessages}
-            onReorder={props.onReorderQueuedComposerMessages}
-            onSteer={props.onSteerQueuedComposerMessage}
-          />
+          <>
+            <ComposerPendingComments
+              comments={props.pendingComposerComments}
+              className="mb-2"
+              onDismiss={props.onDismissPendingComposerComment}
+              onClearAll={props.onClearPendingComposerComments}
+            />
+            <ComposerQueuedMessages
+              messages={props.queuedComposerMessages}
+              className="mb-2"
+              {...(props.queuedSteerMessageId !== undefined
+                ? { steerMessageId: props.queuedSteerMessageId }
+                : {})}
+              onEdit={props.onEditQueuedComposerMessage}
+              onDelete={props.onDeleteQueuedComposerMessage}
+              onClearAll={props.onClearQueuedComposerMessages}
+              onReorder={props.onReorderQueuedComposerMessages}
+              canSendNow={props.canSendQueuedMessages}
+              onSend={props.onSendQueuedComposerMessage}
+              onSteer={props.onSteerQueuedComposerMessage}
+            />
+          </>
         ) : null}
         {props.pendingUserInputs.length > 0 ? (
           <div className="mb-2">
@@ -527,10 +569,19 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   <ProviderModelPicker
                     compact={props.isComposerFooterCompact}
                     provider={props.selectedProvider}
+                    {...(props.selectedProviderInstanceId
+                      ? { providerInstanceId: props.selectedProviderInstanceId }
+                      : {})}
                     model={props.selectedModelForPickerWithCustomFallback}
                     lockedProvider={props.lockedProvider}
                     providers={props.providers}
                     modelOptionsByProvider={props.modelOptionsByProvider}
+                    {...(props.modelSelectionByProvider
+                      ? { modelSelectionByProvider: props.modelSelectionByProvider }
+                      : {})}
+                    {...(props.providerInstancesByProvider
+                      ? { providerInstancesByProvider: props.providerInstancesByProvider }
+                      : {})}
                     {...(props.composerProviderState.modelPickerIconClassName
                       ? {
                           activeProviderIconClassName:
@@ -546,6 +597,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                       interactionMode={props.interactionMode}
                       runtimeMode={props.runtimeMode}
                       interactionModeShortcutLabel={props.interactionModeShortcutLabel}
+                      interactionModeDisabledReason={interactionModeDisabledReason}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={props.onToggleInteractionMode}
                       onRuntimeModeChange={props.onRuntimeModeChange}
@@ -576,6 +628,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                               size="sm"
                               type="button"
                               onClick={props.onToggleInteractionMode}
+                              disabled={Boolean(interactionModeDisabledReason)}
                               aria-label={
                                 props.interactionMode === "plan"
                                   ? "Switch to agent mode"
@@ -594,10 +647,11 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                           </span>
                         </TooltipTrigger>
                         <TooltipPopup side="top" sideOffset={4}>
-                          {renderInteractionModeTooltipContent(
-                            props.interactionMode,
-                            props.interactionModeShortcutLabel,
-                          )}
+                          {interactionModeDisabledReason ??
+                            renderInteractionModeTooltipContent(
+                              props.interactionMode,
+                              props.interactionModeShortcutLabel,
+                            )}
                         </TooltipPopup>
                       </Tooltip>
                     </>

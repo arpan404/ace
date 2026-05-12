@@ -6,7 +6,7 @@ import { appendBrowserDesignContextToPrompt } from "../../lib/terminalContext";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 
 describe("ComposerQueuedMessages", () => {
-  it("renders unified queue rows with steer/edit/delete actions and icon-only attachments", () => {
+  it("renders a steering state for the active steering row with edit/delete actions and icon-only attachments", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages
         messages={[
@@ -27,11 +27,76 @@ describe("ComposerQueuedMessages", () => {
       />,
     );
 
-    expect(markup).toContain("Steer");
+    expect(markup).toContain('aria-label="Steering message"');
+    expect(markup).toContain("animate-pulse");
+    expect(markup).toContain(">Steering</button>");
+    expect(markup).not.toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
     expect(markup).toContain('aria-label="Delete queued message"');
     expect(markup).not.toContain("2 images");
     expect(markup).not.toContain("1 terminal");
+  });
+
+  it("hides steer actions from other rows while a steering request is active", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        messages={[
+          {
+            id: MessageId.makeUnsafe("queued-1"),
+            prompt: "Steer this next.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+          {
+            id: MessageId.makeUnsafe("queued-2"),
+            prompt: "Keep this in the normal queue.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+        ]}
+        steerMessageId={MessageId.makeUnsafe("queued-1")}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Steering message"');
+    expect(markup).not.toContain('aria-label="Steer queued message"');
+    expect(markup).toContain("Keep this in the normal queue.");
+  });
+
+  it("shows send instead of steering when queued messages can be sent after interruption", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        messages={[
+          {
+            id: MessageId.makeUnsafe("queued-1"),
+            prompt: "Send this after the interrupted turn.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+        ]}
+        canSendNow
+        steerMessageId={MessageId.makeUnsafe("queued-1")}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Send queued message"');
+    expect(markup).toContain(">Send</button>");
+    expect(markup).not.toContain("Steering");
+    expect(markup).not.toContain('aria-label="Steer queued message"');
   });
 
   it("renders steer and edit controls for designer queue rows", () => {
@@ -66,6 +131,9 @@ describe("ComposerQueuedMessages", () => {
 
     expect(markup).toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
+    expect(markup).toContain("Tighten the card rhythm");
+    expect(markup).not.toContain("browser_design_context");
+    expect(markup).not.toContain("DR-4F2C8A11");
   });
 
   it("renders nothing when the queue is empty", () => {

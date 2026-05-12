@@ -1,14 +1,14 @@
-import { spawnSync } from "node:child_process";
-
 import type {
   ServerProvider,
   ServerProviderAuth,
   ServerProviderModel,
   ServerProviderState,
+  ServerProviderVersionStatus,
 } from "@ace/contracts";
 import { Effect, Option, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { normalizeModelSlug } from "@ace/shared/model";
+import { terminatePid } from "@ace/shared/processTermination";
 
 import { isWindowsCommandNotFound } from "../processRunner";
 
@@ -23,6 +23,8 @@ export interface CommandResult {
 export interface ProviderProbeResult {
   readonly installed: boolean;
   readonly version: string | null;
+  readonly minimumVersion?: string | null;
+  readonly versionStatus?: ServerProviderVersionStatus;
   readonly status: Exclude<ServerProviderState, "disabled">;
   readonly auth: ServerProviderAuth;
   readonly message?: string;
@@ -43,17 +45,11 @@ export function isCommandMissingCause(error: unknown): boolean {
 const PROVIDER_PROBE_STOP_TIMEOUT = "1 second" as const;
 
 function killProviderProbeProcess(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (process.platform === "win32") {
-    try {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // Fall back to direct process signals when taskkill is unavailable.
-    }
-  }
-
   try {
-    process.kill(pid, signal);
+    terminatePid(pid, {
+      signal,
+      force: signal === "SIGKILL",
+    });
   } catch {
     // The process may have already exited between the liveness check and kill.
   }
@@ -183,17 +179,21 @@ export function buildServerProvider(input: {
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
   probe: ProviderProbeResult;
+  runtimes?: ServerProvider["runtimes"];
 }): ServerProvider {
   return {
     provider: input.provider,
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,
+    minimumVersion: input.probe.minimumVersion ?? null,
+    versionStatus: input.probe.versionStatus ?? "unknown",
     status: input.enabled ? input.probe.status : "disabled",
     auth: input.probe.auth,
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
+    ...(input.runtimes ? { runtimes: input.runtimes } : {}),
   };
 }
 
@@ -203,12 +203,14 @@ export function buildPendingServerProvider(input: {
   models: ReadonlyArray<ServerProviderModel>;
   message: string;
   checkedAt?: string;
+  runtimes?: ServerProvider["runtimes"];
 }): ServerProvider {
   return buildServerProvider({
     provider: input.provider,
     enabled: input.enabled,
     checkedAt: input.checkedAt ?? new Date().toISOString(),
     models: input.models,
+    ...(input.runtimes ? { runtimes: input.runtimes } : {}),
     probe: {
       installed: false,
       version: null,

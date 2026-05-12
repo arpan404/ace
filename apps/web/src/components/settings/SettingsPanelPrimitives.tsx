@@ -73,6 +73,16 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
       detail: provider.message ?? "CLI not detected on PATH.",
     };
   }
+  if (provider.versionStatus === "upgrade-required") {
+    return {
+      headline: "Upgrade needed",
+      detail:
+        provider.message ??
+        (provider.minimumVersion
+          ? `Installed CLI is below the minimum supported version ${getProviderVersionLabel(provider.minimumVersion)}.`
+          : "Installed CLI is below the minimum supported version."),
+    };
+  }
   if (provider.auth.status === "authenticated") {
     const authLabel = renderAuthLabel(provider);
     return {
@@ -157,29 +167,30 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0 space-y-1.5">
-      <div className="flex min-w-0 flex-col gap-2 px-0.5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-0.5">
-          <h2 className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
-            <span className="min-w-0 truncate">{title}</span>
-          </h2>
-          {description ? (
-            <p className="max-w-2xl text-[11px] leading-relaxed text-muted-foreground/52">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {headerAction ? (
-          <div className="flex min-h-7 shrink-0 items-center sm:justify-end">{headerAction}</div>
-        ) : null}
-      </div>
+    <section className="min-w-0">
       <div
         className={cn(
-          "relative min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-pill-border/58 bg-pill/58 text-card-foreground supports-[backdrop-filter]:bg-pill/48 supports-[backdrop-filter]:backdrop-blur-lg",
+          "relative min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/72 text-card-foreground shadow-none",
+          "supports-[backdrop-filter]:bg-background/66 supports-[backdrop-filter]:backdrop-blur-md",
           contentClassName,
         )}
       >
+        <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.10] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-3.5">
+          <div className="min-w-0 space-y-0.5">
+            <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
+              {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
+              <span className="min-w-0 truncate">{title}</span>
+            </h2>
+            {description ? (
+              <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {headerAction ? (
+            <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
+          ) : null}
+        </div>
         {children}
       </div>
     </section>
@@ -197,7 +208,7 @@ export function SettingsRow({
   children,
 }: {
   title: ReactNode;
-  description: string;
+  description?: string;
   status?: ReactNode;
   resetAction?: ReactNode;
   control?: ReactNode;
@@ -208,15 +219,15 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-pill-border/48 px-3 py-2.75 transition-colors duration-150 first:border-t-0 hover:bg-foreground/[0.028] sm:px-4",
+        "border-t border-border/35 px-3 py-2.5 first:border-t-0 sm:px-3.5",
         tone === "warning" && "bg-warning/[0.04]",
         tone === "danger" && "bg-destructive/[0.04]",
       )}
     >
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-3">
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex min-h-5 min-w-0 items-center gap-1.5">
-            <h3 className="min-w-0 text-[13px] leading-snug font-medium text-foreground/92">
+            <h3 className="min-w-0 text-[12.5px] leading-snug font-medium text-foreground/92">
               {title}
             </h3>
             {resetAction ? (
@@ -225,7 +236,9 @@ export function SettingsRow({
               </span>
             ) : null}
           </div>
-          <p className="text-[12px] leading-relaxed text-muted-foreground/65">{description}</p>
+          {description ? (
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground/58">{description}</p>
+          ) : null}
           {status ? (
             <div className="pt-0.5 text-[11px] text-muted-foreground/60">{status}</div>
           ) : null}
@@ -255,7 +268,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
             size="icon-xs"
             variant="ghost"
             aria-label={`Reset ${label} to default`}
-            className="size-5 rounded-[var(--control-radius)] p-0 text-muted-foreground/55 transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-foreground"
+            className="size-5 rounded-[var(--control-radius)] p-0 text-muted-foreground/50 transition-colors duration-150 hover:bg-foreground/[0.055] hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               onClick();
@@ -272,8 +285,8 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
 
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-6">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5 [&_[data-slot=input-control]]:border-border/64 [&_[data-slot=input-control]]:bg-background/72 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/64 [&_[data-slot=select-button]]:bg-background/72 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+    <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3 sm:px-4 sm:py-4 lg:px-5">
+      <div className="mx-auto flex w-full max-w-[58rem] flex-col gap-3 pb-8 sm:gap-3.5 [&_[data-slot=input-control]]:border-border/55 [&_[data-slot=input-control]]:bg-background/70 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/55 [&_[data-slot=select-button]]:bg-background/70 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
         {children}
       </div>
     </div>

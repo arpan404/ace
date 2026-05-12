@@ -90,7 +90,8 @@ export function derivePendingApprovals(
       payload &&
       (payload.requestKind === "command" ||
         payload.requestKind === "file-read" ||
-        payload.requestKind === "file-change")
+        payload.requestKind === "file-change" ||
+        payload.requestKind === "permission")
         ? payload.requestKind
         : payload
           ? requestKindFromRequestType(payload.requestType)

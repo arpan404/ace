@@ -50,6 +50,11 @@ import {
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
 import {
+  mergeProviderSlashCommands,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
@@ -210,6 +215,40 @@ function readTurnItemId(item: unknown): string | undefined {
   }
   const { id } = item as { id?: unknown };
   return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+function normalizeOpenCodeAvailableCommands(value: unknown): ReadonlyArray<{
+  name: string;
+  description?: string;
+  inputHint?: string;
+}> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      const command = asRecord(entry);
+      const name = typeof command?.name === "string" ? command.name.trim() : "";
+      if (!name) {
+        return null;
+      }
+      const description =
+        typeof command?.description === "string" && command.description.trim().length > 0
+          ? command.description.trim()
+          : undefined;
+      const hints = Array.isArray(command?.hints)
+        ? command.hints.filter((hint): hint is string => typeof hint === "string")
+        : [];
+      const inputHint = hints.length > 0 ? hints.join(" ") : undefined;
+      return {
+        name,
+        ...(description ? { description } : {}),
+        ...(inputHint ? { inputHint } : {}),
+      };
+    })
+    .filter((entry): entry is { name: string; description?: string; inputHint?: string } =>
+      Boolean(entry),
+    );
 }
 
 function clearIdleStopTimer(ctx: OpenCodeSessionContext): void {
@@ -1855,8 +1894,18 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
 
         const settings = await runPromise(serverSettingsService.getSettings);
-        const binaryPath = settings.providers.opencode.binaryPath;
-        const server = await startOpenCodeServerIsolated(binaryPath);
+        const openCodeSettings = resolveProviderSettings(
+          settings,
+          PROVIDER,
+          input.providerInstanceId,
+        );
+        const binaryPath = openCodeSettings.binaryPath;
+        const server = await startOpenCodeServerIsolated(binaryPath, {
+          ...openCodeSettings.launchEnv,
+          ...(openCodeSettings.configDir
+            ? { OPENCODE_CONFIG_DIR: openCodeSettings.configDir }
+            : {}),
+        });
         const cwd = input.cwd ?? serverConfig.cwd;
         const client = createOpenCodeSdkClient({
           baseUrl: server.url,
@@ -1880,6 +1929,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             });
           }
           const defaultModels = body.default ?? {};
+          const listedCommands = await client.command.list({ directory: cwd }).catch(() => null);
+          const availableCommands = mergeProviderSlashCommands(
+            listedCommands?.error ? [] : normalizeOpenCodeAvailableCommands(listedCommands?.data),
+            providerFallbackSlashCommands(PROVIDER),
+          );
 
           const createSession = async (): Promise<string> => {
             const permission = openCodePermissionRulesForRuntimeMode(input.runtimeMode);
@@ -1951,6 +2005,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
           const session: ProviderSession = {
             provider: PROVIDER,
+            ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
             status: "ready",
             runtimeMode: input.runtimeMode,
             cwd,
@@ -1999,6 +2054,20 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             baseEvent(ctx, {
               type: "session.started",
               payload: resumedExistingSession ? { resume: session.resumeCursor } : {},
+            }),
+          );
+          emit(
+            baseEvent(ctx, {
+              type: "session.configured",
+              payload: {
+                config: {
+                  availableCommands,
+                },
+              },
+              raw: {
+                method: "command.list",
+                availableCommands,
+              },
             }),
           );
           emit(

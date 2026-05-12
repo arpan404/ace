@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveNextBrowserTabIndex,
   resolveBrowserSuggestionDraftValue,
   resolveNextBrowserSuggestionIndex,
+  shouldReuseInitialBlankBrowserTabForBridgeNavigation,
   shouldAutoFocusBrowserAddressBarOnOpen,
   shouldShowBrowserAddressBarSuggestions,
 } from "./useInAppBrowserState";
@@ -29,6 +31,57 @@ describe("shouldAutoFocusBrowserAddressBarOnOpen", () => {
         browserTabCount: 2,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldReuseInitialBlankBrowserTabForBridgeNavigation", () => {
+  it("reuses only the single initial blank tab for bridge URL opens", () => {
+    expect(
+      shouldReuseInitialBlankBrowserTabForBridgeNavigation({
+        activeTabIsNewTab: true,
+        browserTabCount: 1,
+        requestedUrlPresent: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldReuseInitialBlankBrowserTabForBridgeNavigation({
+        activeTabIsNewTab: true,
+        browserTabCount: 2,
+        requestedUrlPresent: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldReuseInitialBlankBrowserTabForBridgeNavigation({
+        activeTabIsNewTab: false,
+        browserTabCount: 1,
+        requestedUrlPresent: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldReuseInitialBlankBrowserTabForBridgeNavigation({
+        activeTabIsNewTab: true,
+        browserTabCount: 1,
+        forceNewTab: true,
+        requestedUrlPresent: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveNextBrowserTabIndex", () => {
+  it("wraps browser tab selection in both directions", () => {
+    expect(resolveNextBrowserTabIndex(0, 3, 1)).toBe(1);
+    expect(resolveNextBrowserTabIndex(2, 3, 1)).toBe(0);
+    expect(resolveNextBrowserTabIndex(0, 3, -1)).toBe(2);
+  });
+
+  it("returns null for invalid tab selection state", () => {
+    expect(resolveNextBrowserTabIndex(-1, 3, 1)).toBeNull();
+    expect(resolveNextBrowserTabIndex(0, 0, 1)).toBeNull();
+    expect(resolveNextBrowserTabIndex(3, 3, 1)).toBeNull();
   });
 });
 

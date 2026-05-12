@@ -1,6 +1,10 @@
 export type AgentAttentionNotificationKind = "approval" | "user-input" | "completion";
 
-export type ApprovalNotificationRequestKind = "command" | "file-read" | "file-change";
+export type ApprovalNotificationRequestKind =
+  | "command"
+  | "file-read"
+  | "file-change"
+  | "permission";
 
 export interface AgentAttentionNotificationTitleInput {
   readonly kind: AgentAttentionNotificationKind;
@@ -38,12 +42,14 @@ const APPROVAL_BODY_LABEL_BY_KIND: Record<ApprovalNotificationRequestKind, strin
   command: "Command approval",
   "file-read": "File read approval",
   "file-change": "File change approval",
+  permission: "Permission approval",
 };
 
 const APPROVAL_FALLBACK_LABEL_BY_KIND: Record<ApprovalNotificationRequestKind, string> = {
   command: "command",
   "file-read": "file read",
   "file-change": "file change",
+  permission: "permission",
 };
 
 export function normalizeNotificationText(text: string): string {

@@ -17,6 +17,7 @@ import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
 import { Button } from "./ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import type { Project } from "../types";
 
 function nextAccessMode(mode: RuntimeMode): RuntimeMode {
@@ -212,23 +213,34 @@ export default function BranchToolbar({
         {runtimeMode && onRuntimeModeChange ? (
           <>
             <span className="mx-0.5 h-3 w-px bg-border/50" />
-            <Button
-              variant="ghost"
-              size="xs"
-              className={`gap-1.5 rounded-md text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 ${runtimeModeMeta?.textClassName ?? "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
-              title={runtimeModeMeta?.title}
-              data-chat-branch-runtime-mode={runtimeMode}
-            >
-              {runtimeMode === "full-access" ? (
-                <LockOpenIcon
-                  className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                />
-              ) : (
-                <LockIcon className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`} />
-              )}
-              {runtimeModeMeta?.label ?? "Access"}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className={`gap-1.5 rounded-md text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 ${runtimeModeMeta?.textClassName ?? "text-muted-foreground hover:text-foreground"}`}
+                    onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
+                    aria-label={runtimeModeMeta?.title}
+                    data-chat-branch-runtime-mode={runtimeMode}
+                  />
+                }
+              >
+                {runtimeMode === "full-access" ? (
+                  <LockOpenIcon
+                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
+                  />
+                ) : (
+                  <LockIcon
+                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
+                  />
+                )}
+                {runtimeModeMeta?.label ?? "Access"}
+              </TooltipTrigger>
+              {runtimeModeMeta?.title ? (
+                <TooltipPopup side="top">{runtimeModeMeta.title}</TooltipPopup>
+              ) : null}
+            </Tooltip>
           </>
         ) : null}
       </div>

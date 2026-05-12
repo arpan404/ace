@@ -3,6 +3,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { CursorModelSelection, TextGenerationError } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveCursorCliModelId } from "../../provider/Layers/CursorProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -12,12 +13,17 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  sanitizeWorkspaceSummaryHeadline,
+  sanitizeWorkspaceSummaryKeyChanges,
+  sanitizeWorkspaceSummaryParagraph,
+  sanitizeWorkspaceSummaryRisks,
 } from "../Utils.ts";
 
 const CURSOR_TIMEOUT_MS = 180_000;
@@ -64,14 +70,17 @@ const makeCursorTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary";
     cwd: string;
     prompt: string;
     outputSchema: S;
     modelSelection: CursorModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const cursorSettings = yield* serverSettingsService.getSettings.pipe(
-      Effect.map((settings) => settings.providers.cursor),
+      Effect.map((settings) =>
+        resolveProviderSettings(settings, "cursor", modelSelection.providerInstanceId),
+      ),
       Effect.catch(() => Effect.undefined),
     );
 
@@ -100,6 +109,11 @@ const makeCursorTextGeneration = Effect.gen(function* () {
           cursorCliModel,
         ],
         {
+          env: {
+            ...process.env,
+            ...cursorSettings?.launchEnv,
+            ...(cursorSettings?.configDir ? { CURSOR_CONFIG_DIR: cursorSettings.configDir } : {}),
+          },
           cwd,
           shell: process.platform === "win32",
           stdin: {
@@ -320,11 +334,46 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateWorkspaceSummary: TextGenerationShape["generateWorkspaceSummary"] = Effect.fn(
+    "CursorTextGeneration.generateWorkspaceSummary",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildWorkspaceSummaryPrompt({
+      turnState: input.turnState,
+      userRequests: input.userRequests,
+      assistantWork: input.assistantWork,
+      workingTreeSummary: input.workingTreeSummary,
+      workingTreeDiff: input.workingTreeDiff,
+    });
+
+    if (input.modelSelection.provider !== "cursor") {
+      return yield* new TextGenerationError({
+        operation: "generateWorkspaceSummary",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runCursorJson({
+      operation: "generateWorkspaceSummary",
+      cwd: input.cwd,
+      prompt,
+      outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return {
+      headline: sanitizeWorkspaceSummaryHeadline(generated.headline),
+      summary: sanitizeWorkspaceSummaryParagraph(generated.summary),
+      keyChanges: sanitizeWorkspaceSummaryKeyChanges(generated.keyChanges),
+      risks: sanitizeWorkspaceSummaryRisks(generated.risks),
+    };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateWorkspaceSummary,
   } satisfies TextGenerationShape;
 });
 

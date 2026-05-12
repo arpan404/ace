@@ -11,6 +11,8 @@ import {
   IsoDateTime,
   OrchestrationSessionStatus,
   ProviderIntegrationCapabilities,
+  ProviderSessionConfigOption,
+  ProviderSlashCommand,
   ThreadId,
   TurnId,
 } from "@ace/contracts";
@@ -26,6 +28,10 @@ export const ProjectionThreadSession = Schema.Struct({
   capabilities: Schema.NullOr(ProviderIntegrationCapabilities).pipe(
     Schema.withDecodingDefault(() => null),
   ),
+  configOptions: Schema.Array(ProviderSessionConfigOption).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  commands: Schema.Array(ProviderSlashCommand).pipe(Schema.withDecodingDefault(() => [])),
   runtimeMode: RuntimeMode,
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(Schema.String),

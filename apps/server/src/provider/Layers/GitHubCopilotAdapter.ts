@@ -10,6 +10,7 @@ import {
   isFullAccessRuntimeMode,
   ProviderItemId,
   type ProviderApprovalDecision,
+  type ProviderInteractionMode,
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ThreadTokenUsageSnapshot,
@@ -41,6 +42,8 @@ import {
   normalizeGitHubCopilotModelOptionsForModel,
   stopGitHubCopilotClient,
 } from "../githubCopilotSdk";
+import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { loadGitHubCopilotSdkModule, type GitHubCopilotSdkLoader } from "../providerSdkRuntime";
 import {
   ProviderAdapterProcessError,
@@ -60,6 +63,7 @@ const GITHUB_COPILOT_SEND_TIMEOUT_MS = 30_000;
 const GITHUB_COPILOT_TURN_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 const GITHUB_COPILOT_STOP_TIMEOUT_MS = 5_000;
 const GITHUB_COPILOT_ABORT_TIMEOUT_MS = 10_000;
+type GitHubCopilotSessionMode = "interactive" | "plan" | "autopilot";
 
 type UserInputRequest = {
   readonly question: string;
@@ -164,6 +168,23 @@ function toMessage(cause: unknown, fallback: string): string {
 function isMissingResumableGitHubCopilotSession(cause: unknown): boolean {
   const message = meaningfulErrorMessage(cause, "").toLowerCase();
   return message.includes("session not found") || message.includes("request session.resume failed");
+}
+
+function githubCopilotModeForInteractionMode(
+  interactionMode: ProviderInteractionMode | null | undefined,
+): GitHubCopilotSessionMode {
+  return interactionMode === "plan" ? "plan" : "interactive";
+}
+
+async function syncGitHubCopilotSessionMode(
+  sdkSession: GitHubCopilotSessionClient,
+  interactionMode: ProviderInteractionMode | null | undefined,
+): Promise<void> {
+  const setMode = sdkSession.rpc?.mode?.set;
+  if (!setMode) {
+    return;
+  }
+  await setMode({ mode: githubCopilotModeForInteractionMode(interactionMode) });
 }
 
 function makeDeferredDecision<T>() {
@@ -336,6 +357,17 @@ function classifyToolItemType(toolName: string | undefined): CanonicalItemType {
     normalized === "bash"
   ) {
     return "command_execution";
+  }
+  if (
+    normalized.includes("grep") ||
+    normalized.includes("glob") ||
+    normalized.includes("search") ||
+    normalized.includes("find")
+  ) {
+    return "web_search";
+  }
+  if (normalized.includes("read") || normalized.includes("open") || normalized.includes("view")) {
+    return "dynamic_tool_call";
   }
   if (
     normalized.includes("write") ||
@@ -2313,7 +2345,9 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
 
       const settings = await runPromise(
         serverSettingsService.getSettings.pipe(
-          Effect.map((value) => value.providers.githubCopilot),
+          Effect.map((value) =>
+            resolveProviderSettings(value, "githubCopilot", input.providerInstanceId),
+          ),
         ),
       );
       const existing = sessions.get(input.threadId);
@@ -2483,6 +2517,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
                 return sdkClient.createSession(sessionConfig);
               })
           : await sdkClient.createSession(sessionConfig);
+        await syncGitHubCopilotSessionMode(sdkSession, input.interactionMode);
         const replayTurns = cloneReplayTurns(input.replayTurns);
         const resumedExistingSession =
           resumedFromCursor && sdkSession.sessionId === input.resumeCursor;
@@ -2491,6 +2526,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         const createdContext: GitHubCopilotSessionContext = {
           session: {
             provider: PROVIDER,
+            ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
             status: "ready",
             runtimeMode: input.runtimeMode,
             threadId: input.threadId,
@@ -2538,6 +2574,22 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             rawSource: "github-copilot.sdk.event",
             rawPayload: {
               sessionId: sdkSession.sessionId,
+            },
+          }),
+        );
+
+        emitRuntimeEvent(
+          makeBaseEvent(createdContext, {
+            type: "session.configured",
+            payload: {
+              config: {
+                availableCommands: providerFallbackSlashCommands(PROVIDER),
+              },
+            },
+            rawMethod: "session.configured",
+            rawSource: "github-copilot.sdk.event",
+            rawPayload: {
+              availableCommands: providerFallbackSlashCommands(PROVIDER),
             },
           }),
         );
@@ -2611,6 +2663,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           ).text
         : latestPrompt;
       const attachmentNames = (input.attachments ?? []).map((attachment) => attachment.name);
+      await syncGitHubCopilotSessionMode(context.sdkSession, input.interactionMode);
 
       const turnId = TurnId.makeUnsafe(randomUUID());
       const createdAt = new Date().toISOString();

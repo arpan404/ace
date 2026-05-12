@@ -21,6 +21,7 @@ import {
   type UserInputQuestion,
 } from "@ace/contracts";
 import { Effect, FileSystem, Layer, PubSub, Stream } from "effect";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 
 import {
   ProviderAdapterProcessError,
@@ -32,6 +33,7 @@ import { startCursorAcpClient, type CursorAcpClient, type CursorAcpJsonRpcId } f
 import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
 import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapter.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
@@ -1843,14 +1845,24 @@ export const CursorAdapterLive = Layer.effect(
             return existing.startPromise ? await existing.startPromise : existing.session;
           }
           const settings = await runPromise(settingsService.getSettings);
+          const cursorSettings = resolveProviderSettings(
+            settings,
+            PROVIDER,
+            input.providerInstanceId,
+          );
           const selectedModel = resolveSelectedModel(input.modelSelection);
 
           const client = startCursorAcpClient({
-            binaryPath: settings.providers.cursor.binaryPath,
+            binaryPath: cursorSettings.binaryPath,
+            env: {
+              ...cursorSettings.launchEnv,
+              ...(cursorSettings.configDir ? { CURSOR_CONFIG_DIR: cursorSettings.configDir } : {}),
+            },
           });
           const createdAt = isoNow();
           const session: ProviderSession = {
             provider: PROVIDER,
+            ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
             status: "connecting",
             runtimeMode: input.runtimeMode,
             ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -2058,7 +2070,7 @@ export const CursorAdapterLive = Layer.effect(
             } catch (cause) {
               context.stopping = true;
               sessions.delete(input.threadId);
-              context.client.child.kill("SIGTERM");
+              terminateChildProcess(context.client.child, { signal: "SIGTERM", tree: true });
               throw cause;
             } finally {
               context.startPromise = undefined;

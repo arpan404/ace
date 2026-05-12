@@ -12,7 +12,10 @@ type EditableContextMenuParams = {
 };
 
 interface BuildWebContentsContextMenuOptions {
+  devToolsAccelerator?: string;
   onCopyLink?: () => void;
+  onOpenDevTools?: () => void;
+  onOpenLinkInNewTab?: () => void;
   onOpenLink?: () => void;
   onReplaceMisspelling: (suggestion: string) => void;
 }
@@ -23,6 +26,12 @@ export function buildWebContentsContextMenuTemplate(
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
 
+  if (options.onOpenLinkInNewTab) {
+    template.push({
+      label: "Open Link in New Tab",
+      click: options.onOpenLinkInNewTab,
+    });
+  }
   if (options.onOpenLink) {
     template.push({
       label: "Open Link Externally",
@@ -33,6 +42,13 @@ export function buildWebContentsContextMenuTemplate(
     template.push({
       label: "Copy Link Address",
       click: options.onCopyLink,
+    });
+  }
+  if (options.onOpenDevTools) {
+    template.push({
+      label: "Open Developer Tools",
+      click: options.onOpenDevTools,
+      ...(options.devToolsAccelerator ? { accelerator: options.devToolsAccelerator } : {}),
     });
   }
   if (template.length > 0) {

@@ -54,6 +54,7 @@ import { ProjectionThreadMessageRepository } from "../../persistence/Services/Pr
 import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
 import { resolveProviderIntegrationCapabilities } from "../providerCapabilities.ts";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -159,6 +160,7 @@ function toRuntimePayloadFromSession(
   return {
     cwd: session.cwd ?? null,
     model: session.model ?? null,
+    providerInstanceId: session.providerInstanceId ?? null,
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
@@ -602,6 +604,29 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       recordRuntimeEventActivity(event);
     }).pipe(
       Effect.flatMap(() =>
+        Effect.gen(function* () {
+          if (event.type === "turn.completed") {
+            const completedPayload = event.payload;
+            yield* analytics.record("provider.turn.completed", {
+              provider: event.provider,
+              stopReason: completedPayload.stopReason ?? undefined,
+              totalCostUsd: completedPayload.totalCostUsd,
+              hasErrorMessage:
+                typeof completedPayload.errorMessage === "string" &&
+                completedPayload.errorMessage.length > 0,
+            });
+            return;
+          }
+          if (event.type === "turn.aborted") {
+            yield* analytics.record("provider.turn.failed", {
+              provider: event.provider,
+              failureClass: "aborted",
+              reason: event.payload.reason,
+            });
+          }
+        }),
+      ),
+      Effect.flatMap(() =>
         isTurnIdleEvent(event) ? completeActiveTurn(event.threadId) : Effect.void,
       ),
       Effect.flatMap(() => publishRuntimeEvent(event)),
@@ -764,7 +789,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ...parsed,
         threadId,
         provider: parsed.provider ?? parsed.modelSelection?.provider ?? "codex",
+        providerInstanceId: parsed.providerInstanceId ?? parsed.modelSelection?.providerInstanceId,
       };
+      const providerSelectionSource =
+        parsed.provider !== undefined
+          ? "explicit-provider"
+          : parsed.modelSelection?.provider !== undefined
+            ? "model-selection"
+            : "default-provider";
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.mapError((error) =>
           toValidationError(
@@ -774,10 +806,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ),
         ),
       );
-      if (!settings.providers[input.provider].enabled) {
+      if (!resolveProviderSettings(settings, input.provider, input.providerInstanceId).enabled) {
         return yield* toValidationError(
           "ProviderService.startSession",
-          `Provider '${input.provider}' is disabled in ace settings.`,
+          `Provider '${input.provider}' instance '${input.providerInstanceId ?? "default"}' is disabled in ace settings.`,
         );
       }
       const adapter = yield* registry.getByProvider(input.provider);
@@ -825,6 +857,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       yield* upsertSessionBinding(session, threadId, {
         modelSelection: input.modelSelection,
       });
+      yield* analytics.record("provider.selected", {
+        provider: session.provider,
+        source: providerSelectionSource,
+      });
+      if (persistedBinding && persistedBinding.provider !== session.provider) {
+        yield* analytics.record("provider.switched", {
+          fromProvider: persistedBinding.provider,
+          toProvider: session.provider,
+          reason: "session-start",
+        });
+      }
       yield* analytics.record("provider.session.started", {
         provider: session.provider,
         runtimeMode: input.runtimeMode,
@@ -854,6 +897,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
       runtimePayload: {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerInstanceId !== undefined
+          ? { providerInstanceId: input.providerInstanceId }
+          : {}),
         activeTurnId: turn.turnId,
         lastRuntimeEvent: "provider.sendTurn",
         lastRuntimeEventAt: new Date().toISOString(),
@@ -998,6 +1044,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
       runtimePayload: {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerInstanceId !== undefined
+          ? { providerInstanceId: input.providerInstanceId }
+          : {}),
         activeTurnId: turn.turnId,
         lastRuntimeEvent: "provider.steerTurn",
         lastRuntimeEventAt: new Date().toISOString(),

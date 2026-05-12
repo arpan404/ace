@@ -1,4 +1,16 @@
-import { ArrowLeftIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArrowLeftIcon,
+  BotIcon,
+  CircleHelpIcon,
+  CodeXmlIcon,
+  Globe2Icon,
+  MessageCircleIcon,
+  MonitorSmartphoneIcon,
+  Settings2Icon,
+  SlidersHorizontalIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
@@ -11,13 +23,27 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "../ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SETTINGS_NAV_GROUPS, SETTINGS_NAV_ITEMS } from "./settingsNavigation";
+import type { SettingsSectionPath } from "./settingsNavigation";
 
 export {
   type SettingsSectionPath,
   SETTINGS_NAV_ITEMS,
   getSettingsNavItem,
 } from "./settingsNavigation";
+
+const SETTINGS_NAV_ICON_BY_PATH = {
+  "/settings/general": Settings2Icon,
+  "/settings/browser": Globe2Icon,
+  "/settings/chat": MessageCircleIcon,
+  "/settings/editor": CodeXmlIcon,
+  "/settings/providers": BotIcon,
+  "/settings/devices": MonitorSmartphoneIcon,
+  "/settings/advanced": SlidersHorizontalIcon,
+  "/settings/about": CircleHelpIcon,
+  "/settings/archived": ArchiveIcon,
+} satisfies Record<SettingsSectionPath, LucideIcon>;
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
@@ -28,39 +54,40 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         {SETTINGS_NAV_GROUPS.map((group) => {
           const items = SETTINGS_NAV_ITEMS.filter((item) => item.group === group.id);
           return (
-            <SidebarGroup key={group.id} className="px-2.5 py-1">
-              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-medium tracking-[0.14em] text-muted-foreground/45 uppercase">
+            <SidebarGroup key={group.id} className="px-2.5 pt-5 pb-2">
+              <SidebarGroupLabel className="mb-1.5 h-5 px-2 py-0 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                 {group.label}
               </SidebarGroupLabel>
               <SidebarMenu className="gap-0.5">
                 {items.map((item) => {
-                  const Icon = item.icon;
                   const isActive = pathname === item.to;
+                  const Icon = SETTINGS_NAV_ICON_BY_PATH[item.to];
                   return (
                     <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton
-                        size="sm"
-                        title={item.description}
-                        aria-label={`${item.label}: ${item.description}`}
-                        isActive={isActive}
-                        className={cn(
-                          "h-8 items-center gap-2 rounded-[var(--control-radius)] px-2.5 text-left text-[13px] transition-colors duration-150 ease-out",
-                          isActive
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                            : "text-sidebar-foreground/72 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground",
-                        )}
-                        onClick={() => void navigate({ to: item.to, replace: true })}
-                      >
-                        <Icon
-                          className={cn(
-                            "size-3.5 shrink-0 transition-colors duration-150",
-                            isActive
-                              ? "text-sidebar-accent-foreground"
-                              : "text-sidebar-foreground/45",
-                          )}
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <SidebarMenuButton
+                              size="sm"
+                              aria-label={`${item.label} settings`}
+                              isActive={isActive}
+                              className={cn(
+                                "relative h-8 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium transition-colors duration-150 ease-out",
+                                isActive
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                              )}
+                              onClick={() => void navigate({ to: item.to, replace: true })}
+                            >
+                              <Icon className="size-4 shrink-0" strokeWidth={2.05} />
+                              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                            </SidebarMenuButton>
+                          }
                         />
-                        <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
-                      </SidebarMenuButton>
+                        <TooltipPopup side="right" className="max-w-72 whitespace-pre-wrap">
+                          {item.description}
+                        </TooltipPopup>
+                      </Tooltip>
                     </SidebarMenuItem>
                   );
                 })}
@@ -70,15 +97,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         })}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border/60 p-2">
+      <SidebarFooter className="border-t border-sidebar-border/60 p-2.5">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="h-8 gap-2 rounded-[var(--control-radius)] px-2.5 text-[13px] font-medium text-sidebar-foreground/62 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="h-8 gap-2 rounded-lg px-2.5 text-[13px] font-medium text-sidebar-foreground/70 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
               onClick={() => window.history.back()}
             >
-              <ArrowLeftIcon className="size-3.5" />
+              <ArrowLeftIcon className="size-4" strokeWidth={2.15} />
               <span>Back to chat</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

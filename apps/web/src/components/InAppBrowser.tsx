@@ -1,21 +1,21 @@
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  BoxSelectIcon,
   ChevronDownIcon,
-  CircleDotIcon,
-  CropIcon,
   ExternalLinkIcon,
   LockIcon,
   LockOpenIcon,
+  type LucideIcon,
   LoaderCircleIcon,
-  MousePointer2Icon,
+  MousePointerSquareDashedIcon,
   RefreshCwIcon,
-  SquarePenIcon,
 } from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  Profiler,
   memo,
   useCallback,
   useEffect,
@@ -25,9 +25,12 @@ import {
   useState,
 } from "react";
 import { motion, type MotionStyle } from "motion/react";
+import { isElectron } from "~/env";
 import {
   useInAppBrowserState,
   type ActiveBrowserRuntimeState,
+  type BrowserViewportResizeRequest,
+  type BrowserViewportResizeResult,
   type InAppBrowserController,
   type InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
@@ -50,10 +53,13 @@ import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
 import { isBrowserInternalTabUrl } from "~/lib/browser/session";
 import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
+import { isRenderProfilingEnabled, recordReactRenderProfile } from "~/lib/renderProfiling";
 import { toastManager } from "./ui/toast";
 
 export type {
   ActiveBrowserRuntimeState,
+  BrowserViewportResizeRequest,
+  BrowserViewportResizeResult,
   InAppBrowserController,
   InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
@@ -69,6 +75,9 @@ interface InAppBrowserProps {
   onBrowserSessionChange?: (session: BrowserSessionStorage) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
+  onResizeViewport?: (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult;
+  onToggleRightPanelFloatingChat?: () => void;
+  onToggleRightPanelFullscreen?: () => void;
   backShortcutLabel?: string | null;
   designerCursorShortcutLabel?: string | null;
   designerAreaCommentShortcutLabel?: string | null;
@@ -77,6 +86,7 @@ interface InAppBrowserProps {
   devToolsShortcutLabel?: string | null;
   forwardShortcutLabel?: string | null;
   reloadShortcutLabel?: string | null;
+  detachEnabled?: boolean;
   onQueueDesignRequest?: (submission: BrowserDesignRequestSubmission) => Promise<void>;
 }
 
@@ -138,45 +148,76 @@ const BROWSER_SHELL_TRANSITION = {
   ease: [0.16, 1, 0.3, 1],
 } as const;
 
+export function resolveMountedBrowserTabs(input: {
+  activeTabId: string | null | undefined;
+  retainInactiveTabs: boolean;
+  tabs: BrowserSessionStorage["tabs"];
+}): BrowserSessionStorage["tabs"] {
+  if (input.retainInactiveTabs) {
+    return input.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url));
+  }
+
+  const activeTabId = input.activeTabId ?? null;
+  if (!activeTabId) return [];
+  return input.tabs.filter((tab) => tab.id === activeTabId && !isBrowserInternalTabUrl(tab.url));
+}
+
+export function shouldPublishBrowserSessionChange(input: {
+  previous: BrowserSessionStorage | null;
+  next: BrowserSessionStorage;
+  visible: boolean;
+}): boolean {
+  if (input.previous === input.next) {
+    return false;
+  }
+  if (input.previous === null || input.visible) {
+    return true;
+  }
+  if (input.previous.activeTabId !== input.next.activeTabId) {
+    return true;
+  }
+  if (input.previous.tabs.length !== input.next.tabs.length) {
+    return true;
+  }
+  for (let index = 0; index < input.next.tabs.length; index += 1) {
+    const previousTab = input.previous.tabs[index];
+    const nextTab = input.next.tabs[index];
+    if (
+      !previousTab ||
+      !nextTab ||
+      previousTab.id !== nextTab.id ||
+      previousTab.url !== nextTab.url ||
+      previousTab.title !== nextTab.title
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   accent: string;
   collapsedLabel: string;
   description: string;
   tool: BrowserDesignerTool;
   label: string;
-  Icon: typeof MousePointer2Icon;
+  Icon: LucideIcon;
 }> = [
-  {
-    accent: "from-zinc-500/16 via-zinc-500/8 to-transparent",
-    collapsedLabel: "Cursor",
-    description: "Browse normally without leaving comment mode active.",
-    tool: "cursor",
-    label: "Normal cursor",
-    Icon: MousePointer2Icon,
-  },
   {
     accent: "from-sky-500/18 via-sky-500/10 to-transparent",
     collapsedLabel: "Area",
-    description: "Capture a rectangular region and leave focused layout feedback.",
+    description: "Drag over a page region, then comment for the agent.",
     tool: "area-comment",
-    label: "Area comment",
-    Icon: CropIcon,
-  },
-  {
-    accent: "from-amber-500/18 via-amber-500/10 to-transparent",
-    collapsedLabel: "Draw",
-    description: "Sketch directly on the page to call out visual changes.",
-    tool: "draw-comment",
-    label: "Draw comment",
-    Icon: SquarePenIcon,
+    label: "Annotate area",
+    Icon: BoxSelectIcon,
   },
   {
     accent: "from-emerald-500/18 via-emerald-500/10 to-transparent",
     collapsedLabel: "Element",
-    description: "Target a specific element and attach precise implementation notes.",
+    description: "Click an element, then comment for the agent.",
     tool: "element-comment",
-    label: "Element comment",
-    Icon: CircleDotIcon,
+    label: "Comment on element",
+    Icon: MousePointerSquareDashedIcon,
   },
 ];
 const FALLBACK_DESIGNER_TOOL_BUTTON = DESIGNER_TOOL_BUTTONS[0]!;
@@ -193,10 +234,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     onBrowserSessionChange,
     onControllerChange,
     onActiveRuntimeStateChange,
+    onResizeViewport,
     backShortcutLabel,
-    designerCursorShortcutLabel,
     designerAreaCommentShortcutLabel,
-    designerDrawCommentShortcutLabel,
     designerElementCommentShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
@@ -238,6 +278,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     zoomOut,
     zoomReset,
   } = useInAppBrowserState({
+    active: activeInstance,
     designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
     open,
@@ -245,25 +286,101 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
+    ...(onResizeViewport ? { onResizeViewport } : {}),
+    ...(props.onToggleRightPanelFloatingChat
+      ? { onToggleRightPanelFloatingChat: props.onToggleRightPanelFloatingChat }
+      : {}),
+    ...(props.onToggleRightPanelFullscreen
+      ? { onToggleRightPanelFullscreen: props.onToggleRightPanelFullscreen }
+      : {}),
   });
+  const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
+  const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
+  const browserSessionPublishFrameRef = useRef<number | null>(null);
+  const lastPublishedBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
+  const recentExternalNewTabRequestRef = useRef<{ url: string; at: number } | null>(null);
+
+  const openUrlInNewTabFromPage = useCallback(
+    (url: string) => {
+      const trimmedUrl = url.trim();
+      if (trimmedUrl.length === 0) {
+        return;
+      }
+      const now = performance.now();
+      const recent = recentExternalNewTabRequestRef.current;
+      if (recent?.url === trimmedUrl && now - recent.at < 750) {
+        return;
+      }
+      recentExternalNewTabRequestRef.current = { url: trimmedUrl, at: now };
+      openUrl(trimmedUrl, { newTab: true });
+    },
+    [openUrl],
+  );
+
   useEffect(() => {
-    onBrowserSessionChange?.(browserSession);
-  }, [browserSession, onBrowserSessionChange]);
+    if (!activeInstance || !isElectron) {
+      return;
+    }
+    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
+      if (typeof url !== "string") {
+        return;
+      }
+      openUrlInNewTabFromPage(url);
+    });
+  }, [activeInstance, openUrlInNewTabFromPage]);
+
+  useEffect(() => {
+    latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
+  }, [onBrowserSessionChange]);
+
+  useEffect(() => {
+    if (!latestBrowserSessionChangeHandlerRef.current) {
+      return;
+    }
+    if (
+      !shouldPublishBrowserSessionChange({
+        previous: lastPublishedBrowserSessionRef.current,
+        next: browserSession,
+        visible,
+      })
+    ) {
+      return;
+    }
+
+    pendingBrowserSessionRef.current = browserSession;
+    if (browserSessionPublishFrameRef.current !== null) {
+      return;
+    }
+
+    browserSessionPublishFrameRef.current = window.requestAnimationFrame(() => {
+      browserSessionPublishFrameRef.current = null;
+      const nextBrowserSession = pendingBrowserSessionRef.current;
+      pendingBrowserSessionRef.current = null;
+      const onBrowserSessionChange = latestBrowserSessionChangeHandlerRef.current;
+      if (!nextBrowserSession || !onBrowserSessionChange) {
+        return;
+      }
+      lastPublishedBrowserSessionRef.current = nextBrowserSession;
+      onBrowserSessionChange(nextBrowserSession);
+    });
+  }, [browserSession, visible]);
+  useEffect(() => {
+    return () => {
+      if (browserSessionPublishFrameRef.current !== null) {
+        window.cancelAnimationFrame(browserSessionPublishFrameRef.current);
+        browserSessionPublishFrameRef.current = null;
+      }
+      pendingBrowserSessionRef.current = null;
+    };
+  }, []);
   const browserShellRef = useRef<HTMLElement | null>(null);
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
   const browserToolbarRef = useRef<HTMLDivElement | null>(null);
   const designerToolMeasureRef = useRef<HTMLDivElement | null>(null);
   const designerToolSlotRef = useRef<HTMLDivElement | null>(null);
-  const designerToolListRef = useRef<HTMLDivElement | null>(null);
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
-  const [designerToolHighlightFrame, setDesignerToolHighlightFrame] = useState<{
-    height: number;
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
   const {
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
@@ -273,6 +390,26 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     () => resolveAddressFieldPresentation(activeTab?.url ?? draftUrl),
     [activeTab?.url, draftUrl],
   );
+  const avoidNativeWebviewTransforms = isElectron;
+  const browserShellInitial = avoidNativeWebviewTransforms
+    ? { opacity: 0 }
+    : mode === "full"
+      ? { opacity: 0, scale: 0.99 }
+      : { opacity: 0, x: 16 };
+  const browserShellAnimate = avoidNativeWebviewTransforms
+    ? visible
+      ? { opacity: 1 }
+      : { opacity: 0 }
+    : visible
+      ? { opacity: 1, scale: 1, x: 0 }
+      : mode === "full"
+        ? { opacity: 0, scale: 0.99 }
+        : { opacity: 0, x: 16 };
+  const browserShellExit = avoidNativeWebviewTransforms
+    ? { opacity: 0 }
+    : mode === "full"
+      ? { opacity: 0, scale: 0.99 }
+      : { opacity: 0, x: 16 };
   const shouldShowExpandedAddressField = forceExpandedAddressField || addressFieldExpanded;
   const SecurityIcon =
     addressPresentation.security === "secure"
@@ -286,8 +423,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       FALLBACK_DESIGNER_TOOL_BUTTON,
     [designerState.tool],
   );
-  const collapsedDesignerSelectorActive =
-    designerState.active && activeDesignerToolButton.tool !== "cursor";
+  const collapsedDesignerSelectorActive = designerState.active;
 
   useEffect(() => {
     if (!open) {
@@ -298,6 +434,15 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   useEffect(() => {
     setAddressFieldExpanded(false);
   }, [activeTab?.id]);
+  const mountedBrowserTabs = useMemo(
+    () =>
+      resolveMountedBrowserTabs({
+        activeTabId: activeTab?.id ?? null,
+        retainInactiveTabs: visible,
+        tabs: browserSession.tabs,
+      }),
+    [activeTab?.id, browserSession.tabs, visible],
+  );
 
   useEffect(() => {
     if (!window.desktopBridge?.onMenuAction) {
@@ -369,17 +514,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }, [designerModeAvailable, updateDesignerToolShortcutHintsVisibility, visible]);
   const designerShortcutLabelByTool = useMemo<Record<BrowserDesignerTool, string | null>>(
     () => ({
-      cursor: designerCursorShortcutLabel ?? null,
       "area-comment": designerAreaCommentShortcutLabel ?? null,
-      "draw-comment": designerDrawCommentShortcutLabel ?? null,
       "element-comment": designerElementCommentShortcutLabel ?? null,
     }),
-    [
-      designerAreaCommentShortcutLabel,
-      designerCursorShortcutLabel,
-      designerDrawCommentShortcutLabel,
-      designerElementCommentShortcutLabel,
-    ],
+    [designerAreaCommentShortcutLabel, designerElementCommentShortcutLabel],
   );
   const setDesignerToolButtonRef = useCallback(
     (tool: BrowserDesignerTool, node: HTMLButtonElement | null) => {
@@ -392,13 +530,23 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [],
   );
+  const toggleOrSelectDesignerTool = useCallback(
+    (tool: BrowserDesignerTool) => {
+      if (designerState.active && designerState.tool === tool) {
+        setDesignerModeActive(false);
+        return;
+      }
+      selectDesignerTool(tool);
+    },
+    [designerState.active, designerState.tool, selectDesignerTool, setDesignerModeActive],
+  );
   const handleDesignerToolPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
       event.preventDefault();
       event.stopPropagation();
-      selectDesignerTool(tool);
+      toggleOrSelectDesignerTool(tool);
     },
-    [selectDesignerTool],
+    [toggleOrSelectDesignerTool],
   );
   const handleDesignerToolKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
@@ -448,49 +596,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [selectDesignerTool],
   );
-  useLayoutEffect(() => {
-    const toolList = designerToolListRef.current;
-    const activeButton = designerToolButtonRefs.current.get(designerState.tool);
-    if (designerToolsCollapsed || !designerState.active || !toolList || !activeButton) {
-      setDesignerToolHighlightFrame(null);
-      return;
-    }
-    const syncHighlightFrame = () => {
-      const listRect = toolList.getBoundingClientRect();
-      const buttonRect = activeButton.getBoundingClientRect();
-      const nextFrame = {
-        height: Math.round(buttonRect.height),
-        left: Math.round(buttonRect.left - listRect.left),
-        top: Math.round(buttonRect.top - listRect.top),
-        width: Math.round(buttonRect.width),
-      };
-      setDesignerToolHighlightFrame((current) => {
-        if (
-          current?.height === nextFrame.height &&
-          current.left === nextFrame.left &&
-          current.top === nextFrame.top &&
-          current.width === nextFrame.width
-        ) {
-          return current;
-        }
-        return nextFrame;
-      });
-    };
-    syncHighlightFrame();
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncHighlightFrame();
-          })
-        : null;
-    resizeObserver?.observe(toolList);
-    resizeObserver?.observe(activeButton);
-    window.addEventListener("resize", syncHighlightFrame);
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", syncHighlightFrame);
-    };
-  }, [designerState.active, designerState.tool, designerToolsCollapsed]);
   useLayoutEffect(() => {
     if (!designerModeAvailable) {
       setDesignerToolsCollapsed(false);
@@ -578,23 +683,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [activeTab, activeTabIsInternal, onQueueDesignRequest],
   );
-
   if (!open) {
     return null;
   }
 
-  return (
+  const browserContent = (
     <motion.div
       aria-hidden={!visible}
-      initial={mode === "full" ? { opacity: 0, scale: 0.99 } : { opacity: 0, x: 16 }}
-      animate={
-        visible
-          ? { opacity: 1, scale: 1, x: 0 }
-          : mode === "full"
-            ? { opacity: 0, scale: 0.99 }
-            : { opacity: 0, x: 16 }
-      }
-      exit={mode === "full" ? { opacity: 0, scale: 0.99 } : { opacity: 0, x: 16 }}
+      initial={browserShellInitial}
+      animate={browserShellAnimate}
+      exit={browserShellExit}
       transition={BROWSER_SHELL_TRANSITION}
       className={cn(
         mode === "split"
@@ -692,7 +790,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               </Tooltip>
             </div>
             <form
-              className="relative mx-auto flex w-full min-w-[16rem] max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
+              className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
                 openUrl(draftUrl);
@@ -744,25 +842,32 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    title={draftUrl}
                   />
                 ) : (
-                  <button
-                    type="button"
-                    className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
-                    onClick={() => {
-                      setAddressFieldExpanded(true);
-                      setIsAddressBarFocused(true);
-                      window.requestAnimationFrame(() => {
-                        addressInputRef.current?.focus();
-                        addressInputRef.current?.select();
-                      });
-                    }}
-                    aria-label="Expand address bar"
-                    title={activeTab?.url ?? draftUrl}
-                  >
-                    {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
+                          onClick={() => {
+                            setAddressFieldExpanded(true);
+                            setIsAddressBarFocused(true);
+                            window.requestAnimationFrame(() => {
+                              addressInputRef.current?.focus();
+                              addressInputRef.current?.select();
+                            });
+                          }}
+                          aria-label="Expand address bar"
+                        />
+                      }
+                    >
+                      {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
+                    </TooltipTrigger>
+                    <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                      {activeTab?.url ?? draftUrl}
+                    </TooltipPopup>
+                  </Tooltip>
                 )}
                 <Tooltip>
                   <TooltipTrigger
@@ -827,7 +932,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         render={
                           <MenuTrigger
                             className={cn(
-                              "group inline-flex h-9 max-w-[11.5rem] shrink-0 items-center gap-2 rounded-xl border px-2.5 text-left transition-[border-color,background-color,color,box-shadow] duration-150",
+                              "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
                               "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
                               collapsedDesignerSelectorActive
                                 ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
@@ -836,7 +941,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                           >
                             <span
                               className={cn(
-                                "relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
                                 collapsedDesignerSelectorActive
                                   ? "border-primary/28 bg-primary/[0.12] text-primary"
                                   : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
@@ -850,22 +955,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               />
                               <activeDesignerToolButton.Icon className="relative size-3.5" />
                             </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[11px] font-medium leading-none text-foreground/92">
-                                {activeDesignerToolButton.label}
-                              </span>
-                              <span className="mt-0.5 block truncate text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/72">
-                                {collapsedDesignerSelectorActive ? "Comment tool" : "Browse mode"}
-                              </span>
-                            </span>
-                            {designerShortcutLabelByTool[activeDesignerToolButton.tool] ? (
-                              <span className="hidden shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-muted-foreground/85 sm:inline-flex">
-                                {resolveDesignerShortcutHintLabel(
-                                  designerShortcutLabelByTool[activeDesignerToolButton.tool] ?? "",
-                                )}
-                              </span>
-                            ) : null}
-                            <ChevronDownIcon className="size-3.5 shrink-0 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
+                            <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
                           </MenuTrigger>
                         }
                       />
@@ -881,7 +971,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
                           <div className="min-w-0">
                             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
-                              Designer tools
+                              Annotation mode
                             </p>
                             <p className="mt-1 truncate text-sm font-medium text-foreground/92">
                               {activeDesignerToolButton.label}
@@ -895,14 +985,14 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                                 : "border-border/60 bg-background/70 text-muted-foreground/82",
                             )}
                           >
-                            {collapsedDesignerSelectorActive ? "Commenting" : "Idle"}
+                            {collapsedDesignerSelectorActive ? "Annotating" : "Off"}
                           </span>
                         </div>
                       </div>
                       <MenuRadioGroup
                         value={designerState.tool}
                         onValueChange={(value) => {
-                          selectDesignerTool(value as BrowserDesignerTool);
+                          toggleOrSelectDesignerTool(value as BrowserDesignerTool);
                         }}
                       >
                         {DESIGNER_TOOL_BUTTONS.map(
@@ -910,6 +1000,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                             <MenuRadioItem
                               key={tool}
                               value={tool}
+                              onClick={() => {
+                                toggleOrSelectDesignerTool(tool);
+                              }}
                               className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
                             >
                               <div className="flex min-w-0 items-start gap-3">
@@ -924,7 +1017,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                                       accent,
                                     )}
                                   />
-                                  <Icon className="relative size-4" />
+                                  <Icon className="relative size-[18px] stroke-[2.25]" />
                                 </span>
                                 <span className="min-w-0 flex-1">
                                   <span className="flex items-center gap-2">
@@ -950,28 +1043,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         )}
                       </MenuRadioGroup>
                       <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
-                        Switch tools without leaving the embedded browser context.
+                        Select what to comment on in the embedded browser.
                       </div>
                     </MenuPopup>
                   </Menu>
                 ) : (
-                  <div
-                    ref={designerToolListRef}
-                    className="relative flex shrink-0 items-center gap-1"
-                  >
-                    <div
-                      className="pointer-events-none absolute z-0 rounded-md bg-primary/14 transition-[top,left,width,height,opacity] duration-200 ease-out"
-                      style={
-                        designerToolHighlightFrame
-                          ? {
-                              height: `${designerToolHighlightFrame.height}px`,
-                              left: `${designerToolHighlightFrame.left}px`,
-                              top: `${designerToolHighlightFrame.top}px`,
-                              width: `${designerToolHighlightFrame.width}px`,
-                            }
-                          : { opacity: 0 }
-                      }
-                    />
+                  <div className="relative flex shrink-0 items-center gap-1">
                     {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
                       <Tooltip key={tool}>
                         <TooltipTrigger
@@ -982,10 +1059,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               }}
                               type="button"
                               className={cn(
-                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color] duration-150",
-                                designerState.tool === tool
-                                  ? "border-primary/40 text-primary"
-                                  : "border-border/60 bg-background/90 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
+                                designerState.tool === tool && designerState.active
+                                  ? "border-primary/30 bg-primary/[0.12] text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
+                                  : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
                               )}
                               onPointerDown={(event) => {
                                 handleDesignerToolPointerDown(event, tool);
@@ -995,13 +1072,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               }}
                               aria-label={label}
                             >
-                              <Icon className="size-3.5" />
+                              <Icon className="size-4 stroke-[2.25]" />
                               {showDesignerToolShortcutHints &&
                               designerShortcutLabelByTool[tool] ? (
-                                <span
-                                  className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground "
-                                  title={designerShortcutLabelByTool[tool] ?? undefined}
-                                >
+                                <span className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground ">
                                   {resolveDesignerShortcutHintLabel(
                                     designerShortcutLabelByTool[tool] ?? "",
                                   )}
@@ -1028,50 +1102,61 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           {activeTabIsNewTab ? (
             <BrowserNewTabPanel browserSearchEngine={browserSearchEngine} onSubmitQuery={openUrl} />
           ) : null}
-          {browserSession.tabs
-            .filter((tab) => !isBrowserInternalTabUrl(tab.url))
-            .map((tab) => (
-              <BrowserTabWebview
-                key={`${browserResetKey}:${tab.id}`}
-                active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
-                connectionUrl={connectionUrl}
-                designerModeActive={
-                  visible &&
-                  designerState.active &&
-                  !activeTabIsInternal &&
-                  activeTab?.id === tab.id
-                }
-                designerTool={designerState.tool}
-                onBrowserLoadError={(message) => {
-                  toastManager.add({
-                    type: "error",
-                    title: "Browser load failed.",
-                    description: message,
-                  });
-                }}
-                onDesignCaptureCancel={() => {
-                  return;
-                }}
-                onDesignCaptureError={(message) => {
-                  toastManager.add({
-                    type: "error",
-                    title: "Comment failed.",
-                    description: message,
-                  });
-                }}
-                {...(onQueueDesignRequest
-                  ? {
-                      onDesignCaptureSubmit: queueDesignRequest,
-                    }
-                  : {})}
-                onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
-                tab={tab}
-                onHandleChange={registerWebviewHandle}
-                onSnapshotChange={handleTabSnapshotChange}
-              />
-            ))}
+          {mountedBrowserTabs.map((tab) => (
+            <BrowserTabWebview
+              key={`${browserResetKey}:${tab.id}`}
+              active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
+              connectionUrl={connectionUrl}
+              designerModeActive={
+                visible && designerState.active && !activeTabIsInternal && activeTab?.id === tab.id
+              }
+              designerTool={designerState.tool}
+              onBrowserLoadError={(message) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Browser load failed.",
+                  description: message,
+                });
+              }}
+              onDesignCaptureCancel={() => {
+                return;
+              }}
+              onDesignCaptureError={(message) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Comment failed.",
+                  description: message,
+                });
+              }}
+              {...(onQueueDesignRequest
+                ? {
+                    onDesignCaptureSubmit: queueDesignRequest,
+                  }
+                : {})}
+              onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+              onOpenUrlInNewTab={openUrlInNewTabFromPage}
+              tab={tab}
+              onHandleChange={registerWebviewHandle}
+              onSnapshotChange={handleTabSnapshotChange}
+            />
+          ))}
         </div>
       </section>
     </motion.div>
+  );
+
+  const browserProfileName = scopeId ? `in-app-browser:${scopeId}` : "in-app-browser";
+
+  return isRenderProfilingEnabled() ? (
+    <Profiler
+      id={browserProfileName}
+      onRender={(_id, phase, actualDuration) => {
+        recordReactRenderProfile(browserProfileName, phase, actualDuration);
+      }}
+    >
+      {browserContent}
+    </Profiler>
+  ) : (
+    browserContent
   );
 });

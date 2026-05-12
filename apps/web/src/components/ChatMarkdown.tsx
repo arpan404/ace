@@ -13,10 +13,11 @@ import React, {
   useRef,
   useState,
   useTransition,
+  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 import type { Components } from "react-markdown";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { openInPreferredEditor } from "../editorPreferences";
@@ -45,6 +46,7 @@ import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/rende
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 const MermaidDiagram = React.lazy(() => import("./MermaidDiagram"));
 
 class CodeHighlightErrorBoundary extends React.Component<
@@ -78,6 +80,7 @@ interface ChatMarkdownProps {
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  enableLocalFileLinks?: boolean;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -95,6 +98,8 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const MARKDOWN_DATA_IMAGE_URL_REGEX = /^data:image\/(?:png|jpe?g|gif|webp);base64,/iu;
+const localFilePathExistsCache = new Map<string, boolean>();
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -102,6 +107,13 @@ const onMarkdownProfilerRender = (
 ) => {
   recordReactRenderProfile("chat.markdown.render", phase, actualDuration);
 };
+
+function markdownUrlTransform(value: string, key: string): string {
+  if (key === "src" && MARKDOWN_DATA_IMAGE_URL_REGEX.test(value)) {
+    return value;
+  }
+  return defaultUrlTransform(value);
+}
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
@@ -141,10 +153,7 @@ function extractCodeBlock(
   }
 
   const onlyChild = childNodes[0];
-  if (
-    !isValidElement<{ className?: string; children?: ReactNode }>(onlyChild) ||
-    onlyChild.type !== "code"
-  ) {
+  if (!isValidElement<{ className?: string; children?: ReactNode }>(onlyChild)) {
     return null;
   }
 
@@ -152,6 +161,129 @@ function extractCodeBlock(
     className: onlyChild.props.className,
     code: nodeToPlainText(onlyChild.props.children),
   };
+}
+
+function isSingleLineMarkdownNode(node: unknown): boolean {
+  const position = (
+    node as {
+      position?: {
+        start?: { line?: number | undefined } | undefined;
+        end?: { line?: number | undefined } | undefined;
+      };
+    }
+  )?.position;
+  const startLine = position?.start?.line;
+  const endLine = position?.end?.line;
+  return (
+    typeof startLine === "number" &&
+    typeof endLine === "number" &&
+    Number.isFinite(startLine) &&
+    Number.isFinite(endLine) &&
+    startLine === endLine
+  );
+}
+
+function openLocalFilePath(input: {
+  readonly targetPath: string;
+  readonly onOpenFilePath: ((path: string) => void) | null;
+  readonly preferExternalEditor: boolean;
+}): void {
+  if (!input.preferExternalEditor && input.onOpenFilePath) {
+    input.onOpenFilePath(input.targetPath);
+    return;
+  }
+  const api = readNativeApi();
+  if (api) {
+    void openInPreferredEditor(api, input.targetPath).catch((error) => {
+      console.warn("Failed to open file in external editor.", error);
+    });
+  } else {
+    console.warn("Native API not found. Unable to open file in editor.");
+  }
+}
+
+function InlineCodeLocalFileLink(props: {
+  readonly children: ReactNode;
+  readonly code: string;
+  readonly codeProps: ComponentPropsWithoutRef<"code">;
+  readonly cwd: string | undefined;
+  readonly enabled: boolean;
+  readonly onOpenFilePath: ((path: string) => void) | null;
+}) {
+  const targetPath = useMemo(
+    () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
+    [props.code, props.cwd, props.enabled],
+  );
+  const cachedExists = targetPath ? localFilePathExistsCache.get(targetPath) : undefined;
+  const [pathExists, setPathExists] = useState(cachedExists === true);
+
+  useEffect(() => {
+    if (!props.enabled || !targetPath) {
+      setPathExists(false);
+      return;
+    }
+    const cached = localFilePathExistsCache.get(targetPath);
+    if (cached !== undefined) {
+      setPathExists(cached);
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      setPathExists(false);
+      return;
+    }
+    let cancelled = false;
+    void api.shell
+      .pathExists(targetPath)
+      .then((exists) => {
+        localFilePathExistsCache.set(targetPath, exists);
+        if (!cancelled) {
+          setPathExists(exists);
+        }
+      })
+      .catch((error) => {
+        localFilePathExistsCache.set(targetPath, false);
+        if (!cancelled) {
+          setPathExists(false);
+        }
+        console.warn("Failed to check local file path.", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.enabled, targetPath]);
+
+  const codeElement = <code {...props.codeProps}>{props.children}</code>;
+  if (!targetPath || !pathExists) {
+    return codeElement;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <a
+            href={targetPath}
+            className="chat-markdown-local-file-link"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openLocalFilePath({
+                targetPath,
+                onOpenFilePath: props.onOpenFilePath,
+                preferExternalEditor: event.metaKey || event.ctrlKey,
+              });
+            }}
+          />
+        }
+      >
+        {codeElement}
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap">
+        Open {targetPath}
+      </TooltipPopup>
+    </Tooltip>
+  );
 }
 
 function createHighlightCacheKey(code: string, language: string, themeName: DiffThemeName): string {
@@ -220,15 +352,21 @@ function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNo
 
   return (
     <div className="chat-markdown-codeblock">
-      <button
-        type="button"
-        className="chat-markdown-copy-button"
-        onClick={handleCopy}
-        title={copied ? "Copied" : "Copy code"}
-        aria-label={copied ? "Copied" : "Copy code"}
-      >
-        {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="chat-markdown-copy-button"
+              onClick={handleCopy}
+              aria-label={copied ? "Copied" : "Copy code"}
+            />
+          }
+        >
+          {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+        </TooltipTrigger>
+        <TooltipPopup side="top">{copied ? "Copied" : "Copy code"}</TooltipPopup>
+      </Tooltip>
       {children}
     </div>
   );
@@ -335,7 +473,11 @@ const MarkdownBody = memo(function MarkdownBody({
   markdownComponents: Components;
 }) {
   const markdown = (
-    <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      components={markdownComponents}
+      urlTransform={markdownUrlTransform}
+    >
       {children}
     </ReactMarkdown>
   );
@@ -456,6 +598,7 @@ function ChatMarkdown({
   onLayoutChange,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
+  enableLocalFileLinks = true,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
@@ -495,6 +638,7 @@ function ChatMarkdown({
   const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
   const shouldObserveLayout =
     onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
+  const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
 
   useEffect(() => {
     if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) {
@@ -520,7 +664,7 @@ function ChatMarkdown({
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
-        const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
+        const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
         if (!targetPath) {
           const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
           if (!browserUrl || !onOpenBrowserUrl) {
@@ -542,19 +686,25 @@ function ChatMarkdown({
                   onOpenBrowserUrl(browserUrl);
                 }}
               />
-              <button
-                type="button"
-                className="chat-markdown-link-open-browser"
-                aria-label="Open link in the in-app browser"
-                title="Open in in-app browser"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onOpenBrowserUrl(browserUrl);
-                }}
-              >
-                <GlobeIcon className="size-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="chat-markdown-link-open-browser"
+                      aria-label="Open link in the in-app browser"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onOpenBrowserUrl(browserUrl);
+                      }}
+                    />
+                  }
+                >
+                  <GlobeIcon className="size-3" />
+                </TooltipTrigger>
+                <TooltipPopup side="top">Open in in-app browser</TooltipPopup>
+              </Tooltip>
             </span>
           );
         }
@@ -566,29 +716,36 @@ function ChatMarkdown({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              if (event.metaKey || event.ctrlKey) {
-                const api = readNativeApi();
-                if (api) {
-                  void openInPreferredEditor(api, targetPath).catch((error) => {
-                    console.warn("Failed to open file in external editor.", error);
-                  });
-                } else {
-                  console.warn("Native API not found. Unable to open file in external editor.");
-                }
-                return;
-              }
-              if (onOpenFilePath) {
-                onOpenFilePath(targetPath);
-                return;
-              }
-              const api = readNativeApi();
-              if (api) {
-                void openInPreferredEditor(api, targetPath);
-              } else {
-                console.warn("Native API not found. Unable to open file in editor.");
-              }
+              openLocalFilePath({
+                targetPath,
+                onOpenFilePath,
+                preferExternalEditor: event.metaKey || event.ctrlKey,
+              });
             }}
           />
+        );
+      },
+      code({ node, className, children, ...props }) {
+        const code = nodeToPlainText(children);
+        const isInlineCode =
+          !className && !code.includes("\n") && code.length > 0 && isSingleLineMarkdownNode(node);
+        if (!isInlineCode) {
+          return (
+            <code {...props} className={className}>
+              {children}
+            </code>
+          );
+        }
+        return (
+          <InlineCodeLocalFileLink
+            code={code}
+            codeProps={{ ...props, className }}
+            cwd={cwd}
+            enabled={canOpenLocalFiles}
+            onOpenFilePath={onOpenFilePath}
+          >
+            {children}
+          </InlineCodeLocalFileLink>
         );
       },
       pre({ node: _node, children, ...props }) {
@@ -634,8 +791,18 @@ function ChatMarkdown({
           </MarkdownCodeBlock>
         );
       },
+      img({ node: _node, alt, ...props }) {
+        return (
+          <img
+            {...props}
+            alt={alt ?? ""}
+            className="my-2 max-h-[70vh] max-w-full rounded-lg border border-border/55 bg-background/70 object-contain"
+          />
+        );
+      },
     }),
     [
+      canOpenLocalFiles,
       cwd,
       diffThemeName,
       isStreaming,

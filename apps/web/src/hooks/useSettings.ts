@@ -15,6 +15,7 @@ import {
   BrowserSearchEngine,
   type ClientSettings,
   ClientSettingsSchema,
+  CommentSubmissionMode,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
   EditorLineNumbers,
@@ -47,31 +48,93 @@ const LOCAL_STORAGE_CHANGE_EVENT = "ace:local_storage_change";
 const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
 const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
-const ClientSettingsPatchSchema = Schema.Struct({
-  browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
-  confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
-  confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
-  diffWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.diffWordWrap),
-  editorLineNumbers: Schema.optionalKey(ClientSettingsSchema.fields.editorLineNumbers),
-  editorMinimap: Schema.optionalKey(ClientSettingsSchema.fields.editorMinimap),
-  editorNeovimMode: Schema.optionalKey(ClientSettingsSchema.fields.editorNeovimMode),
-  editorRenderWhitespace: Schema.optionalKey(ClientSettingsSchema.fields.editorRenderWhitespace),
-  editorStickyScroll: Schema.optionalKey(ClientSettingsSchema.fields.editorStickyScroll),
-  editorSuggestions: Schema.optionalKey(ClientSettingsSchema.fields.editorSuggestions),
-  editorWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.editorWordWrap),
-  sidebarProjectSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarProjectSortOrder),
-  sidebarThreadSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarThreadSortOrder),
-  threadHydrationCacheMemoryMb: Schema.optionalKey(
-    ClientSettingsSchema.fields.threadHydrationCacheMemoryMb,
-  ),
-  timestampFormat: Schema.optionalKey(ClientSettingsSchema.fields.timestampFormat),
-  uiFontFamily: Schema.optionalKey(ClientSettingsSchema.fields.uiFontFamily),
-  uiMonoFontFamily: Schema.optionalKey(ClientSettingsSchema.fields.uiMonoFontFamily),
-  uiFontSizeScale: Schema.optionalKey(ClientSettingsSchema.fields.uiFontSizeScale),
-  uiLetterSpacing: Schema.optionalKey(ClientSettingsSchema.fields.uiLetterSpacing),
-  workspaceEditorOpenMode: Schema.optionalKey(ClientSettingsSchema.fields.workspaceEditorOpenMode),
-});
-type ClientSettingsPatch = typeof ClientSettingsPatchSchema.Type;
+type ClientSettingsPatch = Partial<ClientSettings>;
+
+export function decodeClientSettingsPatch(rawPatch: Record<string, unknown>): ClientSettingsPatch {
+  const patch: Partial<DeepMutable<ClientSettings>> = {};
+
+  for (const [key, value] of Object.entries(rawPatch)) {
+    switch (key) {
+      case "browserMaxMountedInstances":
+        patch.browserMaxMountedInstances = Schema.decodeUnknownSync(
+          ClientSettingsSchema.fields.browserMaxMountedInstances,
+        )(value);
+        break;
+      case "browserSearchEngine":
+        patch.browserSearchEngine = Schema.decodeUnknownSync(BrowserSearchEngine)(value);
+        break;
+      case "commentSubmissionMode":
+        patch.commentSubmissionMode = Schema.decodeUnknownSync(CommentSubmissionMode)(value);
+        break;
+      case "confirmThreadArchive":
+        patch.confirmThreadArchive = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "confirmThreadDelete":
+        patch.confirmThreadDelete = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "diffWordWrap":
+        patch.diffWordWrap = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "hideCompletedWorkMessages":
+        patch.hideCompletedWorkMessages = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "editorLineNumbers":
+        patch.editorLineNumbers = Schema.decodeUnknownSync(EditorLineNumbers)(value);
+        break;
+      case "editorMinimap":
+        patch.editorMinimap = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "editorNeovimMode":
+        patch.editorNeovimMode = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "editorRenderWhitespace":
+        patch.editorRenderWhitespace = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "editorStickyScroll":
+        patch.editorStickyScroll = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "editorSuggestions":
+        patch.editorSuggestions = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "editorWordWrap":
+        patch.editorWordWrap = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
+      case "sidebarProjectSortOrder":
+        patch.sidebarProjectSortOrder = Schema.decodeUnknownSync(SidebarProjectSortOrder)(value);
+        break;
+      case "sidebarThreadSortOrder":
+        patch.sidebarThreadSortOrder = Schema.decodeUnknownSync(SidebarThreadSortOrder)(value);
+        break;
+      case "threadHydrationCacheMemoryMb":
+        patch.threadHydrationCacheMemoryMb = Schema.decodeUnknownSync(
+          ClientSettingsSchema.fields.threadHydrationCacheMemoryMb,
+        )(value);
+        break;
+      case "timestampFormat":
+        patch.timestampFormat = Schema.decodeUnknownSync(TimestampFormat)(value);
+        break;
+      case "uiFontFamily":
+        patch.uiFontFamily = Schema.decodeUnknownSync(UiFontFamily)(value);
+        break;
+      case "uiMonoFontFamily":
+        patch.uiMonoFontFamily = Schema.decodeUnknownSync(UiMonoFontFamily)(value);
+        break;
+      case "uiFontSizeScale":
+        patch.uiFontSizeScale = Schema.decodeUnknownSync(UiFontSizeScale)(value);
+        break;
+      case "uiLetterSpacing":
+        patch.uiLetterSpacing = Schema.decodeUnknownSync(UiLetterSpacing)(value);
+        break;
+      case "workspaceEditorOpenMode":
+        patch.workspaceEditorOpenMode = Schema.decodeUnknownSync(WorkspaceEditorOpenMode)(value);
+        break;
+      default:
+        throw new Error(`Unknown client settings key "${key}"`);
+    }
+  }
+
+  return patch;
+}
 
 // ── Key sets for routing patches ─────────────────────────────────────
 
@@ -92,7 +155,7 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
   }
   return {
     serverPatch: Schema.decodeSync(ServerSettingsPatch)(serverPatch),
-    clientPatch: Schema.decodeSync(ClientSettingsPatchSchema)(clientPatch),
+    clientPatch: decodeClientSettingsPatch(clientPatch),
   };
 }
 
@@ -101,6 +164,7 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
 // store as constantly updated and triggers error #185 (max update depth exceeded).
 let stableMergedUnifiedSettings: UnifiedSettings = DEFAULT_UNIFIED_SETTINGS;
 let stableMergedUnifiedFingerprint: string | null = null;
+let latestClientSettingsSnapshot: ClientSettings | null = null;
 
 function getStableMergedUnifiedSettings(): UnifiedSettings {
   const server = getServerConfig()?.settings ?? DEFAULT_UNIFIED_SETTINGS;
@@ -144,13 +208,19 @@ function readClientSettingsSnapshot(): ClientSettings {
   }
 
   try {
-    return (
+    const snapshot =
       getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema) ??
-      DEFAULT_CLIENT_SETTINGS
-    );
+      DEFAULT_CLIENT_SETTINGS;
+    latestClientSettingsSnapshot = snapshot;
+    return snapshot;
   } catch {
+    latestClientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
     return DEFAULT_CLIENT_SETTINGS;
   }
+}
+
+function getLatestClientSettingsSnapshot(): ClientSettings {
+  return latestClientSettingsSnapshot ?? readClientSettingsSnapshot();
 }
 
 function subscribeToUnifiedSettings(listener: () => void): () => void {
@@ -239,7 +309,12 @@ export function useUpdateSettings() {
       }
 
       if (Object.keys(clientPatch).length > 0) {
-        setClientSettings((prev) => ({ ...prev, ...clientPatch }));
+        const nextClientSettings = Schema.decodeSync(ClientSettingsSchema)({
+          ...getLatestClientSettingsSnapshot(),
+          ...clientPatch,
+        });
+        latestClientSettingsSnapshot = nextClientSettings;
+        setClientSettings(nextClientSettings);
       }
     },
     [setClientSettings],

@@ -71,6 +71,10 @@ export function createWsNativeApi(): NativeApi {
         }
         return window.desktopBridge.repairBrowserStorage();
       },
+      resolveBridgeRequest: (input) =>
+        resolveRpcClientForActiveRoute().browserBridge.resolve(input),
+      onBridgeRequest: (callback) =>
+        resolveRpcClientForActiveRoute().browserBridge.onRequest(callback),
     },
     terminal: {
       open: (input) => resolveRpcClientForInput(input).terminal.open(input as never),
@@ -79,6 +83,8 @@ export function createWsNativeApi(): NativeApi {
       clear: (input) => resolveRpcClientForInput(input).terminal.clear(input as never),
       restart: (input) => resolveRpcClientForInput(input).terminal.restart(input as never),
       close: (input) => resolveRpcClientForInput(input).terminal.close(input as never),
+      list: (input = {}) => resolveRpcClientForInput(input).terminal.list(input as never),
+      terminate: (input) => resolveRpcClientForInput(input).terminal.terminate(input as never),
       onEvent: (callback) => resolveRpcClientForActiveRoute().terminal.onEvent(callback),
     },
     projects: {
@@ -118,6 +124,7 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(options).shell.openInEditor({ cwd, editor }),
       revealInFileManager: (path, options) =>
         resolveRpcClientForInput(options).shell.revealInFileManager({ path }),
+      pathExists: (path, options) => resolveRpcClientForInput(options).shell.pathExists({ path }),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);
@@ -168,10 +175,12 @@ export function createWsNativeApi(): NativeApi {
     server: {
       getConfig: localRpcClient.server.getConfig,
       refreshProviders: localRpcClient.server.refreshProviders,
+      upgradeProviderCli: localRpcClient.server.upgradeProviderCli,
       getLspToolsStatus: localRpcClient.server.getLspToolsStatus,
       installLspTools: (input) => localRpcClient.server.installLspTools(input ?? {}),
       searchLspMarketplace: localRpcClient.server.searchLspMarketplace,
       installLspTool: localRpcClient.server.installLspTool,
+      uninstallLspTool: localRpcClient.server.uninstallLspTool,
       searchOpenCodeModels: localRpcClient.server.searchOpenCodeModels,
       upsertKeybinding: localRpcClient.server.upsertKeybinding,
       getSettings: localRpcClient.server.getSettings,

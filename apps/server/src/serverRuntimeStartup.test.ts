@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Option, Ref } from "effect";
 
+import { ProviderSessionDirectory } from "./provider/Services/ProviderSessionDirectory.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
@@ -76,6 +77,13 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
         Effect.provideService(AnalyticsService, {
           record: () => Effect.void,
           flush: Effect.void,
+        }),
+        Effect.provideService(ProviderSessionDirectory, {
+          upsert: () => Effect.void,
+          getProvider: () => Effect.die("unused"),
+          getBinding: () => Effect.succeed(Option.none()),
+          remove: () => Effect.void,
+          listThreadIds: () => Effect.succeed([]),
         }),
       );
     }),

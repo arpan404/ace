@@ -12,10 +12,7 @@ import { isElectron } from "./env";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
 import { beginLoadPhase, initLoadDiagnostics, logLoadDiagnostic } from "./loadDiagnostics";
-import {
-  DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE,
-  MAC_TITLEBAR_LEFT_INSET_PX,
-} from "./lib/desktopChrome";
+import { DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE } from "./lib/desktopChrome";
 import { installWindowInteractionRecovery } from "./lib/interactionRecovery";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
@@ -55,9 +52,7 @@ const applyDesktopTitlebarLeftInset = (titlebarLeftInset: number | null | undefi
 };
 
 const syncDesktopTitlebarLeftInset = () => {
-  applyDesktopTitlebarLeftInset(
-    window.desktopBridge?.getTitlebarLeftInset?.() ?? (isElectron ? MAC_TITLEBAR_LEFT_INSET_PX : 0),
-  );
+  applyDesktopTitlebarLeftInset(window.desktopBridge?.getTitlebarLeftInset?.() ?? 0);
 };
 
 syncDesktopTitlebarLeftInset();

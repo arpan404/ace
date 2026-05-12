@@ -11,6 +11,7 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLatestGeneratedWorkspaceSummary,
   deriveVisibleWorkTurnId,
   deriveVisibleTurnDiffSummaryByAssistantMessageId,
   PROVIDER_OPTIONS,
@@ -858,6 +859,7 @@ describe("deriveWorkLogEntries", () => {
     const [entry] = deriveWorkLogEntries(activities, undefined);
     expect(entry?.label).toBe("Runtime error");
     expect(entry?.detail).toBe("GitHub Copilot turn failed: network timeout");
+    expect(entry?.diagnosticKind).toBe("runtime-error");
   });
 
   it("combines runtime.warning message with structured detail for the work log", () => {
@@ -876,6 +878,7 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.diagnosticKind).toBe("runtime-warning");
     expect(entry?.detail).toContain("Retry scheduled");
     expect(entry?.detail).toContain("429");
     expect(entry?.detail).toContain("rate limit");
@@ -974,6 +977,34 @@ describe("deriveWorkLogEntries", () => {
         createdAt: "2026-02-23T00:00:01.000Z",
         summary: "Checkpoint captured",
         tone: "info",
+      }),
+      makeActivity({
+        id: "tool-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        summary: "Ran command",
+        tone: "tool",
+        kind: "tool.completed",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+  });
+
+  it("omits generated turn summary info entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "turn-summary",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "workspace.summary.generated",
+        summary: "Updated editor summary panel",
+        tone: "info",
+        payload: {
+          headline: "Updated editor summary panel",
+          summary: "Added AI-generated summaries to the side panel.",
+          keyChanges: ["Rendered summary card"],
+          risks: [],
+        },
       }),
       makeActivity({
         id: "tool-complete",
@@ -1177,19 +1208,8 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("drops empty terminal reasoning completion entries", () => {
+  it("keeps empty terminal reasoning completion entries instead of dropping them", () => {
     const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "reasoning-progress-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "task.progress",
-        summary: "Reasoning",
-        tone: "info",
-        payload: {
-          taskId: "reasoning:item-empty-complete",
-          detail: "Inspecting package scripts.",
-        },
-      }),
       makeActivity({
         id: "reasoning-complete-empty",
         createdAt: "2026-02-23T00:00:03.000Z",
@@ -1206,10 +1226,11 @@ describe("deriveWorkLogEntries", () => {
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      createdAt: "2026-02-23T00:00:01.000Z",
+      createdAt: "2026-02-23T00:00:03.000Z",
       tone: "thinking",
-      detail: "Inspecting package scripts.",
+      label: "Reasoning",
     });
+    expect(entries[0]?.detail).toBeUndefined();
   });
 
   it("accumulates token-like streamed reasoning fragments into readable text", () => {
@@ -1352,6 +1373,169 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("does not treat read-only file tool payloads as file changes", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "read-title",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: {
+          itemType: "file_change",
+          title: "Read file",
+          data: {
+            toolCallId: "read-title",
+            path: "README.md",
+          },
+        },
+      }),
+      makeActivity({
+        id: "read-detail",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          detail: "Read File",
+          data: {
+            toolCallId: "read-detail",
+            path: "apps/web/src/session-logic.ts",
+          },
+        },
+      }),
+      makeActivity({
+        id: "search-title",
+        kind: "tool.completed",
+        summary: "Find",
+        payload: {
+          itemType: "file_change",
+          title: "Find",
+          data: {
+            toolCallId: "search-title",
+            path: "apps/web/src",
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    const readTitle = entries.find((entry) => entry.id === "read-title");
+    const readDetail = entries.find((entry) => entry.id === "read-detail");
+    const searchTitle = entries.find((entry) => entry.id === "search-title");
+
+    expect(readTitle).toMatchObject({
+      toolTitle: "Read file",
+      requestKind: "file-read",
+      detail: "README.md",
+    });
+    expect(readTitle?.changedFiles).toBeUndefined();
+    expect(readDetail).toMatchObject({
+      toolTitle: "Read file",
+      requestKind: "file-read",
+      detail: "Read File",
+    });
+    expect(readDetail?.changedFiles).toBeUndefined();
+    expect(searchTitle).toMatchObject({
+      toolTitle: "Find",
+      detail: "apps/web/src",
+    });
+    expect(searchTitle?.requestKind).toBeUndefined();
+    expect(searchTitle?.changedFiles).toBeUndefined();
+  });
+
+  it("derives readable Gemini tool labels from kind, locations, and path-like titles", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "gemini-read",
+        kind: "tool.completed",
+        summary: "README.md",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "README.md",
+          data: {
+            toolCallId: "tool-read",
+            kind: "read",
+            locations: [{ path: "README.md" }],
+          },
+        },
+      }),
+      makeActivity({
+        id: "gemini-search",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          data: {
+            toolCallId: "tool-search",
+            kind: "search",
+            rawInput: { pattern: "class Agent", path: "src" },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      toolTitle: "Read file",
+      detail: "README.md",
+    });
+    expect(entries[1]).toMatchObject({
+      toolTitle: "Search",
+      detail: "class Agent +1 more",
+    });
+  });
+
+  it("normalizes provider JSON tool details into readable subjects", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "json-detail",
+        kind: "tool.completed",
+        summary: "Tool call completed",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          detail: 'Read: {"file_path":"/tmp/app.ts"}',
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+
+    expect(entry).toMatchObject({
+      detail: "/tmp/app.ts",
+    });
+  });
+
+  it("uses provider tool names and input data for generic Claude-style tool calls", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-tool",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          data: {
+            toolName: "grep_search",
+            input: {
+              query: "ProviderRuntimeEvent",
+              path: "apps/server/src",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+
+    expect(entry).toMatchObject({
+      toolTitle: "Search",
+      detail: "ProviderRuntimeEvent +1 more",
+    });
+  });
+
   it("collapses repeated lifecycle updates for the same tool call into one entry", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1401,7 +1585,7 @@ describe("deriveWorkLogEntries", () => {
       id: "tool-complete",
       createdAt: "2026-02-23T00:00:01.000Z",
       label: "Tool call completed",
-      detail: 'Read: {"file_path":"/tmp/app.ts"}',
+      detail: "/tmp/app.ts",
       command: "sed -n 1,40p /tmp/app.ts",
       itemType: "dynamic_tool_call",
       toolTitle: "Tool call",
@@ -2295,6 +2479,50 @@ describe("filterVisibleWorkLogActivities", () => {
   });
 });
 
+describe("deriveLatestGeneratedWorkspaceSummary", () => {
+  it("returns the latest generated workspace summary", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "summary-turn-1",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "workspace.summary.generated",
+        summary: "Turn one summary",
+        tone: "info",
+        payload: {
+          headline: "Turn one summary",
+          summary: "Completed the first turn.",
+          keyChanges: ["Updated one file"],
+          risks: [],
+        },
+      }),
+      makeActivity({
+        id: "summary-turn-2",
+        turnId: "turn-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "workspace.summary.generated",
+        summary: "Turn two summary",
+        tone: "info",
+        payload: {
+          headline: "Turn two summary",
+          summary: "Completed the second turn.",
+          keyChanges: ["Updated two files"],
+          risks: ["Tests not run"],
+        },
+      }),
+    ];
+
+    const summary = deriveLatestGeneratedWorkspaceSummary(activities);
+
+    expect(summary?.headline).toBe("Turn two summary");
+    expect(summary?.markdown).toContain("### Turn two summary");
+    expect(summary?.markdown).toContain("#### Key changes");
+    expect(summary?.markdown).toContain("- Updated two files");
+    expect(summary?.markdown).toContain("#### Watchouts");
+    expect(summary?.markdown).toContain("- Tests not run");
+  });
+});
+
 describe("hasToolActivityForTurn", () => {
   it("returns false when turn id is missing", () => {
     const activities: OrchestrationThreadActivity[] = [
@@ -2514,6 +2742,7 @@ describe("PROVIDER_OPTIONS", () => {
       { value: "claudeAgent", label: "Claude", available: true },
       { value: "githubCopilot", label: "Copilot", available: true },
       { value: "cursor", label: "Cursor", available: true },
+      { value: "pi", label: "Pi", available: true },
       { value: "gemini", label: "Gemini", available: true },
       { value: "opencode", label: "OpenCode", available: true },
     ]);

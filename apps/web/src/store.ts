@@ -211,6 +211,8 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
     status: toLegacySessionStatus(session.status),
     orchestrationStatus: session.status,
     ...(session.capabilities ? { capabilities: session.capabilities } : {}),
+    ...(session.configOptions ? { configOptions: [...session.configOptions] } : {}),
+    commands: [...(session.commands ?? [])],
     activeTurnId: session.activeTurnId ?? undefined,
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,

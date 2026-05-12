@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
@@ -1017,76 +1018,84 @@ function SortableTerminalTab(props: {
     useSortable({ id: props.terminalId });
 
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        "group/tab relative inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none cursor-default items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
-        props.active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-        isDragging && "z-20 opacity-70",
-        isOver && !isDragging && "bg-accent/70",
-      )}
-      title={props.label}
-      onClick={(event) => {
-        event.preventDefault();
-        if (props.suppressClickAfterDragRef.current) {
-          return;
-        }
-        props.onSelect(props.terminalId);
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          props.onSelect(props.terminalId);
-          return;
-        }
-        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      }}
-      {...attributes}
-      role="button"
-      tabIndex={0}
-      aria-pressed={props.active}
-      {...listeners}
-    >
-      <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-        <IconTerminal className="size-4 text-muted-foreground" />
-        {props.canClose ? (
-          <span
-            role="button"
-            tabIndex={-1}
-            className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-            aria-label={`Close ${props.label}`}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div
+            ref={setNodeRef}
+            style={{ transform: CSS.Translate.toString(transform), transition }}
+            className={cn(
+              "group/tab relative inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none cursor-default items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
+              props.active
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              isDragging && "z-20 opacity-70",
+              isOver && !isDragging && "bg-accent/70",
+            )}
             onClick={(event) => {
               event.preventDefault();
-              event.stopPropagation();
-              props.onClose(props.terminalId);
+              if (props.suppressClickAfterDragRef.current) {
+                return;
+              }
+              props.onSelect(props.terminalId);
             }}
-          >
-            <XIcon className="size-3" />
-          </span>
-        ) : null}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{props.label}</span>
-      <span
-        className={cn(
-          "terminal-live-indicator shrink-0 rounded-full",
-          props.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
-        )}
-      />
-    </div>
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                props.onSelect(props.terminalId);
+                return;
+              }
+              if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }}
+            {...attributes}
+            role="button"
+            tabIndex={0}
+            aria-pressed={props.active}
+            {...listeners}
+          />
+        }
+      >
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+          <IconTerminal className="size-4 text-muted-foreground" />
+          {props.canClose ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+              aria-label={`Close ${props.label}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                props.onClose(props.terminalId);
+              }}
+            >
+              <XIcon className="size-3" />
+            </span>
+          ) : null}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{props.label}</span>
+        <span
+          className={cn(
+            "terminal-live-indicator shrink-0 rounded-full",
+            props.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+          )}
+        />
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
+        {props.label}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -1347,7 +1356,6 @@ export default memo(function ThreadTerminalDrawer({
       <XIcon className="size-4" />
     </TerminalActionButton>
   );
-
   return (
     <aside
       className={cn(

@@ -147,6 +147,13 @@ export const ThreadQueueClearCommand = Schema.Struct({
   threadId: ThreadId,
 });
 
+export const ThreadQueueDispatchCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.dispatch"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+});
+
 export const ThreadQueueSteerCommand = Schema.Struct({
   type: Schema.Literal("thread.queue.steer"),
   commandId: CommandId,
@@ -257,6 +264,13 @@ export const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadWorkspaceSummaryRegenerateCommand = Schema.Struct({
+  type: Schema.Literal("thread.workspace-summary.regenerate"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 export const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -271,6 +285,7 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
+  ThreadQueueDispatchCommand,
   ThreadQueueSteerCommand,
   ThreadQueueSteerClearCommand,
   ThreadRuntimeModeSetCommand,
@@ -281,6 +296,7 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadWorkspaceSummaryRegenerateCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -299,6 +315,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
+  ThreadQueueDispatchCommand,
   ThreadQueueSteerCommand,
   ThreadQueueSteerClearCommand,
   ThreadRuntimeModeSetCommand,
@@ -309,6 +326,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadWorkspaceSummaryRegenerateCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -347,6 +365,7 @@ export const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.optional(TurnId),
   sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,

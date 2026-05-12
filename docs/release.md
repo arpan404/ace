@@ -2,15 +2,17 @@
 
 This document covers how to run desktop releases from one tag, first without signing, then with signing.
 
-## What the workflow does
+## What the release tooling does
 
 - Trigger: push tag matching `v*.*.*`.
 - Runs quality gates first: lint, typecheck, test.
-- Builds four artifacts in parallel:
+- The local desktop release path builds six artifacts:
   - macOS `arm64` DMG
   - macOS `x64` DMG
   - Linux `x64` AppImage
+  - Linux `arm64` AppImage
   - Windows `x64` NSIS installer
+  - Windows `arm64` NSIS installer
 - Publishes one GitHub Release with all produced files.
   - Versions with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain `X.Y.Z` releases are marked as the repository's latest release.
@@ -61,15 +63,113 @@ Checklist:
 
 ## 1) Dry-run release without signing
 
-Use this first to validate the release pipeline.
+Use this first to validate packaging locally, or to validate non-macOS release paths before wiring signing.
 
-1. Confirm no signing secrets are required for this test.
-2. Create a test tag:
-   - `git tag v0.0.0-test.1`
-   - `git push origin v0.0.0-test.1`
-3. Wait for `.github/workflows/release.yml` to finish.
-4. Verify the GitHub Release contains all platform artifacts.
-5. Download each artifact and sanity-check installation on each OS.
+Important:
+
+- Unsigned macOS artifacts cannot be used for in-app auto-update. ShipIt will reject them with a code-signature validation error.
+- The GitHub release workflow now requires Apple signing secrets for macOS release tags so broken auto-update metadata is not published.
+
+1. Build local unsigned artifacts as needed:
+   - `bun run dist:desktop:dmg:arm64`
+   - `bun run dist:desktop:dmg:x64`
+   - `bun run dist:desktop:linux`
+   - `bun run dist:desktop:linux:arm64`
+   - `bun run dist:desktop:win`
+   - `bun run dist:desktop:win:arm64`
+2. Do not publish unsigned macOS artifacts to the updater GitHub release feed.
+3. Download each artifact and sanity-check installation on each OS.
+
+## Local Linux Docker Builds
+
+For local validation from macOS, build the Linux AppImage in Docker:
+
+```bash
+bun run dist:desktop:linux:docker
+```
+
+The script builds a local builder image, mounts the repo at `/workspace`, and uses Docker volumes for Linux `node_modules` and Bun's package cache. This avoids accidentally packaging macOS-native dependencies into the Linux artifact.
+
+Useful overrides:
+
+```bash
+ACE_DESKTOP_ARCH=arm64 bun run dist:desktop:linux:docker
+ACE_DESKTOP_OUTPUT_DIR=release-linux-docker bun run dist:desktop:linux:docker
+bun run dist:desktop:linux:docker -- --build-version 0.2.0-local.1 --verbose
+```
+
+For Windows Docker packaging, use the all-platform local release script below. It installs Wine/Wine32 and disables Electron Builder native rebuilds for Windows so packaged runtime dependencies use their Windows prebuilds.
+
+## Local All-Platform Desktop Release
+
+Use the local release driver when GitHub Actions should not build the desktop artifacts. It builds macOS on the host, builds Linux and Windows in Docker, collects updater metadata, and can optionally create the GitHub Release.
+
+Prerequisites:
+
+- macOS host for DMG/ZIP packaging.
+- Docker Desktop with `linux/amd64` support.
+- `gh` authenticated with `repo` scope.
+- A clean working tree, except ignored/generated release output.
+- The release tag must point at `HEAD`, or pass `--create-tag` to create it.
+
+Dry-run build without publishing:
+
+```bash
+bun run release:desktop:local -- --tag v0.2.0 --create-tag
+```
+
+Publish the release after local artifacts are built:
+
+```bash
+bun run release:desktop:local -- --tag v0.2.0 --publish
+```
+
+Useful options:
+
+```bash
+bun run release:desktop:local -- --tag v0.2.0 --previous-tag v0.2.0-beta --publish
+bun run release:desktop:local -- --tag v0.2.0 --output-dir release-v0.2.0
+bun run release:desktop:local -- --tag v0.2.0 --skip-build
+bun run release:desktop:local -- --tag v0.2.0 --skip-gates
+bun run release:desktop:local -- --tag v0.2.0 --allow-dirty
+```
+
+What the script does:
+
+1. Verifies the tag points at `HEAD` or creates it with `--create-tag`.
+2. Runs `bun fmt`, `bun lint`, and `bun typecheck` unless `--skip-gates` is passed.
+3. Runs `bun run build:desktop` unless `--skip-build` is passed.
+4. Builds:
+   - macOS `arm64` DMG and ZIP on the host.
+   - macOS `x64` DMG and ZIP on the host.
+   - Linux `x64` AppImage in Docker.
+   - Linux `arm64` AppImage in Docker.
+   - Windows `x64` NSIS installer in Docker with Wine, Wine32, and NSIS.
+   - Windows `arm64` NSIS installer in Docker with Wine, Wine32, and NSIS.
+5. Collects release assets into `release-local/publish`.
+6. Merges per-arch macOS updater manifests into one `latest-mac.yml`.
+7. Keeps Linux updater metadata split by channel file (`latest-linux.yml` for `x64`, `latest-linux-arm64.yml` for `arm64`) and merges Windows updater metadata into one `latest.yml`.
+8. Prints SHA-256 checksums for every publish asset.
+9. With `--publish`, pushes the tag, creates the GitHub Release if missing, or updates the existing release in place for the same tag, uploads assets, and generates release notes in this shape:
+   - `What's Changed`
+   - PR title, author, and PR link
+   - direct release-prep commits
+   - full changelog link
+
+The script handles git worktrees by mounting the common `.git` directory into Docker at its original absolute path. This is required because worktree `.git` files point outside the checked-out worktree, and Docker otherwise cannot resolve the tag/commit metadata used by the desktop build.
+
+Local Windows Docker details:
+
+- The Windows Docker image is defined in `scripts/docker/desktop-windows.Dockerfile`.
+- It installs Wine, `wine32:i386`, NSIS, Bun, and `node-gyp`.
+- `build-desktop-artifact.ts` disables Electron Builder's native rebuild step for Windows because Linux-to-Windows `node-gyp` cross-rebuilds are unsupported. Runtime packages must provide Windows prebuilds.
+
+Local release caveats:
+
+- macOS artifacts built without Apple signing secrets are ad-hoc or unsigned and are not notarized.
+- Unsigned macOS artifacts are not suitable for production auto-update.
+- Windows artifacts built without Azure Trusted Signing credentials are not authenticode-signed.
+- Docker builds use named volumes for platform-specific `node_modules`; remove those volumes if dependency state needs a completely fresh rebuild.
 
 ## 2) Apple signing + notarization setup (macOS)
 

@@ -12,7 +12,10 @@ packages/*/dist
 build/
 .logs/
 release/
+release-*/
+release-local/
 release-mock/
+release-mac-*/
 .ace
 .idea/
 apps/web/.playwright

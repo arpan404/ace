@@ -41,6 +41,7 @@ import {
   type AceCliInstallOptions,
   type AceCliInstallResult,
 } from "@ace/shared/cliInstall";
+import { terminateChildProcess } from "@ace/shared/processTermination";
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@ace/contracts";
@@ -64,6 +65,7 @@ import {
   reduceDesktopUpdateStateOnDownloadFailure,
   reduceDesktopUpdateStateOnDownloadProgress,
   reduceDesktopUpdateStateOnDownloadStart,
+  reduceDesktopUpdateStateOnInstallStart,
   reduceDesktopUpdateStateOnInstallFailure,
   reduceDesktopUpdateStateOnNoUpdate,
   reduceDesktopUpdateStateOnUpdateAvailable,
@@ -73,6 +75,11 @@ import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
+import { hasDesktopUpdateArg, resolveDesktopSecondInstanceAction } from "./desktopUpdateLaunch";
+import {
+  buildLinuxDaemonAutostartEntry,
+  buildLinuxDesktopApplicationEntry,
+} from "./linuxDesktopEntries";
 import { findDesktopPairingUrlInArgv, normalizeDesktopPairingUrl } from "./pairingProtocol";
 import {
   startDesktopBackgroundNotificationService,
@@ -84,6 +91,8 @@ const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
+const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -131,21 +140,26 @@ const APP_USER_MODEL_ID = "com.ace.ace";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "ace-dev" : "ace";
 const USER_DATA_DIR_NAME = isDevelopment ? "ace-dev" : "ace";
-const useDaemonBackend = !isDevelopmentBuild;
+// AppImage-packaged Linux builds behave more reliably when the desktop process owns
+// the backend directly instead of round-tripping through the detached daemon CLI.
+const useDaemonBackend = !isDevelopmentBuild && process.platform !== "linux";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
-const DESKTOP_UPDATE_ARG = "--ace-update";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS = 15_000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
+const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
+const DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
+const BROWSER_DEVTOOLS_ACCELERATOR = "CmdOrCtrl+Shift+I";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
@@ -183,6 +197,8 @@ interface DesktopRendererBootstrapPayload {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const detachedBrowserWindows = new Map<string, BrowserWindow>();
+const detachedEditorWindows = new Map<string, BrowserWindow>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -262,6 +278,29 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function resolveInstallUpdateFailure(input: { rawMessage: string }): {
+  message: string;
+  canRetry: boolean;
+} {
+  const normalized = input.rawMessage.toLowerCase();
+  if (
+    process.platform === "darwin" &&
+    normalized.includes("code signature") &&
+    normalized.includes("did not pass validation")
+  ) {
+    return {
+      message:
+        "macOS rejected the downloaded update because this release is not signed correctly. Download the latest version from the ace website or GitHub Releases and install it manually.",
+      canRetry: false,
+    };
+  }
+
+  return {
+    message: input.rawMessage,
+    canRetry: true,
+  };
 }
 
 function getSafeExternalUrl(rawUrl: unknown): string | null {
@@ -690,6 +729,9 @@ initializePackagedLogging();
 
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("class", LINUX_WM_CLASS);
+  if (process.env.APPIMAGE) {
+    app.commandLine.appendSwitch("no-sandbox");
+  }
 }
 
 app.on("child-process-gone", (_event, details) => {
@@ -729,6 +771,8 @@ let updateStartupTimer: ReturnType<typeof setTimeout> | null = null;
 let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
 let updateInstallInFlight = false;
+let externalUpdateRequestInFlight = false;
+let updateInstallHandoffTimer: ReturnType<typeof setTimeout> | null = null;
 let updaterConfigured = false;
 let updateState: DesktopUpdateState = initialUpdateState();
 let cliInstallInFlight = false;
@@ -748,6 +792,13 @@ function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   if (updateDownloadInFlight) return "download";
   if (updateCheckInFlight) return "check";
   return updateState.errorContext;
+}
+
+function hasDownloadedUpdateReadyForInstall(state: DesktopUpdateState): boolean {
+  return (
+    state.downloadedVersion !== null &&
+    (state.status === "downloaded" || state.errorContext === "install")
+  );
 }
 
 protocol.registerSchemesAsPrivileged([
@@ -1491,31 +1542,17 @@ function configureAppIdentity(): void {
   configureMacDockIcon();
 }
 
-function quoteDesktopAutostartExecArgument(value: string): string {
-  return `"${value.replace(/(["\\`$])/g, "\\$1")}"`;
-}
-
 function ensureLinuxDaemonAutostartEntry(): void {
   const autostartDir = Path.join(OS.homedir(), ".config", "autostart");
   const entryPath = Path.join(
     autostartDir,
     isDevelopment ? "ace-dev-daemon.desktop" : "ace-daemon.desktop",
   );
-  const execCommand = [process.execPath, DAEMON_LOGIN_ITEM_ARG]
-    .map(quoteDesktopAutostartExecArgument)
-    .join(" ");
-  const entryContents = [
-    "[Desktop Entry]",
-    "Type=Application",
-    "Version=1.0",
-    "Name=ace daemon",
-    "Comment=Start the ace background daemon at login",
-    `Exec=${execCommand}`,
-    "Terminal=false",
-    "NoDisplay=true",
-    "X-GNOME-Autostart-enabled=true",
-    "",
-  ].join("\n");
+  const entryContents = buildLinuxDaemonAutostartEntry({
+    appName: APP_DISPLAY_NAME,
+    executablePath: process.execPath,
+    args: [DAEMON_LOGIN_ITEM_ARG],
+  });
   FS.mkdirSync(autostartDir, { recursive: true });
   const previousContents = FS.existsSync(entryPath) ? FS.readFileSync(entryPath, "utf8") : null;
   if (previousContents !== entryContents) {
@@ -1523,6 +1560,43 @@ function ensureLinuxDaemonAutostartEntry(): void {
   }
   writeDesktopLogHeader(
     `daemon autostart entry ready path=${sanitizeLogValue(entryPath)} changed=${String(previousContents !== entryContents)}`,
+  );
+}
+
+function ensureLinuxDesktopLauncherEntry(): void {
+  const applicationsDir = Path.join(OS.homedir(), ".local", "share", "applications");
+  const desktopFileName = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
+  const entryPath = Path.join(applicationsDir, desktopFileName);
+  const iconDir = Path.join(OS.homedir(), ".local", "share", "icons", "hicolor", "512x512", "apps");
+  const iconPath = Path.join(iconDir, isDevelopment ? "ace-dev.png" : "ace.png");
+  const packagedIconPath = Path.join(process.resourcesPath, "icon.png");
+
+  FS.mkdirSync(applicationsDir, { recursive: true });
+
+  let resolvedIconPath: string | undefined;
+  if (FS.existsSync(packagedIconPath)) {
+    FS.mkdirSync(iconDir, { recursive: true });
+    const currentIcon = FS.existsSync(iconPath) ? FS.readFileSync(iconPath) : null;
+    const packagedIcon = FS.readFileSync(packagedIconPath);
+    if (currentIcon === null || !currentIcon.equals(packagedIcon)) {
+      FS.writeFileSync(iconPath, packagedIcon);
+    }
+    resolvedIconPath = iconPath;
+  }
+
+  const entryContents = buildLinuxDesktopApplicationEntry({
+    appName: APP_DISPLAY_NAME,
+    executablePath: process.execPath,
+    ...(resolvedIconPath ? { iconPath: resolvedIconPath } : {}),
+    desktopFileId: desktopFileName,
+    startupWmClass: LINUX_WM_CLASS,
+  });
+  const previousContents = FS.existsSync(entryPath) ? FS.readFileSync(entryPath, "utf8") : null;
+  if (previousContents !== entryContents) {
+    FS.writeFileSync(entryPath, entryContents, "utf8");
+  }
+  writeDesktopLogHeader(
+    `desktop launcher entry ready path=${sanitizeLogValue(entryPath)} changed=${String(previousContents !== entryContents)} iconInstalled=${String(resolvedIconPath !== undefined)}`,
   );
 }
 
@@ -1590,7 +1664,7 @@ function shouldRunHeadlessDaemonBootstrap(): boolean {
 }
 
 function shouldRunHeadlessDesktopUpdate(): boolean {
-  return app.isPackaged && process.argv.includes(DESKTOP_UPDATE_ARG);
+  return hasDesktopUpdateArg(process.argv, app.isPackaged);
 }
 
 function getInAppBrowserSession(): Electron.Session {
@@ -1606,6 +1680,60 @@ function flushInAppBrowserSessionStorage(): void {
       `in-app browser session lookup failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
     );
   }
+}
+
+function buildRendererWindowUrl(extraSearchParams: Record<string, string> = {}): string {
+  const rendererUrl = appendDesktopBootstrapWsUrl(
+    useDevRenderer && devServerUrl ? devServerUrl : `${DESKTOP_SCHEME}://app/index.html`,
+    backendWsUrl,
+    isDevelopmentBuild,
+  );
+  const parsedUrl = new URL(rendererUrl);
+  for (const [key, value] of Object.entries(extraSearchParams)) {
+    parsedUrl.searchParams.set(key, value);
+  }
+  return parsedUrl.toString();
+}
+
+function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
+  scopeId?: string;
+  initialUrl?: string;
+} {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return {};
+  }
+  const input = rawInput as { scopeId?: unknown; initialUrl?: unknown };
+  const scopeId =
+    typeof input.scopeId === "string" && input.scopeId.trim().length > 0
+      ? input.scopeId.trim()
+      : undefined;
+  const safeInitialUrl =
+    typeof input.initialUrl === "string" ? getSafeExternalUrl(input.initialUrl) : null;
+  return {
+    ...(scopeId ? { scopeId } : {}),
+    ...(safeInitialUrl ? { initialUrl: safeInitialUrl } : {}),
+  };
+}
+
+function normalizeDetachedEditorOpenInput(rawInput: unknown): {
+  threadId: string;
+  connectionUrl?: string;
+} | null {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return null;
+  }
+  const input = rawInput as { threadId?: unknown; connectionUrl?: unknown };
+  if (typeof input.threadId !== "string" || input.threadId.trim().length === 0) {
+    return null;
+  }
+  const connectionUrl =
+    typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
+      ? input.connectionUrl.trim()
+      : undefined;
+  return {
+    threadId: input.threadId.trim(),
+    ...(connectionUrl ? { connectionUrl } : {}),
+  };
 }
 
 async function repairInAppBrowserStorage(): Promise<boolean> {
@@ -1632,6 +1760,13 @@ function clearUpdatePollTimer(): void {
   if (updatePollTimer) {
     clearInterval(updatePollTimer);
     updatePollTimer = null;
+  }
+}
+
+function clearUpdateInstallHandoffTimer(): void {
+  if (updateInstallHandoffTimer) {
+    clearTimeout(updateInstallHandoffTimer);
+    updateInstallHandoffTimer = null;
   }
 }
 
@@ -1810,7 +1945,11 @@ function shouldEnableAutoUpdates(): boolean {
 
 async function checkForUpdates(reason: string): Promise<boolean> {
   if (isQuitting || !updaterConfigured || updateCheckInFlight) return false;
-  if (updateState.status === "downloading" || updateState.status === "downloaded") {
+  if (
+    updateState.status === "downloading" ||
+    updateState.status === "installing" ||
+    hasDownloadedUpdateReadyForInstall(updateState)
+  ) {
     console.info(
       `[desktop-updater] Skipping update check (${reason}) while status=${updateState.status}.`,
     );
@@ -1858,39 +1997,128 @@ async function downloadAvailableUpdate(): Promise<{ accepted: boolean; completed
 }
 
 async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed: boolean }> {
-  if (isQuitting || !updaterConfigured || updateState.status !== "downloaded") {
+  if (isQuitting || !updaterConfigured || !hasDownloadedUpdateReadyForInstall(updateState)) {
     return { accepted: false, completed: false };
   }
 
   isQuitting = true;
   updateInstallInFlight = true;
+  clearUpdateInstallHandoffTimer();
   clearUpdatePollTimer();
   try {
-    setUpdateState({
-      message: "Preparing update: stopping background services.",
-      errorContext: null,
-    });
+    setUpdateState(
+      reduceDesktopUpdateStateOnInstallStart(
+        updateState,
+        "Preparing update: stopping background services.",
+      ),
+    );
     if (backendManagedByDaemon) {
       await stopDaemonForUpdateInstall();
     } else {
       await stopBackendAndWaitForExit();
     }
-    // Destroy all windows before launching the NSIS installer to avoid the installer finding live windows it needs to close.
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.destroy();
+    if (process.platform === "win32") {
+      // Close live app windows before NSIS starts so it can replace files without prompting.
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.destroy();
+      }
     }
     // `quitAndInstall()` only starts the handoff to the updater. The actual
     // install may still fail asynchronously, so keep the action incomplete
     // until we either quit or receive an updater error.
+    updateInstallHandoffTimer = setTimeout(() => {
+      updateInstallHandoffTimer = null;
+      if (!updateInstallInFlight || !isQuitting) return;
+
+      const message = "Update handoff timed out before ace restarted.";
+      updateInstallInFlight = false;
+      isQuitting = false;
+      recoverBackendAfterFailedUpdateInstall();
+      setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
+      console.error(`[desktop-updater] ${message}`);
+    }, AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS);
+    updateInstallHandoffTimer.unref();
     autoUpdater.quitAndInstall(true, true);
     return { accepted: true, completed: false };
   } catch (error: unknown) {
-    const message = formatErrorMessage(error);
+    const failure = resolveInstallUpdateFailure({
+      rawMessage: formatErrorMessage(error),
+    });
+    clearUpdateInstallHandoffTimer();
     updateInstallInFlight = false;
     isQuitting = false;
-    setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
-    console.error(`[desktop-updater] Failed to install update: ${message}`);
+    recoverBackendAfterFailedUpdateInstall();
+    setUpdateState(
+      reduceDesktopUpdateStateOnInstallFailure(updateState, failure.message, failure.canRetry),
+    );
+    console.error(`[desktop-updater] Failed to install update: ${failure.message}`);
     return { accepted: true, completed: false };
+  }
+}
+
+async function runExternalDesktopUpdateRequest(): Promise<void> {
+  if (externalUpdateRequestInFlight || isQuitting) return;
+  externalUpdateRequestInFlight = true;
+  writeDesktopLogHeader("external update request start");
+
+  try {
+    if (!updaterConfigured) {
+      configureAutoUpdater();
+    }
+    if (!updaterConfigured) {
+      writeDesktopLogHeader(
+        `external update request unavailable message=${sanitizeLogValue(updateState.message ?? "updater not configured")}`,
+      );
+      return;
+    }
+
+    if (!hasDownloadedUpdateReadyForInstall(updateState) && updateState.status !== "available") {
+      await checkForUpdates("cli-forwarded");
+    }
+
+    if (updateState.status === "available") {
+      const downloadResult = await downloadAvailableUpdate();
+      if (!downloadResult.completed) {
+        writeDesktopLogHeader(
+          `external update request download incomplete message=${sanitizeLogValue(updateState.message ?? "download did not complete")}`,
+        );
+        return;
+      }
+    }
+
+    if (!hasDownloadedUpdateReadyForInstall(updateState)) {
+      writeDesktopLogHeader(
+        `external update request no installable update status=${updateState.status}`,
+      );
+      return;
+    }
+
+    await installDownloadedUpdate();
+  } catch (error) {
+    writeDesktopLogHeader(
+      `external update request failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  } finally {
+    if (!isQuitting) {
+      externalUpdateRequestInFlight = false;
+    }
+  }
+}
+
+function recoverBackendAfterFailedUpdateInstall(): void {
+  try {
+    if (backendManagedByDaemon) {
+      startOrConnectBackendDaemon();
+      writeDesktopLogHeader("daemon backend restarted after failed update install");
+      return;
+    }
+
+    startBackend();
+    writeDesktopLogHeader("child backend restarted after failed update install");
+  } catch (error) {
+    writeDesktopLogHeader(
+      `backend restart after failed update install failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
   }
 }
 
@@ -2020,9 +2248,16 @@ function configureAutoUpdater(): void {
   autoUpdater.on("error", (error) => {
     const message = formatErrorMessage(error);
     if (updateInstallInFlight) {
+      const failure = resolveInstallUpdateFailure({
+        rawMessage: message,
+      });
+      clearUpdateInstallHandoffTimer();
       updateInstallInFlight = false;
       isQuitting = false;
-      setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
+      recoverBackendAfterFailedUpdateInstall();
+      setUpdateState(
+        reduceDesktopUpdateStateOnInstallFailure(updateState, failure.message, failure.canRetry),
+      );
       console.error(`[desktop-updater] Updater error: ${message}`);
       return;
     }
@@ -2125,7 +2360,7 @@ function startBackend(): void {
     );
     bootstrapStream.end();
   } else {
-    child.kill("SIGTERM");
+    terminateChildProcess(child, { signal: "SIGTERM", tree: true });
     scheduleBackendRestart("missing desktop bootstrap pipe");
     return;
   }
@@ -2178,10 +2413,10 @@ function stopBackend(): void {
   if (!child) return;
 
   if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGTERM");
+    terminateChildProcess(child, { signal: "SIGTERM", tree: true });
     setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
+        terminateChildProcess(child, { signal: "SIGKILL", tree: true, force: true });
       }
     }, 2_000).unref();
   }
@@ -2222,11 +2457,11 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
     }
 
     backendChild.once("exit", onExit);
-    backendChild.kill("SIGTERM");
+    terminateChildProcess(backendChild, { signal: "SIGTERM", tree: true });
 
     forceKillTimer = setTimeout(() => {
       if (backendChild.exitCode === null && backendChild.signalCode === null) {
-        backendChild.kill("SIGKILL");
+        terminateChildProcess(backendChild, { signal: "SIGKILL", tree: true, force: true });
       }
     }, 2_000);
     forceKillTimer.unref();
@@ -2329,6 +2564,17 @@ function registerIpcHandlers(): void {
       return;
     }
     applyAppZoom(owner, rawAction);
+  });
+
+  ipcMain.removeHandler(OPEN_DETACHED_BROWSER_CHANNEL);
+  ipcMain.handle(OPEN_DETACHED_BROWSER_CHANNEL, async (_event, rawInput: unknown) => {
+    return createDetachedBrowserWindow(normalizeDetachedBrowserOpenInput(rawInput));
+  });
+
+  ipcMain.removeHandler(OPEN_DETACHED_EDITOR_CHANNEL);
+  ipcMain.handle(OPEN_DETACHED_EDITOR_CHANNEL, async (_event, rawInput: unknown) => {
+    const input = normalizeDetachedEditorOpenInput(rawInput);
+    return input ? createDetachedEditorWindow(input) : false;
   });
 
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
@@ -2507,6 +2753,7 @@ function getIconOption(): { icon: string } | Record<string, never> {
 }
 
 function attachWebContentsContextMenu(input: {
+  includeDevToolsAction?: boolean;
   targetContents: Electron.WebContents;
   window: BrowserWindow;
   onMenuShown?: () => void;
@@ -2523,9 +2770,20 @@ function attachWebContentsContextMenu(input: {
         misspelledWord: params.misspelledWord,
       },
       {
+        ...(input.includeDevToolsAction
+          ? {
+              devToolsAccelerator: BROWSER_DEVTOOLS_ACCELERATOR,
+              onOpenDevTools: () => {
+                input.targetContents.openDevTools();
+              },
+            }
+          : {}),
         ...(linkUrl
           ? {
               onCopyLink: () => clipboard.writeText(linkUrl),
+              onOpenLinkInNewTab: () => {
+                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, linkUrl);
+              },
               onOpenLink: () => {
                 void shell.openExternal(linkUrl);
               },
@@ -2668,6 +2926,7 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
       safelySendToWindow(window, BROWSER_SHORTCUT_ACTION_CHANNEL, action);
     });
     attachWebContentsContextMenu({
+      includeDevToolsAction: true,
       targetContents: guestContents,
       window,
       onMenuShown: () => {
@@ -2675,6 +2934,166 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
       },
     });
   });
+}
+
+function createDetachedBrowserWindow(input: { scopeId?: string; initialUrl?: string }): boolean {
+  const windowKey = input.scopeId ?? "default";
+  const existingWindow = detachedBrowserWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    return true;
+  }
+
+  const window = new BrowserWindow({
+    width: 1180,
+    height: 780,
+    minWidth: 720,
+    minHeight: 520,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Browser`,
+    webPreferences: {
+      preload: Path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+
+  detachedBrowserWindows.set(windowKey, window);
+  setupWebViewEventHandlers(window);
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Browser`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Browser`);
+    emitUpdateState();
+  });
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    detachedBrowserWindows.delete(windowKey);
+  });
+
+  const rendererUrl = buildRendererWindowUrl({
+    aceDetachedBrowser: "1",
+    ...(input.scopeId ? { browserScope: input.scopeId } : {}),
+    ...(input.initialUrl ? { initialUrl: input.initialUrl } : {}),
+  });
+  void window.loadURL(rendererUrl);
+  return true;
+}
+
+function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: string }): boolean {
+  const windowKey = input.connectionUrl
+    ? `${input.connectionUrl}\0${input.threadId}`
+    : input.threadId;
+  const existingWindow = detachedEditorWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    return true;
+  }
+
+  const window = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 820,
+    minHeight: 560,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Editor`,
+    webPreferences: {
+      preload: Path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+
+  detachedEditorWindows.set(windowKey, window);
+  setupWebViewEventHandlers(window);
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Editor`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Editor`);
+    emitUpdateState();
+  });
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    detachedEditorWindows.delete(windowKey);
+  });
+
+  const rendererUrl = buildRendererWindowUrl({
+    aceDetachedEditor: "1",
+    threadId: input.threadId,
+    ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
+  });
+  void window.loadURL(rendererUrl);
+  return true;
 }
 
 function createWindow(): BrowserWindow {
@@ -2744,18 +3163,10 @@ function createWindow(): BrowserWindow {
   window.webContents.once("did-finish-load", revealWindow);
 
   if (useDevRenderer) {
-    void window.loadURL(
-      appendDesktopBootstrapWsUrl(devServerUrl, backendWsUrl, isDevelopmentBuild),
-    );
+    void window.loadURL(buildRendererWindowUrl());
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(
-      appendDesktopBootstrapWsUrl(
-        `${DESKTOP_SCHEME}://app/index.html`,
-        backendWsUrl,
-        isDevelopmentBuild,
-      ),
-    );
+    void window.loadURL(buildRendererWindowUrl());
   }
 
   window.on("closed", () => {
@@ -2781,6 +3192,11 @@ if (!hasSingleInstanceLock) {
 } else {
   app.on("second-instance", (_event, argv) => {
     writeDesktopLogHeader("second-instance received");
+    if (resolveDesktopSecondInstanceAction(argv, app.isPackaged) === "run-update") {
+      void runExternalDesktopUpdateRequest();
+      return;
+    }
+
     const window = getOrCreatePrimaryWindow();
     focusPrimaryWindow(window);
     const pairingUrl = findDesktopPairingUrlInArgv(argv);
@@ -2833,6 +3249,7 @@ async function bootstrap(): Promise<void> {
 app.on("before-quit", () => {
   isQuitting = true;
   updateInstallInFlight = false;
+  clearUpdateInstallHandoffTimer();
   stopDesktopBackgroundNotifications();
   for (const notification of activeDesktopNotifications.values()) {
     notification.close();
@@ -2852,6 +3269,9 @@ app
   .then(() => {
     writeDesktopLogHeader("app ready");
     syncShellEnvironment();
+    if (process.platform === "linux" && app.isPackaged) {
+      ensureLinuxDesktopLauncherEntry();
+    }
     if (useDaemonBackend) {
       ensureDaemonAutostartRegistration();
     }

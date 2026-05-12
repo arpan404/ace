@@ -8,6 +8,7 @@ import {
   reduceDesktopUpdateStateOnDownloadFailure,
   reduceDesktopUpdateStateOnDownloadProgress,
   reduceDesktopUpdateStateOnDownloadStart,
+  reduceDesktopUpdateStateOnInstallStart,
   reduceDesktopUpdateStateOnInstallFailure,
   reduceDesktopUpdateStateOnNoUpdate,
   reduceDesktopUpdateStateOnUpdateAvailable,
@@ -83,16 +84,39 @@ describe("updateMachine", () => {
       },
       "1.1.0",
     );
-    const failedInstall = reduceDesktopUpdateStateOnInstallFailure(
+    const installing = reduceDesktopUpdateStateOnInstallStart(
       downloaded,
+      "Preparing update: stopping background services.",
+    );
+    const failedInstall = reduceDesktopUpdateStateOnInstallFailure(
+      installing,
       "backend shutdown timed out",
     );
 
     expect(downloaded.status).toBe("downloaded");
     expect(downloaded.downloadedVersion).toBe("1.1.0");
-    expect(failedInstall.status).toBe("downloaded");
+    expect(installing.status).toBe("installing");
+    expect(installing.message).toContain("Preparing update");
+    expect(failedInstall.status).toBe("error");
     expect(failedInstall.errorContext).toBe("install");
     expect(failedInstall.canRetry).toBe(true);
+  });
+
+  it("allows install failures to disable retry when the updater reports a non-retryable error", () => {
+    const failedInstall = reduceDesktopUpdateStateOnInstallFailure(
+      {
+        ...createInitialDesktopUpdateState("1.0.0", runtimeInfo),
+        enabled: true,
+        status: "installing",
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.0",
+      },
+      "signature invalid",
+      false,
+    );
+
+    expect(failedInstall.status).toBe("error");
+    expect(failedInstall.canRetry).toBe(false);
   });
 
   it("clears stale download state when no update is available", () => {

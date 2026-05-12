@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
@@ -44,6 +45,7 @@ import {
   ThreadId,
 } from "@ace/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { type SidebarProjectSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_VERSION, IS_DEV_BUILD } from "../branding";
@@ -54,6 +56,7 @@ import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
   DESKTOP_HEADER_CHROME_CLASS_NAME,
   DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -217,6 +220,8 @@ import {
 } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
 const SPLIT_REVEAL_STEP = 5;
+const SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX = 32;
+const SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX = 28;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
 const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
@@ -232,7 +237,60 @@ type BoardThreadDragState = {
   activeThreadKey: string;
   overTargetKey: string | null;
 };
+type RenderedRemoteSidebarProject = {
+  readonly project: RemoteSidebarProjectEntry;
+  readonly projectKey: string;
+  readonly connectionUrl: string;
+  readonly projectExpanded: boolean;
+  readonly visibleThreads: readonly RemoteSidebarThreadEntry[];
+  readonly hiddenThreadCount: number;
+  readonly hasHiddenThreads: boolean;
+  readonly canCollapseThreadList: boolean;
+};
+type SidebarProjectListItem =
+  | {
+      kind: "local";
+      key: string;
+      projectId: ProjectId;
+      renderedThreadCount: number;
+      auxiliaryRowCount: number;
+      sortable: boolean;
+    }
+  | {
+      kind: "remote";
+      key: string;
+      renderedProject: RenderedRemoteSidebarProject;
+    };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
+
+function estimateSidebarProjectListItemSize(item: SidebarProjectListItem | undefined): number {
+  if (!item) {
+    return SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX;
+  }
+  if (item.kind === "local") {
+    return (
+      SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX +
+      item.renderedThreadCount * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX +
+      item.auxiliaryRowCount * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX
+    );
+  }
+  return (
+    SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX +
+    item.renderedProject.visibleThreads.length * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX +
+    (item.renderedProject.hasHiddenThreads ? SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX : 0) +
+    (item.renderedProject.canCollapseThreadList ? SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX : 0)
+  );
+}
+
+function getVirtualProjectRowStyle(virtualRow: VirtualItem): CSSProperties {
+  return {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    transform: `translateY(${virtualRow.start}px)`,
+  };
+}
 
 function createOptimisticProjectCreatedEvent(input: {
   projectId: ProjectId;
@@ -839,6 +897,7 @@ export default function Sidebar() {
   );
   const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
   const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
+  const [projectPickerKeyboardNavigationId, setProjectPickerKeyboardNavigationId] = useState(0);
   const lastKeyboardNavigationTimeRef = useRef(0);
   const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
     string | null
@@ -850,7 +909,12 @@ export default function Sidebar() {
   });
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectPickerListRef = useRef<HTMLDivElement | null>(null);
+  const requestProjectPickerKeyboardScroll = useCallback(() => {
+    lastKeyboardNavigationTimeRef.current = Date.now();
+    setProjectPickerKeyboardNavigationId((current) => current + 1);
+  }, []);
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
+  const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
   const browseRequestVersionRef = useRef(0);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
@@ -2318,6 +2382,9 @@ export default function Sidebar() {
             }
             return Math.min(index + 1, filteredPickerEnvironments.length - 1);
           });
+          if (filteredPickerEnvironments.length > 0) {
+            requestProjectPickerKeyboardScroll();
+          }
           return;
         }
         if (event.key === "ArrowUp") {
@@ -2328,6 +2395,9 @@ export default function Sidebar() {
             }
             return index <= 0 ? 0 : index - 1;
           });
+          if (filteredPickerEnvironments.length > 0) {
+            requestProjectPickerKeyboardScroll();
+          }
           return;
         }
         if (event.key === "Enter") {
@@ -2366,6 +2436,9 @@ export default function Sidebar() {
           }
           return Math.min(index + 1, entryCount - 1);
         });
+        if ((currentProjectBrowseResult?.entries.length ?? 0) > 0) {
+          requestProjectPickerKeyboardScroll();
+        }
         return;
       }
       if (event.key === "ArrowUp") {
@@ -2377,6 +2450,9 @@ export default function Sidebar() {
           }
           return index <= 0 ? 0 : index - 1;
         });
+        if ((currentProjectBrowseResult?.entries.length ?? 0) > 0) {
+          requestProjectPickerKeyboardScroll();
+        }
         return;
       }
       if (event.key === "ArrowRight") {
@@ -2401,6 +2477,7 @@ export default function Sidebar() {
           setProjectPickerStep("environment");
           setProjectPickerEnvironmentQuery("");
           setActiveProjectBrowseIndex(0);
+          requestProjectPickerKeyboardScroll();
           return;
         }
         const target = event.currentTarget;
@@ -2435,6 +2512,7 @@ export default function Sidebar() {
       projectPickerStep,
       currentProjectBrowseResult,
       pickerEnvironments.length,
+      requestProjectPickerKeyboardScroll,
     ],
   );
 
@@ -2463,10 +2541,9 @@ export default function Sidebar() {
   ]);
 
   useEffect(() => {
-    if (!addingProject || activeProjectBrowseIndex < 0) {
+    if (!addingProject || activeProjectBrowseIndex < 0 || projectPickerKeyboardNavigationId === 0) {
       return;
     }
-    lastKeyboardNavigationTimeRef.current = Date.now();
     const listElement = projectPickerListRef.current;
     if (!listElement) {
       return;
@@ -2485,7 +2562,7 @@ export default function Sidebar() {
       block: "center",
       behavior: "auto",
     });
-  }, [activeProjectBrowseIndex, addingProject, projectPickerStep]);
+  }, [projectPickerKeyboardNavigationId]);
 
   const handleStartAddProject = useCallback(() => {
     setAddProjectError(null);
@@ -3527,12 +3604,30 @@ export default function Sidebar() {
   const localProjectThreadGroupById = useMemo(
     () =>
       new Map(
-        filteredLocalProjectIds.map((projectId, index) => [
+        sortedLocalProjectIds.map((projectId) => [
           projectId,
-          localProjectThreadGroups[index],
+          deriveSidebarLocalProjectThreadGroup({
+            activeThreadId,
+            projectExpanded: projectExpandedById[projectId] ?? true,
+            projectListThreads:
+              projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+            revealStep: THREAD_REVEAL_STEP,
+            unsortedProjectThreads:
+              visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+            visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
+            threadSortOrder: sidebarThreadSortOrder,
+          }),
         ]),
       ),
-    [filteredLocalProjectIds, localProjectThreadGroups],
+    [
+      activeThreadId,
+      projectExpandedById,
+      projectListThreadsByProjectId,
+      sidebarThreadSortOrder,
+      sortedLocalProjectIds,
+      threadRevealCountByProject,
+      visibleProjectThreadsByProjectId,
+    ],
   );
   const renderedPinnedItems = useMemo<
     Array<{ kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }>
@@ -3800,6 +3895,78 @@ export default function Sidebar() {
     renderedRemoteProjects,
     visibleProjectThreadsByProjectId,
   ]);
+  const sidebarProjectListItems = useMemo<SidebarProjectListItem[]>(() => {
+    if (isProjectDraggingEnabled) {
+      return [
+        ...filteredLocalProjectIds.map((projectId) => {
+          const threadGroup = localProjectThreadGroupById.get(projectId);
+          return {
+            kind: "local" as const,
+            key: `local:${projectId}`,
+            projectId,
+            renderedThreadCount: threadGroup?.renderedThreadIds.length ?? 0,
+            auxiliaryRowCount:
+              (threadGroup?.showEmptyThreadState ? 1 : 0) +
+              (threadGroup?.hasHiddenThreads ? 1 : 0) +
+              (threadGroup?.canCollapseThreadList ? 1 : 0),
+            sortable: true,
+          };
+        }),
+        ...renderedRemoteProjects.map((renderedProject) => ({
+          kind: "remote" as const,
+          key: `remote:${renderedProject.projectKey}`,
+          renderedProject,
+        })),
+      ];
+    }
+
+    return unifiedRenderedProjects.map((renderedProject) => {
+      if (renderedProject.kind === "local") {
+        const threadGroup = localProjectThreadGroupById.get(renderedProject.payload);
+        return {
+          kind: "local" as const,
+          key: renderedProject.key,
+          projectId: renderedProject.payload,
+          renderedThreadCount: threadGroup?.renderedThreadIds.length ?? 0,
+          auxiliaryRowCount:
+            (threadGroup?.showEmptyThreadState ? 1 : 0) +
+            (threadGroup?.hasHiddenThreads ? 1 : 0) +
+            (threadGroup?.canCollapseThreadList ? 1 : 0),
+          sortable: false,
+        };
+      }
+      return {
+        kind: "remote" as const,
+        key: renderedProject.key,
+        renderedProject: renderedProject.payload,
+      };
+    });
+  }, [
+    filteredLocalProjectIds,
+    isProjectDraggingEnabled,
+    localProjectThreadGroupById,
+    renderedRemoteProjects,
+    unifiedRenderedProjects,
+  ]);
+  const sidebarProjectListVirtualizer = useVirtualizer({
+    count: projectsSectionExpanded ? sidebarProjectListItems.length : 0,
+    estimateSize: (index) => estimateSidebarProjectListItemSize(sidebarProjectListItems[index]),
+    getItemKey: (index) => sidebarProjectListItems[index]?.key ?? index,
+    getScrollElement: () => sidebarContentScrollRef.current,
+    overscan: 8,
+  });
+  const virtualSidebarProjectRows = sidebarProjectListVirtualizer.getVirtualItems();
+
+  useEffect(() => {
+    sidebarProjectListVirtualizer.measure();
+  }, [
+    projectsSectionExpanded,
+    sidebarProjectListItems,
+    sidebarProjectListVirtualizer,
+    sidebarProjectSortOrder,
+    sidebarThreadSortOrder,
+  ]);
+
   const hasExpandedVisibleProjects = useMemo(
     () =>
       filteredLocalProjectIds.some((projectId) => {
@@ -4057,6 +4224,7 @@ export default function Sidebar() {
     searchPaletteMode,
     searchPaletteQuery,
     searchPaletteActiveIndex,
+    searchPaletteKeyboardNavigationId,
     searchPaletteInputRef,
     normalizedSearchPaletteQuery,
     searchPaletteItems,
@@ -4090,6 +4258,9 @@ export default function Sidebar() {
     onFocusMostRecentThreadForProject: focusMostRecentThreadForProject,
     onNavigateSettings: () => {
       void navigate({ to: "/settings" });
+    },
+    onNavigateTerminals: () => {
+      void navigate({ to: "/terminals" });
     },
     onNavigateToThread: navigateToThread,
     onNavigateToThreadOnConnection: navigateToThreadOnConnection,
@@ -4401,7 +4572,7 @@ export default function Sidebar() {
     );
   }
 
-  function renderRemoteProjectItem(renderedProject: (typeof renderedRemoteProjects)[number]) {
+  function renderRemoteProjectItem(renderedProject: RenderedRemoteSidebarProject) {
     const {
       project,
       projectKey,
@@ -4584,6 +4755,51 @@ export default function Sidebar() {
     );
   }
 
+  function renderVirtualProjectListItem(virtualRow: VirtualItem) {
+    const item = sidebarProjectListItems[virtualRow.index];
+    if (!item) {
+      return null;
+    }
+    const virtualStyle = getVirtualProjectRowStyle(virtualRow);
+    if (item.kind === "local") {
+      if (item.sortable) {
+        return (
+          <SortableProjectItem
+            key={item.key}
+            projectId={item.projectId}
+            measureElement={sidebarProjectListVirtualizer.measureElement}
+            style={virtualStyle}
+            virtualIndex={virtualRow.index}
+          >
+            {(dragHandleProps) => renderLocalProjectItem(item.projectId, dragHandleProps)}
+          </SortableProjectItem>
+        );
+      }
+      return (
+        <SidebarMenuItem
+          key={item.key}
+          ref={sidebarProjectListVirtualizer.measureElement}
+          className="rounded-md"
+          data-index={virtualRow.index}
+          style={virtualStyle}
+        >
+          {renderLocalProjectItem(item.projectId, null)}
+        </SidebarMenuItem>
+      );
+    }
+    return (
+      <SidebarMenuItem
+        key={item.key}
+        ref={sidebarProjectListVirtualizer.measureElement}
+        className="rounded-md"
+        data-index={virtualRow.index}
+        style={virtualStyle}
+      >
+        {renderRemoteProjectItem(item.renderedProject)}
+      </SidebarMenuItem>
+    );
+  }
+
   const handleProjectTitleClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>, projectId: ProjectId) => {
       if (suppressProjectClickForContextMenuRef.current) {
@@ -4716,10 +4932,10 @@ export default function Sidebar() {
     sidebarShortcutLabelOptions,
   );
 
-  // Auto-scroll search palette list when navigating with keyboard
+  // Auto-scroll search palette list only when navigating with keyboard.
   useEffect(() => {
     const listElement = searchPaletteListRef.current;
-    if (!listElement || searchPaletteActiveIndex < 0) {
+    if (!listElement || searchPaletteActiveIndex < 0 || searchPaletteKeyboardNavigationId === 0) {
       return;
     }
 
@@ -4734,7 +4950,7 @@ export default function Sidebar() {
       block: "center",
       behavior: "smooth",
     });
-  }, [searchPaletteActiveIndex]);
+  }, [searchPaletteKeyboardNavigationId]);
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
@@ -4870,14 +5086,12 @@ export default function Sidebar() {
   const sidebarHeaderNavButtonClassName =
     "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-40";
   const sidebarHeaderChrome = (
-    <div ref={sidebarHeaderRowRef} className="flex h-7 min-w-0 items-center gap-2">
-      <div
-        className={cn(
-          "flex min-w-0 flex-1 items-center gap-1.5",
-          isElectron && "pl-[max(0px,calc(var(--desktop-titlebar-left-inset)-0.875rem))]",
-        )}
-      >
-        {sidebarHeaderToggle}
+    <div
+      ref={sidebarHeaderRowRef}
+      className="grid h-7 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"
+    >
+      <div className="flex min-w-0 items-center">{sidebarHeaderToggle}</div>
+      <div className="flex min-w-0 items-center justify-center">
         <div className="min-w-0">{wordmark}</div>
       </div>
       <div className="flex shrink-0 items-center justify-end gap-1.5">
@@ -4918,6 +5132,8 @@ export default function Sidebar() {
       </div>
     </div>
   );
+  const shouldUseDesktopHeaderChrome =
+    isElectron && typeof window !== "undefined" && window.desktopBridge !== undefined;
 
   return (
     <>
@@ -5430,14 +5646,15 @@ export default function Sidebar() {
         </CommandDialogPopup>
       </CommandDialog>
 
-      {isElectron ? (
-        <SidebarHeader className={cn("drag-region", DESKTOP_HEADER_CHROME_CLASS_NAME)}>
+      {shouldUseDesktopHeaderChrome ? (
+        <SidebarHeader
+          className={cn("drag-region", DESKTOP_HEADER_CHROME_CLASS_NAME)}
+          style={MAC_TITLEBAR_LEFT_INSET_STYLE}
+        >
           {sidebarHeaderChrome}
         </SidebarHeader>
       ) : (
-        <SidebarHeader className={DESKTOP_HEADER_CHROME_CLASS_NAME}>
-          {sidebarHeaderChrome}
-        </SidebarHeader>
+        <SidebarHeader>{sidebarHeaderChrome}</SidebarHeader>
       )}
 
       {isOnSettings ? (
@@ -5495,7 +5712,7 @@ export default function Sidebar() {
               </button>
             </div>
           </SidebarGroup>
-          <SidebarContent className="gap-0 pt-1.5">
+          <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
             {sortedRenderedPinnedItems.length > 0 ? (
               <SidebarGroup className="px-2.5 pt-5 pb-2">
                 <button
@@ -5622,35 +5839,28 @@ export default function Sidebar() {
                       onDragEnd={handleProjectDragEnd}
                       onDragCancel={handleProjectDragCancel}
                     >
-                      <SidebarMenu>
+                      <SidebarMenu
+                        className="relative gap-0"
+                        style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
+                      >
                         <SortableContext
                           items={filteredLocalProjectIds}
                           strategy={verticalListSortingStrategy}
                         >
-                          {filteredLocalProjectIds.map((projectId) => (
-                            <SortableProjectItem key={projectId} projectId={projectId}>
-                              {(dragHandleProps) =>
-                                renderLocalProjectItem(projectId, dragHandleProps)
-                              }
-                            </SortableProjectItem>
-                          ))}
+                          {virtualSidebarProjectRows.map((virtualRow) =>
+                            renderVirtualProjectListItem(virtualRow),
+                          )}
                         </SortableContext>
-                        {renderedRemoteProjects.map((renderedProject) => (
-                          <SidebarMenuItem key={renderedProject.projectKey} className="rounded-md">
-                            {renderRemoteProjectItem(renderedProject)}
-                          </SidebarMenuItem>
-                        ))}
                       </SidebarMenu>
                     </DndContext>
                   ) : (
-                    <SidebarMenu>
-                      {unifiedRenderedProjects.map((renderedProject) => (
-                        <SidebarMenuItem key={renderedProject.key} className="rounded-md">
-                          {renderedProject.kind === "local"
-                            ? renderLocalProjectItem(renderedProject.payload, null)
-                            : renderRemoteProjectItem(renderedProject.payload)}
-                        </SidebarMenuItem>
-                      ))}
+                    <SidebarMenu
+                      className="relative gap-0"
+                      style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
+                    >
+                      {virtualSidebarProjectRows.map((virtualRow) =>
+                        renderVirtualProjectListItem(virtualRow),
+                      )}
                     </SidebarMenu>
                   )}
                   {projects.length === 0 &&

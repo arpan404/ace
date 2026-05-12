@@ -2,7 +2,12 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-import { OpenError, OpenInEditorInput, OpenRevealInFileManagerInput } from "./editor";
+import {
+  OpenError,
+  OpenInEditorInput,
+  OpenPathExistsInput,
+  OpenRevealInFileManagerInput,
+} from "./editor";
 import { FilesystemBrowseError, FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import {
   GitActionProgressEvent,
@@ -96,9 +101,12 @@ import {
   TerminalError,
   TerminalEvent,
   TerminalOpenInput,
+  TerminalProcessListInput,
+  TerminalProcessSummary,
   TerminalResizeInput,
   TerminalRestartInput,
   TerminalSessionSnapshot,
+  TerminalTerminateInput,
   TerminalWriteInput,
 } from "./terminal";
 import {
@@ -114,12 +122,20 @@ import {
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
+  ServerProviderCliUpgradeError,
   ServerRuntimeProfile,
+  ServerUninstallLspToolInput,
+  ServerUpgradeProviderCliInput,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
 import { PickFolderOptions } from "./ipc";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+import {
+  BrowserBridgeRequest,
+  BrowserBridgeResolveInput,
+  BrowserBridgeResolveResult,
+} from "./browserBridge";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -142,6 +158,7 @@ export const WS_METHODS = {
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
   shellRevealInFileManager: "shell.revealInFileManager",
+  shellPathExists: "shell.pathExists",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -169,25 +186,31 @@ export const WS_METHODS = {
   terminalClear: "terminal.clear",
   terminalRestart: "terminal.restart",
   terminalClose: "terminal.close",
+  terminalList: "terminal.list",
+  terminalTerminate: "terminal.terminate",
 
   // Server meta
   serverGetConfig: "server.getConfig",
   serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
+  serverUpgradeProviderCli: "server.upgradeProviderCli",
   serverGetRuntimeProfile: "server.getRuntimeProfile",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
   serverInstallLspTools: "server.installLspTools",
   serverSearchLspMarketplace: "server.searchLspMarketplace",
   serverInstallLspTool: "server.installLspTool",
+  serverUninstallLspTool: "server.uninstallLspTool",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
   serverDisconnect: "server.disconnect",
+  browserBridgeResolve: "browserBridge.resolve",
 
   // Streaming subscriptions
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
   subscribeTerminalEvents: "subscribeTerminalEvents",
+  subscribeBrowserBridgeRequests: "subscribeBrowserBridgeRequests",
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
 } as const;
@@ -225,6 +248,12 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   success: ServerProviderUpdatedPayload,
 });
 
+export const WsServerUpgradeProviderCliRpc = Rpc.make(WS_METHODS.serverUpgradeProviderCli, {
+  payload: ServerUpgradeProviderCliInput,
+  success: ServerProviderUpdatedPayload,
+  error: ServerProviderCliUpgradeError,
+});
+
 export const WsServerGetRuntimeProfileRpc = Rpc.make(WS_METHODS.serverGetRuntimeProfile, {
   payload: Schema.Struct({}),
   success: ServerRuntimeProfile,
@@ -259,6 +288,12 @@ export const WsServerInstallLspToolRpc = Rpc.make(WS_METHODS.serverInstallLspToo
   error: ServerLspToolsError,
 });
 
+export const WsServerUninstallLspToolRpc = Rpc.make(WS_METHODS.serverUninstallLspTool, {
+  payload: ServerUninstallLspToolInput,
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
+});
+
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
@@ -274,6 +309,11 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
 export const WsServerDisconnectRpc = Rpc.make(WS_METHODS.serverDisconnect, {
   payload: WsClientDisconnectInput,
   success: Schema.Struct({}),
+});
+
+export const WsBrowserBridgeResolveRpc = Rpc.make(WS_METHODS.browserBridgeResolve, {
+  payload: BrowserBridgeResolveInput,
+  success: BrowserBridgeResolveResult,
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -356,6 +396,11 @@ export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
 export const WsShellRevealInFileManagerRpc = Rpc.make(WS_METHODS.shellRevealInFileManager, {
   payload: OpenRevealInFileManagerInput,
   error: OpenError,
+});
+
+export const WsShellPathExistsRpc = Rpc.make(WS_METHODS.shellPathExists, {
+  payload: OpenPathExistsInput,
+  success: Schema.Boolean,
 });
 
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
@@ -477,6 +522,18 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: TerminalError,
 });
 
+export const WsTerminalListRpc = Rpc.make(WS_METHODS.terminalList, {
+  payload: TerminalProcessListInput,
+  success: Schema.Array(TerminalProcessSummary),
+  error: TerminalError,
+});
+
+export const WsTerminalTerminateRpc = Rpc.make(WS_METHODS.terminalTerminate, {
+  payload: TerminalTerminateInput,
+  success: TerminalSessionSnapshot,
+  error: TerminalError,
+});
+
 export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
   payload: OrchestrationGetSnapshotInput,
   success: OrchestrationRpcSchemas.getSnapshot.output,
@@ -534,6 +591,15 @@ export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTermina
   stream: true,
 });
 
+export const WsSubscribeBrowserBridgeRequestsRpc = Rpc.make(
+  WS_METHODS.subscribeBrowserBridgeRequests,
+  {
+    payload: WsClientStreamIdentity,
+    success: BrowserBridgeRequest,
+    stream: true,
+  },
+);
+
 export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerConfig, {
   payload: WsClientStreamIdentity,
   success: ServerConfigStreamEvent,
@@ -551,16 +617,19 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
+  WsServerUpgradeProviderCliRpc,
   WsServerGetRuntimeProfileRpc,
   WsServerSearchOpenCodeModelsRpc,
   WsServerGetLspToolsStatusRpc,
   WsServerInstallLspToolsRpc,
   WsServerSearchLspMarketplaceRpc,
   WsServerInstallLspToolRpc,
+  WsServerUninstallLspToolRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsServerDisconnectRpc,
+  WsBrowserBridgeResolveRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsListTreeRpc,
   WsProjectsCreateEntryRpc,
@@ -575,6 +644,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorReferencesRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
+  WsShellPathExistsRpc,
   WsFilesystemBrowseRpc,
   WsGitStatusRpc,
   WsGitReadWorkingTreeDiffRpc,
@@ -596,8 +666,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
+  WsTerminalListRpc,
+  WsTerminalTerminateRpc,
   WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
+  WsSubscribeBrowserBridgeRequestsRpc,
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,

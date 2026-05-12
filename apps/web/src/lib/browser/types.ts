@@ -18,6 +18,12 @@ export type BrowserWebviewMouseWheelInputEvent = {
   canScroll?: boolean;
 };
 
+export type BrowserWebviewKeyboardInputEvent = {
+  type: "keyDown" | "keyUp";
+  keyCode: string;
+  modifiers?: Array<"shift" | "control" | "alt" | "meta">;
+};
+
 export const BROWSER_SEARCH_ENGINE_OPTIONS: Array<{
   label: string;
   value: BrowserSearchEngine;
@@ -43,7 +49,9 @@ export type BrowserWebview = HTMLElement & {
   loadURL: (url: string) => Promise<void>;
   openDevTools: (options?: { mode?: "detach" | "left" | "right" | "bottom" | "undocked" }) => void;
   reload: () => void;
-  sendInputEvent?: (event: BrowserWebviewMouseWheelInputEvent) => void;
+  sendInputEvent?: (
+    event: BrowserWebviewMouseWheelInputEvent | BrowserWebviewKeyboardInputEvent,
+  ) => void;
   getZoomFactor?: () => number;
   setZoomFactor?: (factor: number) => void;
   stop: () => void;
@@ -58,6 +66,21 @@ export type BrowserDesignSelectionRect = {
   y: number;
   width: number;
   height: number;
+};
+
+export type BrowserAgentPointerPoint = {
+  x: number;
+  y: number;
+};
+
+export type BrowserAgentPointerEffect = {
+  path?: BrowserAgentPointerPoint[];
+  scrollX?: number;
+  scrollY?: number;
+  targetRect?: BrowserDesignSelectionRect;
+  type: "click" | "double_click" | "drag" | "keypress" | "move" | "scroll" | "type";
+  x?: number;
+  y?: number;
 };
 
 export type BrowserDesignElementDescriptor = {
@@ -105,14 +128,34 @@ export type BrowserTabSnapshotOptions = {
   recordHistory?: boolean;
 };
 
+export type BrowserConsoleLogEntry = {
+  level: "debug" | "info" | "log" | "warn" | "error";
+  message: string;
+  timestamp: string;
+  url?: string;
+};
+
 export type BrowserTabHandle = {
+  animateAgentPointer: (effect: BrowserAgentPointerEffect) => Promise<void>;
+  captureVisiblePage: () => Promise<string>;
+  clearAgentPointer: () => void;
   closeDevTools: () => void;
+  executeJavaScript: <T = unknown>(code: string) => Promise<T>;
+  getZoomFactor: () => number;
+  getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
   goForward: () => void;
   isDevToolsOpen: () => boolean;
   navigate: (url: string) => void;
   openDevTools: () => void;
+  readConsoleLogs: (options?: {
+    filter?: string;
+    levels?: Array<BrowserConsoleLogEntry["level"] | "warning">;
+    limit?: number;
+  }) => BrowserConsoleLogEntry[];
   reload: () => void;
+  pressKeys: (keys: ReadonlyArray<string>) => Promise<void>;
+  setZoomFactor: (factor: number) => void;
   stop: () => void;
   zoomIn: () => void;
   zoomOut: () => void;

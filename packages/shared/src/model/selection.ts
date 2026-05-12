@@ -42,9 +42,11 @@ export function buildProviderModelSelection<TProvider extends ProviderKind>(
   provider: TProvider,
   model: string,
   options?: ProviderModelOptions[TProvider],
+  providerInstanceId?: string,
 ): ModelSelectionByProvider<TProvider> {
   return {
     provider,
+    ...(providerInstanceId === undefined ? {} : { providerInstanceId }),
     model,
     ...(options === undefined ? {} : { options }),
   } as ModelSelectionByProvider<TProvider>;

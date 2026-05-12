@@ -3,10 +3,11 @@ import { Effect, Layer, Schema } from "effect";
 import { approveAll } from "@github/copilot-sdk";
 import {
   type ChatAttachment,
-  type GitHubCopilotModelOptions,
+  type GitHubCopilotModelSelection,
   TextGenerationError,
 } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -22,12 +23,17 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  sanitizeWorkspaceSummaryHeadline,
+  sanitizeWorkspaceSummaryKeyChanges,
+  sanitizeWorkspaceSummaryParagraph,
+  sanitizeWorkspaceSummaryRisks,
   toJsonSchemaObject,
 } from "../Utils.ts";
 
@@ -91,19 +97,18 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary";
     cwd: string;
     prompt: string;
     outputSchema: S;
-    modelSelection: {
-      provider: "githubCopilot";
-      model: string;
-      options?: GitHubCopilotModelOptions | undefined;
-    };
+    modelSelection: GitHubCopilotModelSelection;
     attachments?: ReadonlyArray<ChatAttachment> | undefined;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const settings = yield* serverSettingsService.getSettings.pipe(
-      Effect.map((value) => value.providers.githubCopilot),
+      Effect.map((value) =>
+        resolveProviderSettings(value, "githubCopilot", modelSelection.providerInstanceId),
+      ),
       Effect.mapError((cause) =>
         normalizeCliError(
           "copilot",
@@ -313,11 +318,46 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateWorkspaceSummary: TextGenerationShape["generateWorkspaceSummary"] = Effect.fn(
+    "GitHubCopilotTextGeneration.generateWorkspaceSummary",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildWorkspaceSummaryPrompt({
+      turnState: input.turnState,
+      userRequests: input.userRequests,
+      assistantWork: input.assistantWork,
+      workingTreeSummary: input.workingTreeSummary,
+      workingTreeDiff: input.workingTreeDiff,
+    });
+
+    if (input.modelSelection.provider !== "githubCopilot") {
+      return yield* new TextGenerationError({
+        operation: "generateWorkspaceSummary",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runGitHubCopilotJson({
+      operation: "generateWorkspaceSummary",
+      cwd: input.cwd,
+      prompt,
+      outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return {
+      headline: sanitizeWorkspaceSummaryHeadline(generated.headline),
+      summary: sanitizeWorkspaceSummaryParagraph(generated.summary),
+      keyChanges: sanitizeWorkspaceSummaryKeyChanges(generated.keyChanges),
+      risks: sanitizeWorkspaceSummaryRisks(generated.risks),
+    };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateWorkspaceSummary,
   } satisfies TextGenerationShape;
 });
 

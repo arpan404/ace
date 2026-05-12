@@ -442,6 +442,11 @@ const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (args: Readonly
   );
   const command = ChildProcess.make(claudeSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
+    env: {
+      ...process.env,
+      ...claudeSettings.launchEnv,
+      ...(claudeSettings.configDir ? { CLAUDE_CONFIG_DIR: claudeSettings.configDir } : {}),
+    },
   });
   return yield* spawnAndCollect(claudeSettings.binaryPath, command);
 });

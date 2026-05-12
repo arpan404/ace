@@ -29,6 +29,7 @@ export interface ServerDerivedPaths {
   readonly providerEventLogPath: string;
   readonly terminalLogsDir: string;
   readonly anonymousIdPath: string;
+  readonly telemetryPreferencePath: string;
 }
 
 /**
@@ -47,6 +48,7 @@ export interface ServerConfigShape extends ServerDerivedPaths {
   readonly authToken: string | undefined;
   readonly autoBootstrapProjectFromCwd: boolean;
   readonly logWebSocketEvents: boolean;
+  readonly telemetryEnabled: boolean;
 }
 
 export const deriveServerPaths = Effect.fn(function* (
@@ -76,6 +78,7 @@ export const deriveServerPaths = Effect.fn(function* (
     providerEventLogPath: join(providerLogsDir, "events.log"),
     terminalLogsDir: join(logsDir, "terminals"),
     anonymousIdPath: join(stateDir, "anonymous-id"),
+    telemetryPreferencePath: join(stateDir, "telemetry.json"),
   };
 });
 
@@ -94,6 +97,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.anonymousIdPath), { recursive: true }),
+      fs.makeDirectory(path.dirname(derivedPaths.telemetryPreferencePath), { recursive: true }),
     ],
     { concurrency: "unbounded" },
   );
@@ -127,6 +131,7 @@ export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigS
           mode: "web",
           autoBootstrapProjectFromCwd: false,
           logWebSocketEvents: false,
+          telemetryEnabled: false,
           port: 0,
           host: undefined,
           authToken: undefined,

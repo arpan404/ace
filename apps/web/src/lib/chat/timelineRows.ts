@@ -1,4 +1,5 @@
 import { computeMessageDurationStart } from "./messagesTimeline";
+import { stripProviderCommandMarkers } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
 export type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
@@ -26,6 +27,17 @@ export type TimelineMetaGroupEntry =
     };
 
 export type TimelineRow =
+  | {
+      kind: "completed-work-summary";
+      id: string;
+      createdAt: string;
+      startedAt: string;
+      endedAt: string;
+      entries: TimelineMetaGroupEntry[];
+      detailRows: TimelineCompletedWorkDetailRow[];
+      hiddenMessageCount: number;
+      toolCallCount: number;
+    }
   | {
       kind: "work";
       id: string;
@@ -67,8 +79,19 @@ export type TimelineRow =
       id: string;
       createdAt: string | null;
       mode: "live" | "silent-thinking";
+      activity: "default" | "goal";
+      goalStartedAt: string | null;
       intentText: string | null;
     };
+
+export type TimelineWorkLogRow =
+  | Extract<TimelineRow, { kind: "work" }>
+  | Extract<TimelineRow, { kind: "work-group" }>
+  | Extract<TimelineRow, { kind: "intent" }>;
+
+export type TimelineCompletedWorkDetailRow =
+  | TimelineWorkLogRow
+  | Extract<TimelineRow, { kind: "message" }>;
 
 export type AssistantTimelineMessageRow = Extract<TimelineRow, { kind: "message" }> & {
   message: AssistantTimelineMessage;
@@ -80,7 +103,9 @@ export interface BuildTimelineRowsInput {
   readonly activeTurnStartedAt: string | null;
   readonly completionDividerBeforeEntryId: string | null;
   readonly completionSummary: string | null;
+  readonly hideCompletedWorkMessages?: boolean;
   readonly isWorking: boolean;
+  readonly enableGoalWorkingState?: boolean;
 }
 
 export function isCompletedAssistantMessageRow(
@@ -136,6 +161,46 @@ function withInlineIntentText(
   };
 }
 
+function buildMetaTimelineRows(input: {
+  rowId: string;
+  createdAt: string;
+  entries: ReadonlyArray<TimelineMetaGroupEntry>;
+  nextEventCreatedAt: string | null;
+  hideElapsed?: boolean;
+}): TimelineWorkLogRow[] {
+  if (shouldCollapseMetaEntries(input.entries)) {
+    return [
+      {
+        kind: "work-group",
+        id: input.rowId,
+        createdAt: input.createdAt,
+        entries: [...input.entries],
+        summaryEndAt: input.hideElapsed
+          ? null
+          : resolveWorkGroupSummaryEndAt(input.entries, input.nextEventCreatedAt),
+      },
+    ];
+  }
+
+  return input.entries.map((entry) => {
+    if (entry.kind === "work") {
+      return {
+        kind: "work",
+        id: entry.id,
+        createdAt: entry.createdAt,
+        workEntry: entry.workEntry,
+      };
+    }
+
+    return {
+      kind: "intent",
+      id: entry.id,
+      createdAt: entry.createdAt,
+      text: entry.text,
+    };
+  });
+}
+
 function findTrailingLiveWorkEntryId(
   timelineEntries: ReadonlyArray<TimelineEntry>,
   input: {
@@ -165,13 +230,100 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   if (message.role !== "assistant" || message.streaming) {
     return false;
   }
-  return message.text.trim().length === 0;
+  return message.text.trim().length === 0 && (message.attachments?.length ?? 0) === 0;
+}
+
+type HiddenCompletedWorkAccumulator = {
+  id: string;
+  createdAt: string;
+  startedAt: string;
+  endedAt: string;
+  entries: TimelineMetaGroupEntry[];
+  detailRows: TimelineCompletedWorkDetailRow[];
+  hiddenMessageCount: number;
+  toolCallCount: number;
+};
+
+function latestIso(firstIso: string, secondIso: string): string {
+  const firstMs = Date.parse(firstIso);
+  const secondMs = Date.parse(secondIso);
+  if (!Number.isFinite(firstMs)) {
+    return secondIso;
+  }
+  if (!Number.isFinite(secondMs)) {
+    return firstIso;
+  }
+  return secondMs >= firstMs ? secondIso : firstIso;
+}
+
+function isGoalCommandMessageText(text: string): boolean {
+  return /^\/goal(?:\s|$)/iu.test(stripProviderCommandMarkers(text).trim());
+}
+
+function isCodexGoalCompletionMessageText(text: string): boolean {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  return (
+    /\bgoal\s+(?:completed|complete|finished|done|achieved)\b/iu.test(normalized) ||
+    /\bassistant\s+stopping\s+completely\b/iu.test(normalized)
+  );
+}
+
+function timelineEntryHasCodexGoalCompletionSignal(timelineEntry: TimelineEntry): boolean {
+  if (timelineEntry.kind === "message") {
+    return (
+      timelineEntry.message.role === "assistant" &&
+      isCodexGoalCompletionMessageText(timelineEntry.message.text)
+    );
+  }
+
+  if (timelineEntry.kind !== "work") {
+    return false;
+  }
+
+  return [timelineEntry.entry.label, timelineEntry.entry.detail]
+    .filter((value): value is string => typeof value === "string")
+    .some(isCodexGoalCompletionMessageText);
+}
+
+function latestGoalState(input: {
+  readonly timelineEntries: ReadonlyArray<TimelineEntry>;
+  readonly enabled: boolean | undefined;
+}): { readonly active: boolean; readonly startedAt: string | null } {
+  if (input.enabled !== true) {
+    return { active: false, startedAt: null };
+  }
+
+  let startedAt: string | null = null;
+  let active = false;
+
+  for (const timelineEntry of input.timelineEntries) {
+    if (
+      timelineEntry?.kind === "message" &&
+      timelineEntry.message.role === "user" &&
+      isGoalCommandMessageText(timelineEntry.message.text)
+    ) {
+      startedAt = timelineEntry.message.createdAt;
+      active = true;
+      continue;
+    }
+
+    if (active && timelineEntryHasCodexGoalCompletionSignal(timelineEntry)) {
+      startedAt = null;
+      active = false;
+    }
+  }
+
+  return { active, startedAt };
 }
 
 export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
   const terminalAssistantMessageIds = new Set<string>();
   const assistantMessageIdsWithoutLaterUser = new Set<string>();
+  const goalState = latestGoalState({
+    timelineEntries: input.timelineEntries,
+    enabled: input.enableGoalWorkingState,
+  });
   const lastAssistantMessageIdByTurnId = new Map<string, string>();
   for (const timelineEntry of input.timelineEntries) {
     if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
@@ -229,12 +381,14 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   );
   let hasRenderableCurrentTurnOutput = false;
   let lastMessageBoundaryAt: string | null = null;
-  let activeTurnUserMessageCreatedAt: string | null = null;
+  let activeTurnPrimaryUserMessageCreatedAt: string | null = null;
+  let activeTurnPrimaryUserMessageIsGoalCommand = false;
   let pendingMetaRowId: string | null = null;
   let pendingMetaCreatedAt: string | null = null;
   let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
   let pendingIntentEntries: Array<Extract<TimelineMetaGroupEntry, { kind: "intent" }>> = [];
   let activeLiveIntentText: string | null = null;
+  let hiddenCompletedWork: HiddenCompletedWorkAccumulator | null = null;
 
   const resetPendingMetaEntries = () => {
     pendingMetaEntries = [];
@@ -258,6 +412,129 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     pendingIntentEntries = [];
   };
 
+  const recordHiddenCompletedWork = (input: {
+    id: string;
+    startedAt: string;
+    endedAt: string;
+    hiddenMessageCount: number;
+    toolCallCount: number;
+  }) => {
+    if (!hiddenCompletedWork) {
+      hiddenCompletedWork = {
+        id: `completed-work-summary:${input.id}`,
+        createdAt: input.startedAt,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        entries: [],
+        detailRows: [],
+        hiddenMessageCount: input.hiddenMessageCount,
+        toolCallCount: input.toolCallCount,
+      };
+      return;
+    }
+
+    hiddenCompletedWork = {
+      ...hiddenCompletedWork,
+      endedAt: latestIso(hiddenCompletedWork.endedAt, input.endedAt),
+      hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount + input.hiddenMessageCount,
+      toolCallCount: hiddenCompletedWork.toolCallCount + input.toolCallCount,
+    };
+  };
+
+  const recordHiddenMetaEntries = (
+    entries: ReadonlyArray<TimelineMetaGroupEntry>,
+    nextEventCreatedAt: string | null,
+  ) => {
+    const firstEntry = entries[0];
+    if (!firstEntry) {
+      return;
+    }
+    const fallbackEndAt = entries.at(-1)?.createdAt ?? firstEntry.createdAt;
+    const endedAt = nextEventCreatedAt ?? fallbackEndAt;
+    const toolCallCount = entries.filter(
+      (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
+    ).length;
+    const previousEntries = hiddenCompletedWork?.entries ?? [];
+    const previousDetailRows = hiddenCompletedWork?.detailRows ?? [];
+    recordHiddenCompletedWork({
+      id: firstEntry.id,
+      startedAt: firstEntry.createdAt,
+      endedAt,
+      hiddenMessageCount: 0,
+      toolCallCount,
+    });
+    if (hiddenCompletedWork) {
+      hiddenCompletedWork = {
+        ...hiddenCompletedWork,
+        entries: [...previousEntries, ...entries],
+        detailRows: [
+          ...previousDetailRows,
+          ...buildMetaTimelineRows({
+            rowId: firstEntry.id,
+            createdAt: firstEntry.createdAt,
+            entries,
+            nextEventCreatedAt,
+          }),
+        ],
+      };
+    }
+  };
+
+  const recordHiddenAssistantMessage = (message: TimelineMessage, durationStart: string) => {
+    const previousDetailRows = hiddenCompletedWork?.detailRows ?? [];
+    recordHiddenCompletedWork({
+      id: String(message.id),
+      startedAt: message.createdAt,
+      endedAt: message.completedAt ?? message.createdAt,
+      hiddenMessageCount: 1,
+      toolCallCount: 0,
+    });
+    if (hiddenCompletedWork) {
+      hiddenCompletedWork = {
+        ...hiddenCompletedWork,
+        detailRows: [
+          ...previousDetailRows,
+          {
+            kind: "message",
+            id: String(message.id),
+            createdAt: message.createdAt,
+            message,
+            durationStart,
+            completionSummary: null,
+            isAssistantTurnTerminal: false,
+            showAssistantTiming: false,
+            showAssistantSummaryByDefault: false,
+          },
+        ],
+      };
+    }
+  };
+
+  const flushHiddenCompletedWorkSummary = (input: {
+    startedAtFloor: string | null;
+    endedAt: string | null;
+  }) => {
+    if (!hiddenCompletedWork) {
+      return;
+    }
+    const startedAt =
+      input.startedAtFloor !== null
+        ? latestIso(hiddenCompletedWork.startedAt, input.startedAtFloor)
+        : hiddenCompletedWork.startedAt;
+    nextRows.push({
+      kind: "completed-work-summary",
+      id: hiddenCompletedWork.id,
+      createdAt: startedAt,
+      startedAt,
+      endedAt: input.endedAt ?? hiddenCompletedWork.endedAt,
+      entries: hiddenCompletedWork.entries,
+      detailRows: hiddenCompletedWork.detailRows,
+      hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount,
+      toolCallCount: hiddenCompletedWork.toolCallCount,
+    });
+    hiddenCompletedWork = null;
+  };
+
   const consumeLatestPendingIntentText = () => {
     const latestIntentText = pendingIntentEntries.at(-1)?.text ?? null;
     pendingIntentEntries = [];
@@ -277,39 +554,27 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       return;
     }
 
-    if (shouldCollapseMetaEntries(pendingMetaEntries)) {
-      const shouldHideLiveElapsed =
-        input.activeTurnInProgress &&
-        isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
-      nextRows.push({
-        kind: "work-group",
-        id: pendingMetaRowId,
+    const pendingMetaIsInActiveTurn =
+      input.activeTurnInProgress &&
+      isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
+    if (input.hideCompletedWorkMessages === true && !pendingMetaIsInActiveTurn) {
+      recordHiddenMetaEntries(pendingMetaEntries, nextEventCreatedAt);
+      resetPendingMetaEntries();
+      return;
+    }
+
+    const shouldHideLiveElapsed =
+      input.activeTurnInProgress &&
+      isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
+    nextRows.push(
+      ...buildMetaTimelineRows({
+        rowId: pendingMetaRowId,
         createdAt: pendingMetaCreatedAt,
         entries: pendingMetaEntries,
-        summaryEndAt: shouldHideLiveElapsed
-          ? null
-          : resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
-      });
-    } else {
-      for (const entry of pendingMetaEntries) {
-        if (entry.kind === "work") {
-          nextRows.push({
-            kind: "work",
-            id: entry.id,
-            createdAt: entry.createdAt,
-            workEntry: entry.workEntry,
-          });
-          continue;
-        }
-
-        nextRows.push({
-          kind: "intent",
-          id: entry.id,
-          createdAt: entry.createdAt,
-          text: entry.text,
-        });
-      }
-    }
+        nextEventCreatedAt,
+        hideElapsed: shouldHideLiveElapsed,
+      }),
+    );
 
     resetPendingMetaEntries();
   };
@@ -393,20 +658,57 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
-    if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+    const messageIsInActiveTurn = isEventInActiveTurn(
+      timelineEntry.createdAt,
+      activeTurnStartedAtMs,
+    );
+    if (messageIsInActiveTurn) {
       hasRenderableCurrentTurnOutput = true;
     }
 
     const durationStart =
       messageDurationStartById.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt;
     if (timelineEntry.message.role === "user") {
+      hiddenCompletedWork = null;
       lastMessageBoundaryAt = timelineEntry.message.createdAt;
       if (
         Number.isNaN(activeTurnStartedAtMs) ||
         isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
       ) {
-        activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
+        if (activeTurnPrimaryUserMessageCreatedAt === null) {
+          activeTurnPrimaryUserMessageCreatedAt = timelineEntry.message.createdAt;
+          activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(
+            timelineEntry.message.text,
+          );
+        }
       }
+    }
+
+    if (
+      input.hideCompletedWorkMessages === true &&
+      timelineEntry.message.role === "assistant" &&
+      !timelineEntry.message.streaming &&
+      !terminalAssistantMessageIds.has(timelineEntry.id) &&
+      !(input.activeTurnInProgress && messageIsInActiveTurn)
+    ) {
+      recordHiddenAssistantMessage(timelineEntry.message, durationStart);
+      if (timelineEntry.message.completedAt) {
+        lastMessageBoundaryAt = timelineEntry.message.completedAt;
+      }
+      continue;
+    }
+
+    if (
+      input.hideCompletedWorkMessages === true &&
+      timelineEntry.message.role === "assistant" &&
+      !timelineEntry.message.streaming &&
+      terminalAssistantMessageIds.has(timelineEntry.id) &&
+      !(input.activeTurnInProgress && messageIsInActiveTurn)
+    ) {
+      flushHiddenCompletedWorkSummary({
+        startedAtFloor: durationStart,
+        endedAt: timelineEntry.message.completedAt ?? timelineEntry.createdAt,
+      });
     }
 
     nextRows.push({
@@ -447,9 +749,17 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   } else {
     flushPendingMetaEntries(null);
   }
+  flushHiddenCompletedWorkSummary({
+    startedAtFloor: lastMessageBoundaryAt,
+    endedAt: null,
+  });
 
+  const goalWorkingStateEnabled =
+    input.enableGoalWorkingState === true &&
+    goalState.active &&
+    (activeTurnPrimaryUserMessageIsGoalCommand || goalState.startedAt !== null);
   const liveDurationStartAt =
-    activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
+    activeTurnPrimaryUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
 
   if (input.isWorking) {
     nextRows.push({
@@ -457,6 +767,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       id: "working-indicator-row",
       createdAt: liveDurationStartAt,
       mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
+      activity: goalWorkingStateEnabled ? "goal" : "default",
+      goalStartedAt: goalWorkingStateEnabled ? goalState.startedAt : null,
       intentText: activeLiveIntentText,
     });
   }

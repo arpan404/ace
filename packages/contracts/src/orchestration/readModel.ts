@@ -18,6 +18,8 @@ import {
   ProviderKind,
   ProviderIntegrationCapabilities,
   ProviderInteractionMode,
+  ProviderSessionConfigOption,
+  ProviderSlashCommand,
   QueuedComposerMessage,
   QueuedSteerRequest,
   RuntimeMode,
@@ -128,7 +130,7 @@ export const SourceProposedPlanReference = Schema.Struct({
 });
 export type SourceProposedPlanReference = typeof SourceProposedPlanReference.Type;
 
-export const ThreadHandoffMode = Schema.Literals(["transcript", "compact"]);
+export const ThreadHandoffMode = Schema.Literals(["best", "transcript", "compact"]);
 export type ThreadHandoffMode = typeof ThreadHandoffMode.Type;
 
 export const ThreadHandoff = Schema.Struct({
@@ -157,6 +159,8 @@ export const OrchestrationSession = Schema.Struct({
   providerName: Schema.NullOr(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   capabilities: Schema.optional(ProviderIntegrationCapabilities),
+  configOptions: Schema.optional(Schema.Array(ProviderSessionConfigOption)),
+  commands: Schema.optional(Schema.Array(ProviderSlashCommand)),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,

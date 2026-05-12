@@ -28,6 +28,7 @@ export const PROVIDER_OPTIONS: Array<{
   { value: "claudeAgent", label: "Claude", available: true },
   { value: "githubCopilot", label: "Copilot", available: true },
   { value: "cursor", label: "Cursor", available: true },
+  { value: "pi", label: "Pi", available: true },
   { value: "gemini", label: "Gemini", available: true },
   { value: "opencode", label: "OpenCode", available: true },
 ];
@@ -45,11 +46,12 @@ export interface WorkLogEntry {
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
   intentText?: string;
+  diagnosticKind?: "runtime-error" | "runtime-warning";
 }
 
 export interface PendingApproval {
   requestId: ApprovalRequestId;
-  requestKind: "command" | "file-read" | "file-change";
+  requestKind: "command" | "file-read" | "file-change" | "permission";
   createdAt: string;
   detail?: string;
 }
@@ -87,6 +89,16 @@ export interface LatestProposedPlanState {
   planMarkdown: string;
   implementedAt: string | null;
   implementationThreadId: ThreadId | null;
+}
+
+export interface GeneratedWorkspaceSummary {
+  createdAt: string;
+  turnId: TurnId | null;
+  headline: string;
+  summary: string;
+  keyChanges: ReadonlyArray<string>;
+  risks: ReadonlyArray<string>;
+  markdown: string;
 }
 
 export type TimelineEntry =

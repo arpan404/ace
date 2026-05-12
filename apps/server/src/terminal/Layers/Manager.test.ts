@@ -520,6 +520,56 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect("lists running terminal processes without terminal history", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager();
+      yield* manager.open(openInput({ terminalId: "default" }));
+      yield* manager.open(openInput({ terminalId: "sidecar" }));
+
+      const processes = yield* manager.list();
+      expect(processes).toEqual([
+        expect.objectContaining({
+          threadId: "thread-1",
+          terminalId: "default",
+          status: "running",
+          pid: expect.any(Number),
+        }),
+        expect.objectContaining({
+          threadId: "thread-1",
+          terminalId: "sidecar",
+          status: "running",
+          pid: expect.any(Number),
+        }),
+      ]);
+      expect("history" in processes[0]!).toBe(false);
+    }),
+  );
+
+  it.effect("terminates a terminal process and emits exited activity", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, getEvents } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      const snapshot = yield* manager.terminate({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+      });
+
+      expect(snapshot.status).toBe("exited");
+      expect(snapshot.pid).toBe(null);
+      assert.equal(process.killed, true);
+      expect(yield* manager.list()).toEqual([]);
+      const events = yield* getEvents;
+      expect(
+        events.some((event) => event.type === "activity" && event.hasRunningSubprocess === false),
+      ).toBe(true);
+      expect(events.some((event) => event.type === "exited")).toBe(true);
+    }),
+  );
+
   it.effect("caps persisted history to configured line limit", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager(3);

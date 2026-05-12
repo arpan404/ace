@@ -73,6 +73,11 @@ export function normalizeTextGenerationModelSelection(
     case "cursor":
     case "gemini":
       return selection;
+    case "pi":
+      return {
+        provider: "codex",
+        model: selection.model,
+      };
     case "opencode":
       return selection;
   }
@@ -128,6 +133,13 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
     generateThreadTitle: (input) => {
       const modelSelection = normalizeTextGenerationModelSelection(input.modelSelection);
       return route(toTextGenerationProvider(modelSelection.provider)).generateThreadTitle({
+        ...input,
+        modelSelection,
+      });
+    },
+    generateWorkspaceSummary: (input) => {
+      const modelSelection = normalizeTextGenerationModelSelection(input.modelSelection);
+      return route(toTextGenerationProvider(modelSelection.provider)).generateWorkspaceSummary({
         ...input,
         modelSelection,
       });

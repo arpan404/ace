@@ -2,13 +2,28 @@
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { ChevronRightIcon } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
+import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
 import { cn } from "~/lib/utils";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
-const Menu = MenuPrimitive.Root;
+function Menu<Payload = unknown>({
+  defaultOpen,
+  modal = false,
+  onOpenChange,
+  open,
+  ...props
+}: MenuPrimitive.Root.Props<Payload>) {
+  const boundaryDismissedOpen = useBoundaryDismissedOpen<MenuPrimitive.Root.ChangeEventDetails>({
+    defaultOpen,
+    onOpenChange,
+    open,
+  });
+
+  return <MenuPrimitive.Root modal={modal} {...boundaryDismissedOpen} {...props} />;
+}
 
 const MenuPortal = MenuPrimitive.Portal;
 
@@ -23,6 +38,8 @@ function MenuTrigger({ className, children, ...props }: MenuPrimitive.Trigger.Pr
 function MenuPopup({
   children,
   className,
+  listClassName,
+  listHeight,
   sideOffset = 4,
   align = "center",
   alignOffset,
@@ -36,9 +53,13 @@ function MenuPopup({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
+  listClassName?: string;
+  listHeight?: string;
   listMaxHeight?: string;
 }) {
+  const resolvedListHeight = listHeight ? `min(var(--available-height), ${listHeight})` : undefined;
   const listStyle: React.CSSProperties = {
+    ...(resolvedListHeight ? { height: resolvedListHeight } : {}),
     maxHeight: listMaxHeight
       ? `min(var(--available-height), ${listMaxHeight})`
       : "var(--available-height)",
@@ -63,7 +84,7 @@ function MenuPopup({
           data-slot="menu-popup"
           {...props}
         >
-          <div className="w-full overflow-y-auto p-1.5" style={listStyle}>
+          <div className={cn("w-full overflow-y-auto p-1.5", listClassName)} style={listStyle}>
             {children}
           </div>
         </MenuPrimitive.Popup>

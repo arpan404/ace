@@ -387,7 +387,9 @@ const runCursorCommand = Effect.fn("runCursorCommand")(function* (args: Readonly
     shell: process.platform === "win32",
     env: {
       ...process.env,
+      ...cursorSettings.launchEnv,
       NO_OPEN_BROWSER: process.env.NO_OPEN_BROWSER ?? "1",
+      ...(cursorSettings.configDir ? { CURSOR_CONFIG_DIR: cursorSettings.configDir } : {}),
     },
   });
   return yield* spawnAndCollect(cursorSettings.binaryPath, command);

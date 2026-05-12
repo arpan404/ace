@@ -6,9 +6,10 @@
 import type { ModelSelection } from "@ace/contracts";
 import { TextGenerationError } from "@ace/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
+import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { Effect, Layer, Option, Schema } from "effect";
 
-import { startOpenCodeServer } from "../../provider/opencodeRuntime.ts";
+import { startOpenCodeServerIsolated } from "../../provider/opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
   extractTextPartsFromPromptResponse,
@@ -21,11 +22,16 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  sanitizeWorkspaceSummaryHeadline,
+  sanitizeWorkspaceSummaryKeyChanges,
+  sanitizeWorkspaceSummaryParagraph,
+  sanitizeWorkspaceSummaryRisks,
   toJsonSchemaObject,
 } from "../Utils.ts";
 
@@ -53,7 +59,8 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkspaceSummary";
     cwd: string;
     prompt: string;
     outputSchema: S;
@@ -69,11 +76,21 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
           }),
       ),
     );
-    const binaryPath = settings.providers.opencode.binaryPath;
+    const openCodeSettings = resolveProviderSettings(
+      settings,
+      "opencode",
+      modelSelection.providerInstanceId,
+    );
+    const binaryPath = openCodeSettings.binaryPath;
 
     const rawPayload = yield* Effect.tryPromise({
       try: async () => {
-        const server = await startOpenCodeServer(binaryPath);
+        const server = await startOpenCodeServerIsolated(binaryPath, {
+          ...openCodeSettings.launchEnv,
+          ...(openCodeSettings.configDir
+            ? { OPENCODE_CONFIG_DIR: openCodeSettings.configDir }
+            : {}),
+        });
         try {
           const client = createOpenCodeSdkClient({
             baseUrl: server.url,
@@ -286,11 +303,46 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateWorkspaceSummary: TextGenerationShape["generateWorkspaceSummary"] = Effect.fn(
+    "OpenCodeTextGeneration.generateWorkspaceSummary",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildWorkspaceSummaryPrompt({
+      turnState: input.turnState,
+      userRequests: input.userRequests,
+      assistantWork: input.assistantWork,
+      workingTreeSummary: input.workingTreeSummary,
+      workingTreeDiff: input.workingTreeDiff,
+    });
+
+    if (input.modelSelection.provider !== "opencode") {
+      return yield* new TextGenerationError({
+        operation: "generateWorkspaceSummary",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runOpenCodeJson({
+      operation: "generateWorkspaceSummary",
+      cwd: input.cwd,
+      prompt,
+      outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return {
+      headline: sanitizeWorkspaceSummaryHeadline(generated.headline),
+      summary: sanitizeWorkspaceSummaryParagraph(generated.summary),
+      keyChanges: sanitizeWorkspaceSummaryKeyChanges(generated.keyChanges),
+      risks: sanitizeWorkspaceSummaryRisks(generated.risks),
+    };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateWorkspaceSummary,
   } satisfies TextGenerationShape;
 });
 

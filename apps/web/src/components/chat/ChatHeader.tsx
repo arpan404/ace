@@ -177,12 +177,18 @@ export const ChatHeader = memo(function ChatHeader({
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-2">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <h2
-            className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
-            title={activeThreadTitle}
-          >
-            {activeThreadTitle}
-          </h2>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <h2 className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80">
+                  {activeThreadTitle}
+                </h2>
+              }
+            />
+            <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+              {activeThreadTitle}
+            </TooltipPopup>
+          </Tooltip>
           {activeProjectName ? (
             <div className="flex min-w-0 items-center gap-1 overflow-hidden">
               {activeProjectId !== null && onActiveProjectChange ? (

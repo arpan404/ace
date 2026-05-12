@@ -9,7 +9,7 @@ import {
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { CursorModelMetadata, ModelCapabilities } from "./model";
-import { ProviderKind } from "./orchestration";
+import { ProviderInstanceId, ProviderKind, ProviderSlashCommand } from "./orchestration";
 import { ServerSettings } from "./settings";
 import { ServerRelayStatus } from "./relay";
 
@@ -35,6 +35,9 @@ const ServerConfigIssues = Schema.Array(ServerConfigIssue);
 export const ServerProviderState = Schema.Literals(["ready", "warning", "error", "disabled"]);
 export type ServerProviderState = typeof ServerProviderState.Type;
 
+export const ServerProviderVersionStatus = Schema.Literals(["unknown", "ok", "upgrade-required"]);
+export type ServerProviderVersionStatus = typeof ServerProviderVersionStatus.Type;
+
 export const ServerProviderAuthStatus = Schema.Literals([
   "authenticated",
   "unauthenticated",
@@ -49,6 +52,17 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+export const ServerProviderRuntime = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  binaryPath: TrimmedNonEmptyString,
+  installed: Schema.Boolean,
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  packageName: Schema.optional(TrimmedNonEmptyString),
+  upgradeable: Schema.Boolean,
+});
+export type ServerProviderRuntime = typeof ServerProviderRuntime.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -60,14 +74,21 @@ export type ServerProviderModel = typeof ServerProviderModel.Type;
 
 export const ServerProvider = Schema.Struct({
   provider: ProviderKind,
+  providerInstanceId: Schema.optional(ProviderInstanceId),
+  providerInstanceLabel: Schema.optional(TrimmedNonEmptyString),
+  isDefaultProviderInstance: Schema.optional(Schema.Boolean),
   enabled: Schema.Boolean,
   installed: Schema.Boolean,
   version: Schema.NullOr(TrimmedNonEmptyString),
+  minimumVersion: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  versionStatus: Schema.optional(ServerProviderVersionStatus),
   status: ServerProviderState,
   auth: ServerProviderAuth,
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  commands: Schema.optional(Schema.Array(ProviderSlashCommand)),
+  runtimes: Schema.optional(Schema.Array(ServerProviderRuntime)),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 
@@ -207,6 +228,20 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerUpgradeProviderCliInput = Schema.Struct({
+  provider: ProviderKind,
+  runtimeId: TrimmedNonEmptyString,
+});
+export type ServerUpgradeProviderCliInput = typeof ServerUpgradeProviderCliInput.Type;
+
+export class ServerProviderCliUpgradeError extends Schema.TaggedErrorClass<ServerProviderCliUpgradeError>()(
+  "ServerProviderCliUpgradeError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 export const ServerRuntimeProfileProcess = Schema.Struct({
   pid: NonNegativeInt,
@@ -364,6 +399,11 @@ export const ServerInstallLspToolInput = Schema.Struct({
   reinstall: Schema.optional(Schema.Boolean),
 });
 export type ServerInstallLspToolInput = typeof ServerInstallLspToolInput.Type;
+
+export const ServerUninstallLspToolInput = Schema.Struct({
+  id: ServerLspToolId,
+});
+export type ServerUninstallLspToolInput = typeof ServerUninstallLspToolInput.Type;
 
 export class ServerLspToolsError extends Schema.TaggedErrorClass<ServerLspToolsError>()(
   "ServerLspToolsError",

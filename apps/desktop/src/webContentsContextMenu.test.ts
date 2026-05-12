@@ -16,15 +16,20 @@ describe("buildWebContentsContextMenuTemplate", () => {
         misspelledWord: "",
       },
       {
+        devToolsAccelerator: "CmdOrCtrl+Shift+I",
         onCopyLink: vi.fn(),
+        onOpenDevTools: vi.fn(),
+        onOpenLinkInNewTab: vi.fn(),
         onOpenLink: vi.fn(),
         onReplaceMisspelling: vi.fn(),
       },
     );
 
     expect(template).toMatchObject([
+      { label: "Open Link in New Tab" },
       { label: "Open Link Externally" },
       { label: "Copy Link Address" },
+      { label: "Open Developer Tools", accelerator: "CmdOrCtrl+Shift+I" },
       { type: "separator" },
       { role: "cut", enabled: false },
       { role: "copy", enabled: true },

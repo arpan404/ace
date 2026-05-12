@@ -13,5 +13,6 @@ export * from "./editor";
 export * from "./project";
 export * from "./filesystem";
 export * from "./workspaceEditor";
+export * from "./browserBridge";
 export * from "./rpc";
 export * from "./relay";

@@ -7,18 +7,15 @@ import {
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
-  type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
   type ServerProvider,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_DISPLAY_NAMES,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type ThreadHandoffMode,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
-  type GitHubIssue,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -26,6 +23,10 @@ import {
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import { buildProviderModelSelection } from "@ace/shared/model";
+import {
+  mergeProviderSlashCommands,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 import { truncate } from "@ace/shared/String";
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import {
@@ -34,8 +35,10 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  Profiler,
   Suspense,
   lazy,
+  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -66,11 +69,12 @@ import {
 import {
   collapseExpandedComposerCursor,
   parseComposerIssuesCommand,
+  parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
 import {
   extractIssueReferenceNumbers,
-  stripIssueReferenceMarkers,
+  stripComposerInlineMarkers,
 } from "../composer-editor-mentions";
 import {
   deriveCompletionDividerBeforeEntryId,
@@ -78,6 +82,7 @@ import {
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
   deriveActivePlanState,
+  deriveLatestGeneratedWorkspaceSummary,
   findSidebarProposedPlan,
   findLatestProposedPlan,
   hasLiveTurn,
@@ -133,7 +138,6 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import { defaultShortcutLabelForCommand } from "~/lib/keybindingRegistry";
 import { AppPageTopBar } from "./AppPageTopBar";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
@@ -151,7 +155,11 @@ import {
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError } from "~/lib/async";
-import { measureRenderWork } from "~/lib/renderProfiling";
+import {
+  isRenderProfilingEnabled,
+  measureRenderWork,
+  recordReactRenderProfile,
+} from "~/lib/renderProfiling";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import { useSetting } from "../hooks/useSettings";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
@@ -159,6 +167,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  type ModelSelectionByProvider,
   deriveEffectiveComposerExecutionModeState,
   deriveEffectiveComposerModelState,
   getComposerThreadDraft,
@@ -168,6 +177,7 @@ import {
 import {
   appendBrowserDesignContextToPrompt,
   appendTerminalContextsToPrompt,
+  buildBrowserDesignContextBlock,
   deriveDisplayedUserMessageState,
   formatTerminalContextLabel,
   insertInlineTerminalContextPlaceholder,
@@ -203,6 +213,8 @@ import {
 import {
   InAppBrowser,
   type ActiveBrowserRuntimeState,
+  type BrowserViewportResizeRequest,
+  type BrowserViewportResizeResult,
   type InAppBrowserController,
   type InAppBrowserMode,
 } from "./InAppBrowser";
@@ -237,12 +249,26 @@ import {
   checkpointRestoreActionTitle,
   checkpointRestoreFailureMessage,
 } from "~/lib/chat/checkpointRestore";
+import {
+  buildAccumulatedCommentsPrompt,
+  mergePendingCommentImages,
+  type PendingComposerComment,
+} from "~/lib/chat/commentAccumulation";
 import { useThreadPlanCatalog } from "~/lib/chat/threadPlanCatalog";
 import {
   BROWSER_SPLIT_WIDTH_STORAGE_KEY,
   DEFAULT_BROWSER_SPLIT_WIDTH,
   clampBrowserSplitWidth,
 } from "~/lib/chat/browserSplit";
+import {
+  DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
+  MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+  MIN_RIGHT_SIDE_PANEL_WIDTH,
+  RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH,
+  clampRightSidePanelWidth,
+  constrainedPanelWidth,
+  resolveBrowserOpenRightSidePanelWidth,
+} from "~/lib/chat/rightSidePanelWidth";
 import {
   DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
   MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
@@ -251,9 +277,17 @@ import {
 } from "~/lib/chat/workspaceSplit";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
 import {
+  clearBrowserSessions,
+  deleteBrowserSession,
+  getBrowserSession,
+  setBrowserSession,
+  useBrowserSession,
+} from "~/lib/browser/sessionStore";
+import {
   buildHandoffTimeline,
   type HandoffLineageResult,
   resolveHandoffLineage,
+  resolveHandoffSourceProvider,
 } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -278,12 +312,13 @@ import {
   RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
   RightSidePanelModeStorageSchema,
   resolveRightSidePanelModeAfterDiffClose,
+  shouldApplyThreadBrowserViewportResizeToVisiblePanel,
   type RightSidePanelMode,
 } from "~/lib/rightSidePanelState";
 import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
-import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useConnectionServerConfig,
   resolveThreadOriginConnectionUrl,
@@ -335,22 +370,17 @@ const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
-const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
-const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
-const EMPTY_COMPOSER_MODEL_SELECTIONS: Partial<Record<ProviderKind, ModelSelection>> =
-  Object.freeze({});
+const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
+const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
-const DEFAULT_RIGHT_SIDE_PANEL_WIDTH = 512;
-const MIN_RIGHT_SIDE_PANEL_WIDTH = 416;
-
 type ThreadTerminalDrawerProps = ComponentProps<typeof ThreadTerminalDrawer>;
 
 interface RetainedThreadTerminalDrawerEntry {
@@ -521,34 +551,36 @@ function ConnectedRetainedThreadTerminalDrawers({
     />
   );
 }
-const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
-const MAX_CACHED_BROWSER_INSTANCES = 3;
+const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
+const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
 
-function clampRightSidePanelWidth(width: number, viewportWidth: number): number {
-  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
-  const maxWidth = Math.max(
-    MIN_RIGHT_SIDE_PANEL_WIDTH,
-    safeViewportWidth - MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-  );
-  const normalizedWidth = Number.isFinite(width)
-    ? Math.round(width)
-    : DEFAULT_RIGHT_SIDE_PANEL_WIDTH;
-  return Math.min(maxWidth, Math.max(MIN_RIGHT_SIDE_PANEL_WIDTH, normalizedWidth));
-}
-
-function constrainedPanelWidth(
-  width: number,
-  minimumRemainingWidth: number,
-  minimumPanelWidth = 0,
-): string {
-  const roundedWidth = Math.round(width);
-  if (minimumPanelWidth > 0) {
-    return `min(100vw, clamp(${minimumPanelWidth}px, ${roundedWidth}px, calc(100vw - ${minimumRemainingWidth}px)))`;
-  }
-  return `min(${roundedWidth}px, calc(100vw - ${minimumRemainingWidth}px))`;
+function waitForBrowserBridgePoll(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, BROWSER_BRIDGE_CONTROLLER_POLL_MS);
+  });
 }
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
+
+function describeBrowserDesignCommentTarget(submission: BrowserDesignRequestSubmission): {
+  targetLabel: string;
+  detailLabel: string | null;
+} {
+  const targetLabel = submission.pagePath.trim() || submission.pageUrl.trim() || "Browser";
+  const targetElement = submission.targetElement ?? submission.mainContainer;
+  const textSnippet = targetElement?.textSnippet?.trim();
+  const selector = targetElement?.selector?.trim();
+  const tagName = targetElement?.tagName?.trim().toLowerCase();
+  const detailLabel =
+    textSnippet && textSnippet.length > 0
+      ? truncate(textSnippet.replace(/\s+/g, " "), 90)
+      : selector && selector.length > 0
+        ? truncate(selector, 90)
+        : tagName && tagName.length > 0
+          ? tagName
+          : null;
+  return { targetLabel, detailLabel };
+}
 
 interface ChatViewProps {
   activeInBoard?: boolean;
@@ -562,6 +594,38 @@ interface ChatViewProps {
 }
 
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
+
+type BrowserPanelInstance = {
+  key: ThreadId;
+  inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
+};
+
+const RetainedBrowserInstances = memo(function RetainedBrowserInstances({
+  instances,
+}: {
+  instances: readonly BrowserPanelInstance[];
+}) {
+  const content = (
+    <>
+      {instances.map((instance) => (
+        <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
+      ))}
+    </>
+  );
+
+  return isRenderProfilingEnabled() ? (
+    <Profiler
+      id="retained-browser-instances"
+      onRender={(_id, phase, actualDuration) => {
+        recordReactRenderProfile("retained-browser-instances", phase, actualDuration);
+      }}
+    >
+      {content}
+    </Profiler>
+  ) : (
+    content
+  );
+});
 
 function handoffLineageResultsEqual(
   left: HandoffLineageResult | null,
@@ -696,8 +760,11 @@ export default function ChatView({
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
+  const hideCompletedWorkMessages = useSetting("hideCompletedWorkMessages");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
+  const browserMaxMountedInstances = useSetting("browserMaxMountedInstances");
+  const commentSubmissionMode = useSetting("commentSubmissionMode");
   const {
     activeDraftThread: currentRouteDraftThread,
     activeThread: currentRouteThread,
@@ -910,6 +977,9 @@ export default function ChatView({
   const pendingInterruptStopFallbackRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
+  const [pendingComposerCommentsByThreadId, setPendingComposerCommentsByThreadId] = useState<
+    Record<ThreadId, PendingComposerComment[]>
+  >({});
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
@@ -973,6 +1043,48 @@ export default function ChatView({
     },
     [addComposerDraftTerminalContexts, threadId],
   );
+  const pendingComposerComments = useMemo(
+    () => pendingComposerCommentsByThreadId[threadId] ?? EMPTY_PENDING_COMPOSER_COMMENTS,
+    [pendingComposerCommentsByThreadId, threadId],
+  );
+  const pendingComposerCommentItems = useMemo(
+    () =>
+      pendingComposerComments.map((comment) => ({
+        id: comment.id,
+        sourceLabel: "Browser",
+        targetLabel: comment.targetLabel,
+        body: comment.body,
+        previewUrl: comment.image.previewUrl ?? null,
+      })),
+    [pendingComposerComments],
+  );
+  const dismissPendingComposerComment = useCallback(
+    (commentId: string) => {
+      setPendingComposerCommentsByThreadId((current) => {
+        const existing = current[threadId] ?? [];
+        const next = existing.filter((comment) => comment.id !== commentId);
+        if (next.length === existing.length) {
+          return current;
+        }
+        return {
+          ...current,
+          [threadId]: next,
+        };
+      });
+    },
+    [threadId],
+  );
+  const clearPendingComposerComments = useCallback(() => {
+    setPendingComposerCommentsByThreadId((current) => {
+      if ((current[threadId] ?? []).length === 0) {
+        return current;
+      }
+      return {
+        ...current,
+        [threadId]: [],
+      };
+    });
+  }, [threadId]);
 
   const threadConnectionUrl = useThreadConnectionUrl(threadId);
   const projectConnectionUrl = useProjectConnectionUrl(
@@ -1001,6 +1113,7 @@ export default function ChatView({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
+  const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
       const browserThread =
@@ -1686,6 +1799,26 @@ export default function ChatView({
     serverThread?.id,
   ]);
 
+  useEffect(() => {
+    if (!activeForSideEffects) return;
+    if (!activeThread?.id) return;
+    if (!latestTurnSettled) return;
+    if (!activeLatestTurn?.completedAt) return;
+
+    const key = `${activeThread.id}:${activeLatestTurn.turnId}:${activeLatestTurn.completedAt}`;
+    if (lastBrowserPointerClearedTurnRef.current === key) {
+      return;
+    }
+    lastBrowserPointerClearedTurnRef.current = key;
+    browserControllerByThreadRef.current.get(activeThread.id)?.clearAgentPointers();
+  }, [
+    activeLatestTurn?.completedAt,
+    activeLatestTurn?.turnId,
+    activeForSideEffects,
+    activeThread?.id,
+    latestTurnSettled,
+  ]);
+
   const hasThreadStarted = threadHasStarted(activeThread);
   const {
     composerModelOptions,
@@ -1707,6 +1840,33 @@ export default function ChatView({
     sessionProvider: activeThread?.session?.provider ?? null,
     threadModelSelection: activeThread?.modelSelection,
   });
+  const providerInstancesByProvider = useMemo(
+    () => ({
+      codex: modelSettings.providers.codex.instances,
+      claudeAgent: modelSettings.providers.claudeAgent.instances,
+      githubCopilot: modelSettings.providers.githubCopilot.instances,
+      cursor: modelSettings.providers.cursor.instances,
+      pi: modelSettings.providers.pi.instances,
+      gemini: modelSettings.providers.gemini.instances,
+      opencode: modelSettings.providers.opencode.instances,
+    }),
+    [modelSettings.providers],
+  );
+  const composerProviderCommands = useMemo(() => {
+    const commandProvider = activeThread?.session?.provider ?? selectedProvider;
+    const selectedProviderCommands =
+      providerStatuses.find((provider) => provider.provider === commandProvider)?.commands ?? [];
+    return mergeProviderSlashCommands(
+      activeThread?.session?.commands,
+      selectedProviderCommands,
+      providerFallbackSlashCommands(commandProvider),
+    );
+  }, [
+    activeThread?.session?.commands,
+    activeThread?.session?.provider,
+    providerStatuses,
+    selectedProvider,
+  ]);
   const readCurrentSelectedPromptEffort = useCallback(() => {
     return getComposerProviderState({
       provider: selectedProvider,
@@ -1799,6 +1959,10 @@ export default function ChatView({
   const activePlan = useMemo(
     () => deriveActivePlanState(threadActivities, activeWorkTurnId),
     [activeWorkTurnId, threadActivities],
+  );
+  const activeGeneratedWorkspaceSummary = useMemo(
+    () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
+    [threadActivities],
   );
   const activePlanProgress = useMemo(() => summarizeActivePlan(activePlan), [activePlan]);
   const showPlanFollowUpPrompt =
@@ -2037,6 +2201,18 @@ export default function ChatView({
     timelineEntries,
     turnDiffSummaryByAssistantMessageId,
   ]);
+  const revertTurnCountByAssistantMessageId = useMemo(() => {
+    const byAssistantMessageId = new Map<MessageId, number>();
+    for (const [assistantMessageId, summary] of turnDiffSummaryByAssistantMessageId) {
+      const turnCount =
+        summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+      if (typeof turnCount !== "number") {
+        continue;
+      }
+      byAssistantMessageId.set(assistantMessageId, Math.max(0, turnCount - 1));
+    }
+    return byAssistantMessageId;
+  }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionSummary = useMemo(() => {
     if (!latestTurnSettled) return null;
@@ -2087,6 +2263,22 @@ export default function ChatView({
       fileCount: workingTree.files.length,
     };
   }, [workspaceStatusQuery.data?.workingTree]);
+  const handleRegenerateSummary = useCallback(async () => {
+    if (!activeThread) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+
+    await api.orchestration.dispatchCommand({
+      type: "thread.workspace-summary.regenerate",
+      commandId: newCommandId(),
+      threadId: activeThread.id,
+      createdAt: new Date().toISOString(),
+    });
+  }, [activeThread]);
   const branchesQuery = useQuery({
     ...gitBranchesQueryOptions(codingGitCwd),
     enabled: codingGitCwd !== null && activeForSideEffects,
@@ -2155,9 +2347,37 @@ export default function ChatView({
   );
   const rightSidePanelToggleShortcutLabel = useMemo(
     () =>
-      shortcutLabelForCommand(keybindings, "rightPanel.toggle", nonTerminalShortcutLabelOptions) ??
-      defaultShortcutLabelForCommand("rightPanel.toggle"),
+      shortcutLabelForCommand(keybindings, "rightPanel.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
+  );
+  const rightSidePanelShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        terminalFocus: false,
+        terminalOpen: Boolean(terminalState.terminalOpen),
+        rightPanelOpen: rightSidePanelOpen,
+        rightPanelFullscreen: rightSidePanelFullscreen,
+      },
+    }),
+    [rightSidePanelFullscreen, rightSidePanelOpen, terminalState.terminalOpen],
+  );
+  const rightSidePanelFullscreenShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.fullscreen.toggle",
+        rightSidePanelShortcutLabelOptions,
+      ),
+    [keybindings, rightSidePanelShortcutLabelOptions],
+  );
+  const rightSidePanelFloatingChatShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.floatingChat.toggle",
+        rightSidePanelShortcutLabelOptions,
+      ),
+    [keybindings, rightSidePanelShortcutLabelOptions],
   );
   const reviewPanelShortcutLabel = useMemo(
     () =>
@@ -2165,7 +2385,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.review.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.review.open"),
+      ),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const rightPanelBrowserShortcutLabel = useMemo(
@@ -2174,7 +2394,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.browser.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.browser.open"),
+      ),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const rightPanelEditorShortcutLabel = useMemo(
@@ -2183,16 +2403,12 @@ export default function ChatView({
         keybindings,
         "rightPanel.editor.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.editor.open"),
+      ),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const togglePlanModeShortcutLabel = useMemo(
     () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "chat.togglePlanMode",
-        nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("chat.togglePlanMode"),
+      shortcutLabelForCommand(keybindings, "chat.togglePlanMode", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserActionShortcutLabelOptions = useMemo(
@@ -2226,33 +2442,14 @@ export default function ChatView({
   const browserNewTabShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(keybindings, "browser.newTab", nonTerminalShortcutLabelOptions) ??
-      defaultShortcutLabelForCommand("browser.newTab") ??
       rightPanelBrowserShortcutLabel,
     [rightPanelBrowserShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
-  );
-  const browserDesignerCursorShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "browser.designer.cursor",
-        browserActionShortcutLabelOptions,
-      ),
-    [browserActionShortcutLabelOptions, keybindings],
   );
   const browserDesignerAreaCommentShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(
         keybindings,
         "browser.designer.areaComment",
-        browserActionShortcutLabelOptions,
-      ),
-    [browserActionShortcutLabelOptions, keybindings],
-  );
-  const browserDesignerDrawCommentShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "browser.designer.drawComment",
         browserActionShortcutLabelOptions,
       ),
     [browserActionShortcutLabelOptions, keybindings],
@@ -2309,9 +2506,10 @@ export default function ChatView({
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
-  const [browserSessionByThreadId, setBrowserSessionByThreadId] = useState<
-    Record<string, BrowserSessionStorage>
-  >({});
+  const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
+  const browserSessionChangeHandlerByThreadRef = useRef(
+    new Map<ThreadId, (session: BrowserSessionStorage) => void>(),
+  );
   const browserControllerChangeHandlerByThreadRef = useRef(
     new Map<ThreadId, (controller: InAppBrowserController | null) => void>(),
   );
@@ -2371,8 +2569,10 @@ export default function ChatView({
     (browserThreadId: ThreadId, options?: { resetVisibleState?: boolean }) => {
       browserControllerByThreadRef.current.delete(browserThreadId);
       browserRuntimeStateByThreadRef.current.delete(browserThreadId);
+      browserSessionChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
+      deleteBrowserSession(browserThreadId);
       if (activeBrowserThreadIdRef.current !== browserThreadId) {
         return;
       }
@@ -2387,8 +2587,10 @@ export default function ChatView({
   const resetBrowserCacheState = useCallback((options?: { resetVisibleState?: boolean }) => {
     browserControllerByThreadRef.current.clear();
     browserRuntimeStateByThreadRef.current.clear();
+    browserSessionChangeHandlerByThreadRef.current.clear();
     browserControllerChangeHandlerByThreadRef.current.clear();
     browserRuntimeStateChangeHandlerByThreadRef.current.clear();
+    clearBrowserSessions();
     activeBrowserThreadIdRef.current = null;
     browserControllerRef.current = null;
     pendingBrowserOpenUrlRef.current = null;
@@ -2487,9 +2689,25 @@ export default function ChatView({
       return;
     }
     setMountedBrowserInstances((current) =>
-      touchRecentBrowserInstance(current, activeThreadId, Date.now(), MAX_CACHED_BROWSER_INSTANCES),
+      touchRecentBrowserInstance(current, activeThreadId, Date.now(), browserMaxMountedInstances),
     );
-  }, [activeThreadId, browserOpen, resetBrowserCacheState, rightSidePanelInteractive]);
+  }, [
+    activeThreadId,
+    browserMaxMountedInstances,
+    browserOpen,
+    resetBrowserCacheState,
+    rightSidePanelInteractive,
+  ]);
+  useEffect(() => {
+    if (!rightSidePanelInteractive) {
+      return;
+    }
+    setMountedBrowserInstances((current) =>
+      current.length <= browserMaxMountedInstances
+        ? current
+        : current.slice(0, browserMaxMountedInstances),
+    );
+  }, [browserMaxMountedInstances, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -2556,6 +2774,21 @@ export default function ChatView({
       document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
     };
   }, [activeThreadId, rightSidePanelInteractive]);
+  useEffect(() => {
+    if (!rightSidePanelInteractive || !isElectron) {
+      return;
+    }
+
+    return subscribeToMemoryPressure((snapshot) => {
+      if (snapshot === null || !isMemoryPressureAtLeast("high", snapshot)) {
+        return;
+      }
+      const protectedThreadId = browserOpen ? activeThreadId : null;
+      setMountedBrowserInstances((current) =>
+        protectedThreadId ? current.filter((entry) => entry.instanceId === protectedThreadId) : [],
+      );
+    });
+  }, [activeThreadId, browserOpen, rightSidePanelInteractive]);
   useEffect(() => {
     const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
       (entry) => entry.instanceId,
@@ -2902,6 +3135,25 @@ export default function ChatView({
       })),
     [dispatchQueuedComposerCommand],
   );
+  const clearQueuedSteerRequest = useCallback(
+    async (targetThreadId: ThreadId) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.steer.clear",
+        commandId,
+        threadId,
+      })),
+    [dispatchQueuedComposerCommand],
+  );
+  const dispatchQueuedComposerMessage = useCallback(
+    async (targetThreadId: ThreadId, messageId: MessageId) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.dispatch",
+        commandId,
+        threadId,
+        messageId,
+      })),
+    [dispatchQueuedComposerCommand],
+  );
   const ensureQueuedComposerThread = useCallback(
     async (options: {
       titleSeed: string;
@@ -3123,14 +3375,17 @@ export default function ChatView({
       }
       const hiddenDesignMessage = queuedDesignMessageEditRef.current;
       const composerImages = composerImagesRef.current;
+      const pendingCommentsForQueue = pendingComposerComments;
+      const hasPendingComposerComments = pendingCommentsForQueue.length > 0;
+      const promptForQueueWithoutInlineMarkers = stripComposerInlineMarkers(promptRef.current);
       const composerTerminalContexts = composerTerminalContextsRef.current;
       const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
         deriveComposerSendState({
-          prompt: promptRef.current,
+          prompt: promptForQueueWithoutInlineMarkers,
           imageCount: composerImages.length,
           terminalContexts: composerTerminalContexts,
         });
-      if (!hasSendableContent) {
+      if (!hasSendableContent && !hasPendingComposerComments) {
         if (expiredTerminalContextCount > 0) {
           const toastCopy = buildExpiredTerminalContextToastCopy(
             expiredTerminalContextCount,
@@ -3155,20 +3410,44 @@ export default function ChatView({
         );
         return false;
       }
+      const providerSlashCommandPayload =
+        composerImages.length === 0 && sendableTerminalContexts.length === 0
+          ? parseProviderComposerSlashCommand(
+              promptForQueueWithoutInlineMarkers.trim(),
+              composerProviderCommands,
+            )
+          : null;
+      const promptForQueueBase =
+        providerSlashCommandPayload?.promptText ?? promptForQueueWithoutInlineMarkers;
       const promptForQueue =
         hiddenDesignMessage === null
-          ? promptRef.current
-          : appendHiddenBrowserDesignContextFromOriginalPrompt(
-              promptRef.current,
-              hiddenDesignMessage.prompt,
+          ? buildAccumulatedCommentsPrompt(promptForQueueBase, pendingCommentsForQueue)
+          : buildAccumulatedCommentsPrompt(
+              appendHiddenBrowserDesignContextFromOriginalPrompt(
+                promptForQueueBase,
+                hiddenDesignMessage.prompt,
+              ),
+              pendingCommentsForQueue,
             );
-      const mergedQueuedImages =
+      const mergedQueuedImagesBeforeComments =
         hiddenDesignMessage === null
           ? queuedImages
           : [...hiddenDesignMessage.images, ...queuedImages].filter(
               (image, index, allImages) =>
                 allImages.findIndex((candidate) => candidate.id === image.id) === index,
             );
+      const mergedQueuedImages = mergePendingCommentImages(
+        mergedQueuedImagesBeforeComments,
+        pendingCommentsForQueue,
+      );
+      if (mergedQueuedImages.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+        toastManager.add({
+          type: "warning",
+          title: "Too many screenshots",
+          description: `Send at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images at a time.`,
+        });
+        return false;
+      }
       const queuedTerminalContexts = sendableTerminalContexts.map((context) => ({
         id: context.id,
         createdAt: context.createdAt,
@@ -3195,7 +3474,7 @@ export default function ChatView({
         interactionMode,
       };
       const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: promptRef.current,
+        titleSeed: promptForQueueBase || pendingCommentsForQueue[0]?.body || "Pending comments",
         modelSelection: selectedModelSelection,
         runtimeMode,
         interactionMode,
@@ -3232,15 +3511,23 @@ export default function ChatView({
       promptRef.current = "";
       clearComposerDraftContent(threadId);
       queuedDesignMessageEditRef.current = null;
+      if (hasPendingComposerComments) {
+        setPendingComposerCommentsByThreadId((current) => ({
+          ...current,
+          [threadId]: [],
+        }));
+      }
       composerPanelsRef.current?.resetUi("");
       return true;
     },
     [
       buildQueuedComposerImages,
       clearComposerDraftContent,
+      composerProviderCommands,
       ensureQueuedComposerThread,
       interactionMode,
       appendQueuedComposerMessage,
+      pendingComposerComments,
       runtimeMode,
       selectedModelSelection,
       setThreadError,
@@ -3305,6 +3592,40 @@ export default function ChatView({
         targetElement: submission.targetElement,
         mainContainer: submission.mainContainer,
       });
+      if (commentSubmissionMode === "accumulate") {
+        const existingPendingComments = pendingComposerCommentsByThreadId[threadId] ?? [];
+        if (existingPendingComments.length >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+          throw new Error(
+            `You can accumulate up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} browser comments with screenshots.`,
+          );
+        }
+        const target = describeBrowserDesignCommentTarget(submission);
+        const hiddenContextBlock = buildBrowserDesignContextBlock({
+          requestId: submission.requestId,
+          pageUrl: submission.pageUrl,
+          pagePath: submission.pagePath,
+          selection: submission.selection,
+          targetElement: submission.targetElement,
+          mainContainer: submission.mainContainer,
+        });
+        setPendingComposerCommentsByThreadId((current) => ({
+          ...current,
+          [threadId]: [
+            ...(current[threadId] ?? []),
+            {
+              id: randomUUID(),
+              source: "browser",
+              body: trimmedInstructions || "Review this browser screenshot.",
+              targetLabel: target.targetLabel,
+              detailLabel: target.detailLabel,
+              hiddenContextBlock,
+              image: imageAttachment,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }));
+        return;
+      }
       const queuedMessage: QueuedComposerMessage = {
         id: newMessageId(),
         prompt: promptWithContext,
@@ -3331,6 +3652,16 @@ export default function ChatView({
   );
   const onSteerQueuedComposerMessage = useCallback(
     async (messageId: MessageId) => {
+      const activeSteerRequest = queuedSteerRequestRef.current;
+      if (activeSteerRequest?.messageId === messageId) {
+        if (serverThread) {
+          await clearQueuedSteerRequest(serverThread.id);
+        }
+        return;
+      }
+      if (activeSteerRequest) {
+        return;
+      }
       const nextMessage = queuedComposerMessagesRef.current.find(
         (message) => message.id === messageId,
       );
@@ -3351,7 +3682,7 @@ export default function ChatView({
         interruptRequested: false,
       });
     },
-    [serverThread, steerQueuedComposerMessage, workLogEntries.length],
+    [clearQueuedSteerRequest, serverThread, steerQueuedComposerMessage, workLogEntries.length],
   );
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
@@ -3412,12 +3743,65 @@ export default function ChatView({
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
+
+  const syncRightSidePanelWidth = useCallback(
+    (nextWidth: number) => {
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const clampedWidth = clampRightSidePanelWidth(nextWidth, viewportWidth);
+      rightSidePanelWidthRef.current = clampedWidth;
+      setRightSidePanelWidth(clampedWidth);
+      if (lastSyncedRightSidePanelWidthRef.current === clampedWidth) {
+        return;
+      }
+      lastSyncedRightSidePanelWidthRef.current = clampedWidth;
+      setStoredRightSidePanelWidth(clampedWidth);
+    },
+    [setStoredRightSidePanelWidth],
+  );
+
+  const ensureBrowserRightSidePanelOpenWidth = useCallback(() => {
+    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+    const nextWidth = resolveBrowserOpenRightSidePanelWidth({
+      currentWidth: rightSidePanelWidthRef.current,
+      viewportWidth,
+    });
+    syncRightSidePanelWidth(nextWidth);
+  }, [syncRightSidePanelWidth]);
+
   const openBrowser = useCallback(() => {
     if (!isElectron) return;
     setRightSidePanelMode("browser");
     setBrowserMode("split");
     setRightSidePanelVisible(true);
   }, [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
+  const ensureBrowserBridgeController = useCallback(
+    async (requestThreadId: ThreadId): Promise<InAppBrowserController> => {
+      const existingController = browserControllerByThreadRef.current.get(requestThreadId);
+      if (existingController) {
+        return existingController;
+      }
+      if (!isElectron) {
+        throw new Error("Ace browser bridge is only available in the desktop app.");
+      }
+      if (requestThreadId !== activeThreadId) {
+        throw new Error("Ace browser bridge can only control a mounted thread browser.");
+      }
+
+      ensureBrowserRightSidePanelOpenWidth();
+      openBrowser();
+      const deadline = Date.now() + BROWSER_BRIDGE_CONTROLLER_WAIT_MS;
+      while (Date.now() < deadline) {
+        const controller = browserControllerByThreadRef.current.get(requestThreadId);
+        if (controller) {
+          return controller;
+        }
+        await waitForBrowserBridgePoll();
+      }
+
+      throw new Error("Ace browser bridge could not attach to the in-app browser.");
+    },
+    [activeThreadId, ensureBrowserRightSidePanelOpenWidth, openBrowser],
+  );
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
@@ -3513,17 +3897,17 @@ export default function ChatView({
   const onSelectRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
       openBrowser();
-      const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      const session = getBrowserSession(activeThreadId);
       const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
       if (index >= 0) {
         browserControllerRef.current?.setActiveTabByIndex(index);
       }
     },
-    [activeThreadId, browserSessionByThreadId, openBrowser],
+    [activeThreadId, openBrowser],
   );
   const onCloseRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
-      const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      const session = getBrowserSession(activeThreadId);
       if (session?.tabs.length === 1) {
         closeBrowser();
         if (rightSidePanelMode === "browser") {
@@ -3536,13 +3920,7 @@ export default function ChatView({
         setRightSidePanelMode("summary");
       }
     },
-    [
-      activeThreadId,
-      browserSessionByThreadId,
-      closeBrowser,
-      rightSidePanelMode,
-      setRightSidePanelMode,
-    ],
+    [activeThreadId, closeBrowser, rightSidePanelMode, setRightSidePanelMode],
   );
   const onReorderRightSidePanelBrowserTab = useCallback(
     (draggedTabId: string, targetTabId: string) => {
@@ -3576,18 +3954,29 @@ export default function ChatView({
   const onToggleRightSidePanelFullscreen = useCallback(() => {
     setRightSidePanelFullscreen((current) => !current);
   }, [setRightSidePanelFullscreen]);
+  const onToggleRightSidePanelFloatingChat = useCallback(() => {
+    if (!rightSidePanelFullscreen) return;
+    setRightSidePanelFloatingChatOpen((current) => !current);
+  }, [rightSidePanelFullscreen, setRightSidePanelFloatingChatOpen]);
   const onBrowserSessionChange = useCallback(
     (browserThreadId: ThreadId, session: BrowserSessionStorage) => {
-      setBrowserSessionByThreadId((current) =>
-        current[browserThreadId] === session
-          ? current
-          : {
-              ...current,
-              [browserThreadId]: session,
-            },
-      );
+      setBrowserSession(browserThreadId, session);
     },
     [],
+  );
+  const getBrowserSessionChangeHandler = useCallback(
+    (browserThreadId: ThreadId) => {
+      const existingHandler = browserSessionChangeHandlerByThreadRef.current.get(browserThreadId);
+      if (existingHandler) {
+        return existingHandler;
+      }
+      const handler = (session: BrowserSessionStorage) => {
+        onBrowserSessionChange(browserThreadId, session);
+      };
+      browserSessionChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      return handler;
+    },
+    [onBrowserSessionChange],
   );
   const setBrowserController = useCallback(
     (browserThreadId: ThreadId, controller: InAppBrowserController | null) => {
@@ -3697,15 +4086,6 @@ export default function ChatView({
   }, [openBrowser, openBrowserUrl]);
 
   useEffect(() => {
-    if (!ownsGlobalSideEffects || !rightSidePanelInteractive) return;
-    if (!isElectron) return;
-    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
-      if (typeof url !== "string" || url.length === 0) return;
-      openBrowserUrl(url, { newTab: true });
-    });
-  }, [openBrowserUrl, ownsGlobalSideEffects, rightSidePanelInteractive]);
-
-  useEffect(() => {
     if (!ownsGlobalSideEffects || !rightSidePanelInteractive) {
       return;
     }
@@ -3716,6 +4096,38 @@ export default function ChatView({
     handleBrowserLaunchRequest();
     return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
   }, [handleBrowserLaunchRequest, ownsGlobalSideEffects, rightSidePanelInteractive]);
+
+  useEffect(() => {
+    if (!ownsGlobalSideEffects || !rightSidePanelInteractive || !isElectron) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    return api.browser.onBridgeRequest((request) => {
+      void (async () => {
+        try {
+          const controller = await ensureBrowserBridgeController(request.threadId);
+          const result = await controller.runBridgeRequest(request);
+          await api.browser.resolveBridgeRequest({
+            ok: true,
+            requestId: request.requestId,
+            result,
+          });
+        } catch (error) {
+          await api.browser.resolveBridgeRequest({
+            error:
+              error instanceof Error && error.message ? error.message : "Browser bridge failed.",
+            ok: false,
+            requestId: request.requestId,
+          });
+        }
+      })().catch((error: unknown) => {
+        reportBackgroundError("Failed to resolve browser bridge request.", error);
+      });
+    });
+  }, [ensureBrowserBridgeController, ownsGlobalSideEffects, rightSidePanelInteractive]);
 
   const syncBrowserSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4073,19 +4485,74 @@ export default function ChatView({
     };
   }, [editorHostedInRightPanel, syncWorkspaceEditorSplitWidth, workspaceMode]);
 
-  const syncRightSidePanelWidth = useCallback(
-    (nextWidth: number) => {
+  const resizeBrowserViewportForBridge = useCallback(
+    (
+      requestThreadId: ThreadId,
+      request: BrowserViewportResizeRequest,
+    ): BrowserViewportResizeResult => {
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
-      const clampedWidth = clampRightSidePanelWidth(nextWidth, viewportWidth);
-      rightSidePanelWidthRef.current = clampedWidth;
-      setRightSidePanelWidth(clampedWidth);
-      if (lastSyncedRightSidePanelWidthRef.current === clampedWidth) {
-        return;
+      const requestedPanelWidth =
+        request.panelWidth ??
+        (request.width !== undefined
+          ? request.width + RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH
+          : undefined);
+      const requestIsForActiveThread = shouldApplyThreadBrowserViewportResizeToVisiblePanel({
+        activeThreadId,
+        requestThreadId,
+        rightSidePanelInteractive,
+      });
+      const requestThreadPanelWidthStorageKey = resolveScopedBrowserStorageKey(
+        RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+        requestThreadId,
+      );
+      const storedRequestThreadPanelWidth = requestIsForActiveThread
+        ? rightSidePanelWidthRef.current
+        : (getLocalStorageItem(requestThreadPanelWidthStorageKey, Schema.Number) ??
+          DEFAULT_RIGHT_SIDE_PANEL_WIDTH);
+      const currentPanelWidth = clampRightSidePanelWidth(
+        storedRequestThreadPanelWidth,
+        viewportWidth,
+      );
+      const nextPanelWidth =
+        requestedPanelWidth !== undefined
+          ? clampRightSidePanelWidth(requestedPanelWidth, viewportWidth)
+          : currentPanelWidth;
+
+      if (requestIsForActiveThread) {
+        setRightSidePanelMode("browser");
+        setBrowserMode("split");
+        setRightSidePanelVisible(true);
+        setRightSidePanelFullscreen(false);
+        syncRightSidePanelWidth(nextPanelWidth);
+      } else if (requestedPanelWidth !== undefined) {
+        setLocalStorageItem(requestThreadPanelWidthStorageKey, nextPanelWidth, Schema.Number);
       }
-      lastSyncedRightSidePanelWidthRef.current = clampedWidth;
-      setStoredRightSidePanelWidth(clampedWidth);
+
+      const result: BrowserViewportResizeResult = {
+        heightControlledByAppWindow: true,
+        panelWidth: nextPanelWidth,
+        viewportWidth: Math.max(0, nextPanelWidth - RIGHT_SIDE_PANEL_RESIZE_HANDLE_WIDTH),
+      };
+      if (request.height !== undefined) {
+        result.requestedHeight = request.height;
+      }
+      if (requestedPanelWidth !== undefined) {
+        result.requestedPanelWidth = requestedPanelWidth;
+      }
+      if (request.width !== undefined) {
+        result.requestedWidth = request.width;
+      }
+      return result;
     },
-    [setStoredRightSidePanelWidth],
+    [
+      activeThreadId,
+      rightSidePanelInteractive,
+      setBrowserMode,
+      setRightSidePanelFullscreen,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+      syncRightSidePanelWidth,
+    ],
   );
 
   const handleRightSidePanelResizePointerMove = useCallback((event: PointerEvent) => {
@@ -4758,6 +5225,8 @@ export default function ChatView({
         input.modelSelection !== undefined &&
         (input.modelSelection.model !== serverThread.modelSelection.model ||
           input.modelSelection.provider !== serverThread.modelSelection.provider ||
+          (input.modelSelection.providerInstanceId ?? null) !==
+            (serverThread.modelSelection.providerInstanceId ?? null) ||
           JSON.stringify(input.modelSelection.options ?? null) !==
             JSON.stringify(serverThread.modelSelection.options ?? null))
       ) {
@@ -5166,12 +5635,14 @@ export default function ChatView({
         !event.shiftKey &&
         browserOpen
       ) {
-        browserControllerRef.current?.toggleDesignerTool("cursor");
+        browserControllerRef.current?.setDesignerModeActive(false);
       }
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
         browserOpen,
+        rightPanelOpen: rightSidePanelOpen,
+        rightPanelFullscreen: rightSidePanelFullscreen,
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -5215,6 +5686,21 @@ export default function ChatView({
         event.preventDefault();
         event.stopPropagation();
         onToggleRightSidePanel();
+        return;
+      }
+
+      if (command === "rightPanel.fullscreen.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!rightSidePanelOpen) return;
+        onToggleRightSidePanelFullscreen();
+        return;
+      }
+
+      if (command === "rightPanel.floatingChat.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggleRightSidePanelFloatingChat();
         return;
       }
 
@@ -5292,24 +5778,10 @@ export default function ChatView({
         return;
       }
 
-      if (command === "browser.designer.cursor") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.toggleDesignerTool("cursor");
-        return;
-      }
-
       if (command === "browser.designer.areaComment") {
         event.preventDefault();
         event.stopPropagation();
         browserControllerRef.current?.toggleDesignerTool("area-comment");
-        return;
-      }
-
-      if (command === "browser.designer.drawComment") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.toggleDesignerTool("draw-comment");
         return;
       }
 
@@ -5373,8 +5845,12 @@ export default function ChatView({
     keybindings,
     onOpenRightSidePanelBrowserTab,
     onToggleRightSidePanel,
+    onToggleRightSidePanelFullscreen,
+    onToggleRightSidePanelFloatingChat,
     onOpenRightSidePanelEditor,
     onOpenRightSidePanelDiff,
+    rightSidePanelFullscreen,
+    rightSidePanelOpen,
     shortcutsEnabled,
     toggleInteractionMode,
     toggleWorkspaceMode,
@@ -5447,7 +5923,7 @@ export default function ChatView({
       if (!api || !activeThread || sendInFlightRef.current) return false;
       if (!activeProject) return false;
 
-      const promptForSend = stripIssueReferenceMarkers(submission.prompt);
+      const promptForSend = stripComposerInlineMarkers(submission.prompt);
       const composerImagesSnapshot = [...submission.images];
       const composerTerminalContextsSnapshot = [...submission.terminalContexts];
       const threadIdForSend = activeThread.id;
@@ -5459,6 +5935,7 @@ export default function ChatView({
       const submissionProviderModels = getProviderModels(
         providerStatuses,
         submission.modelSelection.provider,
+        submission.modelSelection.providerInstanceId,
       );
       const submissionProviderState = getComposerProviderState({
         provider: submission.modelSelection.provider,
@@ -5584,6 +6061,7 @@ export default function ChatView({
             activeProject.defaultModelSelection?.model ||
             DEFAULT_MODEL_BY_PROVIDER[submission.modelSelection.provider],
           submission.modelSelection.options,
+          submission.modelSelection.providerInstanceId,
         );
 
         if (isLocalDraftThread) {
@@ -5734,6 +6212,54 @@ export default function ChatView({
       setThreadError,
     ],
   );
+  const sendQueuedComposerMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!serverThread || liveTurnInProgress || isSendBusy || isConnecting) {
+        return;
+      }
+      if (sendInFlightRef.current) {
+        return;
+      }
+      if (!queuedComposerMessagesRef.current.some((message) => message.id === messageId)) {
+        return;
+      }
+      await dispatchQueuedComposerMessage(serverThread.id, messageId);
+    },
+    [dispatchQueuedComposerMessage, isConnecting, isSendBusy, liveTurnInProgress, serverThread],
+  );
+  const submitWorkspaceAgentNote = useCallback(
+    async (input: { mode: "queue" | "send"; prompt: string }) => {
+      const trimmedPrompt = input.prompt.trim();
+      if (trimmedPrompt.length === 0) {
+        return false;
+      }
+      if (input.mode === "queue") {
+        return queuePreparedMessage(trimmedPrompt);
+      }
+      if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
+        return false;
+      }
+      return dispatchComposerMessage({
+        prompt: trimmedPrompt,
+        images: [],
+        terminalContexts: [],
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      });
+    },
+    [
+      dispatchComposerMessage,
+      interactionMode,
+      isConnecting,
+      isSendBusy,
+      liveTurnInProgress,
+      queuePreparedMessage,
+      runtimeMode,
+      selectedModelSelection,
+    ],
+  );
+
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
@@ -5748,8 +6274,10 @@ export default function ChatView({
     }
     if (sendInFlightRef.current) return;
     const promptForSend = promptRef.current;
-    const promptForSendWithoutIssueMarkers = stripIssueReferenceMarkers(promptForSend);
+    const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
     const composerImages = composerImagesRef.current;
+    const pendingCommentsForSend = pendingComposerComments;
+    const hasPendingComposerComments = pendingCommentsForSend.length > 0;
     const composerTerminalContexts = composerTerminalContextsRef.current;
     const hiddenDesignMessage = queuedDesignMessageEditRef.current;
     const {
@@ -5758,7 +6286,7 @@ export default function ChatView({
       expiredTerminalContextCount,
       hasSendableContent,
     } = deriveComposerSendState({
-      prompt: promptForSendWithoutIssueMarkers,
+      prompt: promptForSendWithoutInlineMarkers,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
     });
@@ -5776,10 +6304,12 @@ export default function ChatView({
       });
       return;
     }
-    const standaloneSlashCommand =
+    const providerSlashCommandPayload =
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
+        ? parseProviderComposerSlashCommand(trimmed, composerProviderCommands)
         : null;
+    const standaloneSlashCommand =
+      providerSlashCommandPayload === null ? parseStandaloneComposerSlashCommand(trimmed) : null;
     if (standaloneSlashCommand) {
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
@@ -5788,12 +6318,11 @@ export default function ChatView({
       return;
     }
     const composerIssuesCommandPayload =
-      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseComposerIssuesCommand(trimmed)
-        : null;
+      providerSlashCommandPayload === null ? parseComposerIssuesCommand(trimmed) : null;
     const isIssuesCommandText =
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
+      providerSlashCommandPayload === null &&
       /^\/issues\b/i.test(trimmed);
     if (isIssuesCommandText && composerIssuesCommandPayload === null) {
       toastManager.add({
@@ -5842,7 +6371,7 @@ export default function ChatView({
       }
       return;
     }
-    if (!hasSendableContent) {
+    if (!hasSendableContent && !hasPendingComposerComments) {
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
@@ -5857,7 +6386,9 @@ export default function ChatView({
       return;
     }
     if (!activeProject) return;
-    let promptWithIssueContext = promptForSendWithoutIssueMarkers;
+    const promptForDispatchBase =
+      providerSlashCommandPayload?.promptText ?? promptForSendWithoutInlineMarkers;
+    let promptWithIssueContext = promptForDispatchBase;
     let imagesWithIssueContext: Array<ComposerImageAttachment | QueuedComposerImageAttachment> =
       hiddenDesignMessage === null
         ? composerImages
@@ -5865,7 +6396,12 @@ export default function ChatView({
             (image, index, allImages) =>
               allImages.findIndex((candidate) => candidate.id === image.id) === index,
           );
-    if (composerIssuesCommandPayload === null && gitCwd && isGitRepo) {
+    if (
+      providerSlashCommandPayload === null &&
+      composerIssuesCommandPayload === null &&
+      gitCwd &&
+      isGitRepo
+    ) {
       const inlineIssueNumbers = extractIssueReferenceNumbers(promptForSend);
       if (inlineIssueNumbers.length > 0) {
         try {
@@ -5876,7 +6412,7 @@ export default function ChatView({
             includeSummaryLines: false,
           });
           if (payload.prompt.length > 0) {
-            promptWithIssueContext = `${promptForSendWithoutIssueMarkers}\n\n${payload.prompt}`;
+            promptWithIssueContext = `${promptForDispatchBase}\n\n${payload.prompt}`;
           }
           if (payload.images.length > 0) {
             const seenImageIds = new Set<string>();
@@ -5905,6 +6441,22 @@ export default function ChatView({
             promptWithIssueContext,
             hiddenDesignMessage.prompt,
           );
+    const promptWithPendingComments = buildAccumulatedCommentsPrompt(
+      promptWithHiddenDesignContext,
+      pendingCommentsForSend,
+    );
+    imagesWithIssueContext = mergePendingCommentImages(
+      imagesWithIssueContext,
+      pendingCommentsForSend,
+    );
+    if (imagesWithIssueContext.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+      toastManager.add({
+        type: "warning",
+        title: "Too many screenshots",
+        description: `Send at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images at a time.`,
+      });
+      return;
+    }
     const terminalContextsForDispatch =
       hiddenDesignMessage === null
         ? sendableComposerTerminalContexts
@@ -5934,9 +6486,9 @@ export default function ChatView({
     queuedDesignMessageEditRef.current = null;
     composerPanelsRef.current?.resetUi("");
 
-    await dispatchComposerMessage(
+    const dispatched = await dispatchComposerMessage(
       {
-        prompt: promptWithHiddenDesignContext,
+        prompt: promptWithPendingComments,
         images: imagesWithIssueContext,
         terminalContexts: terminalContextsForDispatch,
         modelSelection: selectedModelSelection,
@@ -5950,6 +6502,12 @@ export default function ChatView({
         },
       },
     );
+    if (dispatched && hasPendingComposerComments) {
+      setPendingComposerCommentsByThreadId((current) => ({
+        ...current,
+        [threadId]: [],
+      }));
+    }
   });
 
   const clearPendingInterruptStopFallback = useEffectEvent(() => {
@@ -6412,7 +6970,7 @@ export default function ChatView({
   });
 
   const onHandoffToProvider = useEffectEvent(
-    async (provider: ProviderKind, mode: ThreadHandoffMode) => {
+    async (provider: ProviderKind, _mode: ThreadHandoffMode) => {
       if (handoffDisabledReason) {
         toastManager.add({
           type: "error",
@@ -6477,9 +7035,9 @@ export default function ChatView({
           worktreePath: activeThread.worktreePath,
           handoff: {
             sourceThreadId: activeThread.id,
-            fromProvider: activeThread.modelSelection.provider,
+            fromProvider: resolveHandoffSourceProvider(activeThread),
             toProvider: resolvedProvider,
-            mode,
+            mode: "best",
             createdAt,
           },
           createdAt,
@@ -6567,6 +7125,16 @@ export default function ChatView({
     },
     [onRevertToTurnCount, revertTurnCountByUserMessageId],
   );
+  const onRevertAssistantMessage = useCallback(
+    (messageId: MessageId) => {
+      const targetTurnCount = revertTurnCountByAssistantMessageId.get(messageId);
+      if (typeof targetTurnCount !== "number") {
+        return;
+      }
+      void onRevertToTurnCount(targetTurnCount);
+    },
+    [onRevertToTurnCount, revertTurnCountByAssistantMessageId],
+  );
   const onFixGitHubIssue = useCallback(
     async (payload: { prompt: string; images: ComposerImageAttachment[] }) => {
       if (!activeThread) {
@@ -6613,6 +7181,190 @@ export default function ChatView({
       selectedModelSelection,
     ],
   );
+  const onFixGitHubIssuesInParallelWorktrees = useEffectEvent(
+    async (issueNumbers: ReadonlyArray<number>) => {
+      const api = readNativeApi();
+      if (!api || !activeThread || !activeProject) {
+        return;
+      }
+      if (issueNumbers.length === 0) {
+        return;
+      }
+      if (!gitCwd || !isGitRepo) {
+        toastManager.add({
+          type: "error",
+          title: "GitHub issues are unavailable",
+          description: "Open a Git repository to solve issues in parallel worktrees.",
+        });
+        return;
+      }
+      if (!activeThread.branch) {
+        toastManager.add({
+          type: "warning",
+          title: "Select a base branch first",
+          description: "Parallel worktrees need a base branch to branch from.",
+        });
+        return;
+      }
+
+      const setupScript = setupProjectScript(activeProject.scripts);
+      const startedIssueNumbers: number[] = [];
+      const failureMessages: string[] = [];
+
+      for (const issueNumber of issueNumbers) {
+        const nextThreadId = newThreadId();
+        let threadCreated = false;
+
+        try {
+          const payload = await buildGitHubIssueSelectionPayload({
+            cwd: gitCwd,
+            issueNumbers: [issueNumber],
+            queryClient,
+          });
+          const issueThread = payload.threads[0];
+          if (!issueThread) {
+            throw new Error(`Issue #${issueNumber} did not return thread details.`);
+          }
+
+          const createdAt = new Date().toISOString();
+          const issueTitle = truncate(`#${issueThread.number} ${issueThread.title}`);
+          const providerModels = getProviderModels(
+            providerStatuses,
+            selectedModelSelection.provider,
+            selectedModelSelection.providerInstanceId,
+          );
+          const outgoingIssuePrompt = formatOutgoingPrompt({
+            provider: selectedModelSelection.provider,
+            model: selectedModelSelection.model,
+            models: providerModels,
+            effort: readCurrentSelectedPromptEffort(),
+            text: payload.prompt,
+          });
+          const turnAttachments = await Promise.all(
+            payload.images.map(async (image) => ({
+              type: "image" as const,
+              name: image.name,
+              mimeType: image.mimeType,
+              sizeBytes: image.sizeBytes,
+              dataUrl: await readFileAsDataUrl(image.file),
+            })),
+          );
+          const worktreeResult = await createWorktreeMutation.mutateAsync({
+            cwd: activeProject.cwd,
+            branch: activeThread.branch,
+            newBranch: buildTemporaryWorktreeBranchName(),
+          });
+
+          await api.orchestration.dispatchCommand({
+            type: "thread.create",
+            commandId: newCommandId(),
+            threadId: nextThreadId,
+            projectId: activeProject.id,
+            title: issueTitle,
+            modelSelection: selectedModelSelection,
+            runtimeMode,
+            interactionMode,
+            branch: worktreeResult.worktree.branch,
+            worktreePath: worktreeResult.worktree.path,
+            createdAt,
+          });
+          threadCreated = true;
+
+          if (setupScript) {
+            await runProjectScript(setupScript, {
+              cwd: worktreeResult.worktree.path,
+              worktreePath: worktreeResult.worktree.path,
+              rememberAsLastInvoked: false,
+            });
+          }
+
+          await api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: nextThreadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: outgoingIssuePrompt,
+              attachments: turnAttachments,
+            },
+            modelSelection: selectedModelSelection,
+            titleSeed: issueTitle,
+            runtimeMode,
+            interactionMode,
+            createdAt,
+          });
+
+          try {
+            const readModelThread = await hydrateThreadFromCache(nextThreadId, {
+              expectedUpdatedAt: null,
+            });
+            startTransition(() => {
+              hydrateThreadFromReadModel(readModelThread);
+            });
+          } catch (error) {
+            reportBackgroundError("Failed to hydrate issue worktree thread.", error);
+          }
+
+          startedIssueNumbers.push(issueNumber);
+        } catch (error) {
+          if (threadCreated) {
+            await api.orchestration
+              .dispatchCommand({
+                type: "thread.delete",
+                commandId: newCommandId(),
+                threadId: nextThreadId,
+              })
+              .catch((cleanupError: unknown) => {
+                reportBackgroundError(
+                  "Failed to clean up issue worktree thread after startup failure.",
+                  cleanupError,
+                );
+              });
+          }
+          failureMessages.push(
+            error instanceof Error
+              ? `#${issueNumber}: ${error.message}`
+              : `#${issueNumber}: Failed to start.`,
+          );
+        }
+      }
+
+      if (startedIssueNumbers.length > 0) {
+        closeGitHubIssueDialog();
+      }
+
+      if (startedIssueNumbers.length > 0 && failureMessages.length === 0) {
+        toastManager.add({
+          type: "success",
+          title:
+            startedIssueNumbers.length === 1
+              ? `Started issue #${startedIssueNumbers[0]} in a worktree`
+              : `Started ${startedIssueNumbers.length} issue threads in parallel`,
+          description:
+            startedIssueNumbers.length === 1
+              ? "The agent is now working in a dedicated worktree thread."
+              : "Each selected issue is running in its own dedicated worktree thread.",
+        });
+        return;
+      }
+
+      if (startedIssueNumbers.length > 0) {
+        toastManager.add({
+          type: "warning",
+          title: `Started ${startedIssueNumbers.length} of ${issueNumbers.length} issue threads`,
+          description: failureMessages[0] ?? "Some issue threads could not be started.",
+        });
+        return;
+      }
+
+      toastManager.add({
+        type: "error",
+        title: "Could not start issue worktree threads",
+        description: failureMessages[0] ?? "Please try again.",
+      });
+    },
+  );
 
   if (!activeThread) {
     return <NewThreadLanding />;
@@ -6639,6 +7391,7 @@ export default function ChatView({
       activeTurnInProgress: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
       backgroundMarkdownPrewarm: activeForSideEffects,
+      hideCompletedWorkMessages,
       liveTimers: activeForSideEffects,
       getScrollContainer: getMessagesScrollContainer,
       timelineEntries,
@@ -6650,12 +7403,18 @@ export default function ChatView({
       onOpenTurnDiff,
       revertTurnCountByUserMessageId,
       onRevertUserMessage,
+      revertTurnCountByAssistantMessageId,
+      onRevertAssistantMessage,
       revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
       isRevertingCheckpoint,
       onImageExpand: onExpandTimelineImage,
       markdownCwd: codingGitCwd ?? undefined,
       onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
-      onOpenFilePath: openMarkdownFileInAppEditor,
+      onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
+      enableLocalFileLinks: canOpenLocalMarkdownFiles,
+      providerCommands: composerProviderCommands,
+      enableGoalWorkingState:
+        (activeThread.session?.provider ?? activeThread.modelSelection.provider) === "codex",
       resolvedTheme,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
@@ -6664,14 +7423,18 @@ export default function ChatView({
       activeProject?.cwd,
       activeThread.messages.length,
       activeThread.session?.provider,
+      activeThread.modelSelection.provider,
       activeForSideEffects,
       activeWorkStartedAt,
+      canOpenLocalMarkdownFiles,
       completionDividerBeforeEntryId,
       completionSummary,
       expandedWorkGroups,
       codingGitCwd,
+      composerProviderCommands,
       isGitRepo,
       isHandoffThread,
+      hideCompletedWorkMessages,
       isRevertingCheckpoint,
       isThreadHistoryLoading,
       isWorking,
@@ -6679,12 +7442,14 @@ export default function ChatView({
       getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
+      onRevertAssistantMessage,
       onRevertUserMessage,
       onToggleWorkGroup,
       openGitHubIssueDialog,
       openBrowserUrlInNewTab,
       openMarkdownFileInAppEditor,
       resolvedTheme,
+      revertTurnCountByAssistantMessageId,
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
       timelineEntries,
@@ -6760,6 +7525,7 @@ export default function ChatView({
           }
         },
         onFixIssue: onFixGitHubIssue,
+        onFixIssuesInParallelWorktrees: onFixGitHubIssuesInParallelWorktrees,
       }
     : null;
   const pullRequestDialogProps = pullRequestDialogState
@@ -6784,7 +7550,7 @@ export default function ChatView({
             ...mountedBrowserThreadIds.filter(
               (browserThreadId) => browserThreadId !== activeThreadId,
             ),
-          ].slice(0, MAX_CACHED_BROWSER_INSTANCES);
+          ].slice(0, browserMaxMountedInstances);
           if (orderedBrowserThreadIds.length === 0) {
             return null;
           }
@@ -6806,15 +7572,15 @@ export default function ChatView({
                   visible: isActiveBrowserThread && browserOpen,
                   mode: browserViewMode,
                   onClose: closeBrowser,
-                  onBrowserSessionChange: (session: BrowserSessionStorage) => {
-                    onBrowserSessionChange(browserThreadId, session);
-                  },
+                  onBrowserSessionChange: getBrowserSessionChangeHandler(browserThreadId),
                   onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
                   onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
+                  onResizeViewport: (request: BrowserViewportResizeRequest) =>
+                    resizeBrowserViewportForBridge(browserThreadId, request),
+                  onToggleRightPanelFloatingChat: onToggleRightSidePanelFloatingChat,
+                  onToggleRightPanelFullscreen: onToggleRightSidePanelFullscreen,
                   backShortcutLabel: browserBackShortcutLabel,
                   designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
-                  designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,
-                  designerDrawCommentShortcutLabel: browserDesignerDrawCommentShortcutLabel,
                   designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
                   devToolsShortcutLabel: browserDevToolsShortcutLabel,
                   forwardShortcutLabel: browserForwardShortcutLabel,
@@ -6841,9 +7607,9 @@ export default function ChatView({
     : null;
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
-  const activeRightPanelBrowserSession =
-    browserOpen && activeThreadId ? (browserSessionByThreadId[activeThreadId] ?? null) : null;
+  const activeRightPanelBrowserSession = useBrowserSession(browserOpen ? activeThreadId : null);
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
+  const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
   const showDockedRightSidePanelChrome =
     activeRightSidePanelMode !== null && !rightSidePanelFullscreen;
   const dockedRightSidePanelWidth = constrainedPanelWidth(
@@ -6863,7 +7629,9 @@ export default function ChatView({
         diffAvailable={isGitRepo}
         editorShortcutLabel={rightPanelEditorShortcutLabel}
         editorOpen={rightSidePanelEditorOpen}
+        floatingChatShortcutLabel={rightSidePanelFloatingChatShortcutLabel}
         fullscreen={rightSidePanelFullscreen}
+        fullscreenShortcutLabel={rightSidePanelFullscreenShortcutLabel}
         reviewShortcutLabel={reviewPanelShortcutLabel}
         reviewOpen={rightSidePanelReviewOpen}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
@@ -6876,7 +7644,7 @@ export default function ChatView({
         onSelectMode={onSelectRightSidePanelMode}
         onTogglePanelVisibility={onToggleRightSidePanel}
         onToggleFloatingChat={() => {
-          setRightSidePanelFloatingChatOpen((current) => !current);
+          onToggleRightSidePanelFloatingChat();
         }}
         onToggleFullscreen={onToggleRightSidePanelFullscreen}
         panelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
@@ -6886,6 +7654,12 @@ export default function ChatView({
   const handleQueueComposerMessage = useCallback(() => {
     queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue");
   }, [liveTurnInProgress, queueCurrentComposerMessage]);
+  const canSendQueuedComposerMessages =
+    queuedComposerMessages.length > 0 &&
+    !liveTurnInProgress &&
+    !isSendBusy &&
+    !isConnecting &&
+    !sendInFlightRef.current;
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
@@ -6897,7 +7671,7 @@ export default function ChatView({
         <motion.div
           key="thread-right-side-panel-top-bar"
           className={cn(
-            "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar",
+            "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ width: 0, opacity: 0, x: 20 }}
@@ -6927,7 +7701,7 @@ export default function ChatView({
         <motion.div
           key="thread-right-side-panel-fullscreen-top-bar"
           className={cn(
-            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar",
+            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ opacity: 0, y: -10 }}
@@ -6961,7 +7735,11 @@ export default function ChatView({
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <AppPageTopBar className="min-w-0 flex-1" showSidebarTrigger={showSidebarTrigger}>
+        <AppPageTopBar
+          className="min-w-0 flex-1"
+          desktopDragRegion={!rightSidePanelFullscreen}
+          showSidebarTrigger={showSidebarTrigger}
+        >
           <div className="flex min-w-0 flex-1 items-center overflow-hidden">
             {paneControls ? (
               <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
@@ -7057,6 +7835,8 @@ export default function ChatView({
                     terminalOpen={terminalState.terminalOpen}
                     threadId={activeThread.id}
                     worktreePath={activeThread.worktreePath ?? null}
+                    onDetached={() => onWorkspaceModeChange("chat")}
+                    onSubmitAgentNote={submitWorkspaceAgentNote}
                   />
                 </Suspense>
               </div>
@@ -7085,20 +7865,27 @@ export default function ChatView({
                     threadInteractionMode={activeThread.interactionMode}
                     composerModelOptions={composerModelOptions}
                     selectedProvider={selectedProvider}
+                    selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
                     selectedModel={selectedModel}
                     selectedProviderModels={selectedProviderModels}
                     selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                    sessionConfigOptions={activeThread.session?.configOptions}
+                    providerCommands={composerProviderCommands}
                     selectedModelForPickerWithCustomFallback={
                       selectedModelForPickerWithCustomFallback
                     }
                     lockedProvider={lockedProvider}
                     modelOptionsByProvider={modelOptionsByProvider}
+                    modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
+                    providerInstancesByProvider={providerInstancesByProvider}
                     handoffTargetProviders={handoffTargetProviders}
                     handoffDisabled={handoffDisabled}
                     interactionModeShortcutLabel={togglePlanModeShortcutLabel}
                     activeContextWindow={activeContextWindow}
                     queuedComposerMessages={queuedComposerMessages}
                     queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+                    canSendQueuedMessages={canSendQueuedComposerMessages}
+                    pendingComposerComments={pendingComposerCommentItems}
                     liveTurnInProgress={liveTurnInProgress}
                     isConnecting={isConnecting}
                     isPreparingWorktree={isPreparingWorktree}
@@ -7150,7 +7937,10 @@ export default function ChatView({
                     onEditQueuedComposerMessage={onEditQueuedComposerMessage}
                     onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
                     onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                    onDismissPendingComposerComment={dismissPendingComposerComment}
+                    onClearPendingComposerComments={clearPendingComposerComments}
                     onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+                    onSendQueuedComposerMessage={sendQueuedComposerMessage}
                     onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
                     onSetThreadError={setThreadError}
                   />
@@ -7228,6 +8018,8 @@ export default function ChatView({
                           terminalOpen={terminalState.terminalOpen}
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}
+                          onDetached={() => onWorkspaceModeChange("chat")}
+                          onSubmitAgentNote={submitWorkspaceAgentNote}
                         />
                       </Suspense>
                     </div>
@@ -7244,23 +8036,47 @@ export default function ChatView({
             <motion.div
               key="thread-right-side-panel"
               className={cn(
-                "flex h-full min-h-0 transform-gpu overflow-hidden bg-background will-change-[width,transform,opacity]",
+                "flex h-full min-h-0 overflow-hidden bg-background",
+                avoidNativeBrowserPanelTransforms
+                  ? "will-change-[width,opacity]"
+                  : "transform-gpu will-change-[width,transform,opacity]",
                 !rightSidePanelInteractive && "pointer-events-none select-none",
                 rightSidePanelFullscreen ? "absolute inset-y-0 right-0 z-40" : "relative shrink-0",
               )}
-              initial={{ width: 0, opacity: 0, x: 24 }}
-              animate={{
-                width: rightSidePanelFullscreen
-                  ? "100%"
-                  : constrainedPanelWidth(
-                      rightSidePanelWidth,
-                      MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                      MIN_RIGHT_SIDE_PANEL_WIDTH,
-                    ),
-                opacity: 1,
-                x: 0,
-              }}
-              exit={{ width: 0, opacity: 0, x: 24 }}
+              initial={
+                avoidNativeBrowserPanelTransforms
+                  ? { width: 0, opacity: 0 }
+                  : { width: 0, opacity: 0, x: 24 }
+              }
+              animate={
+                avoidNativeBrowserPanelTransforms
+                  ? {
+                      width: rightSidePanelFullscreen
+                        ? "100%"
+                        : constrainedPanelWidth(
+                            rightSidePanelWidth,
+                            MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                            MIN_RIGHT_SIDE_PANEL_WIDTH,
+                          ),
+                      opacity: 1,
+                    }
+                  : {
+                      width: rightSidePanelFullscreen
+                        ? "100%"
+                        : constrainedPanelWidth(
+                            rightSidePanelWidth,
+                            MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                            MIN_RIGHT_SIDE_PANEL_WIDTH,
+                          ),
+                      opacity: 1,
+                      x: 0,
+                    }
+              }
+              exit={
+                avoidNativeBrowserPanelTransforms
+                  ? { width: 0, opacity: 0 }
+                  : { width: 0, opacity: 0, x: 24 }
+              }
               transition={RIGHT_SIDE_PANEL_TRANSITION}
             >
               {!rightSidePanelFullscreen ? (
@@ -7279,9 +8095,9 @@ export default function ChatView({
               ) : null}
               <motion.div
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 6 }}
+                initial={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 8 }}
+                animate={avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }}
+                exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 6 }}
                 transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
               >
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -7299,11 +8115,16 @@ export default function ChatView({
                           <PlanSummaryPanel
                             activePlan={activePlan}
                             activeProposedPlan={sidebarProposedPlan}
+                            generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
                             activeProvider={activeThread?.session?.provider ?? null}
                             markdownCwd={gitCwd ?? undefined}
                             onOpenDiffPanel={isGitRepo ? () => setRightSidePanelMode("diff") : null}
+                            onRegenerateSummary={handleRegenerateSummary}
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                            onOpenFilePath={openMarkdownFileInAppEditor}
+                            onOpenFilePath={
+                              canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                            }
+                            enableLocalFileLinks={canOpenLocalMarkdownFiles}
                             workspaceDiffSummary={workspaceDiffSummary}
                             workspaceRoot={activeProject?.cwd ?? undefined}
                           />
@@ -7339,6 +8160,8 @@ export default function ChatView({
                               terminalOpen={terminalState.terminalOpen}
                               threadId={activeThread.id}
                               worktreePath={activeThread.worktreePath ?? null}
+                              onDetached={onCloseRightSidePanelEditor}
+                              onSubmitAgentNote={submitWorkspaceAgentNote}
                             />
                           </Suspense>
                         ) : null}
@@ -7354,9 +8177,7 @@ export default function ChatView({
                           : "pointer-events-none invisible z-0",
                       )}
                     >
-                      {browserPanel.instances.map((instance) => (
-                        <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
-                      ))}
+                      <RetainedBrowserInstances instances={browserPanel.instances} />
                     </div>
                   ) : null}
                 </div>

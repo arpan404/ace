@@ -6,6 +6,7 @@ import {
   GeminiModelOptions,
   GitHubCopilotModelOptions,
   OpenCodeModelOptions,
+  PiModelOptions,
 } from "../model";
 import {
   ApprovalRequestId,
@@ -31,6 +32,7 @@ export const ProviderKind = Schema.Literals([
   "claudeAgent",
   "githubCopilot",
   "cursor",
+  "pi",
   "gemini",
   "opencode",
 ]);
@@ -52,6 +54,10 @@ export const ProviderSandboxMode = Schema.Literals([
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 
 export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
+export const DEFAULT_PROVIDER_INSTANCE_ID = "default";
+
+export const ProviderInstanceId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
+export type ProviderInstanceId = typeof ProviderInstanceId.Type;
 
 export const ProviderSessionModelSwitchMode = Schema.Literals([
   "in-session",
@@ -102,6 +108,15 @@ export type ProviderHistoryAuthority = typeof ProviderHistoryAuthority.Type;
 export const ProviderSessionResumeMode = Schema.Literals(["native", "local-replay"]);
 export type ProviderSessionResumeMode = typeof ProviderSessionResumeMode.Type;
 
+export const ProviderSlashCommand = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+  inputHint: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(Schema.Literals(["provider", "skill", "plugin"])),
+  promptPrefix: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderSlashCommand = typeof ProviderSlashCommand.Type;
+
 export const ProviderIntegrationCapabilities = Schema.Struct({
   sessionModelSwitch: ProviderSessionModelSwitchMode,
   sessionModelOptionsSwitch: ProviderSessionModelOptionsSwitchMode,
@@ -122,6 +137,7 @@ export type ProviderIntegrationCapabilities = typeof ProviderIntegrationCapabili
 
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(CodexModelOptions),
 });
@@ -129,6 +145,7 @@ export type CodexModelSelection = typeof CodexModelSelection.Type;
 
 export const ClaudeModelSelection = Schema.Struct({
   provider: Schema.Literal("claudeAgent"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(ClaudeModelOptions),
 });
@@ -136,6 +153,7 @@ export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 
 export const GitHubCopilotModelSelection = Schema.Struct({
   provider: Schema.Literal("githubCopilot"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(GitHubCopilotModelOptions),
 });
@@ -143,13 +161,23 @@ export type GitHubCopilotModelSelection = typeof GitHubCopilotModelSelection.Typ
 
 export const CursorModelSelection = Schema.Struct({
   provider: Schema.Literal("cursor"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(CursorModelOptions),
 });
 export type CursorModelSelection = typeof CursorModelSelection.Type;
 
+export const PiModelSelection = Schema.Struct({
+  provider: Schema.Literal("pi"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(PiModelOptions),
+});
+export type PiModelSelection = typeof PiModelSelection.Type;
+
 export const GeminiModelSelection = Schema.Struct({
   provider: Schema.Literal("gemini"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(GeminiModelOptions),
 });
@@ -157,6 +185,7 @@ export type GeminiModelSelection = typeof GeminiModelSelection.Type;
 
 export const OpenCodeModelSelection = Schema.Struct({
   provider: Schema.Literal("opencode"),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(OpenCodeModelOptions),
 });
@@ -167,10 +196,29 @@ export const ModelSelection = Schema.Union([
   ClaudeModelSelection,
   GitHubCopilotModelSelection,
   CursorModelSelection,
+  PiModelSelection,
   GeminiModelSelection,
   OpenCodeModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
+
+export const ProviderSessionConfigOptionValue = Schema.Struct({
+  value: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderSessionConfigOptionValue = typeof ProviderSessionConfigOptionValue.Type;
+
+export const ProviderSessionConfigOption = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+  category: Schema.optional(TrimmedNonEmptyString),
+  type: Schema.Literal("select"),
+  currentValue: TrimmedNonEmptyString,
+  options: Schema.Array(ProviderSessionConfigOptionValue),
+});
+export type ProviderSessionConfigOption = typeof ProviderSessionConfigOption.Type;
 
 export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
@@ -302,6 +350,11 @@ export const QueuedSteerRequest = Schema.Struct({
   interruptRequested: Schema.Boolean,
 });
 export type QueuedSteerRequest = typeof QueuedSteerRequest.Type;
+
+export const QueuedDispatchRequest = Schema.Struct({
+  messageId: MessageId,
+});
+export type QueuedDispatchRequest = typeof QueuedDispatchRequest.Type;
 
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",

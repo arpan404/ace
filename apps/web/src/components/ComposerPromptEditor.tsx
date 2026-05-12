@@ -61,6 +61,7 @@ import {
 } from "~/composer-logic";
 import {
   createMarkedIssueReferenceToken,
+  createMarkedProviderCommandToken,
   splitPromptIntoComposerSegments,
 } from "~/composer-editor-mentions";
 import {
@@ -72,11 +73,13 @@ import {
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
 } from "~/lib/composer/inlineChip";
+import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
 import { cn } from "~/lib/utils";
 import { basenameOfPath, getVscodeIconUrlForEntry, inferEntryKindFromPath } from "~/vscode-icons";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
 
 const COMPOSER_EDITOR_HMR_KEY = `composer-editor-${Math.random().toString(36).slice(2)}`;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 type SerializedComposerMentionNode = Spread<
   {
@@ -91,6 +94,15 @@ type SerializedComposerIssueReferenceNode = Spread<
   {
     issueNumber: number;
     type: "composer-issue-reference";
+    version: 1;
+  },
+  SerializedTextNode
+>;
+
+type SerializedComposerProviderCommandNode = Spread<
+  {
+    name: string;
+    type: "composer-provider-command";
     version: 1;
   },
   SerializedTextNode
@@ -259,6 +271,86 @@ function $createComposerIssueReferenceNode(issueNumber: number): ComposerIssueRe
   return $applyNodeReplacement(new ComposerIssueReferenceNode(issueNumber));
 }
 
+class ComposerProviderCommandNode extends TextNode {
+  __name: string;
+
+  static override getType(): string {
+    return "composer-provider-command";
+  }
+
+  static override clone(node: ComposerProviderCommandNode): ComposerProviderCommandNode {
+    return new ComposerProviderCommandNode(node.__name, node.__key);
+  }
+
+  static override importJSON(
+    serializedNode: SerializedComposerProviderCommandNode,
+  ): ComposerProviderCommandNode {
+    return $createComposerProviderCommandNode(serializedNode.name);
+  }
+
+  constructor(name: string, key?: NodeKey) {
+    const normalizedName = name.trim().replace(/^[/@$]+/, "");
+    super(createMarkedProviderCommandToken(normalizedName), key);
+    this.__name = normalizedName;
+  }
+
+  override exportJSON(): SerializedComposerProviderCommandNode {
+    return {
+      ...super.exportJSON(),
+      name: this.__name,
+      type: "composer-provider-command",
+      version: 1,
+    };
+  }
+
+  override createDOM(_config: EditorConfig): HTMLElement {
+    const dom = document.createElement("span");
+    const isGoalCommand = this.__name.trim().toLowerCase() === "goal";
+    dom.className = cn(
+      COMPOSER_INLINE_CHIP_CLASS_NAME,
+      isGoalCommand
+        ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+        : "border-border/70 bg-muted/70 text-foreground/85",
+    );
+    dom.contentEditable = "false";
+    dom.setAttribute("spellcheck", "false");
+    renderProviderCommandChipDom(dom, this.__name);
+    return dom;
+  }
+
+  override updateDOM(
+    prevNode: ComposerProviderCommandNode,
+    dom: HTMLElement,
+    _config: EditorConfig,
+  ): boolean {
+    dom.contentEditable = "false";
+    if (prevNode.__text !== this.__text || prevNode.__name !== this.__name) {
+      renderProviderCommandChipDom(dom, this.__name);
+    }
+    return false;
+  }
+
+  override canInsertTextBefore(): false {
+    return false;
+  }
+
+  override canInsertTextAfter(): false {
+    return false;
+  }
+
+  override isTextEntity(): true {
+    return true;
+  }
+
+  override isToken(): true {
+    return true;
+  }
+}
+
+function $createComposerProviderCommandNode(name: string): ComposerProviderCommandNode {
+  return $applyNodeReplacement(new ComposerProviderCommandNode(name));
+}
+
 function ComposerTerminalContextDecorator(props: { context: TerminalContextDraft }) {
   return <ComposerPendingTerminalContextChip context={props.context} />;
 }
@@ -326,12 +418,14 @@ function $createComposerTerminalContextNode(
 type ComposerInlineTokenNode =
   | ComposerMentionNode
   | ComposerIssueReferenceNode
+  | ComposerProviderCommandNode
   | ComposerTerminalContextNode;
 
 function isComposerInlineTokenNode(candidate: unknown): candidate is ComposerInlineTokenNode {
   return (
     candidate instanceof ComposerMentionNode ||
     candidate instanceof ComposerIssueReferenceNode ||
+    candidate instanceof ComposerProviderCommandNode ||
     candidate instanceof ComposerTerminalContextNode
   );
 }
@@ -400,6 +494,50 @@ function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
   container.append(icon, label);
 }
 
+function createProviderCommandIconElement(commandName: string): SVGSVGElement {
+  const icon = document.createElementNS(SVG_NAMESPACE, "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("class", COMPOSER_INLINE_CHIP_ICON_CLASS_NAME);
+
+  const pathDataList =
+    commandName.trim().toLowerCase() === "goal"
+      ? [
+          "M12 2v4",
+          "M12 18v4",
+          "M2 12h4",
+          "M18 12h4",
+          "M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8",
+          "M12 12h.01",
+        ]
+      : ["M12 4l-8 4l8 4l8-4l-8-4", "M4 12l8 4l8-4", "M4 16l8 4l8-4"];
+
+  for (const pathData of pathDataList) {
+    const path = document.createElementNS(SVG_NAMESPACE, "path");
+    path.setAttribute("d", pathData);
+    icon.append(path);
+  }
+
+  return icon;
+}
+
+function renderProviderCommandChipDom(container: HTMLElement, commandName: string): void {
+  container.textContent = "";
+  container.style.setProperty("user-select", "none");
+  container.style.setProperty("-webkit-user-select", "none");
+
+  const label = document.createElement("span");
+  label.className = COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME;
+  label.textContent = formatCommandDisplayLabel(commandName);
+
+  container.append(createProviderCommandIconElement(commandName), label);
+}
+
 function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft>): string {
   return contexts
     .map((context) =>
@@ -429,6 +567,9 @@ function getComposerInlineTokenTextLength(_node: ComposerInlineTokenNode): 1 {
 function getComposerInlineTokenExpandedTextLength(node: ComposerInlineTokenNode): number {
   if (node instanceof ComposerIssueReferenceNode) {
     return String(node.__issueNumber).length + 1;
+  }
+  if (node instanceof ComposerProviderCommandNode) {
+    return node.__name.length + 1;
   }
   return node.getTextContentSize();
 }
@@ -528,7 +669,11 @@ function getAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: number): numb
   }
 
   if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode || node instanceof ComposerIssueReferenceNode) {
+    if (
+      node instanceof ComposerMentionNode ||
+      node instanceof ComposerIssueReferenceNode ||
+      node instanceof ComposerProviderCommandNode
+    ) {
       return getAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
     }
     return offset + Math.min(pointOffset, node.getTextContentSize());
@@ -575,7 +720,11 @@ function getExpandedAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: numbe
   }
 
   if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode || node instanceof ComposerIssueReferenceNode) {
+    if (
+      node instanceof ComposerMentionNode ||
+      node instanceof ComposerIssueReferenceNode ||
+      node instanceof ComposerProviderCommandNode
+    ) {
       return getExpandedAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
     }
     return offset + Math.min(pointOffset, node.getTextContentSize());
@@ -606,7 +755,11 @@ function findSelectionPointAtOffset(
   node: LexicalNode,
   remainingRef: { value: number },
 ): { key: string; offset: number; type: "text" | "element" } | null {
-  if (node instanceof ComposerMentionNode || node instanceof ComposerIssueReferenceNode) {
+  if (
+    node instanceof ComposerMentionNode ||
+    node instanceof ComposerIssueReferenceNode ||
+    node instanceof ComposerProviderCommandNode
+  ) {
     return findSelectionPointForInlineToken(node, remainingRef);
   }
   if (node instanceof ComposerTerminalContextNode) {
@@ -742,6 +895,10 @@ function $setComposerEditorPrompt(
     }
     if (segment.type === "issue-reference") {
       paragraph.append($createComposerIssueReferenceNode(segment.issueNumber));
+      continue;
+    }
+    if (segment.type === "provider-command") {
+      paragraph.append($createComposerProviderCommandNode(segment.name));
       continue;
     }
     if (segment.type === "terminal-context") {
@@ -1335,7 +1492,12 @@ export const ComposerPromptEditor = forwardRef<
     () => ({
       namespace: "ace-composer-editor",
       editable: true,
-      nodes: [ComposerMentionNode, ComposerIssueReferenceNode, ComposerTerminalContextNode],
+      nodes: [
+        ComposerMentionNode,
+        ComposerIssueReferenceNode,
+        ComposerProviderCommandNode,
+        ComposerTerminalContextNode,
+      ],
       editorState: () => {
         $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
       },

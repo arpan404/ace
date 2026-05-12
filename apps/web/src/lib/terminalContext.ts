@@ -136,6 +136,14 @@ const TRAILING_GITHUB_ISSUE_CONTEXT_BLOCK_PATTERN =
   /\n*<github_issue_context>\n([\s\S]*?)\n<\/github_issue_context>\s*$/;
 const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
   /\n*<browser_design_context>\n([\s\S]*?)\n<\/browser_design_context>\s*$/;
+const BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
+  /(?:^|\n)\s*<browser_design_context>\n([\s\S]*?)\n<\/browser_design_context>\s*(?=\n|$)/;
+const TRAILING_WORKSPACE_CODE_CONTEXT_BLOCK_PATTERN =
+  /\n*<workspace_code_context>\n([\s\S]*?)\n<\/workspace_code_context>\s*$/;
+const DISPLAY_HIDDEN_CONTEXT_BLOCK_PATTERN =
+  /(?:^|\n)\s*<(github_issue_context|browser_design_context|workspace_code_context)>\n[\s\S]*?\n<\/\1>\s*(?=\n|$)/g;
+const DISPLAY_ACCUMULATED_COMMENTS_BLOCK_PATTERN =
+  /(?:^|\n)\s*<accumulated_comments>\n([\s\S]*?)\n<\/accumulated_comments>\s*(?=\n|$)/g;
 
 export function isTerminalContextExpired(context: { text: string }): boolean {
   return !hasTerminalContextText(context);
@@ -261,6 +269,14 @@ export function extractTrailingBrowserDesignContext(prompt: string): {
     };
   }
   const rawContext = match[1] ?? "";
+  const requestId = parseBrowserDesignContextRequestId(rawContext);
+  return {
+    promptText: prompt.slice(0, match.index).replace(/\n+$/, ""),
+    context: { requestId },
+  };
+}
+
+function parseBrowserDesignContextRequestId(rawContext: string): string | null {
   let requestId: string | null = null;
   try {
     const decoded = JSON.parse(rawContext);
@@ -273,10 +289,7 @@ export function extractTrailingBrowserDesignContext(prompt: string): {
   } catch {
     // Keep requestId null when the hidden context payload is malformed.
   }
-  return {
-    promptText: prompt.slice(0, match.index).replace(/\n+$/, ""),
-    context: { requestId },
-  };
+  return requestId;
 }
 
 function stripTrailingGitHubIssueContexts(prompt: string): string {
@@ -301,26 +314,105 @@ function stripTrailingBrowserDesignContexts(prompt: string): string {
   }
 }
 
+function stripTrailingWorkspaceCodeContexts(prompt: string): string {
+  let promptText = prompt;
+  while (true) {
+    const match = TRAILING_WORKSPACE_CODE_CONTEXT_BLOCK_PATTERN.exec(promptText);
+    if (!match) {
+      return promptText;
+    }
+    promptText = promptText.slice(0, match.index).replace(/\n+$/, "");
+  }
+}
+
 function stripTrailingHiddenContextBlocks(prompt: string): string {
   let promptText = prompt;
   while (true) {
     const withoutIssueContexts = stripTrailingGitHubIssueContexts(promptText);
     const withoutBrowserDesignContexts = stripTrailingBrowserDesignContexts(withoutIssueContexts);
-    if (withoutBrowserDesignContexts === promptText) {
+    const withoutWorkspaceCodeContexts = stripTrailingWorkspaceCodeContexts(
+      withoutBrowserDesignContexts,
+    );
+    if (withoutWorkspaceCodeContexts === promptText) {
       return promptText;
     }
-    promptText = withoutBrowserDesignContexts;
+    promptText = withoutWorkspaceCodeContexts;
   }
+}
+
+function normalizeDisplayPromptAfterBlockRemoval(prompt: string): string {
+  return prompt.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+}
+
+function extractAccumulatedCommentDisplayText(block: string): string {
+  const comments: string[] = [];
+  let currentCommentLines: string[] | null = null;
+
+  const commitCurrentComment = () => {
+    if (!currentCommentLines) {
+      return;
+    }
+    const text = currentCommentLines.join("\n").trim();
+    if (text.length > 0) {
+      comments.push(text);
+    }
+    currentCommentLines = null;
+  };
+
+  for (const rawLine of block.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("Comment: ")) {
+      commitCurrentComment();
+      currentCommentLines = [line.slice("Comment: ".length)];
+      continue;
+    }
+    if (
+      currentCommentLines &&
+      !/^\d+\.\s+Browser comment$/.test(line) &&
+      !line.startsWith("Target: ") &&
+      !line.startsWith("Element: ") &&
+      !line.startsWith("Screenshot: ")
+    ) {
+      currentCommentLines.push(line);
+      continue;
+    }
+    commitCurrentComment();
+  }
+
+  commitCurrentComment();
+  return comments.join("\n");
+}
+
+function replaceAccumulatedCommentBlocksForDisplay(prompt: string): string {
+  return prompt.replace(DISPLAY_ACCUMULATED_COMMENTS_BLOCK_PATTERN, (_match, block: string) => {
+    const commentsText = extractAccumulatedCommentDisplayText(block);
+    return commentsText.length > 0 ? `\n${commentsText}\n` : "\n";
+  });
+}
+
+function stripDisplayHiddenContextBlocks(prompt: string): string {
+  return normalizeDisplayPromptAfterBlockRemoval(
+    replaceAccumulatedCommentBlocksForDisplay(prompt).replace(
+      DISPLAY_HIDDEN_CONTEXT_BLOCK_PATTERN,
+      "\n",
+    ),
+  );
 }
 
 export function extractBrowserDesignRequestId(prompt: string): string | null {
   const withoutIssueContext = stripTrailingGitHubIssueContexts(prompt);
-  return extractTrailingBrowserDesignContext(withoutIssueContext).context?.requestId ?? null;
+  const trailingRequestId =
+    extractTrailingBrowserDesignContext(withoutIssueContext).context?.requestId;
+  if (trailingRequestId !== undefined) {
+    return trailingRequestId;
+  }
+  const match = BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN.exec(withoutIssueContext);
+  return match ? parseBrowserDesignContextRequestId(match[1] ?? "") : null;
 }
 
 export function hasBrowserDesignContext(prompt: string): boolean {
   const withoutIssueContext = stripTrailingGitHubIssueContexts(prompt);
-  return extractTrailingBrowserDesignContext(withoutIssueContext).context !== null;
+  return BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN.test(withoutIssueContext);
 }
 
 export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMessageState {
@@ -331,9 +423,13 @@ export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMe
     }
   }
 
-  const promptWithoutTrailingIssueContext = stripTrailingHiddenContextBlocks(prompt);
+  const promptWithoutTrailingIssueContext = stripDisplayHiddenContextBlocks(
+    stripTrailingHiddenContextBlocks(prompt),
+  );
   const extractedContexts = extractTrailingTerminalContexts(promptWithoutTrailingIssueContext);
-  const visibleText = stripTrailingHiddenContextBlocks(extractedContexts.promptText);
+  const visibleText = stripDisplayHiddenContextBlocks(
+    stripTrailingHiddenContextBlocks(extractedContexts.promptText),
+  );
   const displayedState = {
     visibleText,
     copyText: prompt,
