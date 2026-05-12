@@ -309,11 +309,12 @@ export function GitHubIssueDialog({
               <div className="flex shrink-0 flex-wrap items-center gap-1">
                 <div className="inline-flex items-center overflow-hidden rounded-[var(--control-radius)] border border-border/50 bg-background/60">
                   {ISSUE_STATE_FILTERS.map((value) => (
-                    <button
+                    <Button
                       key={value}
                       type="button"
+                      variant="ghost"
                       className={cn(
-                        "px-2 py-0.5 text-[10px] font-medium capitalize transition-colors",
+                        "h-auto rounded-none px-2 py-0.5 text-[10px] font-medium capitalize hover:bg-transparent",
                         stateFilter === value
                           ? "bg-primary/10 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
@@ -321,16 +322,17 @@ export function GitHubIssueDialog({
                       onClick={() => setStateFilter(value)}
                     >
                       {value}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="inline-flex items-center overflow-hidden rounded-[var(--control-radius)] border border-border/50 bg-background/60">
                   {ISSUE_LIMIT_OPTIONS.map((limit) => (
-                    <button
+                    <Button
                       key={limit}
                       type="button"
+                      variant="ghost"
                       className={cn(
-                        "px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors",
+                        "px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors h-auto rounded-none hover:bg-transparent",
                         issueLimit === limit
                           ? "bg-primary/10 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
@@ -339,13 +341,14 @@ export function GitHubIssueDialog({
                       aria-label={`Show ${limit} issues`}
                     >
                       {limit}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="ms-auto flex items-center gap-0.5">
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+                    variant="ghost"
+                    className="h-auto rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                     onClick={() => {
                       if (allVisibleSelected) {
                         setSelectedIssueNumbers((existing) =>
@@ -361,15 +364,16 @@ export function GitHubIssueDialog({
                     }}
                   >
                     {allVisibleSelected ? "Deselect" : "Select all"}
-                  </button>
+                  </Button>
                   {selectedIssueNumberSet.size > 0 ? (
-                    <button
+                    <Button
                       type="button"
-                      className="rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+                      variant="ghost"
+                      className="h-auto rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                       onClick={() => setSelectedIssueNumbers([])}
                     >
                       Clear
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -401,24 +405,26 @@ export function GitHubIssueDialog({
               {/* Label filters */}
               {availableLabels.length > 0 ? (
                 <div className="shrink-0">
-                  <button
+                  <Button
                     type="button"
-                    className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground/80"
+                    variant="ghost"
+                    className="mb-1 flex h-auto items-center gap-1 p-0 text-[10px] text-muted-foreground/80 hover:bg-transparent"
                     onClick={() => setLabelFilters((f) => (f.length > 0 ? [] : f))}
                   >
                     <FilterIcon className="size-3 opacity-60" />
                     Labels
-                  </button>
+                  </Button>
                   <div className="max-h-12 overflow-y-auto">
                     <div className="flex flex-wrap gap-0.5">
                       {availableLabels.map(({ label, count }) => {
                         const active = labelFilters.includes(label);
                         return (
-                          <button
+                          <Button
                             key={label}
                             type="button"
+                            variant="ghost"
                             className={cn(
-                              "rounded-[var(--chip-radius)] border px-1.5 py-px text-[9px] font-medium transition-colors",
+                              "h-auto rounded-[var(--chip-radius)] border px-1.5 py-px text-[9px] font-medium hover:bg-transparent",
                               active
                                 ? "border-primary/30 bg-primary/10 text-foreground"
                                 : "border-border/40 bg-background/50 text-muted-foreground hover:text-foreground",
@@ -427,7 +433,7 @@ export function GitHubIssueDialog({
                           >
                             {label}
                             <span className="ml-0.5 opacity-50">{count}</span>
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
@@ -475,9 +481,10 @@ export function GitHubIssueDialog({
                               onClick={(event) => event.stopPropagation()}
                               onCheckedChange={() => handleToggleIssueSelection(issue.number)}
                             />
-                            <button
+                            <Button
                               type="button"
-                              className="min-w-0 flex-1 text-start"
+                              variant="ghost"
+                              className="min-w-0 flex-1 text-start h-auto p-0 hover:bg-transparent font-normal block"
                               onClick={() => setFocusedIssueNumber(issue.number)}
                             >
                               <div className="flex min-w-0 items-center gap-1.5">
@@ -515,7 +522,7 @@ export function GitHubIssueDialog({
                                   ) : null}
                                 </div>
                               ) : null}
-                            </button>
+                            </Button>
                           </div>
                         );
                       })}

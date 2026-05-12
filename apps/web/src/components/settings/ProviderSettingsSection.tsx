@@ -8,6 +8,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
@@ -1204,11 +1205,11 @@ export function ProviderSettingsSection({
                 </div>
               </div>
               <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_16rem]">
-                <div
+                <ScrollArea
                   ref={(element) => {
                     modelListRefs.current[providerCard.provider] = element;
                   }}
-                  className="max-h-56 overflow-y-auto rounded-[var(--control-radius)] border border-border/35 bg-muted/10"
+                  className="max-h-56 rounded-[var(--control-radius)] border border-border/35 bg-muted/10"
                 >
                   {displayedModels.map((model) => {
                     const caps = model.capabilities;
@@ -1275,7 +1276,7 @@ export function ProviderSettingsSection({
                       </div>
                     );
                   })}
-                </div>
+                </ScrollArea>
 
                 <div className="rounded-[var(--control-radius)] border border-border/35 bg-muted/10 p-3">
                   <div className="text-xs font-medium text-foreground/85">Add custom model</div>
