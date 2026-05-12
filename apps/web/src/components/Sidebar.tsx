@@ -4625,6 +4625,7 @@ export default function Sidebar() {
                   render={
                     <Button
                       type="button"
+                      variant="ghost"
                       aria-label={`Create new thread in ${project.name}`}
                       data-testid="new-thread-button"
                     />
@@ -5175,6 +5176,7 @@ export default function Sidebar() {
                   <div className="grid grid-cols-3 gap-2">
                     <Button
                       type="button"
+                      variant="ghost"
                       className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
                         editingProjectIcon === null
                           ? "border-primary/50 bg-primary/8"
@@ -5348,6 +5350,7 @@ export default function Sidebar() {
             render={
               <Button
                 type="button"
+                variant="ghost"
                 tabIndex={-1}
                 aria-hidden="true"
                 className="pointer-events-none fixed z-50 size-px opacity-0"
@@ -5566,6 +5569,7 @@ export default function Sidebar() {
                   <>
                     <Button
                       type="button"
+                      variant="ghost"
                       className="flex w-full items-center gap-3 border-border/20 border-b px-4 py-2.5 text-left text-sm font-medium text-muted-foreground/70 transition-all hover:bg-accent/40 hover:text-foreground"
                       onClick={handleBrowseParentPath}
                       disabled={isAddingProject}
@@ -5692,6 +5696,7 @@ export default function Sidebar() {
             <div className="flex flex-col gap-1">
               <Button
                 type="button"
+                variant="ghost"
                 className="group/sidebar-new-chat flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={handleStartSidebarNewChat}
                 disabled={!sidebarNewThreadProjectId}
@@ -5702,6 +5707,7 @@ export default function Sidebar() {
               </Button>
               <Button
                 type="button"
+                variant="ghost"
                 className="group/sidebar-search flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 onClick={openSearchPalette}
                 aria-label="Open search"
@@ -5721,6 +5727,7 @@ export default function Sidebar() {
               <SidebarGroup className="px-2.5 pt-5 pb-2">
                 <Button
                   type="button"
+                  variant="ghost"
                   className="group/section-header mb-1.5 flex h-5 w-full cursor-pointer items-center gap-1.5 bg-transparent pl-2 pr-1.5 text-left"
                   aria-expanded={pinnedSectionExpanded}
                   onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
