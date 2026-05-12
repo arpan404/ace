@@ -12,6 +12,18 @@
       "types": "./src/git.ts",
       "import": "./src/git.ts"
     },
+    "./browserHistory": {
+      "types": "./src/browserHistory.ts",
+      "import": "./src/browserHistory.ts"
+    },
+    "./browserUrl": {
+      "types": "./src/browserUrl.ts",
+      "import": "./src/browserUrl.ts"
+    },
+    "./checkpointRestore": {
+      "types": "./src/checkpointRestore.ts",
+      "import": "./src/checkpointRestore.ts"
+    },
     "./logging": {
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
@@ -51,6 +63,10 @@
     "./terminalTitles": {
       "types": "./src/terminalTitles.ts",
       "import": "./src/terminalTitles.ts"
+    },
+    "./timeFormat": {
+      "types": "./src/timeFormat.ts",
+      "import": "./src/timeFormat.ts"
     },
     "./terminalContext": {
       "types": "./src/terminalContext.ts",
@@ -107,6 +123,10 @@
     "./relayRpcTransport": {
       "types": "./src/relayRpcTransport.ts",
       "import": "./src/relayRpcTransport.ts"
+    },
+    "./workspaceFilePreview": {
+      "types": "./src/workspaceFilePreview.ts",
+      "import": "./src/workspaceFilePreview.ts"
     }
   },
   "scripts": {

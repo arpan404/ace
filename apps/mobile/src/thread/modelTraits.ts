@@ -5,6 +5,7 @@ import type {
   GitHubCopilotModelOptions,
   ModelCapabilities,
   ModelSelection,
+  PiModelOptions,
   ProviderKind,
   ServerProviderModel,
 } from "@ace/contracts";
@@ -58,10 +59,15 @@ function getRawEffort(modelSelection: ModelSelection): string | null {
       return modelSelection.options?.reasoningEffort ?? null;
     case "claudeAgent":
       return modelSelection.options?.effort ?? null;
+    case "pi":
+      return (
+        modelSelection.options?.thoughtLevel ?? modelSelection.options?.reasoningEffort ?? null
+      );
     case "gemini":
     case "opencode":
       return null;
   }
+  return null;
 }
 
 function getRawContextWindow(modelSelection: ModelSelection): string | null {
@@ -185,6 +191,24 @@ export function applyMobileModelTraitPatch(
       }
       return modelSelection;
     }
+    case "pi": {
+      if (patch.kind === "effort") {
+        return {
+          ...modelSelection,
+          options: {
+            ...modelSelection.options,
+            thoughtLevel: patch.value as PiModelOptions["thoughtLevel"],
+            ...(patch.value === "low" ||
+            patch.value === "medium" ||
+            patch.value === "high" ||
+            patch.value === "xhigh"
+              ? { reasoningEffort: patch.value as PiModelOptions["reasoningEffort"] }
+              : {}),
+          },
+        };
+      }
+      return modelSelection;
+    }
     case "opencode": {
       if (patch.kind === "contextWindow") {
         return { ...modelSelection, options: { ...modelSelection.options, variant: patch.value } };
@@ -196,4 +220,5 @@ export function applyMobileModelTraitPatch(
     case "gemini":
       return modelSelection;
   }
+  return modelSelection;
 }

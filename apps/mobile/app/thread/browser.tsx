@@ -480,7 +480,7 @@ export default function BrowserScreen() {
               },
             ]}
           >
-            {browserSuggestions.map((suggestion, index) => (
+            {browserSuggestions.map((suggestion: BrowserSuggestion, index: number) => (
               <Pressable
                 key={suggestion.id}
                 onPress={() => applySuggestion(suggestion)}

@@ -185,6 +185,7 @@ const SETTINGS_PROVIDER_ORDER = [
   "claudeAgent",
   "githubCopilot",
   "cursor",
+  "pi",
   "gemini",
   "opencode",
 ] as const satisfies ReadonlyArray<ProviderKind>;
@@ -208,11 +209,15 @@ function providerSettingsPatch(
       return { providers: { githubCopilot: patch } };
     case "cursor":
       return { providers: { cursor: patch } };
+    case "pi":
+      return { providers: { pi: patch } };
     case "gemini":
       return { providers: { gemini: patch } };
     case "opencode":
       return { providers: { opencode: patch } };
   }
+  const _exhaustive: never = provider;
+  return _exhaustive;
 }
 
 function customModelInputValue(models: ReadonlyArray<string>): string {
