@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { OrchestrationEvent } from "@ace/contracts";
 
@@ -55,6 +55,29 @@ type ScopedAgentAttentionRequest = ReturnType<typeof deriveAgentAttentionRequest
   connectionUrl: string;
 };
 
+interface AgentAttentionBridgeState {
+  readonly remoteConnectionsReady: boolean;
+  readonly attentionRequestsByConnection: Readonly<
+    Record<string, ReadonlyArray<ScopedAgentAttentionRequest>>
+  >;
+  readonly isAppFocused: boolean;
+  readonly notificationPermission: AgentAttentionNotificationPermission;
+}
+
+type AgentAttentionBridgeAction =
+  | { type: "set-remote-connections-ready"; value: boolean }
+  | {
+      type: "set-connection-requests";
+      connectionUrl: string;
+      requests: ReadonlyArray<ScopedAgentAttentionRequest>;
+    }
+  | { type: "remove-connection-requests"; connectionUrl: string }
+  | {
+      type: "set-window-state";
+      isAppFocused: boolean;
+      notificationPermission: AgentAttentionNotificationPermission;
+    };
+
 const REMOTE_NOTIFICATION_WARMUP_DELAY_MS = 1_500;
 const REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS = 450;
 const PERMISSION_OFFER_DISMISS_MS = 12_000;
@@ -72,11 +95,76 @@ function shouldRefreshRemoteAttentionFromEvent(event: OrchestrationEvent): boole
   return REMOTE_ATTENTION_REFRESH_EVENT_TYPES.has(event.type);
 }
 
+function scopedAgentAttentionRequestsEqual(
+  previousRequests: ReadonlyArray<ScopedAgentAttentionRequest>,
+  nextRequests: ReadonlyArray<ScopedAgentAttentionRequest>,
+): boolean {
+  return (
+    previousRequests.length === nextRequests.length &&
+    previousRequests.every((request, index) => nextRequests[index]?.key === request.key) &&
+    previousRequests.every(
+      (request, index) =>
+        nextRequests[index]?.createdAt === request.createdAt &&
+        nextRequests[index]?.body === request.body,
+    )
+  );
+}
+
+function agentAttentionBridgeStateReducer(
+  state: AgentAttentionBridgeState,
+  action: AgentAttentionBridgeAction,
+): AgentAttentionBridgeState {
+  switch (action.type) {
+    case "set-remote-connections-ready":
+      return state.remoteConnectionsReady === action.value
+        ? state
+        : { ...state, remoteConnectionsReady: action.value };
+    case "set-connection-requests": {
+      const previousRequests = state.attentionRequestsByConnection[action.connectionUrl] ?? [];
+      if (scopedAgentAttentionRequestsEqual(previousRequests, action.requests)) {
+        return state;
+      }
+      return {
+        ...state,
+        attentionRequestsByConnection: {
+          ...state.attentionRequestsByConnection,
+          [action.connectionUrl]: action.requests,
+        },
+      };
+    }
+    case "remove-connection-requests":
+      if (
+        !Object.prototype.hasOwnProperty.call(
+          state.attentionRequestsByConnection,
+          action.connectionUrl,
+        )
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        attentionRequestsByConnection: Object.fromEntries(
+          Object.entries(state.attentionRequestsByConnection).filter(
+            ([connectionUrl]) => connectionUrl !== action.connectionUrl,
+          ),
+        ),
+      };
+    case "set-window-state":
+      return state.isAppFocused === action.isAppFocused &&
+        state.notificationPermission === action.notificationPermission
+        ? state
+        : {
+            ...state,
+            isAppFocused: action.isAppFocused,
+            notificationPermission: action.notificationPermission,
+          };
+  }
+}
+
 export function AgentAttentionNotificationBridge() {
   const navigate = useNavigate();
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
-  const [remoteConnectionsReady, setRemoteConnectionsReady] = useState(false);
   const notifyOnAgentCompletion = useSetting("notifyOnAgentCompletion");
   const notifyOnApprovalRequired = useSetting("notifyOnApprovalRequired");
   const notifyOnUserInputRequired = useSetting("notifyOnUserInputRequired");
@@ -88,9 +176,31 @@ export function AgentAttentionNotificationBridge() {
     }),
     [notifyOnAgentCompletion, notifyOnApprovalRequired, notifyOnUserInputRequired],
   );
-  const [attentionRequestsByConnection, setAttentionRequestsByConnection] = useState<
-    Record<string, ReadonlyArray<ScopedAgentAttentionRequest>>
-  >({});
+  const desktopNotificationBridge = useMemo(
+    () =>
+      typeof window === "undefined"
+        ? null
+        : getAgentAttentionDesktopNotificationBridge(window.desktopBridge),
+    [],
+  );
+  const [bridgeState, dispatchBridgeState] = useReducer(
+    agentAttentionBridgeStateReducer,
+    undefined,
+    (): AgentAttentionBridgeState => ({
+      remoteConnectionsReady: false,
+      attentionRequestsByConnection: {},
+      isAppFocused: typeof document === "undefined" ? true : isAppWindowFocused(document),
+      notificationPermission: desktopNotificationBridge
+        ? "default"
+        : readAgentAttentionNotificationPermission(),
+    }),
+  );
+  const {
+    attentionRequestsByConnection,
+    isAppFocused,
+    notificationPermission,
+    remoteConnectionsReady,
+  } = bridgeState;
   const attentionRequests = useMemo(
     () =>
       filterAgentAttentionRequestsBySettings(
@@ -103,20 +213,6 @@ export function AgentAttentionNotificationBridge() {
     () => new Map(attentionRequests.map((request) => [request.key, request])),
     [attentionRequests],
   );
-  const desktopNotificationBridge = useMemo(
-    () =>
-      typeof window === "undefined"
-        ? null
-        : getAgentAttentionDesktopNotificationBridge(window.desktopBridge),
-    [],
-  );
-  const [isAppFocused, setIsAppFocused] = useState(() =>
-    typeof document === "undefined" ? true : isAppWindowFocused(document),
-  );
-  const [notificationPermission, setNotificationPermission] =
-    useState<AgentAttentionNotificationPermission>(() =>
-      desktopNotificationBridge ? "default" : readAgentAttentionNotificationPermission(),
-    );
   const activeBrowserNotificationsRef = useRef(new Map<string, Notification>());
   const activeDesktopNotificationIdsRef = useRef(new Set<string>());
   const failedBrowserNotificationRequestKeysRef = useRef(new Set<string>());
@@ -153,11 +249,11 @@ export function AgentAttentionNotificationBridge() {
 
   useEffect(() => {
     if (!bootstrapComplete) {
-      setRemoteConnectionsReady(false);
+      dispatchBridgeState({ type: "set-remote-connections-ready", value: false });
       return;
     }
     const timer = window.setTimeout(() => {
-      setRemoteConnectionsReady(true);
+      dispatchBridgeState({ type: "set-remote-connections-ready", value: true });
     }, REMOTE_NOTIFICATION_WARMUP_DELAY_MS);
     return () => {
       window.clearTimeout(timer);
@@ -181,27 +277,10 @@ export function AgentAttentionNotificationBridge() {
             connectionUrl: normalizedConnectionUrl,
           }),
         );
-        setAttentionRequestsByConnection((current) => {
-          const previousRequests = current[normalizedConnectionUrl] ?? [];
-          const nextRequests =
-            previousRequests.length === scopedRequests.length &&
-            previousRequests.every(
-              (request, index) => scopedRequests[index]?.key === request.key,
-            ) &&
-            previousRequests.every(
-              (request, index) =>
-                scopedRequests[index]?.createdAt === request.createdAt &&
-                scopedRequests[index]?.body === request.body,
-            )
-              ? previousRequests
-              : scopedRequests;
-          if (nextRequests === previousRequests) {
-            return current;
-          }
-          return {
-            ...current,
-            [normalizedConnectionUrl]: nextRequests,
-          };
+        dispatchBridgeState({
+          type: "set-connection-requests",
+          connectionUrl: normalizedConnectionUrl,
+          requests: scopedRequests,
         });
       } catch {
         // Keep the last known attention state for this connection during transient failures.
@@ -267,14 +346,7 @@ export function AgentAttentionNotificationBridge() {
         }
         refreshQueuedByConnectionUrl.delete(connectionUrl);
         refreshInFlightByConnectionUrl.delete(connectionUrl);
-        setAttentionRequestsByConnection((current) => {
-          if (!Object.prototype.hasOwnProperty.call(current, connectionUrl)) {
-            return current;
-          }
-          const next = { ...current };
-          delete next[connectionUrl];
-          return next;
-        });
+        dispatchBridgeState({ type: "remove-connection-requests", connectionUrl });
       }
 
       for (const connectionUrl of nextConnectionUrls) {
@@ -362,6 +434,40 @@ export function AgentAttentionNotificationBridge() {
     permissionOfferToastIdRef.current = null;
   }, []);
 
+  const syncWindowState = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const nextIsFocused = isAppWindowFocused(document);
+    if (lastKnownFocusStateRef.current && !nextIsFocused) {
+      notificationSessionStartedAtRef.current = new Date().toISOString();
+    }
+    lastKnownFocusStateRef.current = nextIsFocused;
+    const setWindowState = (nextPermission: AgentAttentionNotificationPermission) => {
+      dispatchBridgeState({
+        type: "set-window-state",
+        isAppFocused: nextIsFocused,
+        notificationPermission: nextPermission,
+      });
+    };
+    if (
+      desktopNotificationBridge &&
+      typeof window.desktopBridge?.getNotificationPermission === "function"
+    ) {
+      void window.desktopBridge
+        .getNotificationPermission()
+        .then((permission) => {
+          setWindowState(permission);
+        })
+        .catch(() => {
+          setWindowState("unsupported");
+        });
+      return;
+    }
+    setWindowState(readAgentAttentionNotificationPermission());
+  }, [desktopNotificationBridge]);
+
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
   }, [attentionRequestByKey]);
@@ -370,30 +476,6 @@ export function AgentAttentionNotificationBridge() {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-
-    const syncWindowState = () => {
-      const nextIsFocused = isAppWindowFocused(document);
-      if (lastKnownFocusStateRef.current && !nextIsFocused) {
-        notificationSessionStartedAtRef.current = new Date().toISOString();
-      }
-      lastKnownFocusStateRef.current = nextIsFocused;
-      setIsAppFocused(nextIsFocused);
-      if (
-        desktopNotificationBridge &&
-        typeof window.desktopBridge?.getNotificationPermission === "function"
-      ) {
-        void window.desktopBridge
-          .getNotificationPermission()
-          .then((permission) => {
-            setNotificationPermission(permission);
-          })
-          .catch(() => {
-            setNotificationPermission("unsupported");
-          });
-        return;
-      }
-      setNotificationPermission(readAgentAttentionNotificationPermission());
-    };
 
     syncWindowState();
     document.addEventListener("visibilitychange", syncWindowState);
@@ -405,7 +487,7 @@ export function AgentAttentionNotificationBridge() {
       window.removeEventListener("focus", syncWindowState);
       window.removeEventListener("blur", syncWindowState);
     };
-  }, [desktopNotificationBridge]);
+  }, [syncWindowState]);
 
   useEffect(() => {
     const activeRequestKeys = new Set(attentionRequests.map((request) => request.key));
@@ -722,7 +804,11 @@ export function AgentAttentionNotificationBridge() {
           hasPromptedForPermissionRef.current = true;
           void requestAgentAttentionNotificationPermission()
             .then((nextPermission) => {
-              setNotificationPermission(nextPermission);
+              dispatchBridgeState({
+                type: "set-window-state",
+                isAppFocused: lastKnownFocusStateRef.current,
+                notificationPermission: nextPermission,
+              });
               if (nextPermission === "granted") {
                 toastManager.add({
                   type: "success",

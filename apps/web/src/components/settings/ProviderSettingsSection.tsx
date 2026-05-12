@@ -7,7 +7,7 @@ import {
   Undo2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
@@ -123,6 +123,22 @@ interface AddProviderDraft {
   provider: ProviderKind;
 }
 
+type ProviderSettingsSectionState = {
+  draftProviders: UnifiedSettings["providers"];
+  selectedEntryKey: string;
+  addProviderOpen: boolean;
+  addProviderStep: AddProviderStep;
+  addProviderDraft: AddProviderDraft;
+};
+
+type ProviderSettingsSectionAction =
+  | { type: "set-draft-providers"; draftProviders: UnifiedSettings["providers"] }
+  | { type: "set-selected-entry-key"; selectedEntryKey: string }
+  | { type: "set-add-provider-open"; addProviderOpen: boolean }
+  | { type: "set-add-provider-step"; addProviderStep: AddProviderStep }
+  | { type: "set-add-provider-draft"; addProviderDraft: AddProviderDraft }
+  | { type: "update-add-provider-draft"; updater: (draft: AddProviderDraft) => AddProviderDraft };
+
 const ADD_PROVIDER_STEPS: ReadonlyArray<{
   id: AddProviderStep;
   label: string;
@@ -131,6 +147,40 @@ const ADD_PROVIDER_STEPS: ReadonlyArray<{
   { id: "setup", label: "Setup" },
   { id: "review", label: "Review" },
 ];
+
+function providerSettingsSectionStateReducer(
+  state: ProviderSettingsSectionState,
+  action: ProviderSettingsSectionAction,
+): ProviderSettingsSectionState {
+  switch (action.type) {
+    case "set-draft-providers":
+      return state.draftProviders === action.draftProviders
+        ? state
+        : { ...state, draftProviders: action.draftProviders };
+    case "set-selected-entry-key":
+      return state.selectedEntryKey === action.selectedEntryKey
+        ? state
+        : { ...state, selectedEntryKey: action.selectedEntryKey };
+    case "set-add-provider-open":
+      return state.addProviderOpen === action.addProviderOpen
+        ? state
+        : { ...state, addProviderOpen: action.addProviderOpen };
+    case "set-add-provider-step":
+      return state.addProviderStep === action.addProviderStep
+        ? state
+        : { ...state, addProviderStep: action.addProviderStep };
+    case "set-add-provider-draft":
+      return state.addProviderDraft === action.addProviderDraft
+        ? state
+        : { ...state, addProviderDraft: action.addProviderDraft };
+    case "update-add-provider-draft": {
+      const nextDraft = action.updater(state.addProviderDraft);
+      return nextDraft === state.addProviderDraft
+        ? state
+        : { ...state, addProviderDraft: nextDraft };
+    }
+  }
+}
 
 function resolveCustomModelPlaceholder(provider: ProviderKind): string {
   switch (provider) {
@@ -359,17 +409,24 @@ export function ProviderSettingsSection({
   upgradeProviderCli: (provider: ProviderKind, runtimeId: string) => void;
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
-  const [draftProviders, setDraftProviders] = useState(() => settings.providers);
-  const [selectedEntryKey, setSelectedEntryKey] = useState(() =>
-    providerEntryKey(providerCards[0]?.provider ?? "codex"),
+  const [sectionState, dispatchSectionState] = useReducer(
+    providerSettingsSectionStateReducer,
+    undefined,
+    (): ProviderSettingsSectionState => ({
+      draftProviders: settings.providers,
+      selectedEntryKey: providerEntryKey(providerCards[0]?.provider ?? "codex"),
+      addProviderOpen: false,
+      addProviderStep: "provider",
+      addProviderDraft: createAddProviderDraft(
+        providerCards[0]?.provider ?? "codex",
+        settings.providers,
+      ),
+    }),
   );
-  const [addProviderOpen, setAddProviderOpen] = useState(false);
-  const [addProviderStep, setAddProviderStep] = useState<AddProviderStep>("provider");
-  const [addProviderDraft, setAddProviderDraft] = useState(() =>
-    createAddProviderDraft(providerCards[0]?.provider ?? "codex", settings.providers),
-  );
+  const { addProviderDraft, addProviderOpen, addProviderStep, draftProviders, selectedEntryKey } =
+    sectionState;
   useEffect(() => {
-    setDraftProviders(settings.providers);
+    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   }, [settings.providers]);
   const providerEntries = useMemo(
     () => buildProviderSettingsEntries(providerCards, draftProviders),
@@ -381,7 +438,7 @@ export function ProviderSettingsSection({
     }
     const firstEntry = providerEntries[0];
     if (firstEntry) {
-      setSelectedEntryKey(firstEntry.key);
+      dispatchSectionState({ type: "set-selected-entry-key", selectedEntryKey: firstEntry.key });
     }
   }, [providerEntries, selectedEntryKey]);
 
@@ -393,10 +450,13 @@ export function ProviderSettingsSection({
     provider: TProvider,
     config: UnifiedSettings["providers"][TProvider],
   ) => {
-    setDraftProviders((existing) => ({
-      ...existing,
-      [provider]: config,
-    }));
+    dispatchSectionState({
+      type: "set-draft-providers",
+      draftProviders: {
+        ...draftProviders,
+        [provider]: config,
+      },
+    });
   };
 
   const saveProviderDraft = () => {
@@ -414,7 +474,7 @@ export function ProviderSettingsSection({
   };
 
   const revertProviderDraft = () => {
-    setDraftProviders(settings.providers);
+    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   };
 
   const addProviderInstance = (draft: AddProviderDraft) => {
@@ -451,8 +511,11 @@ export function ProviderSettingsSection({
       ...providerConfig,
       instances: [...providerConfig.instances, nextInstance],
     } as UnifiedSettings["providers"][typeof provider]);
-    setSelectedEntryKey(providerEntryKey(provider, instanceId));
-    setAddProviderOpen(false);
+    dispatchSectionState({
+      type: "set-selected-entry-key",
+      selectedEntryKey: providerEntryKey(provider, instanceId),
+    });
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: false });
   };
 
   const updateProviderInstance = (
@@ -678,30 +741,36 @@ export function ProviderSettingsSection({
   );
   const canCreateProviderDraft = addProviderDraft.label.trim().length > 0;
   const resetAddProviderDialog = (provider: ProviderKind) => {
-    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
-    setAddProviderStep("provider");
+    dispatchSectionState({
+      type: "set-add-provider-draft",
+      addProviderDraft: createAddProviderDraft(provider, draftProviders),
+    });
+    dispatchSectionState({ type: "set-add-provider-step", addProviderStep: "provider" });
   };
   const openAddProviderDialog = () => {
     resetAddProviderDialog(selectedProviderEntry.provider);
-    setAddProviderOpen(true);
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: true });
   };
   const closeAddProviderDialog = () => {
-    setAddProviderOpen(false);
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: false });
   };
   const selectAddProvider = (provider: ProviderKind) => {
-    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
+    dispatchSectionState({
+      type: "set-add-provider-draft",
+      addProviderDraft: createAddProviderDraft(provider, draftProviders),
+    });
   };
   const goToPreviousAddProviderStep = () => {
     const previousStep = ADD_PROVIDER_STEPS[Math.max(0, addProviderCurrentStepIndex - 1)];
     if (previousStep) {
-      setAddProviderStep(previousStep.id);
+      dispatchSectionState({ type: "set-add-provider-step", addProviderStep: previousStep.id });
     }
   };
   const goToNextAddProviderStep = () => {
     const nextStep =
       ADD_PROVIDER_STEPS[Math.min(ADD_PROVIDER_STEPS.length - 1, addProviderCurrentStepIndex + 1)];
     if (nextStep) {
-      setAddProviderStep(nextStep.id);
+      dispatchSectionState({ type: "set-add-provider-step", addProviderStep: nextStep.id });
     }
   };
 
@@ -812,7 +881,12 @@ export function ProviderSettingsSection({
                       ? "border-border/50 bg-background/72 text-foreground"
                       : "border-transparent bg-transparent text-muted-foreground hover:bg-background/45 hover:text-foreground/90",
                   )}
-                  onClick={() => setSelectedEntryKey(entry.key)}
+                  onClick={() =>
+                    dispatchSectionState({
+                      type: "set-selected-entry-key",
+                      selectedEntryKey: entry.key,
+                    })
+                  }
                 >
                   <span
                     className={cn(
@@ -906,7 +980,10 @@ export function ProviderSettingsSection({
                     className="size-8 rounded-[var(--control-radius)] text-muted-foreground/60 hover:text-foreground"
                     onClick={() => {
                       removeProviderInstance(providerCard, selectedInstance.id);
-                      setSelectedEntryKey(providerEntryKey(providerCard.provider));
+                      dispatchSectionState({
+                        type: "set-selected-entry-key",
+                        selectedEntryKey: providerEntryKey(providerCard.provider),
+                      });
                     }}
                     aria-label={`Remove ${selectedInstance.label}`}
                   >
@@ -1328,9 +1405,9 @@ export function ProviderSettingsSection({
       </div>
       <Dialog
         onOpenChange={(open) => {
-          setAddProviderOpen(open);
+          dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: open });
           if (!open) {
-            setAddProviderStep("provider");
+            dispatchSectionState({ type: "set-add-provider-step", addProviderStep: "provider" });
           }
         }}
         open={addProviderOpen}
@@ -1377,7 +1454,10 @@ export function ProviderSettingsSection({
                     )}
                     onClick={() => {
                       if (index <= addProviderCurrentStepIndex) {
-                        setAddProviderStep(step.id);
+                        dispatchSectionState({
+                          type: "set-add-provider-step",
+                          addProviderStep: step.id,
+                        });
                       }
                     }}
                     disabled={index > addProviderCurrentStepIndex}
@@ -1435,10 +1515,13 @@ export function ProviderSettingsSection({
                       className="mt-1"
                       value={addProviderDraft.label}
                       onChange={(event) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          label: event.target.value,
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            label: event.target.value,
+                          }),
+                        })
                       }
                       placeholder="Personal"
                       autoFocus
@@ -1449,10 +1532,13 @@ export function ProviderSettingsSection({
                     <Switch
                       checked={addProviderDraft.enabled}
                       onCheckedChange={(checked) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          enabled: Boolean(checked),
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            enabled: Boolean(checked),
+                          }),
+                        })
                       }
                       aria-label="Enable new provider account"
                     />
@@ -1478,10 +1564,13 @@ export function ProviderSettingsSection({
                                     selectedIcon && "bg-foreground/[0.08] text-foreground",
                                   )}
                                   onClick={() =>
-                                    setAddProviderDraft((draft) => ({
-                                      ...draft,
-                                      badgeIcon: badgeIcon.value,
-                                    }))
+                                    dispatchSectionState({
+                                      type: "update-add-provider-draft",
+                                      updater: (draft) => ({
+                                        ...draft,
+                                        badgeIcon: badgeIcon.value,
+                                      }),
+                                    })
                                   }
                                   aria-label={`Use ${badgeIcon.label} badge icon`}
                                 >
@@ -1517,10 +1606,13 @@ export function ProviderSettingsSection({
                                     selectedColor && "border-foreground/75",
                                   )}
                                   onClick={() =>
-                                    setAddProviderDraft((draft) => ({
-                                      ...draft,
-                                      badgeColor: badgeColor.value,
-                                    }))
+                                    dispatchSectionState({
+                                      type: "update-add-provider-draft",
+                                      updater: (draft) => ({
+                                        ...draft,
+                                        badgeColor: badgeColor.value,
+                                      }),
+                                    })
                                   }
                                   aria-label={`Use ${badgeColor.label} badge color`}
                                 >
@@ -1547,10 +1639,13 @@ export function ProviderSettingsSection({
                       className="mt-1"
                       value={addProviderDraft.binaryPath}
                       onChange={(event) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          binaryPath: event.target.value,
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            binaryPath: event.target.value,
+                          }),
+                        })
                       }
                       placeholder={addProviderCard?.binaryPlaceholder}
                       spellCheck={false}
@@ -1566,10 +1661,13 @@ export function ProviderSettingsSection({
                         className="mt-1"
                         value={addProviderDraft.pathValue}
                         onChange={(event) =>
-                          setAddProviderDraft((draft) => ({
-                            ...draft,
-                            pathValue: event.target.value,
-                          }))
+                          dispatchSectionState({
+                            type: "update-add-provider-draft",
+                            updater: (draft) => ({
+                              ...draft,
+                              pathValue: event.target.value,
+                            }),
+                          })
                         }
                         placeholder={addProviderCard?.homePlaceholder}
                         spellCheck={false}
@@ -1586,10 +1684,13 @@ export function ProviderSettingsSection({
                         className="mt-1"
                         value={addProviderDraft.cliUrl}
                         onChange={(event) =>
-                          setAddProviderDraft((draft) => ({
-                            ...draft,
-                            cliUrl: event.target.value,
-                          }))
+                          dispatchSectionState({
+                            type: "update-add-provider-draft",
+                            updater: (draft) => ({
+                              ...draft,
+                              cliUrl: event.target.value,
+                            }),
+                          })
                         }
                         placeholder={addProviderCard?.cliUrlPlaceholder}
                         spellCheck={false}
@@ -1605,10 +1706,13 @@ export function ProviderSettingsSection({
                     size="sm"
                     value={addProviderDraft.launchEnvText}
                     onChange={(event) =>
-                      setAddProviderDraft((draft) => ({
-                        ...draft,
-                        launchEnvText: event.target.value,
-                      }))
+                      dispatchSectionState({
+                        type: "update-add-provider-draft",
+                        updater: (draft) => ({
+                          ...draft,
+                          launchEnvText: event.target.value,
+                        }),
+                      })
                     }
                     placeholder={
                       addProviderDraft.provider === "gemini" ? "GEMINI_API_KEY=..." : "KEY=value"

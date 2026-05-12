@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   type DesktopCliInstallState,
   type ProviderKind,
@@ -199,6 +199,111 @@ const LSP_INSTALLER_LABELS: Record<ServerLspToolInstaller, string> = {
 };
 
 const EMPTY_LSP_TOOL_LIST: readonly ServerLspToolStatus[] = [];
+const EMPTY_LSP_CUSTOM_FORM = {
+  installer: "npm" as ServerLspToolInstaller,
+  packageName: "",
+  command: "",
+  label: "",
+  args: "",
+  languageIds: "",
+  fileExtensions: "",
+  fileNames: "",
+};
+
+type SettingsNotificationState = {
+  notificationPermission: AgentAttentionNotificationPermission;
+  isUpdatingNotificationPermission: boolean;
+};
+
+type SettingsNotificationAction =
+  | { type: "set-permission"; notificationPermission: AgentAttentionNotificationPermission }
+  | { type: "set-updating"; isUpdatingNotificationPermission: boolean };
+
+function settingsNotificationStateReducer(
+  state: SettingsNotificationState,
+  action: SettingsNotificationAction,
+): SettingsNotificationState {
+  switch (action.type) {
+    case "set-permission":
+      return state.notificationPermission === action.notificationPermission
+        ? state
+        : { ...state, notificationPermission: action.notificationPermission };
+    case "set-updating":
+      return state.isUpdatingNotificationPermission === action.isUpdatingNotificationPermission
+        ? state
+        : { ...state, isUpdatingNotificationPermission: action.isUpdatingNotificationPermission };
+  }
+}
+
+type SettingsLspState = {
+  lspToolsStatus: ServerLspToolsStatus | null;
+  lspToolsError: string | null;
+  isInstallingLspTools: boolean;
+  lspCatalogQuery: string;
+  lspCatalogCategory: "all" | ServerLspToolStatus["category"];
+  isInstallingCustomLsp: boolean;
+  lspInstallTargetId: string | null;
+  isLspCustomFormOpen: boolean;
+  lspCustomForm: typeof EMPTY_LSP_CUSTOM_FORM;
+};
+
+type SettingsLspAction =
+  | { type: "set-tools-status"; lspToolsStatus: ServerLspToolsStatus | null }
+  | { type: "set-tools-error"; lspToolsError: string | null }
+  | { type: "set-installing-tools"; isInstallingLspTools: boolean }
+  | { type: "set-catalog-query"; lspCatalogQuery: string }
+  | { type: "set-catalog-category"; lspCatalogCategory: "all" | ServerLspToolStatus["category"] }
+  | { type: "set-installing-custom"; isInstallingCustomLsp: boolean }
+  | { type: "set-install-target-id"; lspInstallTargetId: string | null }
+  | { type: "set-custom-form-open"; isLspCustomFormOpen: boolean }
+  | { type: "set-custom-form"; lspCustomForm: typeof EMPTY_LSP_CUSTOM_FORM }
+  | { type: "update-custom-form"; lspCustomForm: Partial<typeof EMPTY_LSP_CUSTOM_FORM> };
+
+function settingsLspStateReducer(
+  state: SettingsLspState,
+  action: SettingsLspAction,
+): SettingsLspState {
+  switch (action.type) {
+    case "set-tools-status":
+      return state.lspToolsStatus === action.lspToolsStatus
+        ? state
+        : { ...state, lspToolsStatus: action.lspToolsStatus };
+    case "set-tools-error":
+      return state.lspToolsError === action.lspToolsError
+        ? state
+        : { ...state, lspToolsError: action.lspToolsError };
+    case "set-installing-tools":
+      return state.isInstallingLspTools === action.isInstallingLspTools
+        ? state
+        : { ...state, isInstallingLspTools: action.isInstallingLspTools };
+    case "set-catalog-query":
+      return state.lspCatalogQuery === action.lspCatalogQuery
+        ? state
+        : { ...state, lspCatalogQuery: action.lspCatalogQuery };
+    case "set-catalog-category":
+      return state.lspCatalogCategory === action.lspCatalogCategory
+        ? state
+        : { ...state, lspCatalogCategory: action.lspCatalogCategory };
+    case "set-installing-custom":
+      return state.isInstallingCustomLsp === action.isInstallingCustomLsp
+        ? state
+        : { ...state, isInstallingCustomLsp: action.isInstallingCustomLsp };
+    case "set-install-target-id":
+      return state.lspInstallTargetId === action.lspInstallTargetId
+        ? state
+        : { ...state, lspInstallTargetId: action.lspInstallTargetId };
+    case "set-custom-form-open":
+      return state.isLspCustomFormOpen === action.isLspCustomFormOpen
+        ? state
+        : { ...state, isLspCustomFormOpen: action.isLspCustomFormOpen };
+    case "set-custom-form":
+      return state.lspCustomForm === action.lspCustomForm
+        ? state
+        : { ...state, lspCustomForm: action.lspCustomForm };
+    case "update-custom-form":
+      return { ...state, lspCustomForm: { ...state.lspCustomForm, ...action.lspCustomForm } };
+  }
+}
 
 function getLspToolSearchText(tool: ServerLspToolStatus): string {
   return [
@@ -903,11 +1008,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const [notificationPermission, setNotificationPermission] =
-    useState<AgentAttentionNotificationPermission>(() =>
-      isElectron ? "default" : readAgentAttentionNotificationPermission(),
-    );
-  const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
+  const [notificationState, dispatchNotificationState] = useReducer(
+    settingsNotificationStateReducer,
+    undefined,
+    (): SettingsNotificationState => ({
+      notificationPermission: isElectron ? "default" : readAgentAttentionNotificationPermission(),
+      isUpdatingNotificationPermission: false,
+    }),
+  );
+  const { notificationPermission, isUpdatingNotificationPermission } = notificationState;
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -924,35 +1033,28 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [upgradingRuntimeKey, setUpgradingRuntimeKey] = useState<string | null>(null);
-  const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
-  const [lspToolsError, setLspToolsError] = useState<string | null>(null);
-  const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
-  const [lspCatalogQuery, setLspCatalogQuery] = useState("");
-  const [lspCatalogCategory, setLspCatalogCategory] = useState<
-    "all" | ServerLspToolStatus["category"]
-  >("all");
-  const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
-  const [lspInstallTargetId, setLspInstallTargetId] = useState<string | null>(null);
-  const [isLspCustomFormOpen, setIsLspCustomFormOpen] = useState(false);
-  const [lspCustomForm, setLspCustomForm] = useState<{
-    installer: ServerLspToolInstaller;
-    packageName: string;
-    command: string;
-    label: string;
-    args: string;
-    languageIds: string;
-    fileExtensions: string;
-    fileNames: string;
-  }>({
-    installer: "npm",
-    packageName: "",
-    command: "",
-    label: "",
-    args: "",
-    languageIds: "",
-    fileExtensions: "",
-    fileNames: "",
+  const [lspState, dispatchLspState] = useReducer(settingsLspStateReducer, {
+    lspToolsStatus: null,
+    lspToolsError: null,
+    isInstallingLspTools: false,
+    lspCatalogQuery: "",
+    lspCatalogCategory: "all",
+    isInstallingCustomLsp: false,
+    lspInstallTargetId: null,
+    isLspCustomFormOpen: false,
+    lspCustomForm: EMPTY_LSP_CUSTOM_FORM,
   });
+  const {
+    lspToolsStatus,
+    lspToolsError,
+    isInstallingLspTools,
+    lspCatalogQuery,
+    lspCatalogCategory,
+    isInstallingCustomLsp,
+    lspInstallTargetId,
+    isLspCustomFormOpen,
+    lspCustomForm,
+  } = lspState;
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -1050,7 +1152,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return Promise.resolve<AgentAttentionNotificationPermission>("unsupported");
     }
     return readSettingsNotificationPermission().then((permission) => {
-      setNotificationPermission(permission);
+      dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
       return permission;
     });
   }, []);
@@ -1062,10 +1164,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const syncPermission = () => {
       void readSettingsNotificationPermission()
         .then((permission) => {
-          setNotificationPermission(permission);
+          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
         })
         .catch(() => {
-          setNotificationPermission("unsupported");
+          dispatchNotificationState({
+            type: "set-permission",
+            notificationPermission: "unsupported",
+          });
         });
     };
     syncPermission();
@@ -1094,7 +1199,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   }, []);
 
   const handleSendNotificationTest = useCallback(() => {
-    setIsUpdatingNotificationPermission(true);
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void refreshNotificationPermission()
       .then(async (permission) => {
         if (permission !== "granted") {
@@ -1134,17 +1239,17 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       })
       .finally(() => {
         void refreshNotificationPermission();
-        setIsUpdatingNotificationPermission(false);
+        dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: false });
       });
   }, [refreshNotificationPermission, sendNotificationProbe]);
 
   const enableNotifications = useCallback(
     (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
-      setIsUpdatingNotificationPermission(true);
+      dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
 
       void requestSettingsNotificationPermission()
         .then(async (permission) => {
-          setNotificationPermission(permission);
+          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
           if (permission === "granted") {
             await sendNotificationProbe();
             if (enabledKeys && enabledKeys.length > 0) {
@@ -1191,7 +1296,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         })
         .finally(() => {
           void refreshNotificationPermission();
-          setIsUpdatingNotificationPermission(false);
+          dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: false });
         });
     },
     [
@@ -1219,7 +1324,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
       return;
     }
-    setIsUpdatingNotificationPermission(true);
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void (window.desktopBridge?.openExternal(targetUrl) ?? Promise.resolve(false))
       .then((opened) => {
         if (!opened) {
@@ -1232,7 +1337,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         void refreshNotificationPermission();
       })
       .finally(() => {
-        setIsUpdatingNotificationPermission(false);
+        dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: false });
       });
   }, [refreshNotificationPermission]);
 

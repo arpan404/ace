@@ -693,7 +693,6 @@ function EventRouter() {
     let pendingDomainEventMicrotaskVersion = 0;
     let pendingDomainEventFlushHandle:
       | { kind: "animation-frame"; handle: number }
-      | { kind: "timeout"; handle: ReturnType<typeof setTimeout> }
       | { kind: "microtask"; handle: number }
       | null = null;
     let reconnectRecoveryRequested = false;
@@ -809,8 +808,6 @@ function EventRouter() {
       }
       if (pendingDomainEventFlushHandle.kind === "animation-frame") {
         cancelAnimationFrame(pendingDomainEventFlushHandle.handle);
-      } else if (pendingDomainEventFlushHandle.kind === "timeout") {
-        clearTimeout(pendingDomainEventFlushHandle.handle);
       }
       pendingDomainEventFlushHandle = null;
       flushPendingDomainEventsScheduled = false;
@@ -860,12 +857,22 @@ function EventRouter() {
         };
         return;
       }
+      const handle = pendingDomainEventMicrotaskVersion + 1;
+      pendingDomainEventMicrotaskVersion = handle;
       pendingDomainEventFlushHandle = {
-        kind: "timeout",
-        handle: setTimeout(() => {
-          flushPendingDomainEvents();
-        }, 16),
+        kind: "microtask",
+        handle,
       };
+      queueMicrotask(() => {
+        if (
+          !flushPendingDomainEventsScheduled ||
+          pendingDomainEventFlushHandle?.kind !== "microtask" ||
+          pendingDomainEventFlushHandle.handle !== handle
+        ) {
+          return;
+        }
+        flushPendingDomainEvents();
+      });
     };
 
     const recoverFromReplay = async (

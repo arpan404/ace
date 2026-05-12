@@ -3,7 +3,7 @@ import {
   type ServerUpsertKeybindingResult,
   type StaticKeybindingCommand,
 } from "@ace/contracts";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useCallback, useMemo, useReducer } from "react";
 import { ensureNativeApi } from "~/nativeApi";
 import {
   effectiveBindingForCommand,
@@ -54,13 +54,6 @@ function shortcutValueFingerprint(shortcut: KeybindingShortcut | null | undefine
 export function KeybindingsSettingsEditor() {
   const keybindings = useServerKeybindings();
   const platform = typeof navigator === "undefined" ? "unknown" : navigator.platform;
-  const [draftShortcuts, setDraftShortcuts] = useState<DraftShortcutByCommand>({});
-  const [draftWhenByCommand, setDraftWhenByCommand] = useState<DraftWhenByCommand>({});
-  const [expandedGroups, setExpandedGroups] = useState<
-    Partial<Record<KeybindingCategory, boolean>>
-  >({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const initialByCommand = useMemo(() => {
     const nextShortcuts: DraftShortcutByCommand = {};
@@ -81,12 +74,112 @@ export function KeybindingsSettingsEditor() {
       whenByCommand: nextWhenByCommand,
     };
   }, [keybindings]);
+  const editorStateKey = useMemo(
+    () =>
+      KEYBINDING_COMMAND_DEFINITIONS.map((definition) => {
+        const shortcut = shortcutValueFingerprint(initialByCommand.shortcuts[definition.command]);
+        const when = initialByCommand.whenByCommand[definition.command] ?? "";
+        return `${definition.command}:${shortcut ?? ""}:${when}`;
+      }).join("|"),
+    [initialByCommand],
+  );
 
-  useEffect(() => {
-    setDraftShortcuts(initialByCommand.shortcuts);
-    setDraftWhenByCommand(initialByCommand.whenByCommand);
-    setSaveError(null);
-  }, [initialByCommand]);
+  return (
+    <KeybindingsSettingsEditorContent
+      key={editorStateKey}
+      initialByCommand={initialByCommand}
+      keybindings={keybindings}
+      platform={platform}
+    />
+  );
+}
+
+type KeybindingsSettingsEditorState = {
+  draftShortcuts: DraftShortcutByCommand;
+  draftWhenByCommand: DraftWhenByCommand;
+  expandedGroups: Partial<Record<KeybindingCategory, boolean>>;
+  isSaving: boolean;
+  saveError: string | null;
+};
+
+type KeybindingsSettingsEditorAction =
+  | { type: "set-shortcut"; command: StaticKeybindingCommand; value: KeybindingShortcut | null }
+  | { type: "toggle-group"; group: KeybindingCategory }
+  | { type: "start-saving" }
+  | { type: "finish-saving" }
+  | { type: "set-save-error"; value: string | null }
+  | {
+      type: "revert";
+      initialByCommand: { shortcuts: DraftShortcutByCommand; whenByCommand: DraftWhenByCommand };
+    };
+
+function createKeybindingsSettingsEditorState(initialByCommand: {
+  shortcuts: DraftShortcutByCommand;
+  whenByCommand: DraftWhenByCommand;
+}): KeybindingsSettingsEditorState {
+  return {
+    draftShortcuts: initialByCommand.shortcuts,
+    draftWhenByCommand: initialByCommand.whenByCommand,
+    expandedGroups: {},
+    isSaving: false,
+    saveError: null,
+  };
+}
+
+function keybindingsSettingsEditorReducer(
+  state: KeybindingsSettingsEditorState,
+  action: KeybindingsSettingsEditorAction,
+): KeybindingsSettingsEditorState {
+  switch (action.type) {
+    case "set-shortcut":
+      return {
+        ...state,
+        draftShortcuts: {
+          ...state.draftShortcuts,
+          [action.command]: action.value,
+        },
+      };
+    case "toggle-group":
+      return {
+        ...state,
+        expandedGroups: {
+          ...state.expandedGroups,
+          [action.group]: !state.expandedGroups[action.group],
+        },
+      };
+    case "start-saving":
+      return { ...state, isSaving: true, saveError: null };
+    case "finish-saving":
+      return { ...state, isSaving: false };
+    case "set-save-error":
+      return { ...state, saveError: action.value };
+    case "revert":
+      return {
+        ...state,
+        draftShortcuts: action.initialByCommand.shortcuts,
+        draftWhenByCommand: action.initialByCommand.whenByCommand,
+        saveError: null,
+      };
+    default:
+      return state;
+  }
+}
+
+function KeybindingsSettingsEditorContent(props: {
+  initialByCommand: {
+    shortcuts: DraftShortcutByCommand;
+    whenByCommand: DraftWhenByCommand;
+  };
+  keybindings: ReturnType<typeof useServerKeybindings>;
+  platform: string;
+}) {
+  const { initialByCommand, keybindings, platform } = props;
+  const [state, dispatch] = useReducer(
+    keybindingsSettingsEditorReducer,
+    initialByCommand,
+    createKeybindingsSettingsEditorState,
+  );
+  const { draftShortcuts, draftWhenByCommand, expandedGroups, isSaving, saveError } = state;
 
   const dirtyCommands = useMemo(
     () =>
@@ -174,27 +267,24 @@ export function KeybindingsSettingsEditor() {
       event.preventDefault();
 
       if (event.key === "Backspace" || event.key === "Delete") {
-        setDraftShortcuts((previous) => ({ ...previous, [command]: null }));
+        dispatch({ type: "set-shortcut", command, value: null });
         return;
       }
 
       const shortcut = shortcutFromKeyboardEvent(event);
       if (!shortcut) return;
-      setDraftShortcuts((previous) => ({ ...previous, [command]: shortcut }));
+      dispatch({ type: "set-shortcut", command, value: shortcut });
     },
     [],
   );
 
   const revertChanges = useCallback(() => {
-    setDraftShortcuts(initialByCommand.shortcuts);
-    setDraftWhenByCommand(initialByCommand.whenByCommand);
-    setSaveError(null);
+    dispatch({ type: "revert", initialByCommand });
   }, [initialByCommand.shortcuts, initialByCommand.whenByCommand]);
 
   const saveChanges = useCallback(async () => {
     if (!canSave) return;
-    setIsSaving(true);
-    setSaveError(null);
+    dispatch({ type: "start-saving" });
     try {
       const api = ensureNativeApi();
       let latestResult: ServerUpsertKeybindingResult | null = null;
@@ -225,9 +315,12 @@ export function KeybindingsSettingsEditor() {
         description: "Keyboard shortcuts were updated.",
       });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Unable to save keybindings.");
+      dispatch({
+        type: "set-save-error",
+        value: error instanceof Error ? error.message : "Unable to save keybindings.",
+      });
     } finally {
-      setIsSaving(false);
+      dispatch({ type: "finish-saving" });
     }
   }, [canSave, dirtyCommands, draftShortcuts, draftWhenByCommand]);
 
@@ -311,12 +404,7 @@ export function KeybindingsSettingsEditor() {
                   type="button"
                   size="xs"
                   variant="ghost"
-                  onClick={() =>
-                    setExpandedGroups((previous) => ({
-                      ...previous,
-                      [group.category]: !previous[group.category],
-                    }))
-                  }
+                  onClick={() => dispatch({ type: "toggle-group", group: group.category })}
                 >
                   {expandedGroups[group.category] ? "Show less" : "Show more"}
                 </Button>

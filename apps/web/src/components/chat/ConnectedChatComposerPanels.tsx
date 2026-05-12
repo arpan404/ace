@@ -31,6 +31,7 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -96,6 +97,16 @@ const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 const EMPTY_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
+
+interface ComposerLayoutState {
+  readonly footerCompact: boolean;
+  readonly primaryActionsCompact: boolean;
+}
+
+const EMPTY_COMPOSER_LAYOUT_STATE: ComposerLayoutState = {
+  footerCompact: false,
+  primaryActionsCompact: false,
+};
 
 function normalizeSlashCommandName(name: string): string {
   return name
@@ -353,8 +364,18 @@ export const ConnectedChatComposerPanels = memo(
       const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger | null>(() =>
         detectComposerTrigger(prompt, prompt.length),
       );
-      const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
-      const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
+      const [composerLayoutState, setComposerLayoutState] = useReducer(
+        (current: ComposerLayoutState, next: ComposerLayoutState): ComposerLayoutState =>
+          current.footerCompact === next.footerCompact &&
+          current.primaryActionsCompact === next.primaryActionsCompact
+            ? current
+            : next,
+        EMPTY_COMPOSER_LAYOUT_STATE,
+      );
+      const {
+        footerCompact: isComposerFooterCompact,
+        primaryActionsCompact: isComposerPrimaryActionsCompact,
+      } = composerLayoutState;
       const dragDepthRef = useRef(0);
       const promptRef = useRef(prompt);
       const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
@@ -1342,8 +1363,7 @@ export const ConnectedChatComposerPanels = memo(
 
         composerFormHeightRef.current = composerForm.getBoundingClientRect().height;
         const initialCompactness = measureFooterCompactness();
-        setIsComposerPrimaryActionsCompact(initialCompactness.primaryActionsCompact);
-        setIsComposerFooterCompact(initialCompactness.footerCompact);
+        setComposerLayoutState(initialCompactness);
         if (typeof ResizeObserver === "undefined") return;
 
         let pendingComposerHeight: number | null = null;
@@ -1352,14 +1372,7 @@ export const ConnectedChatComposerPanels = memo(
         const applyComposerMeasurement = () => {
           frameId = null;
           const nextCompactness = measureFooterCompactness();
-          setIsComposerPrimaryActionsCompact((previous) =>
-            previous === nextCompactness.primaryActionsCompact
-              ? previous
-              : nextCompactness.primaryActionsCompact,
-          );
-          setIsComposerFooterCompact((previous) =>
-            previous === nextCompactness.footerCompact ? previous : nextCompactness.footerCompact,
-          );
+          setComposerLayoutState(nextCompactness);
           const nextHeight = pendingComposerHeight;
           pendingComposerHeight = null;
           if (nextHeight === null) return;

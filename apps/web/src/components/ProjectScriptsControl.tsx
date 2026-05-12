@@ -11,7 +11,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useState } from "react";
+import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useReducer } from "react";
 
 import {
   keybindingValueForCommand,
@@ -110,6 +110,141 @@ interface ProjectScriptsControlProps {
   onDeleteScript: (scriptId: string) => Promise<void> | void;
 }
 
+type ProjectScriptDialogState = {
+  editingScriptId: string | null;
+  dialogOpen: boolean;
+  name: string;
+  command: string;
+  icon: ProjectScriptIcon;
+  iconPickerOpen: boolean;
+  runOnWorktreeCreate: boolean;
+  keybinding: string;
+  validationError: string | null;
+  deleteConfirmOpen: boolean;
+};
+
+type ProjectScriptDialogAction =
+  | { type: "set-editing-script-id"; editingScriptId: string | null }
+  | { type: "set-dialog-open"; dialogOpen: boolean }
+  | { type: "set-name"; name: string }
+  | { type: "set-command"; command: string }
+  | { type: "set-icon"; icon: ProjectScriptIcon }
+  | { type: "set-icon-picker-open"; iconPickerOpen: boolean }
+  | { type: "set-run-on-worktree-create"; runOnWorktreeCreate: boolean }
+  | { type: "set-keybinding"; keybinding: string }
+  | { type: "set-validation-error"; validationError: string | null }
+  | { type: "set-delete-confirm-open"; deleteConfirmOpen: boolean }
+  | { type: "open-add-dialog" }
+  | {
+      type: "open-edit-dialog";
+      editingScriptId: string;
+      name: string;
+      command: string;
+      icon: ProjectScriptIcon;
+      runOnWorktreeCreate: boolean;
+      keybinding: string;
+    }
+  | { type: "close-dialog" }
+  | { type: "reset-dialog-form" };
+
+const EMPTY_PROJECT_SCRIPT_DIALOG_STATE: ProjectScriptDialogState = {
+  editingScriptId: null,
+  dialogOpen: false,
+  name: "",
+  command: "",
+  icon: "play",
+  iconPickerOpen: false,
+  runOnWorktreeCreate: false,
+  keybinding: "",
+  validationError: null,
+  deleteConfirmOpen: false,
+};
+
+function projectScriptDialogStateReducer(
+  state: ProjectScriptDialogState,
+  action: ProjectScriptDialogAction,
+): ProjectScriptDialogState {
+  switch (action.type) {
+    case "set-editing-script-id":
+      return state.editingScriptId === action.editingScriptId
+        ? state
+        : { ...state, editingScriptId: action.editingScriptId };
+    case "set-dialog-open":
+      return state.dialogOpen === action.dialogOpen
+        ? state
+        : { ...state, dialogOpen: action.dialogOpen };
+    case "set-name":
+      return state.name === action.name ? state : { ...state, name: action.name };
+    case "set-command":
+      return state.command === action.command ? state : { ...state, command: action.command };
+    case "set-icon":
+      return state.icon === action.icon ? state : { ...state, icon: action.icon };
+    case "set-icon-picker-open":
+      return state.iconPickerOpen === action.iconPickerOpen
+        ? state
+        : { ...state, iconPickerOpen: action.iconPickerOpen };
+    case "set-run-on-worktree-create":
+      return state.runOnWorktreeCreate === action.runOnWorktreeCreate
+        ? state
+        : { ...state, runOnWorktreeCreate: action.runOnWorktreeCreate };
+    case "set-keybinding":
+      return state.keybinding === action.keybinding
+        ? state
+        : { ...state, keybinding: action.keybinding };
+    case "set-validation-error":
+      return state.validationError === action.validationError
+        ? state
+        : { ...state, validationError: action.validationError };
+    case "set-delete-confirm-open":
+      return state.deleteConfirmOpen === action.deleteConfirmOpen
+        ? state
+        : { ...state, deleteConfirmOpen: action.deleteConfirmOpen };
+    case "open-add-dialog":
+      return {
+        ...EMPTY_PROJECT_SCRIPT_DIALOG_STATE,
+        dialogOpen: true,
+      };
+    case "open-edit-dialog":
+      return {
+        ...state,
+        editingScriptId: action.editingScriptId,
+        dialogOpen: true,
+        name: action.name,
+        command: action.command,
+        icon: action.icon,
+        iconPickerOpen: false,
+        runOnWorktreeCreate: action.runOnWorktreeCreate,
+        keybinding: action.keybinding,
+        validationError: null,
+      };
+    case "close-dialog":
+      return state.dialogOpen || state.iconPickerOpen
+        ? { ...state, dialogOpen: false, iconPickerOpen: false }
+        : state;
+    case "reset-dialog-form":
+      return state.editingScriptId === null &&
+        state.name === "" &&
+        state.command === "" &&
+        state.icon === "play" &&
+        state.iconPickerOpen === false &&
+        state.runOnWorktreeCreate === false &&
+        state.keybinding === "" &&
+        state.validationError === null
+        ? state
+        : {
+            ...state,
+            editingScriptId: null,
+            name: "",
+            command: "",
+            icon: "play",
+            iconPickerOpen: false,
+            runOnWorktreeCreate: false,
+            keybinding: "",
+            validationError: null,
+          };
+  }
+}
+
 export default function ProjectScriptsControl({
   scripts,
   keybindings,
@@ -120,16 +255,22 @@ export default function ProjectScriptsControl({
   onDeleteScript,
 }: ProjectScriptsControlProps) {
   const addScriptFormId = React.useId();
-  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [command, setCommand] = useState("");
-  const [icon, setIcon] = useState<ProjectScriptIcon>("play");
-  const [iconPickerOpen, setIconPickerOpen] = useState(false);
-  const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(false);
-  const [keybinding, setKeybinding] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [dialogState, dispatchDialogState] = useReducer(
+    projectScriptDialogStateReducer,
+    EMPTY_PROJECT_SCRIPT_DIALOG_STATE,
+  );
+  const {
+    editingScriptId,
+    dialogOpen,
+    name,
+    command,
+    icon,
+    iconPickerOpen,
+    runOnWorktreeCreate,
+    keybinding,
+    validationError,
+    deleteConfirmOpen,
+  } = dialogState;
 
   const primaryScript = useMemo(() => {
     if (preferredScriptId) {
@@ -146,12 +287,12 @@ export default function ProjectScriptsControl({
     if (event.key === "Tab") return;
     event.preventDefault();
     if (event.key === "Backspace" || event.key === "Delete") {
-      setKeybinding("");
+      dispatchDialogState({ type: "set-keybinding", keybinding: "" });
       return;
     }
     const nextShortcut = shortcutFromKeyboardEvent(event);
     if (!nextShortcut) return;
-    setKeybinding(encodeShortcutValue(nextShortcut));
+    dispatchDialogState({ type: "set-keybinding", keybinding: encodeShortcutValue(nextShortcut) });
   };
 
   const submitAddScript = async (event: FormEvent) => {
@@ -159,15 +300,18 @@ export default function ProjectScriptsControl({
     const trimmedName = name.trim();
     const trimmedCommand = command.trim();
     if (trimmedName.length === 0) {
-      setValidationError("Name is required.");
+      dispatchDialogState({ type: "set-validation-error", validationError: "Name is required." });
       return;
     }
     if (trimmedCommand.length === 0) {
-      setValidationError("Command is required.");
+      dispatchDialogState({
+        type: "set-validation-error",
+        validationError: "Command is required.",
+      });
       return;
     }
 
-    setValidationError(null);
+    dispatchDialogState({ type: "set-validation-error", validationError: null });
     try {
       const scriptIdForValidation =
         editingScriptId ??
@@ -191,41 +335,35 @@ export default function ProjectScriptsControl({
       } else {
         await onAddScript(payload);
       }
-      setDialogOpen(false);
-      setIconPickerOpen(false);
+      dispatchDialogState({ type: "close-dialog" });
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : "Failed to save action.");
+      dispatchDialogState({
+        type: "set-validation-error",
+        validationError: error instanceof Error ? error.message : "Failed to save action.",
+      });
     }
   };
 
   const openAddDialog = () => {
-    setEditingScriptId(null);
-    setName("");
-    setCommand("");
-    setIcon("play");
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(false);
-    setKeybinding("");
-    setValidationError(null);
-    setDialogOpen(true);
+    dispatchDialogState({ type: "open-add-dialog" });
   };
 
   const openEditDialog = (script: ProjectScript) => {
-    setEditingScriptId(script.id);
-    setName(script.name);
-    setCommand(script.command);
-    setIcon(script.icon);
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(script.runOnWorktreeCreate);
-    setKeybinding(keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "");
-    setValidationError(null);
-    setDialogOpen(true);
+    dispatchDialogState({
+      type: "open-edit-dialog",
+      editingScriptId: script.id,
+      name: script.name,
+      command: script.command,
+      icon: script.icon,
+      runOnWorktreeCreate: script.runOnWorktreeCreate,
+      keybinding: keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "",
+    });
   };
 
   const confirmDeleteScript = useCallback(() => {
     if (!editingScriptId) return;
-    setDeleteConfirmOpen(false);
-    setDialogOpen(false);
+    dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: false });
+    dispatchDialogState({ type: "close-dialog" });
     void onDeleteScript(editingScriptId);
   }, [editingScriptId, onDeleteScript]);
 
@@ -349,20 +487,14 @@ export default function ProjectScriptsControl({
 
       <Dialog
         onOpenChange={(open) => {
-          setDialogOpen(open);
+          dispatchDialogState({ type: "set-dialog-open", dialogOpen: open });
           if (!open) {
-            setIconPickerOpen(false);
+            dispatchDialogState({ type: "set-icon-picker-open", iconPickerOpen: false });
           }
         }}
         onOpenChangeComplete={(open) => {
           if (open) return;
-          setEditingScriptId(null);
-          setName("");
-          setCommand("");
-          setIcon("play");
-          setRunOnWorktreeCreate(false);
-          setKeybinding("");
-          setValidationError(null);
+          dispatchDialogState({ type: "reset-dialog-form" });
         }}
         open={dialogOpen}
       >
@@ -380,7 +512,12 @@ export default function ProjectScriptsControl({
                   Name
                 </Label>
                 <div className="flex items-center gap-2">
-                  <Popover onOpenChange={setIconPickerOpen} open={iconPickerOpen}>
+                  <Popover
+                    onOpenChange={(open) =>
+                      dispatchDialogState({ type: "set-icon-picker-open", iconPickerOpen: open })
+                    }
+                    open={iconPickerOpen}
+                  >
                     <PopoverTrigger
                       render={
                         <Button
@@ -407,8 +544,11 @@ export default function ProjectScriptsControl({
                                   : "border-border/50 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
                               }`}
                               onClick={() => {
-                                setIcon(entry.id);
-                                setIconPickerOpen(false);
+                                dispatchDialogState({ type: "set-icon", icon: entry.id });
+                                dispatchDialogState({
+                                  type: "set-icon-picker-open",
+                                  iconPickerOpen: false,
+                                });
                               }}
                             >
                               <ScriptIcon icon={entry.id} className="size-4" />
@@ -425,7 +565,9 @@ export default function ProjectScriptsControl({
                     placeholder="Test"
                     value={name}
                     className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) =>
+                      dispatchDialogState({ type: "set-name", name: event.target.value })
+                    }
                   />
                 </div>
               </div>
@@ -449,7 +591,9 @@ export default function ProjectScriptsControl({
                       size="icon-sm"
                       className="absolute top-1/2 right-1 size-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                       aria-label="Clear keybinding"
-                      onClick={() => setKeybinding("")}
+                      onClick={() =>
+                        dispatchDialogState({ type: "set-keybinding", keybinding: "" })
+                      }
                     >
                       <XIcon className="size-3.5" />
                     </Button>
@@ -466,7 +610,9 @@ export default function ProjectScriptsControl({
                   placeholder="bun test"
                   value={command}
                   className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-28 font-mono text-[13px]`}
-                  onChange={(event) => setCommand(event.target.value)}
+                  onChange={(event) =>
+                    dispatchDialogState({ type: "set-command", command: event.target.value })
+                  }
                 />
               </div>
               <label
@@ -475,7 +621,12 @@ export default function ProjectScriptsControl({
                 <span>Run automatically on worktree creation</span>
                 <Switch
                   checked={runOnWorktreeCreate}
-                  onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
+                  onCheckedChange={(checked) =>
+                    dispatchDialogState({
+                      type: "set-run-on-worktree-create",
+                      runOnWorktreeCreate: Boolean(checked),
+                    })
+                  }
                 />
               </label>
               {validationError && <p className="text-sm text-destructive">{validationError}</p>}
@@ -487,7 +638,9 @@ export default function ProjectScriptsControl({
                 type="button"
                 variant="destructive"
                 className="mr-auto"
-                onClick={() => setDeleteConfirmOpen(true)}
+                onClick={() =>
+                  dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: true })
+                }
               >
                 Delete
               </Button>
@@ -496,7 +649,7 @@ export default function ProjectScriptsControl({
               type="button"
               variant="outline"
               onClick={() => {
-                setDialogOpen(false);
+                dispatchDialogState({ type: "close-dialog" });
               }}
             >
               Cancel
@@ -508,7 +661,12 @@ export default function ProjectScriptsControl({
         </DialogPopup>
       </Dialog>
 
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) =>
+          dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: open })
+        }
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete action "{name}"?</AlertDialogTitle>

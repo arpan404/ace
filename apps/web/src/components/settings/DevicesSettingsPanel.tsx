@@ -12,7 +12,15 @@ import {
 import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 import { describeHostConnection } from "@ace/shared/hostConnections";
 import QRCode from "qrcode";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
 import { isElectron } from "../../env";
@@ -103,6 +111,47 @@ const EMPTY_HOST_DRAFT: HostDraftState = {
   iconGlyph: "folder",
   iconColor: "slate",
 };
+
+interface PairingUiState {
+  readonly pairingLink: PairingLinkState | null;
+  readonly pairingSessionStatus: HostPairingSessionStatus | null;
+  readonly creatingPairingLink: boolean;
+  readonly revokingPairingLink: boolean;
+}
+
+type PairingUiAction =
+  | { type: "set-pairing-link"; pairingLink: PairingLinkState | null }
+  | { type: "set-session-status"; pairingSessionStatus: HostPairingSessionStatus | null }
+  | { type: "set-creating"; creatingPairingLink: boolean }
+  | { type: "set-revoking"; revokingPairingLink: boolean };
+
+const EMPTY_PAIRING_UI_STATE: PairingUiState = {
+  pairingLink: null,
+  pairingSessionStatus: null,
+  creatingPairingLink: false,
+  revokingPairingLink: false,
+};
+
+function pairingUiStateReducer(state: PairingUiState, action: PairingUiAction): PairingUiState {
+  switch (action.type) {
+    case "set-pairing-link":
+      return state.pairingLink === action.pairingLink
+        ? state
+        : { ...state, pairingLink: action.pairingLink };
+    case "set-session-status":
+      return state.pairingSessionStatus === action.pairingSessionStatus
+        ? state
+        : { ...state, pairingSessionStatus: action.pairingSessionStatus };
+    case "set-creating":
+      return state.creatingPairingLink === action.creatingPairingLink
+        ? state
+        : { ...state, creatingPairingLink: action.creatingPairingLink };
+    case "set-revoking":
+      return state.revokingPairingLink === action.revokingPairingLink
+        ? state
+        : { ...state, revokingPairingLink: action.revokingPairingLink };
+  }
+}
 
 const URL_MODE_MAX_HOSTS = 1;
 
@@ -228,13 +277,12 @@ export function DevicesSettingsPanel() {
   const [refreshingLocalEndpoint, setRefreshingLocalEndpoint] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
   const [relayUrlDraft, setRelayUrlDraft] = useState(remoteRelaySettings.defaultUrl);
-  const [pairingLink, setPairingLink] = useState<PairingLinkState | null>(null);
-  const [creatingPairingLink, setCreatingPairingLink] = useState(false);
-  const [revokingPairingLink, setRevokingPairingLink] = useState(false);
-  const [pairingSessionStatus, setPairingSessionStatus] = useState<HostPairingSessionStatus | null>(
-    null,
+  const [pairingUiState, dispatchPairingUi] = useReducer(
+    pairingUiStateReducer,
+    EMPTY_PAIRING_UI_STATE,
   );
-  const [pendingDesktopPairingSignal, setPendingDesktopPairingSignal] = useState(0);
+  const { pairingLink, pairingSessionStatus, creatingPairingLink, revokingPairingLink } =
+    pairingUiState;
   const [pairedSessions, setPairedSessions] = useState<ReadonlyArray<HostPairingSessionSummary>>(
     [],
   );
@@ -251,7 +299,12 @@ export function DevicesSettingsPanel() {
   const [checkingHostId, setCheckingHostId] = useState<string | null>(null);
   const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
+  const importingHostRef = useRef(importingHost);
+  const pendingDesktopPairingCleanupRef = useRef<(() => void) | null>(null);
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
+  useEffect(() => {
+    importingHostRef.current = importingHost;
+  }, [importingHost]);
   useEffect(() => {
     setRelayUrlDraft(remoteRelaySettings.defaultUrl);
   }, [remoteRelaySettings.defaultUrl]);
@@ -464,19 +517,6 @@ export function DevicesSettingsPanel() {
     void refreshLocalEndpoint();
   }, [refreshLocalEndpoint]);
 
-  useEffect(() => {
-    if (!desktopMode) {
-      return;
-    }
-
-    const handlePendingPairingLink = () => {
-      setPendingDesktopPairingSignal((current) => current + 1);
-    };
-
-    handlePendingPairingLink();
-    return subscribeToDesktopPairingLinks(handlePendingPairingLink);
-  }, [desktopMode]);
-
   const upsertHost = useCallback(
     (
       draft: {
@@ -617,6 +657,69 @@ export function DevicesSettingsPanel() {
     [desktopMode, upsertHost],
   );
 
+  const consumePendingDesktopPairingLink = useCallback(() => {
+    if (!desktopMode || importingHostRef.current) {
+      return;
+    }
+    const pendingPairingLink = takePendingDesktopPairingLink();
+    if (!pendingPairingLink) {
+      return;
+    }
+    let active = true;
+    importingHostRef.current = true;
+    setImportingHost(true);
+    void importRemoteHostConnection(pendingPairingLink, {
+      requesterName: "ace desktop",
+    })
+      .then(() => {
+        if (!active) {
+          return;
+        }
+        toastManager.add({
+          type: "success",
+          title: "Pairing link imported.",
+        });
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        toastManager.add({
+          type: "error",
+          title: "Could not import pairing link.",
+          description: error instanceof Error ? error.message : "Pairing link import failed.",
+        });
+      })
+      .finally(() => {
+        pendingDesktopPairingCleanupRef.current = null;
+        if (active) {
+          importingHostRef.current = false;
+          setImportingHost(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [desktopMode, importRemoteHostConnection]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return;
+    }
+    pendingDesktopPairingCleanupRef.current = consumePendingDesktopPairingLink() ?? null;
+    const unsubscribe = subscribeToDesktopPairingLinks(() => {
+      if (pendingDesktopPairingCleanupRef.current !== null) {
+        return;
+      }
+      pendingDesktopPairingCleanupRef.current = consumePendingDesktopPairingLink() ?? null;
+    });
+    return () => {
+      pendingDesktopPairingCleanupRef.current?.();
+      pendingDesktopPairingCleanupRef.current = null;
+      unsubscribe();
+    };
+  }, [consumePendingDesktopPairingLink, desktopMode]);
+
   const addRemoteHost = useCallback(async () => {
     setImportingHost(true);
     try {
@@ -653,51 +756,6 @@ export function DevicesSettingsPanel() {
     hosts,
     importRemoteHostConnection,
   ]);
-
-  useEffect(() => {
-    if (!desktopMode || importingHost) {
-      return;
-    }
-
-    const pendingPairingLink = takePendingDesktopPairingLink();
-    if (!pendingPairingLink) {
-      return;
-    }
-
-    let active = true;
-    setImportingHost(true);
-    void importRemoteHostConnection(pendingPairingLink, {
-      requesterName: "ace desktop",
-    })
-      .then(() => {
-        if (!active) {
-          return;
-        }
-        toastManager.add({
-          type: "success",
-          title: "Pairing link imported.",
-        });
-      })
-      .catch((error) => {
-        if (!active) {
-          return;
-        }
-        toastManager.add({
-          type: "error",
-          title: "Could not import pairing link.",
-          description: error instanceof Error ? error.message : "Pairing link import failed.",
-        });
-      })
-      .finally(() => {
-        if (active) {
-          setImportingHost(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [desktopMode, importRemoteHostConnection, importingHost, pendingDesktopPairingSignal]);
 
   const startEditingHost = useCallback((host: RemoteHostInstance) => {
     setEditingHostId(host.id);
@@ -881,7 +939,7 @@ export function DevicesSettingsPanel() {
       });
       return;
     }
-    setCreatingPairingLink(true);
+    dispatchPairingUi({ type: "set-creating", creatingPairingLink: true });
     try {
       const created = await createHostPairingSession({
         wsUrl: localAdvertisedWsUrl,
@@ -905,13 +963,16 @@ export function DevicesSettingsPanel() {
         margin: 1,
         width: 220,
       });
-      setPairingLink({
-        sessionId: created.sessionId,
-        connectionString,
-        expiresAt: created.expiresAt,
-        qrDataUrl,
+      dispatchPairingUi({
+        type: "set-pairing-link",
+        pairingLink: {
+          sessionId: created.sessionId,
+          connectionString,
+          expiresAt: created.expiresAt,
+          qrDataUrl,
+        },
       });
-      setPairingSessionStatus(created);
+      dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: created });
       toastManager.add({
         type: "success",
         title: "Pairing link created.",
@@ -923,7 +984,7 @@ export function DevicesSettingsPanel() {
         description: error instanceof Error ? error.message : "Pairing link creation failed.",
       });
     } finally {
-      setCreatingPairingLink(false);
+      dispatchPairingUi({ type: "set-creating", creatingPairingLink: false });
     }
   }, [
     localAdvertisedWsUrl,
@@ -936,14 +997,14 @@ export function DevicesSettingsPanel() {
     if (!pairingLink) {
       return;
     }
-    setRevokingPairingLink(true);
+    dispatchPairingUi({ type: "set-revoking", revokingPairingLink: true });
     try {
       const revoked = await revokeHostPairingSession({
         wsUrl: localAdvertisedWsUrl,
         ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
         sessionId: pairingLink.sessionId,
       });
-      setPairingSessionStatus(revoked);
+      dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: revoked });
       toastManager.add({
         type: "success",
         title: "Pairing link revoked.",
@@ -955,13 +1016,13 @@ export function DevicesSettingsPanel() {
         description: error instanceof Error ? error.message : "Pairing link revoke failed.",
       });
     } finally {
-      setRevokingPairingLink(false);
+      dispatchPairingUi({ type: "set-revoking", revokingPairingLink: false });
     }
   }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLink]);
 
   useEffect(() => {
     if (!pairingLink) {
-      setPairingSessionStatus(null);
+      dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: null });
       return;
     }
     let cancelled = false;
@@ -976,11 +1037,11 @@ export function DevicesSettingsPanel() {
           sessionId: pairingLink.sessionId,
         });
         if (!cancelled) {
-          setPairingSessionStatus(status);
+          dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: status });
         }
       } catch {
         if (!cancelled) {
-          setPairingSessionStatus(null);
+          dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: null });
         }
       }
     };

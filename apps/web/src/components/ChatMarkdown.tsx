@@ -214,44 +214,37 @@ function InlineCodeLocalFileLink(props: {
     () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
     [props.code, props.cwd, props.enabled],
   );
-  const cachedExists = targetPath ? localFilePathExistsCache.get(targetPath) : undefined;
-  const [pathExists, setPathExists] = useState(cachedExists === true);
+  const cachedExists =
+    props.enabled && targetPath ? localFilePathExistsCache.get(targetPath) : undefined;
+  const [uncachedPathExists, setUncachedPathExists] = useState<boolean | null>(null);
+  const pathExists =
+    !props.enabled || !targetPath ? false : (cachedExists ?? uncachedPathExists) === true;
 
   useEffect(() => {
-    if (!props.enabled || !targetPath) {
-      setPathExists(false);
-      return;
-    }
-    const cached = localFilePathExistsCache.get(targetPath);
-    if (cached !== undefined) {
-      setPathExists(cached);
+    if (!props.enabled || !targetPath || cachedExists !== undefined) {
       return;
     }
     const api = readNativeApi();
     if (!api) {
-      setPathExists(false);
       return;
     }
     let cancelled = false;
-    void api.shell
-      .pathExists(targetPath)
-      .then((exists) => {
-        localFilePathExistsCache.set(targetPath, exists);
-        if (!cancelled) {
-          setPathExists(exists);
-        }
-      })
-      .catch((error) => {
-        localFilePathExistsCache.set(targetPath, false);
-        if (!cancelled) {
-          setPathExists(false);
-        }
+    void (async () => {
+      let exists = false;
+      try {
+        exists = await api.shell.pathExists(targetPath);
+      } catch (error) {
         console.warn("Failed to check local file path.", error);
-      });
+      }
+      localFilePathExistsCache.set(targetPath, exists);
+      if (!cancelled) {
+        setUncachedPathExists(exists);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [props.enabled, targetPath]);
+  }, [cachedExists, props.enabled, targetPath]);
 
   const codeElement = <code {...props.codeProps}>{props.children}</code>;
   if (!targetPath || !pathExists) {
@@ -262,11 +255,10 @@ function InlineCodeLocalFileLink(props: {
     <Tooltip>
       <TooltipTrigger
         render={
-          <a
-            href={targetPath}
+          <button
+            type="button"
             className="chat-markdown-local-file-link"
             onClick={(event) => {
-              event.preventDefault();
               event.stopPropagation();
               openLocalFilePath({
                 targetPath,
@@ -406,14 +398,39 @@ function SuspenseShikiCodeBlock({
   const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
 
   if (cachedHighlightedHtml != null) {
-    return (
-      <div
-        className="chat-markdown-shiki"
-        dangerouslySetInnerHTML={{ __html: cachedHighlightedHtml }}
-      />
-    );
+    return <CachedShikiCodeBlock highlightedHtml={cachedHighlightedHtml} />;
   }
 
+  return (
+    <UncachedSuspenseShikiCodeBlock
+      cacheKey={cacheKey}
+      code={code}
+      language={language}
+      themeName={themeName}
+      isStreaming={isStreaming}
+    />
+  );
+}
+
+function CachedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
+  return (
+    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+  );
+}
+
+function UncachedSuspenseShikiCodeBlock({
+  cacheKey,
+  code,
+  language,
+  themeName,
+  isStreaming,
+}: {
+  cacheKey: string;
+  code: string;
+  language: string;
+  themeName: DiffThemeName;
+  isStreaming: boolean;
+}) {
   const highlighter = use(getHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
     try {
@@ -634,7 +651,9 @@ function ChatMarkdown({
     () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
     [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
   );
-  const useLargePreview = renderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const effectiveRenderPreference = isStreaming ? "auto" : renderPreference;
+  const useLargePreview =
+    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
   const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
   const shouldObserveLayout =
     onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
@@ -663,7 +682,7 @@ function ChatMarkdown({
 
   const markdownComponents = useMemo<Components>(
     () => ({
-      a({ node: _node, href, ...props }) {
+      a({ node: _node, href, children, className, title, ...props }) {
         const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
         if (!targetPath) {
           const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
@@ -673,11 +692,11 @@ function ChatMarkdown({
 
           return (
             <span className="chat-markdown-link-shell">
-              <a
-                {...props}
-                href={href}
+              <button
+                type="button"
+                className={className}
+                title={title}
                 onClick={(event) => {
-                  event.preventDefault();
                   event.stopPropagation();
                   if (event.metaKey || event.ctrlKey) {
                     openLinkExternally(href ?? browserUrl);
@@ -685,7 +704,9 @@ function ChatMarkdown({
                   }
                   onOpenBrowserUrl(browserUrl);
                 }}
-              />
+              >
+                {children}
+              </button>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -694,7 +715,6 @@ function ChatMarkdown({
                       className="chat-markdown-link-open-browser"
                       aria-label="Open link in the in-app browser"
                       onClick={(event) => {
-                        event.preventDefault();
                         event.stopPropagation();
                         onOpenBrowserUrl(browserUrl);
                       }}
@@ -710,11 +730,11 @@ function ChatMarkdown({
         }
 
         return (
-          <a
-            {...props}
-            href={href}
+          <button
+            type="button"
+            className={className}
+            title={title}
             onClick={(event) => {
-              event.preventDefault();
               event.stopPropagation();
               openLocalFilePath({
                 targetPath,
@@ -722,7 +742,9 @@ function ChatMarkdown({
                 preferExternalEditor: event.metaKey || event.ctrlKey,
               });
             }}
-          />
+          >
+            {children}
+          </button>
         );
       },
       code({ node, className, children, ...props }) {
@@ -812,16 +834,6 @@ function ChatMarkdown({
       resolvedTheme,
     ],
   );
-  useEffect(() => {
-    if (isStreaming) {
-      setRenderPreference("auto");
-    }
-  }, [isStreaming]);
-
-  useEffect(() => {
-    onLayoutChange?.();
-  }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
-
   useEffect(() => {
     if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;

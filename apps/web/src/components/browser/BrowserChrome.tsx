@@ -1,5 +1,5 @@
 import { Clock3Icon, GlobeIcon, SearchIcon } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { BrowserSearchEngine } from "@ace/contracts/settings";
 import { cn } from "~/lib/utils";
@@ -42,16 +42,7 @@ export function BrowserNewTabPanel(props: {
           </div>
         </div>
 
-        <form
-          className="mx-auto flex w-full max-w-2xl flex-col gap-3"
-          onSubmit={(event: FormEvent<HTMLFormElement>) => {
-            event.preventDefault();
-            if (query.trim().length === 0) {
-              return;
-            }
-            onSubmitQuery(query);
-          }}
-        >
+        <div role="search" className="mx-auto flex w-full max-w-2xl flex-col gap-3">
           <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 transition-colors duration-150 focus-within:border-primary/30">
             <SearchIcon className="size-4 shrink-0 text-muted-foreground/35" />
             <Input
@@ -64,17 +55,29 @@ export function BrowserNewTabPanel(props: {
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || query.trim().length === 0) {
+                  return;
+                }
+                onSubmitQuery(query);
+              }}
             />
             <Button
-              type="submit"
+              type="button"
               size="sm"
               className="shrink-0 rounded-lg px-4"
               disabled={query.trim().length === 0}
+              onClick={() => {
+                if (query.trim().length === 0) {
+                  return;
+                }
+                onSubmitQuery(query);
+              }}
             >
               Go
             </Button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ export class WsRpcAtomClient extends AtomRpc.Service<WsRpcAtomClient>()("WsRpcAt
 }) {}
 
 let sharedRuntime: ManagedRuntime.ManagedRuntime<WsRpcAtomClient, never> | null = null;
+const runWithWsRpcAtomClient = WsRpcAtomClient.use.bind(WsRpcAtomClient);
 
 function getRuntime() {
   if (sharedRuntime !== null) {
@@ -23,7 +24,7 @@ function getRuntime() {
 export function runRpc<TSuccess, TError = never>(
   execute: (client: typeof WsRpcAtomClient.Service) => Effect.Effect<TSuccess, TError, never>,
 ): Promise<TSuccess> {
-  return getRuntime().runPromise(WsRpcAtomClient.use(execute));
+  return getRuntime().runPromise(runWithWsRpcAtomClient(execute));
 }
 
 export async function __resetWsRpcAtomClientForTests() {

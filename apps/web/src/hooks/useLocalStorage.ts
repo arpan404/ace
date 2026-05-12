@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Record from "effect/Record";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 const isomorphicLocalStorage: Storage =
   typeof window !== "undefined"
@@ -46,6 +46,15 @@ interface LocalStorageChangeDetail {
   sourceId?: number;
 }
 
+type LocalStorageState<T> = {
+  storageError: Error | null;
+  storedValueState: { key: string; value: T };
+};
+
+type LocalStorageAction<T> =
+  | { type: "sync"; key: string; value: T }
+  | { type: "set-error"; value: Error | null };
+
 let nextLocalStorageSourceId = 1;
 
 export function resolveLocalStorageStoredValue<T>(
@@ -65,6 +74,26 @@ function reportLocalStorageError(key: string, operation: string, error: unknown)
   const normalized = toLocalStorageError(key, operation, error);
   console.error("[LOCALSTORAGE] Error:", normalized);
   return normalized;
+}
+
+function localStorageReducer<T>(
+  state: LocalStorageState<T>,
+  action: LocalStorageAction<T>,
+): LocalStorageState<T> {
+  switch (action.type) {
+    case "sync":
+      return {
+        storageError: null,
+        storedValueState: { key: action.key, value: action.value },
+      };
+    case "set-error":
+      return {
+        ...state,
+        storageError: action.value,
+      };
+    default:
+      return state;
+  }
 }
 
 function dispatchLocalStorageChange(key: string, sourceId: number) {
@@ -92,11 +121,14 @@ export function useLocalStorage<T, E>(
     }
   })();
 
-  const [storageError, setStorageError] = useState<Error | null>(initialStorageError);
-  const [storedValueState, setStoredValueState] = useState<{ key: string; value: T }>({
-    key,
-    value: initialStoredValue,
+  const [state, dispatch] = useReducer(localStorageReducer<T>, {
+    storageError: initialStorageError,
+    storedValueState: {
+      key,
+      value: initialStoredValue,
+    },
   });
+  const { storageError, storedValueState } = state;
   const sourceIdRef = useRef<number | null>(null);
   if (sourceIdRef.current === null) {
     sourceIdRef.current = nextLocalStorageSourceId++;
@@ -111,10 +143,11 @@ export function useLocalStorage<T, E>(
         const valueToStore =
           typeof value === "function" ? (value as (val: T) => T)(previousValue) : value;
         if (Object.is(valueToStore, previousValue)) {
-          setStorageError(null);
-          setStoredValueState((prevState) =>
-            prevState.key === key ? prevState : { key, value: previousValue },
-          );
+          if (storedValueState.key !== key) {
+            dispatch({ type: "sync", key, value: previousValue });
+          } else if (storageError !== null) {
+            dispatch({ type: "set-error", value: null });
+          }
           return;
         }
         if (valueToStore === null) {
@@ -123,13 +156,12 @@ export function useLocalStorage<T, E>(
           setLocalStorageItem(key, valueToStore, schema);
         }
         queueMicrotask(() => dispatchLocalStorageChange(key, sourceIdRef.current ?? 0));
-        setStorageError(null);
-        setStoredValueState({ key, value: valueToStore });
+        dispatch({ type: "sync", key, value: valueToStore });
       } catch (error) {
-        setStorageError(reportLocalStorageError(key, "write", error));
+        dispatch({ type: "set-error", value: reportLocalStorageError(key, "write", error) });
       }
     },
-    [initialStoredValue, key, schema],
+    [initialStoredValue, key, schema, storageError, storedValueState.key],
   );
 
   const prevKeyRef = useRef(key);
@@ -140,10 +172,9 @@ export function useLocalStorage<T, E>(
       prevKeyRef.current = key;
       try {
         const newValue = getLocalStorageItem(key, schema);
-        setStoredValueState({ key, value: newValue ?? initialValue });
-        setStorageError(null);
+        dispatch({ type: "sync", key, value: newValue ?? initialValue });
       } catch (error) {
-        setStorageError(reportLocalStorageError(key, "re-sync", error));
+        dispatch({ type: "set-error", value: reportLocalStorageError(key, "re-sync", error) });
       }
     }
   }, [key, initialValue, schema]);
@@ -153,10 +184,9 @@ export function useLocalStorage<T, E>(
     const syncFromStorage = () => {
       try {
         const newValue = getLocalStorageItem(key, schema);
-        setStoredValueState({ key, value: newValue ?? initialValue });
-        setStorageError(null);
+        dispatch({ type: "sync", key, value: newValue ?? initialValue });
       } catch (error) {
-        setStorageError(reportLocalStorageError(key, "sync", error));
+        dispatch({ type: "set-error", value: reportLocalStorageError(key, "sync", error) });
       }
     };
 

@@ -210,9 +210,6 @@ export function ComposerQueuedMessages(props: {
   onSteer: (messageId: MessageId) => void;
 }) {
   const hasMessages = props.messages.length > 0;
-  if (!hasMessages) {
-    return null;
-  }
   const [draggedMessageId, setDraggedMessageId] = useState<MessageId | null>(null);
   const [optimisticOrder, setOptimisticOrder] = useState<ReadonlyArray<MessageId> | null>(null);
   const queueDnDSensors = useSensors(
@@ -279,6 +276,10 @@ export function ComposerQueuedMessages(props: {
       setOptimisticOrder(null);
     }
   }, [optimisticOrder, serverOrderIds]);
+
+  if (!hasMessages) {
+    return null;
+  }
 
   return (
     <section

@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -198,6 +199,105 @@ const DEFAULT_DESIGN_REQUEST_PANEL_SIZE: FloatingOverlaySize = {
   width: DESIGN_REQUEST_PANEL_WIDTH_PX,
   height: DESIGN_REQUEST_PANEL_HEIGHT_PX,
 };
+
+type BrowserDesignOverlayState = {
+  selectionRect: BrowserDesignSelectionRect | null;
+  hoveredElementCapture: BrowserPageElementCapture | null;
+  designDraft: BrowserDesignCaptureDraft | null;
+  designInstructions: string;
+  isSubmittingDesignRequest: boolean;
+  overlayViewportSize: OverlayViewportSize | null;
+  designRequestPanelSize: FloatingOverlaySize;
+  designRequestPanelPosition: DesignRequestPanelPosition | null;
+  loadFailure: BrowserLoadFailure | null;
+};
+
+type BrowserDesignOverlayAction =
+  | { type: "set-selection-rect"; selectionRect: BrowserDesignSelectionRect | null }
+  | { type: "set-hovered-element-capture"; hoveredElementCapture: BrowserPageElementCapture | null }
+  | { type: "set-design-draft"; designDraft: BrowserDesignCaptureDraft | null }
+  | { type: "set-design-instructions"; designInstructions: string }
+  | { type: "set-submitting-design-request"; isSubmittingDesignRequest: boolean }
+  | { type: "set-overlay-viewport-size"; overlayViewportSize: OverlayViewportSize | null }
+  | { type: "set-design-request-panel-size"; designRequestPanelSize: FloatingOverlaySize }
+  | {
+      type: "set-design-request-panel-position";
+      designRequestPanelPosition: DesignRequestPanelPosition | null;
+    }
+  | { type: "set-load-failure"; loadFailure: BrowserLoadFailure | null }
+  | { type: "clear-design-capture" };
+
+const EMPTY_BROWSER_DESIGN_OVERLAY_STATE: BrowserDesignOverlayState = {
+  selectionRect: null,
+  hoveredElementCapture: null,
+  designDraft: null,
+  designInstructions: "",
+  isSubmittingDesignRequest: false,
+  overlayViewportSize: null,
+  designRequestPanelSize: DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
+  designRequestPanelPosition: null,
+  loadFailure: null,
+};
+
+function browserDesignOverlayStateReducer(
+  state: BrowserDesignOverlayState,
+  action: BrowserDesignOverlayAction,
+): BrowserDesignOverlayState {
+  switch (action.type) {
+    case "set-selection-rect":
+      return state.selectionRect === action.selectionRect
+        ? state
+        : { ...state, selectionRect: action.selectionRect };
+    case "set-hovered-element-capture":
+      return state.hoveredElementCapture === action.hoveredElementCapture
+        ? state
+        : { ...state, hoveredElementCapture: action.hoveredElementCapture };
+    case "set-design-draft":
+      return state.designDraft === action.designDraft
+        ? state
+        : { ...state, designDraft: action.designDraft };
+    case "set-design-instructions":
+      return state.designInstructions === action.designInstructions
+        ? state
+        : { ...state, designInstructions: action.designInstructions };
+    case "set-submitting-design-request":
+      return state.isSubmittingDesignRequest === action.isSubmittingDesignRequest
+        ? state
+        : { ...state, isSubmittingDesignRequest: action.isSubmittingDesignRequest };
+    case "set-overlay-viewport-size":
+      return state.overlayViewportSize?.width === action.overlayViewportSize?.width &&
+        state.overlayViewportSize?.height === action.overlayViewportSize?.height
+        ? state
+        : { ...state, overlayViewportSize: action.overlayViewportSize };
+    case "set-design-request-panel-size":
+      return state.designRequestPanelSize.width === action.designRequestPanelSize.width &&
+        state.designRequestPanelSize.height === action.designRequestPanelSize.height
+        ? state
+        : { ...state, designRequestPanelSize: action.designRequestPanelSize };
+    case "set-design-request-panel-position":
+      return state.designRequestPanelPosition?.left === action.designRequestPanelPosition?.left &&
+        state.designRequestPanelPosition?.top === action.designRequestPanelPosition?.top
+        ? state
+        : { ...state, designRequestPanelPosition: action.designRequestPanelPosition };
+    case "set-load-failure":
+      return state.loadFailure?.code === action.loadFailure?.code &&
+        state.loadFailure?.message === action.loadFailure?.message &&
+        state.loadFailure?.url === action.loadFailure?.url
+        ? state
+        : { ...state, loadFailure: action.loadFailure };
+    case "clear-design-capture":
+      return {
+        ...state,
+        selectionRect: null,
+        hoveredElementCapture: null,
+        designDraft: null,
+        designInstructions: "",
+        isSubmittingDesignRequest: false,
+        designRequestPanelPosition: null,
+      };
+  }
+}
+
 function clampPoint(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -1439,12 +1539,24 @@ export function BrowserFavicon(props: {
 }) {
   const { className, fallbackClassName, url } = props;
   const sources = useMemo(() => resolveBrowserFaviconSources(url), [url]);
+
+  return (
+    <BrowserFaviconImage
+      key={sources.join("\u0000")}
+      sources={sources}
+      {...(className !== undefined ? { className } : {})}
+      {...(fallbackClassName !== undefined ? { fallbackClassName } : {})}
+    />
+  );
+}
+
+function BrowserFaviconImage(props: {
+  sources: readonly string[];
+  className?: string | undefined;
+  fallbackClassName?: string | undefined;
+}) {
+  const { className, fallbackClassName, sources } = props;
   const [sourceIndex, setSourceIndex] = useState(0);
-
-  useEffect(() => {
-    setSourceIndex(0);
-  }, [sources]);
-
   const source = sources[sourceIndex];
   if (!source) {
     return (
@@ -1552,7 +1664,7 @@ export function BrowserTabWebview(props: {
   const snapshotFlushTimerRef = useRef<number | null>(null);
   const consoleLogsRef = useRef<BrowserConsoleLogEntry[]>([]);
   const overlayRef = useRef<HTMLDivElement | null>(null);
-  const designRequestPanelRef = useRef<HTMLFormElement | null>(null);
+  const designRequestPanelRef = useRef<HTMLDivElement | null>(null);
   const dragSelectionRef = useRef<ActiveDragSelection | null>(null);
   const designRequestPanelRequestIdRef = useRef<string | null>(null);
   const previousDesignRequestPanelLayoutRef = useRef<{
@@ -1577,20 +1689,22 @@ export function BrowserTabWebview(props: {
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const activeRef = useRef(active);
   activeRef.current = active;
-  const [selectionRect, setSelectionRect] = useState<BrowserDesignSelectionRect | null>(null);
-  const [hoveredElementCapture, setHoveredElementCapture] =
-    useState<BrowserPageElementCapture | null>(null);
-  const [designDraft, setDesignDraft] = useState<BrowserDesignCaptureDraft | null>(null);
-  const [designInstructions, setDesignInstructions] = useState("");
-  const [isSubmittingDesignRequest, setIsSubmittingDesignRequest] = useState(false);
-  const [overlayViewportSize, setOverlayViewportSize] = useState<OverlayViewportSize | null>(null);
-  const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
-  const [designRequestPanelSize, setDesignRequestPanelSize] = useState<FloatingOverlaySize>(
-    DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
+  const [designOverlayState, dispatchDesignOverlayState] = useReducer(
+    browserDesignOverlayStateReducer,
+    EMPTY_BROWSER_DESIGN_OVERLAY_STATE,
   );
-  const [designRequestPanelPosition, setDesignRequestPanelPosition] =
-    useState<DesignRequestPanelPosition | null>(null);
-  const [loadFailure, setLoadFailure] = useState<BrowserLoadFailure | null>(null);
+  const {
+    selectionRect,
+    hoveredElementCapture,
+    designDraft,
+    designInstructions,
+    isSubmittingDesignRequest,
+    overlayViewportSize,
+    designRequestPanelSize,
+    designRequestPanelPosition,
+    loadFailure,
+  } = designOverlayState;
+  const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
@@ -1617,7 +1731,8 @@ export function BrowserTabWebview(props: {
     (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
       hoveredElementCaptureRef.current = capture;
       hoveredElementPointRef.current = point;
-      setHoveredElementCapture((current) => {
+      const nextCapture = (() => {
+        const current = hoveredElementCaptureRef.current;
         const currentRect = current?.targetRect;
         const nextRect = capture?.targetRect;
         const currentSelector = current?.target?.selector ?? null;
@@ -1632,6 +1747,10 @@ export function BrowserTabWebview(props: {
           return current;
         }
         return capture;
+      })();
+      dispatchDesignOverlayState({
+        type: "set-hovered-element-capture",
+        hoveredElementCapture: nextCapture,
       });
     },
     [],
@@ -1732,10 +1851,17 @@ export function BrowserTabWebview(props: {
     }
     pendingSnapshotOptionsRef.current = null;
   }, []);
+  const resolveLoadUrlEvent = useEffectEvent((url: string) => resolveLoadUrl(url));
+  const resolveSnapshotUrlEvent = useEffectEvent((currentUrl: string) =>
+    resolveSnapshotUrl(currentUrl),
+  );
+  const scheduleEmitSnapshotEvent = useEffectEvent((options?: BrowserTabSnapshotOptions) => {
+    scheduleEmitSnapshot(options);
+  });
 
   const navigate = useCallback(
     (url: string) => {
-      setLoadFailure(null);
+      dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
       requestedUrlRef.current = url;
       const webview = webviewRef.current;
       if (!webview || !readyRef.current) {
@@ -1749,10 +1875,13 @@ export function BrowserTabWebview(props: {
       }
 
       loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
-        setLoadFailure({
-          code: null,
-          message,
-          url,
+        dispatchDesignOverlayState({
+          type: "set-load-failure",
+          loadFailure: {
+            code: null,
+            message,
+            url,
+          },
         });
         reportBrowserLoadError(message);
       });
@@ -2104,8 +2233,8 @@ export function BrowserTabWebview(props: {
     ],
   );
 
-  useEffect(() => {
-    const handle: BrowserTabHandle = {
+  const browserTabHandle = useMemo<BrowserTabHandle>(
+    () => ({
       animateAgentPointer,
       captureVisiblePage: async () => {
         const webview = webviewRef.current;
@@ -2212,12 +2341,16 @@ export function BrowserTabWebview(props: {
         if (!readyRef.current || !webviewRef.current) return;
         setWebviewZoomFactor(webviewRef.current, 1);
       },
-    };
-    onHandleChange(tab.id, handle);
+    }),
+    [animateAgentPointer, clearAgentPointer, navigate, readSnapshot],
+  );
+
+  useEffect(() => {
+    onHandleChange(tab.id, browserTabHandle);
     return () => {
       onHandleChange(tab.id, null);
     };
-  }, [animateAgentPointer, clearAgentPointer, navigate, onHandleChange, readSnapshot, tab.id]);
+  }, [browserTabHandle, onHandleChange, tab.id]);
 
   useEffect(() => {
     if (active) {
@@ -2250,7 +2383,7 @@ export function BrowserTabWebview(props: {
     const webview = document.createElement("webview") as BrowserWebview;
     webview.className = "size-full bg-background";
     webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
-    webview.setAttribute("src", resolveLoadUrl(requestedUrlRef.current));
+    webview.setAttribute("src", resolveLoadUrlEvent(requestedUrlRef.current));
 
     const handleDomReady = () => {
       readyRef.current = true;
@@ -2261,20 +2394,23 @@ export function BrowserTabWebview(props: {
         normalizeBrowserHttpUrl(pendingUrl) !==
           normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()))
       ) {
-        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), (message) => {
-          setLoadFailure({
-            code: null,
-            message,
-            url: pendingUrl,
+        loadWebviewUrl(webview, resolveLoadUrlEvent(pendingUrl), (message) => {
+          dispatchDesignOverlayState({
+            type: "set-load-failure",
+            loadFailure: {
+              code: null,
+              message,
+              url: pendingUrl,
+            },
           });
           reportBrowserLoadError(message);
         });
         return;
       }
-      scheduleEmitSnapshot({ persistTab: true });
+      scheduleEmitSnapshotEvent({ persistTab: true });
     };
     const handleLoadStart = () => {
-      setLoadFailure(null);
+      dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
       emitTabSnapshotChange(
         {
           canGoBack: readyRef.current ? webview.canGoBack() : false,
@@ -2288,14 +2424,14 @@ export function BrowserTabWebview(props: {
       );
     };
     const handleNavigation = () => {
-      setLoadFailure(null);
-      scheduleEmitSnapshot({ persistTab: true });
+      dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
+      scheduleEmitSnapshotEvent({ persistTab: true });
     };
     const handleLoadStop = () => {
-      scheduleEmitSnapshot({ persistTab: true, recordHistory: true });
+      scheduleEmitSnapshotEvent({ persistTab: true, recordHistory: true });
     };
     const handleInPageNavigation = () => {
-      scheduleEmitSnapshot({ persistTab: true, recordHistory: true });
+      scheduleEmitSnapshotEvent({ persistTab: true, recordHistory: true });
     };
     const handleFailLoad = (event: Event) => {
       const detail = event as Event & {
@@ -2311,16 +2447,19 @@ export function BrowserTabWebview(props: {
         return;
       }
       cancelScheduledSnapshot();
-      const resolvedUrl = resolveSnapshotUrl(detail.validatedURL ?? webview.getURL());
-      setLoadFailure({
-        code: typeof detail.errorCode === "number" ? detail.errorCode : null,
-        message: formatBrowserLoadFailureMessage({
-          ...(typeof detail.errorCode === "number" ? { code: detail.errorCode } : {}),
-          ...(typeof detail.errorDescription === "string"
-            ? { description: detail.errorDescription }
-            : {}),
-        }),
-        url: resolvedUrl,
+      const resolvedUrl = resolveSnapshotUrlEvent(detail.validatedURL ?? webview.getURL());
+      dispatchDesignOverlayState({
+        type: "set-load-failure",
+        loadFailure: {
+          code: typeof detail.errorCode === "number" ? detail.errorCode : null,
+          message: formatBrowserLoadFailureMessage({
+            ...(typeof detail.errorCode === "number" ? { code: detail.errorCode } : {}),
+            ...(typeof detail.errorDescription === "string"
+              ? { description: detail.errorDescription }
+              : {}),
+          }),
+          url: resolvedUrl,
+        },
       });
       emitTabSnapshotChange(
         {
@@ -2375,13 +2514,9 @@ export function BrowserTabWebview(props: {
       const detail = event as Event & { reason?: string };
       const reason = typeof detail.reason === "string" ? detail.reason : "unknown";
       reportBrowserLoadError(`Browser tab renderer stopped (${reason}).`);
-      setSelectionRect(null);
-      setHoveredElementCapture(null);
+      dispatchDesignOverlayState({ type: "clear-design-capture" });
       hoveredElementCaptureRef.current = null;
       dragSelectionRef.current = null;
-      setDesignDraft(null);
-      setDesignInstructions("");
-      setIsSubmittingDesignRequest(false);
       cancelDesignCaptureEvent();
     };
 
@@ -2422,24 +2557,19 @@ export function BrowserTabWebview(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [cancelScheduledSnapshot, resolveLoadUrl, resolveSnapshotUrl, scheduleEmitSnapshot]);
+  }, [cancelScheduledSnapshot]);
 
   useEffect(() => {
     navigate(tab.url);
   }, [navigate, tab.url]);
 
-  const cancelDesignCapture = useCallback(() => {
-    setSelectionRect(null);
-    setHoveredElementCapture(null);
+  const cancelDesignCapture = useEffectEvent(() => {
+    dispatchDesignOverlayState({ type: "clear-design-capture" });
     dragSelectionRef.current = null;
     designRequestPanelRequestIdRef.current = null;
     pendingElementHoverPointRef.current = null;
-    setDesignDraft(null);
-    setDesignInstructions("");
-    setDesignRequestPanelPosition(null);
-    setIsSubmittingDesignRequest(false);
     cancelDesignCaptureEvent();
-  }, [cancelDesignCaptureEvent]);
+  });
 
   useEffect(() => {
     if (!active) {
@@ -2466,20 +2596,20 @@ export function BrowserTabWebview(props: {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDownCapture, true);
     };
-  }, [active, cancelDesignCapture, designDraft]);
+  }, [active, designDraft]);
 
   useEffect(() => {
     if (designerModeActive) {
       return;
     }
     if (!designDraft) {
-      setSelectionRect(null);
+      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
       clearHoveredElementCapture();
       dragSelectionRef.current = null;
       return;
     }
     cancelDesignCapture();
-  }, [cancelDesignCapture, clearHoveredElementCapture, designDraft, designerModeActive]);
+  }, [clearHoveredElementCapture, designDraft, designerModeActive]);
 
   useEffect(() => {
     if (designerTool === "element-comment") {
@@ -2493,7 +2623,7 @@ export function BrowserTabWebview(props: {
       return;
     }
     cancelDesignCapture();
-  }, [cancelDesignCapture, designDraft, designerTool]);
+  }, [designDraft, designerTool]);
 
   useEffect(() => {
     return () => {
@@ -2627,7 +2757,7 @@ export function BrowserTabWebview(props: {
       failureMessage = "Could not capture the selected browser area.",
     ) => {
       elementHoverRequestTokenRef.current += 1;
-      setSelectionRect(selection);
+      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: selection });
       const requestId = generateDesignRequestId();
       const host = overlayRef.current;
       const viewportWidth = host?.clientWidth ?? 0;
@@ -2637,12 +2767,15 @@ export function BrowserTabWebview(props: {
           if (!mountedRef.current) {
             return;
           }
-          setDesignInstructions("");
-          setDesignDraft({
-            capture,
-            tool: designerTool,
-            viewportWidth,
-            viewportHeight,
+          dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
+          dispatchDesignOverlayState({
+            type: "set-design-draft",
+            designDraft: {
+              capture,
+              tool: designerTool,
+              viewportWidth,
+              viewportHeight,
+            },
           });
         })
         .catch((error: unknown) => {
@@ -2654,7 +2787,7 @@ export function BrowserTabWebview(props: {
           cancelDesignCapture();
         });
     },
-    [cancelDesignCapture, captureDesignSelection, designerTool],
+    [captureDesignSelection, designerTool],
   );
 
   const flushHoveredElementInspection = useCallback(() => {
@@ -2746,7 +2879,7 @@ export function BrowserTabWebview(props: {
         hostWidth: host.clientWidth,
         hostHeight: host.clientHeight,
       });
-      setSelectionRect(initialRect);
+      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: initialRect });
       event.preventDefault();
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -2763,8 +2896,9 @@ export function BrowserTabWebview(props: {
           return;
         }
         const bounds = host.getBoundingClientRect();
-        setSelectionRect(
-          normalizeSelectionRect({
+        dispatchDesignOverlayState({
+          type: "set-selection-rect",
+          selectionRect: normalizeSelectionRect({
             startX: dragSelection.startX,
             startY: dragSelection.startY,
             currentX: event.clientX - bounds.left,
@@ -2772,7 +2906,7 @@ export function BrowserTabWebview(props: {
             hostWidth: dragSelection.hostWidth,
             hostHeight: dragSelection.hostHeight,
           }),
-        );
+        });
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -2820,7 +2954,7 @@ export function BrowserTabWebview(props: {
         event.stopPropagation();
         const finalSelection = selectionRect;
         if (!hasMinimumSelectionSize(finalSelection)) {
-          setSelectionRect(null);
+          dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
           return;
         }
         startCapturedDraft(finalSelection);
@@ -2894,7 +3028,10 @@ export function BrowserTabWebview(props: {
     if (trimmedInstructions.length === 0) {
       return;
     }
-    setIsSubmittingDesignRequest(true);
+    dispatchDesignOverlayState({
+      type: "set-submitting-design-request",
+      isSubmittingDesignRequest: true,
+    });
     try {
       await onDesignCaptureSubmit({
         ...designDraft.capture,
@@ -2905,19 +3042,16 @@ export function BrowserTabWebview(props: {
       const message = error instanceof Error ? error.message : "Could not add the comment.";
       reportDesignCaptureError(message);
     } finally {
-      setIsSubmittingDesignRequest(false);
+      dispatchDesignOverlayState({
+        type: "set-submitting-design-request",
+        isSubmittingDesignRequest: false,
+      });
     }
-  }, [
-    cancelDesignCapture,
-    designDraft,
-    designInstructions,
-    isSubmittingDesignRequest,
-    onDesignCaptureSubmit,
-  ]);
+  }, [designDraft, designInstructions, isSubmittingDesignRequest, onDesignCaptureSubmit]);
 
   useEffect(() => {
     if (!designDraft) {
-      setOverlayViewportSize(null);
+      dispatchDesignOverlayState({ type: "set-overlay-viewport-size", overlayViewportSize: null });
       return;
     }
     const overlay = overlayRef.current;
@@ -2929,11 +3063,9 @@ export function BrowserTabWebview(props: {
         width: Math.max(1, Math.round(overlay.clientWidth)),
         height: Math.max(1, Math.round(overlay.clientHeight)),
       };
-      setOverlayViewportSize((current) => {
-        if (current?.width === nextSize.width && current?.height === nextSize.height) {
-          return current;
-        }
-        return nextSize;
+      dispatchDesignOverlayState({
+        type: "set-overlay-viewport-size",
+        overlayViewportSize: nextSize,
       });
     };
     syncOverlayViewportSize();
@@ -2950,7 +3082,10 @@ export function BrowserTabWebview(props: {
   }, [designDraft]);
   useEffect(() => {
     if (!designDraft) {
-      setDesignRequestPanelSize(DEFAULT_DESIGN_REQUEST_PANEL_SIZE);
+      dispatchDesignOverlayState({
+        type: "set-design-request-panel-size",
+        designRequestPanelSize: DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
+      });
       previousDesignRequestPanelLayoutRef.current = null;
       return;
     }
@@ -2963,11 +3098,9 @@ export function BrowserTabWebview(props: {
         width: Math.max(1, Math.round(panel.offsetWidth)),
         height: Math.max(1, Math.round(panel.offsetHeight)),
       };
-      setDesignRequestPanelSize((current) => {
-        if (current.width === nextSize.width && current.height === nextSize.height) {
-          return current;
-        }
-        return nextSize;
+      dispatchDesignOverlayState({
+        type: "set-design-request-panel-size",
+        designRequestPanelSize: nextSize,
       });
     };
     syncDesignRequestPanelSize();
@@ -3007,7 +3140,10 @@ export function BrowserTabWebview(props: {
   useEffect(() => {
     if (!designDraft || !defaultDesignRequestPanelPosition) {
       designRequestPanelRequestIdRef.current = null;
-      setDesignRequestPanelPosition(null);
+      dispatchDesignOverlayState({
+        type: "set-design-request-panel-position",
+        designRequestPanelPosition: null,
+      });
       return;
     }
     if (designRequestPanelRequestIdRef.current === designDraft.capture.requestId) {
@@ -3015,7 +3151,10 @@ export function BrowserTabWebview(props: {
     }
     designRequestPanelRequestIdRef.current = designDraft.capture.requestId;
     previousDesignRequestPanelLayoutRef.current = null;
-    setDesignRequestPanelPosition(defaultDesignRequestPanelPosition);
+    dispatchDesignOverlayState({
+      type: "set-design-request-panel-position",
+      designRequestPanelPosition: defaultDesignRequestPanelPosition,
+    });
   }, [defaultDesignRequestPanelPosition, designDraft]);
   useEffect(() => {
     if (!designRequestPanelPosition || !designRequestPanelViewport) {
@@ -3051,7 +3190,10 @@ export function BrowserTabWebview(props: {
     ) {
       return;
     }
-    setDesignRequestPanelPosition(clampedPosition);
+    dispatchDesignOverlayState({
+      type: "set-design-request-panel-position",
+      designRequestPanelPosition: clampedPosition,
+    });
   }, [designRequestPanelPosition, designRequestPanelSize, designRequestPanelViewport]);
   useEffect(() => {
     const resetPointerInteractions = () => {
@@ -3061,7 +3203,7 @@ export function BrowserTabWebview(props: {
         overlay.releasePointerCapture(dragSelection.pointerId);
       }
       dragSelectionRef.current = null;
-      setSelectionRect(null);
+      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -3179,20 +3321,25 @@ export function BrowserTabWebview(props: {
             <BrowserDesignSelectionBox rect={activeOverlaySelection} />
           ) : null}
           {designDraft && designRequestPanelStyle && (
-            <form
+            <div
               ref={designRequestPanelRef}
               className="absolute z-30 flex h-12 w-[360px] max-w-[calc(100%-16px)] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl"
               style={designRequestPanelStyle}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitDesignDraft();
-              }}
             >
               <input
                 value={designInstructions}
                 onChange={(event) =>
-                  setDesignInstructions(normalizeDesignCommentToSingleLine(event.target.value))
+                  dispatchDesignOverlayState({
+                    type: "set-design-instructions",
+                    designInstructions: normalizeDesignCommentToSingleLine(event.target.value),
+                  })
                 }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void submitDesignDraft();
+                  }
+                }}
                 placeholder="Comment for the agent"
                 className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
                 autoFocus
@@ -3201,10 +3348,13 @@ export function BrowserTabWebview(props: {
                 <TooltipTrigger
                   render={
                     <button
-                      type="submit"
+                      type="button"
                       className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
                       disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
                       aria-label="Submit comment"
+                      onClick={() => {
+                        void submitDesignDraft();
+                      }}
                     />
                   }
                 >
@@ -3212,7 +3362,7 @@ export function BrowserTabWebview(props: {
                 </TooltipTrigger>
                 <TooltipPopup side="top">Submit comment</TooltipPopup>
               </Tooltip>
-            </form>
+            </div>
           )}
         </div>
       )}

@@ -177,13 +177,7 @@ export function SidebarBoardsSection(props: {
                   }}
                 >
                   {props.renamingSplitId === split.id ? (
-                    <form
-                      className="flex h-7 min-w-0 items-center px-2"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        props.onCommitSplitRename(split);
-                      }}
-                    >
+                    <div className="flex h-7 min-w-0 items-center px-2">
                       <Input
                         value={props.renamingSplitTitle}
                         onChange={(event) => {
@@ -193,6 +187,10 @@ export function SidebarBoardsSection(props: {
                           props.onCommitSplitRename(split);
                         }}
                         onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            props.onCommitSplitRename(split);
+                            return;
+                          }
                           if (event.key === "Escape") {
                             event.preventDefault();
                             props.onCancelSplitRename();
@@ -201,7 +199,7 @@ export function SidebarBoardsSection(props: {
                         className="h-6 bg-transparent px-1.5 text-xs"
                         autoFocus
                       />
-                    </form>
+                    </div>
                   ) : (
                     <>
                       <Tooltip>

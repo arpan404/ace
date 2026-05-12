@@ -28,6 +28,7 @@ import ChatView from "../ChatView";
 import { normalizePaneRatios, resizePaneRatios } from "../../lib/paneRatios";
 import { THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME } from "../../lib/desktopChrome";
 import { buildSingleThreadRouteSearch } from "../../lib/chatThreadBoardRouteSearch";
+import { useEffectEvent } from "../../hooks/useEffectEvent";
 import {
   createThreadBoardDragThread,
   encodeThreadBoardDragThread,
@@ -828,6 +829,19 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
     },
     [],
   );
+  const resetBranchResizeInteractions = useEffectEvent(() => {
+    const resizeState = branchResizeStateRef.current;
+    if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+      window.cancelAnimationFrame(resizeState.rafId);
+    }
+    if (resizeState) {
+      applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
+      setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
+      branchResizeStateRef.current = null;
+    }
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  });
 
   const handleBranchResizeStart = useCallback(
     (branchId: string, axis: ChatThreadBoardLayoutAxis, dividerIndex: number) =>
@@ -954,31 +968,18 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
   }, [clearDropTarget]);
 
   useEffect(() => {
-    const resetResizeInteractions = () => {
-      const resizeState = branchResizeStateRef.current;
-      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
-        window.cancelAnimationFrame(resizeState.rafId);
-      }
-      if (resizeState) {
-        applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
-        setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
-        branchResizeStateRef.current = null;
-      }
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
-    };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        resetResizeInteractions();
+        resetBranchResizeInteractions();
       }
     };
-    window.addEventListener("blur", resetResizeInteractions);
+    window.addEventListener("blur", resetBranchResizeInteractions);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      window.removeEventListener("blur", resetResizeInteractions);
+      window.removeEventListener("blur", resetBranchResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [applyBranchResizePreview, setBranchRatios]);
+  }, [setBranchRatios]);
 
   const renderLeaf = useCallback(
     (paneId: string) => {

@@ -1237,6 +1237,15 @@ export default function ChatView({
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
   const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const syncHydratedThreadFromCache = useEffectEvent(
+    (thread: Parameters<typeof hydrateThreadFromReadModel>[0]) => {
+      directThreadHydrationFailureCountRef.current = 0;
+      setDirectThreadHydrationRetryAt(null);
+      startTransition(() => {
+        hydrateThreadFromReadModel(thread);
+      });
+    },
+  );
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
       deriveHydratedThreadHistoryKeepIds({
@@ -1316,11 +1325,7 @@ export default function ChatView({
       ? readCachedHydratedThread(serverThread.id, serverThread.updatedAt)
       : null;
     if (cachedHydratedThread) {
-      directThreadHydrationFailureCountRef.current = 0;
-      setDirectThreadHydrationRetryAt(null);
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedHydratedThread);
-      });
+      syncHydratedThreadFromCache(cachedHydratedThread);
       return;
     }
     if (directThreadHydrationInFlightRef.current === serverThread.id) {
@@ -1337,11 +1342,7 @@ export default function ChatView({
         if (canceled) {
           return;
         }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
-        });
-        directThreadHydrationFailureCountRef.current = 0;
-        setDirectThreadHydrationRetryAt(null);
+        syncHydratedThreadFromCache(readModelThread);
       } catch {
         if (!canceled) {
           const nextFailureCount = directThreadHydrationFailureCountRef.current + 1;
@@ -1360,7 +1361,7 @@ export default function ChatView({
     return () => {
       canceled = true;
     };
-  }, [directThreadHydrationRetryAt, hydrateThreadFromReadModel, serverThread]);
+  }, [directThreadHydrationRetryAt, serverThread]);
 
   useEffect(() => {
     if (
@@ -1697,6 +1698,24 @@ export default function ChatView({
     setGitHubIssueDialogInitialIssueNumber(null);
     setGitHubIssueDialogInitialSelectedIssueNumbers([]);
   }, []);
+
+  const openRightSidePanelDiff = useEffectEvent(() => {
+    setRightSidePanelDiffOpenState(true);
+    setRightSidePanelReviewOpen(true);
+    setLocalDiffState((previous) => ({ ...previous, open: true }));
+  });
+
+  const ensureWorkspaceEditorPanelVisible = useEffectEvent(() => {
+    setRightSidePanelEditorOpen(true);
+    setRightSidePanelMode("editor");
+    setRightSidePanelVisible(true);
+  });
+
+  const resetThreadScopedUi = useEffectEvent(() => {
+    setExpandedWorkGroups({});
+    closeGitHubIssueDialog();
+    setPullRequestDialogState(null);
+  });
 
   const onComposerIssueTokenClick = useCallback((issueNumber: number) => {
     if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -2603,17 +2622,8 @@ export default function ChatView({
     if (!rightSidePanelEnabled || rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
       return;
     }
-    setRightSidePanelDiffOpenState(true);
-    setRightSidePanelReviewOpen(true);
-    setLocalDiffState((previous) => ({ ...previous, open: true }));
-  }, [
-    rightSidePanelDiffOpen,
-    rightSidePanelEnabled,
-    rightSidePanelMode,
-    setLocalDiffState,
-    setRightSidePanelDiffOpenState,
-    setRightSidePanelReviewOpen,
-  ]);
+    openRightSidePanelDiff();
+  }, [rightSidePanelDiffOpen, rightSidePanelEnabled, rightSidePanelMode]);
   useEffect(() => {
     if (rightSidePanelEnabled && diffOpen) {
       setRightSidePanelReviewOpen(true);
@@ -2649,17 +2659,9 @@ export default function ChatView({
   }, [browserOpen, diffOpen, rightSidePanelEnabled, rightSidePanelMode, setRightSidePanelMode]);
   useEffect(() => {
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
-      setRightSidePanelEditorOpen(true);
-      setRightSidePanelMode("editor");
-      setRightSidePanelVisible(true);
+      ensureWorkspaceEditorPanelVisible();
     }
-  }, [
-    routeWorkspaceMode,
-    setRightSidePanelEditorOpen,
-    setRightSidePanelMode,
-    setRightSidePanelVisible,
-    splitPane,
-  ]);
+  }, [routeWorkspaceMode, splitPane]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       activeBrowserThreadIdRef.current = null;
@@ -4141,31 +4143,9 @@ export default function ChatView({
     },
     [setStoredBrowserSplitWidth],
   );
-
-  const handleBrowserSplitResizePointerMove = useCallback((event: PointerEvent) => {
-    const resizeState = browserSplitResizeStateRef.current;
-    if (!resizeState) {
-      return;
-    }
-    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
-    const nextWidth = clampBrowserSplitWidth(
-      resizeState.startWidth + (resizeState.startX - event.clientX),
-      viewportWidth,
-    );
-    browserSplitWidthRef.current = nextWidth;
-    setBrowserSplitWidth(nextWidth);
-    didResizeBrowserSplitDuringDragRef.current = true;
-  }, []);
-
-  const handleBrowserSplitResizePointerEnd = useCallback(() => {
-    browserSplitResizePointerIdRef.current = null;
-    browserSplitResizeStateRef.current = null;
-    if (!didResizeBrowserSplitDuringDragRef.current) {
-      return;
-    }
-    didResizeBrowserSplitDuringDragRef.current = false;
-    syncBrowserSplitWidth(browserSplitWidthRef.current);
-  }, [syncBrowserSplitWidth]);
+  const syncBrowserSplitWidthEvent = useEffectEvent((nextWidth: number) => {
+    syncBrowserSplitWidth(nextWidth);
+  });
 
   const handleBrowserSplitResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -4221,14 +4201,31 @@ export default function ChatView({
     }
     const handlePointerMove = (event: PointerEvent) => {
       if (browserSplitResizePointerIdRef.current !== null) {
-        handleBrowserSplitResizePointerMove(event);
+        const resizeState = browserSplitResizeStateRef.current;
+        if (!resizeState) {
+          return;
+        }
+        const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+        const nextWidth = clampBrowserSplitWidth(
+          resizeState.startWidth + (resizeState.startX - event.clientX),
+          viewportWidth,
+        );
+        browserSplitWidthRef.current = nextWidth;
+        setBrowserSplitWidth(nextWidth);
+        didResizeBrowserSplitDuringDragRef.current = true;
       }
     };
     const handlePointerEnd = () => {
       if (browserSplitResizePointerIdRef.current === null) {
         return;
       }
-      handleBrowserSplitResizePointerEnd();
+      browserSplitResizePointerIdRef.current = null;
+      browserSplitResizeStateRef.current = null;
+      if (!didResizeBrowserSplitDuringDragRef.current) {
+        return;
+      }
+      didResizeBrowserSplitDuringDragRef.current = false;
+      syncBrowserSplitWidthEvent(browserSplitWidthRef.current);
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -4238,12 +4235,7 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [
-    browserMode,
-    handleBrowserSplitResizePointerEnd,
-    handleBrowserSplitResizePointerMove,
-    rightSidePanelInteractive,
-  ]);
+  }, [browserMode, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -4271,7 +4263,7 @@ export default function ChatView({
         setBrowserSplitWidth(clampedWidth);
       }
       if (browserSplitResizePointerIdRef.current === null) {
-        syncBrowserSplitWidth(clampedWidth);
+        syncBrowserSplitWidthEvent(clampedWidth);
       }
     };
     const scheduleViewportWidthSync = () => {
@@ -4317,7 +4309,7 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [browserMode, rightSidePanelInteractive, syncBrowserSplitWidth]);
+  }, [browserMode, rightSidePanelInteractive]);
 
   const syncWorkspaceEditorSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4331,31 +4323,9 @@ export default function ChatView({
     },
     [setStoredWorkspaceEditorSplitWidth],
   );
-
-  const handleWorkspaceEditorSplitResizePointerMove = useCallback((event: PointerEvent) => {
-    const resizeState = workspaceEditorSplitResizeStateRef.current;
-    if (!resizeState) {
-      return;
-    }
-    const viewportWidth = workspaceViewportRef.current?.clientWidth ?? window.innerWidth;
-    const nextWidth = clampWorkspaceEditorSplitWidth(
-      resizeState.startWidth + (resizeState.startX - event.clientX),
-      viewportWidth,
-    );
-    workspaceEditorSplitWidthRef.current = nextWidth;
-    setWorkspaceEditorSplitWidth(nextWidth);
-    didResizeWorkspaceEditorSplitDuringDragRef.current = true;
-  }, []);
-
-  const handleWorkspaceEditorSplitResizePointerEnd = useCallback(() => {
-    workspaceEditorSplitResizePointerIdRef.current = null;
-    workspaceEditorSplitResizeStateRef.current = null;
-    if (!didResizeWorkspaceEditorSplitDuringDragRef.current) {
-      return;
-    }
-    didResizeWorkspaceEditorSplitDuringDragRef.current = false;
-    syncWorkspaceEditorSplitWidth(workspaceEditorSplitWidthRef.current);
-  }, [syncWorkspaceEditorSplitWidth]);
+  const syncWorkspaceEditorSplitWidthEvent = useEffectEvent((nextWidth: number) => {
+    syncWorkspaceEditorSplitWidth(nextWidth);
+  });
 
   const handleWorkspaceEditorSplitResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -4380,14 +4350,31 @@ export default function ChatView({
     }
     const handlePointerMove = (event: PointerEvent) => {
       if (workspaceEditorSplitResizePointerIdRef.current !== null) {
-        handleWorkspaceEditorSplitResizePointerMove(event);
+        const resizeState = workspaceEditorSplitResizeStateRef.current;
+        if (!resizeState) {
+          return;
+        }
+        const viewportWidth = workspaceViewportRef.current?.clientWidth ?? window.innerWidth;
+        const nextWidth = clampWorkspaceEditorSplitWidth(
+          resizeState.startWidth + (resizeState.startX - event.clientX),
+          viewportWidth,
+        );
+        workspaceEditorSplitWidthRef.current = nextWidth;
+        setWorkspaceEditorSplitWidth(nextWidth);
+        didResizeWorkspaceEditorSplitDuringDragRef.current = true;
       }
     };
     const handlePointerEnd = () => {
       if (workspaceEditorSplitResizePointerIdRef.current === null) {
         return;
       }
-      handleWorkspaceEditorSplitResizePointerEnd();
+      workspaceEditorSplitResizePointerIdRef.current = null;
+      workspaceEditorSplitResizeStateRef.current = null;
+      if (!didResizeWorkspaceEditorSplitDuringDragRef.current) {
+        return;
+      }
+      didResizeWorkspaceEditorSplitDuringDragRef.current = false;
+      syncWorkspaceEditorSplitWidthEvent(workspaceEditorSplitWidthRef.current);
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -4397,12 +4384,7 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [
-    editorHostedInRightPanel,
-    handleWorkspaceEditorSplitResizePointerEnd,
-    handleWorkspaceEditorSplitResizePointerMove,
-    workspaceMode,
-  ]);
+  }, [editorHostedInRightPanel, workspaceMode]);
 
   useEffect(() => {
     if (workspaceMode !== "split" || editorHostedInRightPanel) {
@@ -4437,7 +4419,7 @@ export default function ChatView({
         setWorkspaceEditorSplitWidth(clampedWidth);
       }
       if (workspaceEditorSplitResizePointerIdRef.current === null) {
-        syncWorkspaceEditorSplitWidth(clampedWidth);
+        syncWorkspaceEditorSplitWidthEvent(clampedWidth);
       }
     };
     const scheduleViewportWidthSync = () => {
@@ -4483,7 +4465,7 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [editorHostedInRightPanel, syncWorkspaceEditorSplitWidth, workspaceMode]);
+  }, [editorHostedInRightPanel, workspaceMode]);
 
   const resizeBrowserViewportForBridge = useCallback(
     (
@@ -4555,31 +4537,6 @@ export default function ChatView({
     ],
   );
 
-  const handleRightSidePanelResizePointerMove = useCallback((event: PointerEvent) => {
-    const resizeState = rightSidePanelResizeStateRef.current;
-    if (!resizeState) {
-      return;
-    }
-    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
-    const nextWidth = clampRightSidePanelWidth(
-      resizeState.startWidth + (resizeState.startX - event.clientX),
-      viewportWidth,
-    );
-    rightSidePanelWidthRef.current = nextWidth;
-    setRightSidePanelWidth(nextWidth);
-    didResizeRightSidePanelDuringDragRef.current = true;
-  }, []);
-
-  const handleRightSidePanelResizePointerEnd = useCallback(() => {
-    rightSidePanelResizePointerIdRef.current = null;
-    rightSidePanelResizeStateRef.current = null;
-    if (!didResizeRightSidePanelDuringDragRef.current) {
-      return;
-    }
-    didResizeRightSidePanelDuringDragRef.current = false;
-    syncRightSidePanelWidth(rightSidePanelWidthRef.current);
-  }, [syncRightSidePanelWidth]);
-
   const handleRightSidePanelResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) {
@@ -4628,6 +4585,9 @@ export default function ChatView({
     },
     [rightSidePanelOpen, syncRightSidePanelWidth],
   );
+  const syncRightSidePanelWidthEvent = useEffectEvent((nextWidth: number) => {
+    syncRightSidePanelWidth(nextWidth);
+  });
 
   useEffect(() => {
     if (!rightSidePanelOpen) {
@@ -4635,14 +4595,31 @@ export default function ChatView({
     }
     const handlePointerMove = (event: PointerEvent) => {
       if (rightSidePanelResizePointerIdRef.current !== null) {
-        handleRightSidePanelResizePointerMove(event);
+        const resizeState = rightSidePanelResizeStateRef.current;
+        if (!resizeState) {
+          return;
+        }
+        const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+        const nextWidth = clampRightSidePanelWidth(
+          resizeState.startWidth + (resizeState.startX - event.clientX),
+          viewportWidth,
+        );
+        rightSidePanelWidthRef.current = nextWidth;
+        setRightSidePanelWidth(nextWidth);
+        didResizeRightSidePanelDuringDragRef.current = true;
       }
     };
     const handlePointerEnd = () => {
       if (rightSidePanelResizePointerIdRef.current === null) {
         return;
       }
-      handleRightSidePanelResizePointerEnd();
+      rightSidePanelResizePointerIdRef.current = null;
+      rightSidePanelResizeStateRef.current = null;
+      if (!didResizeRightSidePanelDuringDragRef.current) {
+        return;
+      }
+      didResizeRightSidePanelDuringDragRef.current = false;
+      syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -4652,19 +4629,30 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [
-    handleRightSidePanelResizePointerEnd,
-    handleRightSidePanelResizePointerMove,
-    rightSidePanelOpen,
-  ]);
+  }, [rightSidePanelOpen]);
   useEffect(() => {
     if (!ownsGlobalSideEffects) {
       return;
     }
     const resetResizeInteractions = () => {
-      handleBrowserSplitResizePointerEnd();
-      handleWorkspaceEditorSplitResizePointerEnd();
-      handleRightSidePanelResizePointerEnd();
+      browserSplitResizePointerIdRef.current = null;
+      browserSplitResizeStateRef.current = null;
+      if (didResizeBrowserSplitDuringDragRef.current) {
+        didResizeBrowserSplitDuringDragRef.current = false;
+        syncBrowserSplitWidthEvent(browserSplitWidthRef.current);
+      }
+      workspaceEditorSplitResizePointerIdRef.current = null;
+      workspaceEditorSplitResizeStateRef.current = null;
+      if (didResizeWorkspaceEditorSplitDuringDragRef.current) {
+        didResizeWorkspaceEditorSplitDuringDragRef.current = false;
+        syncWorkspaceEditorSplitWidthEvent(workspaceEditorSplitWidthRef.current);
+      }
+      rightSidePanelResizePointerIdRef.current = null;
+      rightSidePanelResizeStateRef.current = null;
+      if (didResizeRightSidePanelDuringDragRef.current) {
+        didResizeRightSidePanelDuringDragRef.current = false;
+        syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
+      }
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -4677,12 +4665,7 @@ export default function ChatView({
       window.removeEventListener("blur", resetResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [
-    handleBrowserSplitResizePointerEnd,
-    handleRightSidePanelResizePointerEnd,
-    handleWorkspaceEditorSplitResizePointerEnd,
-    ownsGlobalSideEffects,
-  ]);
+  }, [ownsGlobalSideEffects]);
 
   useEffect(() => {
     if (!rightSidePanelInteractive) {
@@ -4711,7 +4694,7 @@ export default function ChatView({
         setRightSidePanelWidth(clampedWidth);
       }
       if (rightSidePanelResizePointerIdRef.current === null) {
-        syncRightSidePanelWidth(clampedWidth);
+        syncRightSidePanelWidthEvent(clampedWidth);
       }
     };
     const scheduleViewportWidthSync = () => {
@@ -4757,12 +4740,7 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [
-    rightSidePanelFullscreen,
-    rightSidePanelInteractive,
-    rightSidePanelOpen,
-    syncRightSidePanelWidth,
-  ]);
+  }, [rightSidePanelFullscreen, rightSidePanelInteractive, rightSidePanelOpen]);
 
   const createNewTerminal = useCallback(() => {
     if (!activeThreadId) return;
@@ -5482,11 +5460,7 @@ export default function ChatView({
   }, [activeForSideEffects, liveTurnInProgress, scheduleStickToBottom, timelineEntries]);
 
   useEffect(() => {
-    setExpandedWorkGroups({});
-    setGitHubIssueDialogOpen(false);
-    setGitHubIssueDialogInitialIssueNumber(null);
-    setGitHubIssueDialogInitialSelectedIssueNumbers([]);
-    setPullRequestDialogState(null);
+    resetThreadScopedUi();
     if (openSummaryOnNextThreadRef.current) {
       openSummaryOnNextThreadRef.current = false;
       if (rightSidePanelEnabled) {
@@ -5546,10 +5520,10 @@ export default function ChatView({
     setExpandedImage(null);
   }, [resetLocalDispatch, threadId]);
 
-  const closeExpandedImage = useCallback(() => {
+  const closeExpandedImage = useEffectEvent(() => {
     setExpandedImage(null);
-  }, []);
-  const navigateExpandedImage = useCallback((direction: -1 | 1) => {
+  });
+  const navigateExpandedImage = useEffectEvent((direction: -1 | 1) => {
     setExpandedImage((existing) => {
       if (!existing || existing.images.length <= 1) {
         return existing;
@@ -5561,7 +5535,7 @@ export default function ChatView({
       }
       return { ...existing, index: nextIndex };
     });
-  }, []);
+  });
 
   useEffect(() => {
     if (!expandedImage) {
@@ -5592,7 +5566,7 @@ export default function ChatView({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeExpandedImage, expandedImage, navigateExpandedImage]);
+  }, [expandedImage]);
 
   const activeWorktreePath = activeThread?.worktreePath;
   const envMode: DraftThreadEnvMode = activeWorktreePath
@@ -7366,17 +7340,18 @@ export default function ChatView({
     },
   );
 
-  if (!activeThread) {
-    return <NewThreadLanding />;
-  }
-
   const isHandoffThread =
     serverThread?.handoff !== undefined || activeThread?.handoff !== undefined;
+  const activeThreadHistoryLoaded = activeThread?.historyLoaded;
+  const activeThreadIdValue = activeThread?.id ?? "";
+  const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
+  const activeThreadProvider = activeThread?.session?.provider;
+  const activeThreadModelProvider = activeThread?.modelSelection.provider;
   const messagesTimelineProps = useMemo(
     () => ({
       hasMessages:
         timelineEntries.length > 0 ||
-        (isThreadHistoryLoading && activeThread.messages.length > 0) ||
+        (isThreadHistoryLoading && activeThreadMessagesLength > 0) ||
         isHandoffThread,
       isWorking,
       onStartConversationFromMessage: scheduleComposerFocus,
@@ -7405,7 +7380,7 @@ export default function ChatView({
       onRevertUserMessage,
       revertTurnCountByAssistantMessageId,
       onRevertAssistantMessage,
-      revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
+      revertActionTitle: checkpointRestoreActionTitle(activeThreadProvider),
       isRevertingCheckpoint,
       onImageExpand: onExpandTimelineImage,
       markdownCwd: codingGitCwd ?? undefined,
@@ -7413,17 +7388,16 @@ export default function ChatView({
       onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
       enableLocalFileLinks: canOpenLocalMarkdownFiles,
       providerCommands: composerProviderCommands,
-      enableGoalWorkingState:
-        (activeThread.session?.provider ?? activeThread.modelSelection.provider) === "codex",
+      enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
       resolvedTheme,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
     }),
     [
       activeProject?.cwd,
-      activeThread.messages.length,
-      activeThread.session?.provider,
-      activeThread.modelSelection.provider,
+      activeThreadMessagesLength,
+      activeThreadProvider,
+      activeThreadModelProvider,
       activeForSideEffects,
       activeWorkStartedAt,
       canOpenLocalMarkdownFiles,
@@ -7477,11 +7451,11 @@ export default function ChatView({
       onMessagesWheel,
       scrollMessagesToBottom,
       showScrollToBottom,
-      timelineKey: `${activeThread.id}:${activeThread.historyLoaded === false ? "lean" : "hydrated"}`,
+      timelineKey: `${activeThreadIdValue}:${activeThreadHistoryLoaded === false ? "lean" : "hydrated"}`,
     }),
     [
-      activeThread.historyLoaded,
-      activeThread.id,
+      activeThreadHistoryLoaded,
+      activeThreadIdValue,
       loadingNotice,
       messagesTimelineProps,
       onMessagesClickCapture,
@@ -7498,21 +7472,23 @@ export default function ChatView({
       showScrollToBottom,
     ],
   );
-  const branchToolbarProps = isGitRepo
-    ? {
-        threadId: activeThread.id,
-        onEnvModeChange,
-        envLocked,
-        localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
-        localEnvironmentIcon: activeEnvironmentIcon,
-        runtimeMode,
-        onRuntimeModeChange: handleRuntimeModeChange,
-        onComposerFocusRequest: scheduleComposerFocus,
-        ...(canCheckoutPullRequestIntoThread
-          ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-          : {}),
-      }
-    : null;
+  const branchToolbarProps =
+    isGitRepo && activeThread
+      ? {
+          threadId: activeThread.id,
+          currentBranchName: activeThreadBranchName,
+          onEnvModeChange,
+          envLocked,
+          localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
+          localEnvironmentIcon: activeEnvironmentIcon,
+          runtimeMode,
+          onRuntimeModeChange: handleRuntimeModeChange,
+          onComposerFocusRequest: scheduleComposerFocus,
+          ...(canCheckoutPullRequestIntoThread
+            ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+            : {}),
+        }
+      : null;
   const gitHubIssueDialogProps = gitHubIssueDialogOpen
     ? {
         open: true,
@@ -7663,6 +7639,9 @@ export default function ChatView({
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
+  if (!activeThread) {
+    return <NewThreadLanding />;
+  }
   const showRightPanelChatDock =
     rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
   const renderDockedRightSidePanelHeader = () => (

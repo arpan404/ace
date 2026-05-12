@@ -52,6 +52,7 @@ const ACCESS_MODE_META: Record<
 
 interface BranchToolbarProps {
   threadId: ThreadId;
+  currentBranchName: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
   localEnvironmentLabel?: string;
@@ -64,6 +65,7 @@ interface BranchToolbarProps {
 
 export default function BranchToolbar({
   threadId,
+  currentBranchName,
   onEnvModeChange,
   envLocked,
   localEnvironmentLabel = "Local",
@@ -142,6 +144,15 @@ export default function BranchToolbar({
       effectiveEnvMode,
     ],
   );
+  const handleEnvModeSelect = useCallback(
+    (mode: EnvMode) => {
+      if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
+        setThreadBranch(currentBranchName, null);
+      }
+      onEnvModeChange(mode);
+    },
+    [activeThreadBranch, activeWorktreePath, currentBranchName, onEnvModeChange, setThreadBranch],
+  );
 
   if (!activeThreadId || !activeProject) return null;
   const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
@@ -175,7 +186,7 @@ export default function BranchToolbar({
         ) : (
           <Select
             value={effectiveEnvMode}
-            onValueChange={(value) => onEnvModeChange(value as EnvMode)}
+            onValueChange={(value) => handleEnvModeSelect(value as EnvMode)}
             items={envModeItems}
           >
             <SelectTrigger

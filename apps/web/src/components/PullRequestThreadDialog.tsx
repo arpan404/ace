@@ -1,7 +1,7 @@
 import type { GitResolvePullRequestResult } from "@ace/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import {
   gitPreparePullRequestThreadMutationOptions,
@@ -30,6 +30,44 @@ interface PullRequestThreadDialogProps {
   onPrepared: (input: { branch: string; worktreePath: string | null }) => Promise<void> | void;
 }
 
+type PullRequestThreadDialogState = {
+  reference: string;
+  referenceDirty: boolean;
+  preparingMode: "local" | "worktree" | null;
+};
+
+type PullRequestThreadDialogAction =
+  | { type: "reset"; initialReference: string | null }
+  | { type: "set-reference"; value: string }
+  | { type: "set-reference-dirty"; value: boolean }
+  | { type: "set-preparing-mode"; value: "local" | "worktree" | null };
+
+function createPullRequestThreadDialogState(initialReference: string | null) {
+  return {
+    reference: initialReference ?? "",
+    referenceDirty: false,
+    preparingMode: null,
+  } satisfies PullRequestThreadDialogState;
+}
+
+function pullRequestThreadDialogReducer(
+  state: PullRequestThreadDialogState,
+  action: PullRequestThreadDialogAction,
+): PullRequestThreadDialogState {
+  switch (action.type) {
+    case "reset":
+      return createPullRequestThreadDialogState(action.initialReference);
+    case "set-reference":
+      return { ...state, reference: action.value };
+    case "set-reference-dirty":
+      return { ...state, referenceDirty: action.value };
+    case "set-preparing-mode":
+      return { ...state, preparingMode: action.value };
+    default:
+      return state;
+  }
+}
+
 export function PullRequestThreadDialog({
   open,
   cwd,
@@ -39,9 +77,12 @@ export function PullRequestThreadDialog({
 }: PullRequestThreadDialogProps) {
   const queryClient = useQueryClient();
   const referenceInputRef = useRef<HTMLInputElement>(null);
-  const [reference, setReference] = useState(initialReference ?? "");
-  const [referenceDirty, setReferenceDirty] = useState(false);
-  const [preparingMode, setPreparingMode] = useState<"local" | "worktree" | null>(null);
+  const [state, dispatch] = useReducer(
+    pullRequestThreadDialogReducer,
+    initialReference,
+    createPullRequestThreadDialogState,
+  );
+  const { preparingMode, reference, referenceDirty } = state;
   const [debouncedReference, referenceDebouncer] = useDebouncedValue(
     reference,
     { wait: 450 },
@@ -50,9 +91,7 @@ export function PullRequestThreadDialog({
 
   useEffect(() => {
     if (!open) return;
-    setReference(initialReference ?? "");
-    setReferenceDirty(false);
-    setPreparingMode(null);
+    dispatch({ type: "reset", initialReference });
   }, [initialReference, open]);
 
   useEffect(() => {
@@ -119,13 +158,13 @@ export function PullRequestThreadDialog({
   const handleConfirm = useCallback(
     async (mode: "local" | "worktree") => {
       if (!parsedReference) {
-        setReferenceDirty(true);
+        dispatch({ type: "set-reference-dirty", value: true });
         return;
       }
       if (!parsedReference || !resolvedPullRequest || !cwd) {
         return;
       }
-      setPreparingMode(mode);
+      dispatch({ type: "set-preparing-mode", value: mode });
       try {
         const result = await preparePullRequestThreadMutation.mutateAsync({
           reference: parsedReference,
@@ -137,7 +176,7 @@ export function PullRequestThreadDialog({
         });
         onOpenChange(false);
       } finally {
-        setPreparingMode(null);
+        dispatch({ type: "set-preparing-mode", value: null });
       }
     },
     [
@@ -194,8 +233,8 @@ export function PullRequestThreadDialog({
               placeholder="https://github.com/owner/repo/pull/42, gh pr checkout 42, or #42"
               value={reference}
               onChange={(event) => {
-                setReferenceDirty(true);
-                setReference(event.target.value);
+                dispatch({ type: "set-reference-dirty", value: true });
+                dispatch({ type: "set-reference", value: event.target.value });
               }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") {

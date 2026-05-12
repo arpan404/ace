@@ -3125,13 +3125,16 @@ function ThreadWorkspaceEditor(inputProps: {
                   >
                     {explorerPending ? (
                       <div className="space-y-1 px-2 py-2">
-                        {Array.from({ length: 10 }, (_, index) => (
-                          <div
-                            key={index}
-                            className="h-[22px] rounded-md bg-foreground/5"
-                            style={{ opacity: 1 - index * 0.06 }}
-                          />
-                        ))}
+                        {Array.from({ length: 10 }, (_, index) => {
+                          const opacity = 1 - index * 0.06;
+                          return (
+                            <div
+                              key={`explorer-pending-row-${opacity.toFixed(2)}`}
+                              className="h-[22px] rounded-md bg-foreground/5"
+                              style={{ opacity }}
+                            />
+                          );
+                        })}
                       </div>
                     ) : explorerRows.length === 0 ? (
                       <div className="px-2 py-6 text-center text-xs text-muted-foreground">

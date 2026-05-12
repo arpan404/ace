@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -40,36 +40,84 @@ interface MermaidDiagramProps {
   className?: string;
 }
 
+type MermaidRenderState =
+  | { status: "idle" | "loading" | "ready"; renderedSvg: string | null; renderError: null }
+  | { status: "error"; renderedSvg: null; renderError: string };
+
+const IDLE_MERMAID_RENDER_STATE: MermaidRenderState = {
+  status: "idle",
+  renderedSvg: null,
+  renderError: null,
+};
+
+const LOADING_MERMAID_RENDER_STATE: MermaidRenderState = {
+  status: "loading",
+  renderedSvg: null,
+  renderError: null,
+};
+
+type MermaidRenderAction =
+  | { type: "reset" }
+  | { type: "start" }
+  | { type: "success"; svg: string }
+  | { type: "error"; message: string };
+
+function mermaidRenderStateReducer(
+  _state: MermaidRenderState,
+  action: MermaidRenderAction,
+): MermaidRenderState {
+  switch (action.type) {
+    case "reset":
+      return IDLE_MERMAID_RENDER_STATE;
+    case "start":
+      return LOADING_MERMAID_RENDER_STATE;
+    case "success":
+      return {
+        status: "ready",
+        renderedSvg: action.svg,
+        renderError: null,
+      };
+    case "error":
+      return {
+        status: "error",
+        renderedSvg: null,
+        renderError: action.message,
+      };
+  }
+}
+
 export default function MermaidDiagram({ source, theme, className }: MermaidDiagramProps) {
   const trimmedSource = useMemo(() => source.trim(), [source]);
-  const [renderedSvg, setRenderedSvg] = useState<string | null>(null);
-  const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderState, dispatchRenderState] = useReducer(
+    mermaidRenderStateReducer,
+    IDLE_MERMAID_RENDER_STATE,
+  );
+  const { renderedSvg, renderError } = renderState;
 
   useEffect(() => {
     if (trimmedSource.length === 0) {
-      setRenderedSvg(null);
-      setRenderError(null);
+      dispatchRenderState({ type: "reset" });
       return;
     }
 
     let cancelled = false;
-    setRenderedSvg(null);
-    setRenderError(null);
+    dispatchRenderState({ type: "start" });
 
     void renderMermaidToSvg(trimmedSource, theme)
       .then((svg) => {
         if (cancelled) {
           return;
         }
-        setRenderedSvg(svg);
+        dispatchRenderState({ type: "success", svg });
       })
       .catch((error) => {
         if (cancelled) {
           return;
         }
-        setRenderError(
-          error instanceof Error ? error.message : "Unable to render Mermaid diagram.",
-        );
+        dispatchRenderState({
+          type: "error",
+          message: error instanceof Error ? error.message : "Unable to render Mermaid diagram.",
+        });
       });
 
     return () => {
@@ -115,7 +163,7 @@ export default function MermaidDiagram({ source, theme, className }: MermaidDiag
         )}
         data-mermaid-diagram-state="loading"
       >
-        Rendering Mermaid diagram...
+        Rendering Mermaid diagram…
       </div>
     );
   }

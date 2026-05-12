@@ -1671,7 +1671,7 @@ function classifyToolSummaryEntry(
 
 function summarizeWorkGroupBreakdownParts(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
-): Array<{ text: string; title: string }> {
+): Array<{ key: string; text: string; title: string }> {
   const intentCount = entries.filter((entry) => entry.kind === "intent").length;
   const toolEntries = entries.filter(
     (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
@@ -1718,7 +1718,7 @@ function summarizeWorkGroupBreakdownParts(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
   ).length;
   const eventCount = infoCount;
-  const parts: Array<{ text: string; title: string }> = [];
+  const parts: Array<{ key: string; text: string; title: string }> = [];
   const activityParts: string[] = [];
 
   if (toolSummaryCounts.fileChange > 0) {
@@ -1749,6 +1749,7 @@ function summarizeWorkGroupBreakdownParts(
 
   if (intentCount > 0) {
     parts.push({
+      key: "intent",
       text: intentCount === 1 ? "Worked through plan" : `Worked through ${intentCount} plans`,
       title: summarizeCount(intentCount, "intent"),
     });
@@ -1758,22 +1759,23 @@ function summarizeWorkGroupBreakdownParts(
       activityParts.length > 0
         ? capitalizePhrase(activityParts.join(", "))
         : `Used ${summarizeCount(toolCount, "tool")}`;
-    parts.push({ text: summaryText, title: summaryText });
+    parts.push({ key: "tools", text: summaryText, title: summaryText });
   }
   if (thinkingCount > 0) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
     parts.push({
+      key: "thinking",
       text: `Reasoned through ${thinkingCount === 1 ? "1 step" : `${thinkingCount} steps`}`,
       title: steps,
     });
   }
   if (errorCount > 0) {
     const issues = summarizeCount(errorCount, "issue", "issues");
-    parts.push({ text: `Hit ${issues}`, title: issues });
+    parts.push({ key: "errors", text: `Hit ${issues}`, title: issues });
   }
   if (eventCount > 0) {
     const events = summarizeCount(eventCount, "event");
-    parts.push({ text: `Logged ${events}`, title: events });
+    parts.push({ key: "events", text: `Logged ${events}`, title: events });
   }
 
   if (parts.length > 0) {
@@ -1781,7 +1783,7 @@ function summarizeWorkGroupBreakdownParts(
   }
 
   const entriesLabel = summarizeCount(entries.length, "log entry", "log entries");
-  return [{ text: `Logged ${entriesLabel}`, title: entriesLabel }];
+  return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -2190,7 +2192,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/62">
               {breakdownParts.map((part, index) => (
-                <Fragment key={`${props.row.id}:summary:${part.text}:${index}`}>
+                <Fragment key={`${props.row.id}:summary:${part.key}`}>
                   {index > 0 && (
                     <span className="shrink-0 text-muted-foreground/46 group-hover/disclosure:text-muted-foreground/68">
                       ·

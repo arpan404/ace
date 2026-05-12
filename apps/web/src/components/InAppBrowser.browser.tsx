@@ -15,12 +15,30 @@ const originalElementsFromPoint = document.elementsFromPoint.bind(document);
 const originalInnerWidth = window.innerWidth;
 const originalInnerHeight = window.innerHeight;
 const originalCreateElement = document.createElement.bind(document);
+const DESIGNER_CAPTURE_RESULT_KEY = "__aceDesignerCaptureResult";
 
 function evaluateDesignerCapture(
   point: { x: number; y: number },
   overlayViewport?: { width: number; height: number },
 ) {
-  return new Function(`return ${buildBrowserElementCaptureScript(point, overlayViewport)}`)() as {
+  const script = document.createElement("script");
+  script.textContent = `window.${DESIGNER_CAPTURE_RESULT_KEY} = ${buildBrowserElementCaptureScript(point, overlayViewport)};`;
+  document.body.appendChild(script);
+  const result = (
+    window as typeof window & {
+      [DESIGNER_CAPTURE_RESULT_KEY]?: {
+        target: { id: string | null } | null;
+        targetRect: { height: number; width: number; x: number; y: number } | null;
+      };
+    }
+  )[DESIGNER_CAPTURE_RESULT_KEY];
+  delete (
+    window as typeof window & {
+      [DESIGNER_CAPTURE_RESULT_KEY]?: unknown;
+    }
+  )[DESIGNER_CAPTURE_RESULT_KEY];
+  script.remove();
+  return result as {
     target: { id: string | null } | null;
     targetRect: { height: number; width: number; x: number; y: number } | null;
   };

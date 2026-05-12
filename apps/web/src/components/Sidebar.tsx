@@ -13,6 +13,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -36,6 +37,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import {
   type DesktopUpdateState,
   type FilesystemBrowseResult,
@@ -247,6 +249,37 @@ type RenderedRemoteSidebarProject = {
   readonly hasHiddenThreads: boolean;
   readonly canCollapseThreadList: boolean;
 };
+type ProjectBrowseState = {
+  isBrowsing: boolean;
+  loadedPath: string | null;
+  result: FilesystemBrowseResult | null;
+};
+type ProjectPickerBrowseUiState = {
+  projectBrowseState: ProjectBrowseState;
+  activeProjectBrowseIndex: number;
+  addProjectError: string | null;
+  projectPickerKeyboardNavigationId: number;
+};
+type ProjectPickerBrowseUiAction =
+  | { type: "reset-project-browse-ui" }
+  | { type: "project-browse-start"; path: string }
+  | {
+      type: "project-browse-success";
+      path: string;
+      result: FilesystemBrowseResult;
+    }
+  | { type: "project-browse-failure"; path: string; error: string | null }
+  | { type: "project-browse-finish" }
+  | {
+      type: "set-project-browse-state";
+      nextState: ProjectBrowseState | ((current: ProjectBrowseState) => ProjectBrowseState);
+    }
+  | {
+      type: "set-active-project-browse-index";
+      nextIndex: number | ((current: number) => number);
+    }
+  | { type: "set-add-project-error"; error: string | null }
+  | { type: "bump-keyboard-navigation-id" };
 type SidebarProjectListItem =
   | {
       kind: "local";
@@ -262,6 +295,112 @@ type SidebarProjectListItem =
       renderedProject: RenderedRemoteSidebarProject;
     };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
+const EMPTY_PROJECT_BROWSE_STATE: ProjectBrowseState = {
+  isBrowsing: false,
+  loadedPath: null,
+  result: null,
+};
+const EMPTY_PROJECT_PICKER_BROWSE_UI_STATE: ProjectPickerBrowseUiState = {
+  projectBrowseState: EMPTY_PROJECT_BROWSE_STATE,
+  activeProjectBrowseIndex: -1,
+  addProjectError: null,
+  projectPickerKeyboardNavigationId: 0,
+};
+
+function shouldUseProjectPickerHoverSelection(lastKeyboardNavigationAt: number): boolean {
+  return Date.now() - lastKeyboardNavigationAt > 500;
+}
+
+function projectPickerBrowseUiStateReducer(
+  state: ProjectPickerBrowseUiState,
+  action: ProjectPickerBrowseUiAction,
+): ProjectPickerBrowseUiState {
+  switch (action.type) {
+    case "reset-project-browse-ui":
+      return {
+        ...state,
+        projectBrowseState: EMPTY_PROJECT_BROWSE_STATE,
+        activeProjectBrowseIndex: -1,
+        addProjectError: null,
+      };
+    case "project-browse-start":
+      return {
+        ...state,
+        projectBrowseState: {
+          ...state.projectBrowseState,
+          isBrowsing: true,
+          loadedPath: action.path,
+        },
+        addProjectError: null,
+      };
+    case "project-browse-success":
+      return {
+        ...state,
+        projectBrowseState: {
+          isBrowsing: true,
+          loadedPath: action.path,
+          result: action.result,
+        },
+        activeProjectBrowseIndex: action.result.entries.length > 0 ? 0 : -1,
+        addProjectError: null,
+      };
+    case "project-browse-failure":
+      return {
+        ...state,
+        projectBrowseState: {
+          isBrowsing: true,
+          loadedPath: action.path,
+          result: null,
+        },
+        activeProjectBrowseIndex: -1,
+        addProjectError: action.error,
+      };
+    case "project-browse-finish":
+      return {
+        ...state,
+        projectBrowseState: {
+          ...state.projectBrowseState,
+          isBrowsing: false,
+        },
+      };
+    case "set-project-browse-state": {
+      const nextState =
+        typeof action.nextState === "function"
+          ? action.nextState(state.projectBrowseState)
+          : action.nextState;
+      return state.projectBrowseState === nextState
+        ? state
+        : {
+            ...state,
+            projectBrowseState: nextState,
+          };
+    }
+    case "set-active-project-browse-index": {
+      const nextIndex =
+        typeof action.nextIndex === "function"
+          ? action.nextIndex(state.activeProjectBrowseIndex)
+          : action.nextIndex;
+      return state.activeProjectBrowseIndex === nextIndex
+        ? state
+        : {
+            ...state,
+            activeProjectBrowseIndex: nextIndex,
+          };
+    }
+    case "set-add-project-error":
+      return state.addProjectError === action.error
+        ? state
+        : {
+            ...state,
+            addProjectError: action.error,
+          };
+    case "bump-keyboard-navigation-id":
+      return {
+        ...state,
+        projectPickerKeyboardNavigationId: state.projectPickerKeyboardNavigationId + 1,
+      };
+  }
+}
 
 function estimateSidebarProjectListItemSize(item: SidebarProjectListItem | undefined): number {
   if (!item) {
@@ -891,27 +1030,44 @@ export default function Sidebar() {
     string | null
   >(null);
   const [newCwd, setNewCwd] = useState("");
-  const [isBrowsingProjectPaths, setIsBrowsingProjectPaths] = useState(false);
-  const [projectBrowseResult, setProjectBrowseResult] = useState<FilesystemBrowseResult | null>(
-    null,
+  const [projectPickerBrowseUiState, dispatchProjectPickerBrowseUiState] = useReducer(
+    projectPickerBrowseUiStateReducer,
+    EMPTY_PROJECT_PICKER_BROWSE_UI_STATE,
   );
-  const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
-  const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
-  const [projectPickerKeyboardNavigationId, setProjectPickerKeyboardNavigationId] = useState(0);
+  const {
+    addProjectError,
+    activeProjectBrowseIndex,
+    projectBrowseState,
+    projectPickerKeyboardNavigationId,
+  } = projectPickerBrowseUiState;
   const lastKeyboardNavigationTimeRef = useRef(0);
   const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
     string | null
   >(null);
   const [isAddingProject, setIsAddingProject] = useState(false);
-  const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const providerStatuses = useServerProviders({
     enabled: addingProject || isAddingProject,
   });
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectPickerListRef = useRef<HTMLDivElement | null>(null);
+  const setProjectBrowseState = useCallback(
+    (nextState: ProjectBrowseState | ((current: ProjectBrowseState) => ProjectBrowseState)) => {
+      dispatchProjectPickerBrowseUiState({ type: "set-project-browse-state", nextState });
+    },
+    [],
+  );
+  const setActiveProjectBrowseIndex = useCallback(
+    (nextIndex: number | ((current: number) => number)) => {
+      dispatchProjectPickerBrowseUiState({ type: "set-active-project-browse-index", nextIndex });
+    },
+    [],
+  );
+  const setAddProjectError = useCallback((error: string | null) => {
+    dispatchProjectPickerBrowseUiState({ type: "set-add-project-error", error });
+  }, []);
   const requestProjectPickerKeyboardScroll = useCallback(() => {
     lastKeyboardNavigationTimeRef.current = Date.now();
-    setProjectPickerKeyboardNavigationId((current) => current + 1);
+    dispatchProjectPickerBrowseUiState({ type: "bump-keyboard-navigation-id" });
   }, []);
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
@@ -2087,15 +2243,13 @@ export default function Sidebar() {
     async (partialPath: string) => {
       const trimmedPath = partialPath.trim();
       if (!addingProject || projectPickerStep !== "directory" || !trimmedPath) {
-        setProjectBrowseResult(null);
-        setProjectBrowseLoadedPath(null);
-        setActiveProjectBrowseIndex(-1);
+        dispatchProjectPickerBrowseUiState({ type: "reset-project-browse-ui" });
         return;
       }
 
       const requestVersion = browseRequestVersionRef.current + 1;
       browseRequestVersionRef.current = requestVersion;
-      setIsBrowsingProjectPaths(true);
+      dispatchProjectPickerBrowseUiState({ type: "project-browse-start", path: trimmedPath });
       try {
         const browseResult = await routeFilesystemBrowseToRemote(
           selectedProjectPickerConnectionUrl,
@@ -2106,22 +2260,23 @@ export default function Sidebar() {
         if (browseRequestVersionRef.current !== requestVersion) {
           return;
         }
-        setProjectBrowseLoadedPath(trimmedPath);
-        setProjectBrowseResult(browseResult);
-        setActiveProjectBrowseIndex(browseResult.entries.length > 0 ? 0 : -1);
+        dispatchProjectPickerBrowseUiState({
+          type: "project-browse-success",
+          path: trimmedPath,
+          result: browseResult,
+        });
       } catch (error) {
         if (browseRequestVersionRef.current !== requestVersion) {
           return;
         }
-        setProjectBrowseLoadedPath(trimmedPath);
-        setProjectBrowseResult(null);
-        setActiveProjectBrowseIndex(-1);
-        setAddProjectError(
-          error instanceof Error ? error.message : "Unable to browse this directory path.",
-        );
+        dispatchProjectPickerBrowseUiState({
+          type: "project-browse-failure",
+          path: trimmedPath,
+          error: error instanceof Error ? error.message : "Unable to browse this directory path.",
+        });
       } finally {
         if (browseRequestVersionRef.current === requestVersion) {
-          setIsBrowsingProjectPaths(false);
+          dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
         }
       }
     },
@@ -2130,17 +2285,12 @@ export default function Sidebar() {
 
   useEffect(() => {
     if (!addingProject || projectPickerStep !== "directory") {
-      setProjectBrowseResult(null);
-      setProjectBrowseLoadedPath(null);
-      setActiveProjectBrowseIndex(-1);
-      setIsBrowsingProjectPaths(false);
+      dispatchProjectPickerBrowseUiState({ type: "reset-project-browse-ui" });
       return;
     }
     const trimmedPath = newCwd.trim();
     if (!trimmedPath) {
-      setProjectBrowseResult(null);
-      setProjectBrowseLoadedPath(null);
-      setActiveProjectBrowseIndex(-1);
+      dispatchProjectPickerBrowseUiState({ type: "reset-project-browse-ui" });
       return;
     }
     void refreshProjectBrowse(trimmedPath);
@@ -2168,7 +2318,7 @@ export default function Sidebar() {
         setIsAddingProject(false);
         setNewCwd("");
         setAddProjectError(null);
-        setProjectBrowseResult(null);
+        setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
         setActiveProjectBrowseIndex(-1);
         setAddingProject(false);
       };
@@ -2280,9 +2430,20 @@ export default function Sidebar() {
     projectPickerStep === "directory" && newCwd.trim().length > 0 && !isAddingProject;
   const currentProjectBrowsePath = newCwd.trim();
   const currentProjectBrowseResult =
-    projectBrowseLoadedPath !== null && projectBrowseLoadedPath === currentProjectBrowsePath
-      ? projectBrowseResult
+    projectBrowseState.loadedPath !== null &&
+    projectBrowseState.loadedPath === currentProjectBrowsePath
+      ? projectBrowseState.result
       : null;
+  const projectPickerItemCount =
+    projectPickerStep === "environment"
+      ? filteredPickerEnvironments.length
+      : (currentProjectBrowseResult?.entries.length ?? 0);
+  const resolvedActiveProjectBrowseIndex =
+    !addingProject || projectPickerItemCount === 0
+      ? -1
+      : activeProjectBrowseIndex < 0
+        ? 0
+        : Math.min(activeProjectBrowseIndex, projectPickerItemCount - 1);
   const isWaitingForCurrentProjectBrowse =
     projectPickerStep === "directory" &&
     currentProjectBrowsePath.length > 0 &&
@@ -2363,7 +2524,7 @@ export default function Sidebar() {
       setProjectPickerStep("directory");
       const initialPath = environment.isLocal ? addProjectBaseDirectory : "~";
       setNewCwd(toBrowseDirectoryPath(initialPath));
-      setProjectBrowseResult(null);
+      setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
       setAddProjectError(null);
       setProjectPickerEnvironmentQuery("");
       setActiveProjectBrowseIndex(-1);
@@ -2403,8 +2564,8 @@ export default function Sidebar() {
         if (event.key === "Enter") {
           event.preventDefault();
           const environment =
-            activeProjectBrowseIndex >= 0
-              ? filteredPickerEnvironments[activeProjectBrowseIndex]
+            resolvedActiveProjectBrowseIndex >= 0
+              ? filteredPickerEnvironments[resolvedActiveProjectBrowseIndex]
               : filteredPickerEnvironments[0];
           if (environment) {
             void handleSelectProjectPickerEnvironment(environment);
@@ -2457,8 +2618,8 @@ export default function Sidebar() {
       }
       if (event.key === "ArrowRight") {
         const selectedEntry =
-          activeProjectBrowseIndex >= 0
-            ? currentProjectBrowseResult?.entries[activeProjectBrowseIndex]
+          resolvedActiveProjectBrowseIndex >= 0
+            ? currentProjectBrowseResult?.entries[resolvedActiveProjectBrowseIndex]
             : undefined;
         if (selectedEntry) {
           event.preventDefault();
@@ -2513,35 +2674,16 @@ export default function Sidebar() {
       currentProjectBrowseResult,
       pickerEnvironments.length,
       requestProjectPickerKeyboardScroll,
+      resolvedActiveProjectBrowseIndex,
     ],
   );
 
   useEffect(() => {
-    if (!addingProject) {
-      return;
-    }
-    const itemCount =
-      projectPickerStep === "environment"
-        ? filteredPickerEnvironments.length
-        : (currentProjectBrowseResult?.entries.length ?? 0);
-    setActiveProjectBrowseIndex((currentIndex) => {
-      if (itemCount === 0) {
-        return -1;
-      }
-      if (currentIndex < 0) {
-        return 0;
-      }
-      return Math.min(currentIndex, itemCount - 1);
-    });
-  }, [
-    addingProject,
-    currentProjectBrowseResult,
-    filteredPickerEnvironments.length,
-    projectPickerStep,
-  ]);
-
-  useEffect(() => {
-    if (!addingProject || activeProjectBrowseIndex < 0 || projectPickerKeyboardNavigationId === 0) {
+    if (
+      !addingProject ||
+      resolvedActiveProjectBrowseIndex < 0 ||
+      projectPickerKeyboardNavigationId === 0
+    ) {
       return;
     }
     const listElement = projectPickerListRef.current;
@@ -2553,7 +2695,7 @@ export default function Sidebar() {
         ? "data-project-picker-environment-index"
         : "data-project-picker-index";
     const activeItem = listElement.querySelector<HTMLElement>(
-      `[${stepSelector}="${String(activeProjectBrowseIndex)}"]`,
+      `[${stepSelector}="${String(resolvedActiveProjectBrowseIndex)}"]`,
     );
     if (!activeItem) {
       return;
@@ -2562,7 +2704,12 @@ export default function Sidebar() {
       block: "center",
       behavior: "auto",
     });
-  }, [projectPickerKeyboardNavigationId]);
+  }, [
+    addingProject,
+    projectPickerKeyboardNavigationId,
+    projectPickerStep,
+    resolvedActiveProjectBrowseIndex,
+  ]);
 
   const handleStartAddProject = useCallback(() => {
     setAddProjectError(null);
@@ -2595,10 +2742,13 @@ export default function Sidebar() {
     setProjectPickerStep(hasRemoteEnvironment ? "environment" : "directory");
     setProjectPickerEnvironmentQuery("");
     setNewCwd(hasRemoteEnvironment ? "" : toBrowseDirectoryPath(initialPath));
-    setProjectBrowseResult(null);
+    setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
     setActiveProjectBrowseIndex(-1);
     setAddingProject(true);
   }, [addProjectBaseDirectory, localDeviceConnectionUrl, shouldShowProjectPathEntry]);
+  const handleStartAddProjectEffect = useEffectEvent(() => {
+    handleStartAddProject();
+  });
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -2971,6 +3121,9 @@ export default function Sidebar() {
       setSelectionAnchor,
     ],
   );
+  const navigateToThreadEffect = useEffectEvent((threadId: ThreadId) => {
+    navigateToThread(threadId);
+  });
   const navigateToThreadOnConnection = useCallback(
     (connectionUrl: string, threadId: ThreadId) => {
       if (selectedThreadIds.size > 0) {
@@ -4397,7 +4550,7 @@ export default function Sidebar() {
         }
         event.preventDefault();
         event.stopPropagation();
-        handleStartAddProject();
+        handleStartAddProjectEffect();
         return;
       }
       const traversalDirection = threadTraversalDirectionFromCommand(command);
@@ -4413,7 +4566,7 @@ export default function Sidebar() {
 
         event.preventDefault();
         event.stopPropagation();
-        navigateToThread(targetThreadId);
+        navigateToThreadEffect(targetThreadId);
         return;
       }
 
@@ -4429,7 +4582,7 @@ export default function Sidebar() {
 
       event.preventDefault();
       event.stopPropagation();
-      navigateToThread(targetThreadId);
+      navigateToThreadEffect(targetThreadId);
     };
 
     const onWindowKeyUp = (event: globalThis.KeyboardEvent) => {
@@ -4457,9 +4610,7 @@ export default function Sidebar() {
   }, [
     keybindings,
     closeSearchPalette,
-    handleStartAddProject,
     isOnSettings,
-    navigateToThread,
     openSearchPalette,
     orderedSidebarThreadIds,
     platform,
@@ -4950,7 +5101,7 @@ export default function Sidebar() {
       block: "center",
       behavior: "smooth",
     });
-  }, [searchPaletteKeyboardNavigationId]);
+  }, [searchPaletteActiveIndex, searchPaletteKeyboardNavigationId]);
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
@@ -5431,7 +5582,7 @@ export default function Sidebar() {
                 }
                 handleBrowseParentPath();
               }}
-              disabled={isAddingProject || isBrowsingProjectPaths}
+              disabled={isAddingProject || projectBrowseState.isBrowsing}
               aria-label={
                 projectPickerStep === "environment"
                   ? "Close project picker"
@@ -5505,12 +5656,16 @@ export default function Sidebar() {
                         type="button"
                         data-project-picker-environment-index={index}
                         className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
-                          index === activeProjectBrowseIndex
+                          index === resolvedActiveProjectBrowseIndex
                             ? "bg-primary/15 text-foreground"
                             : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                         }`}
                         onMouseEnter={() => {
-                          if (Date.now() - lastKeyboardNavigationTimeRef.current > 500) {
+                          if (
+                            shouldUseProjectPickerHoverSelection(
+                              lastKeyboardNavigationTimeRef.current,
+                            )
+                          ) {
                             setActiveProjectBrowseIndex(index);
                           }
                         }}
@@ -5554,7 +5709,7 @@ export default function Sidebar() {
                       No matching environments
                     </p>
                   )
-                ) : isBrowsingProjectPaths || isWaitingForCurrentProjectBrowse ? (
+                ) : projectBrowseState.isBrowsing || isWaitingForCurrentProjectBrowse ? (
                   <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
                     Browsing directories...
                   </p>
@@ -5576,12 +5731,16 @@ export default function Sidebar() {
                           type="button"
                           data-project-picker-index={index}
                           className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
-                            index === activeProjectBrowseIndex
+                            index === resolvedActiveProjectBrowseIndex
                               ? "bg-primary/15 text-foreground"
                               : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                           }`}
                           onMouseEnter={() => {
-                            if (Date.now() - lastKeyboardNavigationTimeRef.current > 500) {
+                            if (
+                              shouldUseProjectPickerHoverSelection(
+                                lastKeyboardNavigationTimeRef.current,
+                              )
+                            ) {
                               setActiveProjectBrowseIndex(index);
                             }
                           }}

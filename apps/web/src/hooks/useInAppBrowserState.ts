@@ -552,7 +552,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const [isRepairingStorage, setIsRepairingStorage] = useState(false);
   const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
   const [addressBarSuggestionsDismissed, setAddressBarSuggestionsDismissed] = useState(false);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const [selectedSuggestionState, setSelectedSuggestionState] = useState({
+    index: -1,
+    query: "",
+  });
   const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
   const updateBrowserSession = useCallback(
     (updater: (state: typeof browserSession) => typeof browserSession) => {
@@ -607,6 +610,27 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     showAddressBarSuggestions,
     suggestionInput,
   ]);
+  const selectedSuggestionIndex =
+    selectedSuggestionState.query === draftUrl &&
+    selectedSuggestionState.index < addressBarSuggestions.length
+      ? selectedSuggestionState.index
+      : -1;
+  const setSelectedSuggestionIndex = useCallback(
+    (next: number | ((current: number) => number)) => {
+      setSelectedSuggestionState((current) => {
+        const currentIndex =
+          current.query === draftUrl && current.index < addressBarSuggestions.length
+            ? current.index
+            : -1;
+        const nextIndex = typeof next === "function" ? next(currentIndex) : next;
+        return {
+          index: nextIndex,
+          query: draftUrl,
+        };
+      });
+    },
+    [addressBarSuggestions.length, draftUrl],
+  );
 
   const focusAddressBar = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -2079,10 +2103,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   useEffect(() => {
     initialAddressBarAutoFocusHandledRef.current = false;
   }, [browserSessionStorageKey]);
-
-  useEffect(() => {
-    setSelectedSuggestionIndex(-1);
-  }, [draftUrl, addressBarSuggestions.length]);
 
   useEffect(() => {
     onActiveRuntimeStateChange?.({

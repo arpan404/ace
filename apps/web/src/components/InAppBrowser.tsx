@@ -12,7 +12,6 @@ import {
   RefreshCwIcon,
 } from "lucide-react";
 import {
-  type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Profiler,
@@ -789,12 +788,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 </TooltipPopup>
               </Tooltip>
             </div>
-            <form
+            <div
+              role="search"
               className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
-              onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault();
-                openUrl(draftUrl);
-              }}
             >
               <div
                 className={cn(
@@ -905,7 +901,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   onSelect={applySuggestion}
                 />
               ) : null}
-            </form>
+            </div>
             {designerModeAvailable ? (
               <div
                 ref={designerToolSlotRef}
