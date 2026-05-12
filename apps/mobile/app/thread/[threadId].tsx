@@ -64,6 +64,7 @@ import {
   ActionChip,
   IconButton,
   Panel,
+  SegmentedControl,
   ScreenBackdrop,
   ScreenHeaderV2,
   SectionTitle,
@@ -1238,101 +1239,49 @@ export default function ThreadChatScreen() {
                 </Pressable>
               </View>
             ) : null}
-            <View style={styles.panelTabs}>
-              {PANEL_OPTIONS.map((panel) => {
-                const active = panel.key === activePanel;
-                return (
-                  <Pressable
-                    key={panel.key}
-                    onPress={() => setActivePanel(panel.key)}
-                    style={[
-                      styles.panelTab,
-                      {
-                        backgroundColor: active ? colors.surfaceSecondary : "transparent",
-                        borderColor: active ? colors.elevatedBorder : "transparent",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.panelTabLabel,
-                        { color: active ? colors.foreground : colors.secondaryLabel },
-                      ]}
-                    >
-                      {panel.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <SegmentedControl
+              options={PANEL_OPTIONS}
+              selectedKey={activePanel}
+              onSelect={(key) => setActivePanel(key as ThreadPanel)}
+            />
             {thread ? (
               <View style={styles.threadModeGrid}>
                 <View style={styles.threadModeGroup}>
                   <Text style={[styles.threadModeLabel, { color: colors.tertiaryLabel }]}>
                     Access
                   </Text>
-                  <View style={styles.threadModeRow}>
-                    {RUNTIME_MODE_OPTIONS.map((option) => {
-                      const active = option.value === thread.runtimeMode;
-                      return (
-                        <Pressable
-                          key={option.value}
-                          disabled={modeUpdating !== null || hostOffline}
-                          onPress={() => void updateRuntimeMode(option.value)}
-                          style={[
-                            styles.threadModeChip,
-                            {
-                              backgroundColor: active ? colors.primary : colors.surfaceSecondary,
-                              borderColor: active ? colors.primary : colors.elevatedBorder,
-                            },
-                            (modeUpdating !== null || hostOffline) && styles.disabledButton,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.threadModeChipLabel,
-                              { color: active ? colors.primaryForeground : colors.foreground },
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
+                  <View style={(modeUpdating !== null || hostOffline) && styles.disabledButton}>
+                    <SegmentedControl
+                      options={RUNTIME_MODE_OPTIONS.map((option) => ({
+                        key: option.value,
+                        label: option.label,
+                      }))}
+                      selectedKey={thread.runtimeMode}
+                      onSelect={(key) =>
+                        void updateRuntimeMode(
+                          key as (typeof RUNTIME_MODE_OPTIONS)[number]["value"],
+                        )
+                      }
+                    />
                   </View>
                 </View>
                 <View style={styles.threadModeGroup}>
                   <Text style={[styles.threadModeLabel, { color: colors.tertiaryLabel }]}>
                     Mode
                   </Text>
-                  <View style={styles.threadModeRow}>
-                    {INTERACTION_MODE_OPTIONS.map((option) => {
-                      const active = option.value === thread.interactionMode;
-                      return (
-                        <Pressable
-                          key={option.value}
-                          disabled={modeUpdating !== null || hostOffline}
-                          onPress={() => void updateInteractionMode(option.value)}
-                          style={[
-                            styles.threadModeChip,
-                            {
-                              backgroundColor: active ? colors.primary : colors.surfaceSecondary,
-                              borderColor: active ? colors.primary : colors.elevatedBorder,
-                            },
-                            (modeUpdating !== null || hostOffline) && styles.disabledButton,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.threadModeChipLabel,
-                              { color: active ? colors.primaryForeground : colors.foreground },
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
+                  <View style={(modeUpdating !== null || hostOffline) && styles.disabledButton}>
+                    <SegmentedControl
+                      options={INTERACTION_MODE_OPTIONS.map((option) => ({
+                        key: option.value,
+                        label: option.label,
+                      }))}
+                      selectedKey={thread.interactionMode}
+                      onSelect={(key) =>
+                        void updateInteractionMode(
+                          key as (typeof INTERACTION_MODE_OPTIONS)[number]["value"],
+                        )
+                      }
+                    />
                   </View>
                 </View>
               </View>

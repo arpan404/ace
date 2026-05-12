@@ -1,9 +1,12 @@
-import React, { type ReactNode } from "react";
-import { StyleSheet, TextInput, View, Pressable, Text } from "react-native";
+import React, { type ReactNode, useEffect } from "react";
+import { StyleSheet, TextInput, View, Pressable } from "react-native";
 import type { LucideIcon } from "lucide-react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useTheme } from "../ThemeContext";
 import { Typography } from "../tokens";
 import { Radius, withAlpha } from "../system";
+import { ExpoText } from "../ExpoText";
+import { enterSubtle, layoutTransition } from "../motion";
 
 export function ComposerDock({
   value,
@@ -23,16 +26,29 @@ export function ComposerDock({
   SendIcon: LucideIcon;
 }) {
   const { colors } = useTheme();
+  const sendScale = useSharedValue(canSend ? 1 : 0.94);
+
+  useEffect(() => {
+    sendScale.value = withTiming(canSend ? 1 : 0.94, {
+      duration: 160,
+    });
+  }, [canSend, sendScale]);
+
+  const sendButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendScale.value }],
+  }));
 
   return (
-    <View
+    <Animated.View
       style={[
         styles.shell,
         {
-          backgroundColor: colors.surfaces.default,
+          backgroundColor: colors.bg.canvas,
           borderColor: colors.border.soft,
         },
       ]}
+      entering={enterSubtle()}
+      layout={layoutTransition}
     >
       <View style={styles.leading}>{leadingActions}</View>
       <TextInput
@@ -43,24 +59,26 @@ export function ComposerDock({
         style={[styles.input, { color: colors.text.primary }]}
         multiline
       />
-      <Pressable
-        onPress={onSend}
-        disabled={!canSend}
-        style={[
-          styles.sendButton,
-          {
-            backgroundColor: canSend ? colors.accent.primary : colors.surfaces.muted,
-            opacity: canSend ? 1 : 0.82,
-          },
-        ]}
-      >
-        <SendIcon
-          size={16}
-          color={canSend ? colors.text.inverse : colors.text.tertiary}
-          strokeWidth={2.5}
-        />
-      </Pressable>
-    </View>
+      <Animated.View style={sendButtonStyle}>
+        <Pressable
+          onPress={onSend}
+          disabled={!canSend}
+          style={[
+            styles.sendButton,
+            {
+              backgroundColor: canSend ? colors.accent.primary : colors.surfaces.muted,
+              opacity: canSend ? 1 : 0.82,
+            },
+          ]}
+        >
+          <SendIcon
+            size={16}
+            color={canSend ? colors.text.inverse : colors.text.tertiary}
+            strokeWidth={2.5}
+          />
+        </Pressable>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
@@ -85,12 +103,14 @@ export function ComposerMetaChip({
       ]}
     >
       <Icon size={13} color={colors.accent.primary} strokeWidth={2.1} />
-      <Text style={[styles.metaChipLabel, { color: colors.text.primary }]} numberOfLines={1}>
+      <ExpoText style={[styles.metaChipLabel, { color: colors.text.primary }]} numberOfLines={1}>
         {label}
-      </Text>
+      </ExpoText>
       {onRemove ? (
         <Pressable onPress={onRemove} style={styles.metaChipClear}>
-          <Text style={[styles.metaChipClearLabel, { color: colors.text.secondary }]}>×</Text>
+          <ExpoText style={[styles.metaChipClearLabel, { color: colors.text.secondary }]}>
+            ×
+          </ExpoText>
         </Pressable>
       ) : null}
     </View>

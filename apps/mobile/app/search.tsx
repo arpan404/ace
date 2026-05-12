@@ -4,7 +4,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type StyleProp,
   type ViewStyle,
@@ -21,8 +20,17 @@ import {
   SlidersHorizontal,
 } from "lucide-react-native";
 import { useTheme } from "../src/design/ThemeContext";
-import { Layout, Radius, withAlpha } from "../src/design/system";
-import { Panel, ScreenBackdrop, SectionTitle, StatusBadge } from "../src/design/primitives";
+import { Layout, withAlpha } from "../src/design/system";
+import {
+  EmptyState,
+  IconButton,
+  Panel,
+  ScreenBackdrop,
+  ScreenHeaderV2,
+  SearchField,
+  SectionTitle,
+  StatusBadge,
+} from "../src/design/primitives";
 import { useHostStore } from "../src/store/HostStore";
 import { useAggregatedOrchestration } from "../src/orchestration/mobileData";
 import {
@@ -117,67 +125,40 @@ export default function SearchScreen() {
         contentContainerStyle={{
           paddingTop: insets.top + 12,
           paddingHorizontal: Layout.pagePadding,
-          paddingBottom: insets.bottom + 42,
+          paddingBottom: insets.bottom + 32,
         }}
       >
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={[
-              styles.backButton,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.elevatedBorder,
-              },
-            ]}
-          >
-            <ChevronLeft size={18} color={colors.foreground} strokeWidth={2.4} />
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: colors.tertiaryLabel }]}>ace</Text>
-            <Text style={[styles.title, { color: colors.foreground }]}>Search</Text>
-          </View>
-          <StatusBadge label={`${items.length} found`} tone="muted" />
-        </View>
+        <ScreenHeaderV2
+          eyebrow="Quick search"
+          title="Search"
+          subtitle="Jump to hosts, projects, threads, and common actions."
+          actions={
+            <View style={styles.headerActions}>
+              <StatusBadge label={`${items.length} found`} tone="muted" />
+              <IconButton icon={ChevronLeft} label="Back" onPress={() => router.back()} />
+            </View>
+          }
+        />
 
-        <View
-          style={[
-            styles.searchShell,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.elevatedBorder,
-              shadowColor: colors.shadow,
-            },
-          ]}
-        >
-          <Search size={18} color={colors.tertiaryLabel} strokeWidth={2.2} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoFocus
-            placeholder="Find hosts, projects, or threads"
-            placeholderTextColor={colors.muted}
-            style={[styles.searchInput, { color: colors.foreground }]}
-          />
-        </View>
+        <SearchField
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Find hosts, projects, or threads"
+          icon={Search}
+        />
 
         <View style={styles.sectionHeader}>
           <SectionTitle>Results</SectionTitle>
-          <Text style={[styles.sectionMeta, { color: colors.tertiaryLabel }]}>
-            {query.trim() ? "Filtered" : "Recent surface"}
+          <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
+            {query.trim() ? "Filtered" : "Suggested"}
           </Text>
         </View>
 
         {items.length === 0 ? (
-          <Panel>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No matches</Text>
-            <Text style={[styles.emptyBody, { color: colors.secondaryLabel }]}>
-              Search by host name, workspace path, project title, thread title, or recent thread
-              text.
-            </Text>
-          </Panel>
+          <EmptyState
+            title="No matches"
+            body="Search by host name, workspace path, project title, thread title, or recent thread text."
+          />
         ) : (
           <Panel padded={false} style={styles.resultsPanel}>
             {items.map((item, index) => (
@@ -227,18 +208,20 @@ function SearchResultRow({
       </View>
       <View style={styles.resultCopy}>
         <View style={styles.resultHeader}>
-          <Text style={[styles.resultTitle, { color: colors.foreground }]} numberOfLines={1}>
+          <Text style={[styles.resultTitle, { color: colors.text.primary }]} numberOfLines={1}>
             {item.title}
           </Text>
-          <Text style={[styles.resultKind, { color: colors.tertiaryLabel }]}>
+          <Text style={[styles.resultKind, { color: colors.text.tertiary }]}>
             {item.kind.toUpperCase()}
           </Text>
         </View>
-        <Text style={[styles.resultSubtitle, { color: colors.secondaryLabel }]} numberOfLines={2}>
+        <Text style={[styles.resultSubtitle, { color: colors.text.secondary }]} numberOfLines={2}>
           {item.subtitle}
         </Text>
       </View>
-      {!isLast ? <View style={[styles.separator, { backgroundColor: colors.separator }]} /> : null}
+      {!isLast ? (
+        <View style={[styles.separator, { backgroundColor: colors.border.soft }]} />
+      ) : null}
     </Pressable>
   );
 }
@@ -247,57 +230,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  header: {
-    minHeight: 78,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  eyebrow: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  title: {
-    marginTop: 4,
-    fontSize: 34,
-    lineHeight: 36,
-    fontWeight: "900",
-    letterSpacing: -1.1,
-  },
-  searchShell: {
-    minHeight: 56,
-    marginTop: 18,
-    borderRadius: Radius.input,
-    borderWidth: 1,
-    paddingHorizontal: 16,
+  headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.1,
-    shadowRadius: 24,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: 52,
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: "700",
   },
   sectionHeader: {
     marginTop: 24,
@@ -363,15 +299,5 @@ const styles = StyleSheet.create({
     left: 71,
     right: 18,
     height: StyleSheet.hairlineWidth,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "900",
-  },
-  emptyBody: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 21,
   },
 });

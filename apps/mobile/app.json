@@ -17,7 +17,9 @@
           "cameraPermission": "Allow ace Mobile to scan host QR codes and attach photos to agent messages.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-font",
+      "expo-secure-store"
     ],
     "ios": {
       "bundleIdentifier": "com.ace.mobile",

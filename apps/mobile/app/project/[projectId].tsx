@@ -59,8 +59,11 @@ import {
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import { useTheme } from "../../src/design/ThemeContext";
 import {
+  DetailRow,
   EmptyState,
   IconButton,
+  InsetGroup,
+  InsetRow,
   Panel,
   ScreenBackdrop,
   ScreenHeaderV2,
@@ -1267,75 +1270,51 @@ export default function ProjectDetailScreen() {
 
         {entry ? (
           <>
-            <Panel style={styles.summaryStrip}>
-              <SummaryCell label="Live" value={entry.liveCount} />
-              <SummaryCell label="Pending" value={entry.pendingCount} />
-              <SummaryCell label="Completed" value={entry.completedCount} />
-            </Panel>
+            <View style={styles.summaryTextRow}>
+              <Text style={[styles.summaryText, { color: colors.text.tertiary }]}>
+                {entry.liveCount} live
+              </Text>
+              <Text style={[styles.summaryText, { color: colors.text.tertiary }]}>
+                {entry.pendingCount} pending
+              </Text>
+              <Text style={[styles.summaryText, { color: colors.text.tertiary }]}>
+                {entry.completedCount} completed
+              </Text>
+            </View>
 
-            <Panel style={styles.heroPanel}>
-              <View style={styles.heroRow}>
-                <View
-                  style={[
-                    styles.heroIcon,
-                    {
-                      backgroundColor: withAlpha(colors.primary, 0.14),
-                    },
-                  ]}
-                >
-                  <FolderGit2 size={20} color={colors.primary} strokeWidth={2.1} />
-                </View>
-                <View style={styles.heroCopy}>
-                  <Text style={[styles.heroLabel, { color: colors.tertiaryLabel }]}>
-                    Workspace root
-                  </Text>
-                  <Text style={[styles.heroPath, { color: colors.foreground }]} numberOfLines={2}>
-                    {entry.project.workspaceRoot}
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={() =>
-                  router.push({
-                    pathname: "/project/files",
-                    params: {
-                      projectId: entry.project.id,
-                      hostId: entry.hostId,
-                      cwd: entry.project.workspaceRoot,
-                      title: entry.project.title,
-                      hostName: entry.hostName,
-                    },
-                  })
-                }
-                style={[
-                  styles.filesButton,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.elevatedBorder,
-                  },
-                ]}
-              >
-                <FileCode2 size={17} color={colors.primary} strokeWidth={2.2} />
-                <Text style={[styles.filesButtonText, { color: colors.foreground }]}>
-                  Browse files
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setShowProjectSettings((current) => !current)}
-                style={[
-                  styles.filesButton,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.elevatedBorder,
-                  },
-                ]}
-              >
-                <Pencil size={17} color={colors.primary} strokeWidth={2.2} />
-                <Text style={[styles.filesButtonText, { color: colors.foreground }]}>
-                  Project settings
-                </Text>
-              </Pressable>
-            </Panel>
+            <View style={styles.workspaceSection}>
+              <SectionTitle>Workspace</SectionTitle>
+              <InsetGroup>
+                <DetailRow label="Host" value={entry.hostName} />
+                <DetailRow label="Root" value={entry.project.workspaceRoot} mono last />
+              </InsetGroup>
+              <InsetGroup>
+                <InsetRow
+                  title="Browse files"
+                  meta="Open the file browser at this workspace root."
+                  icon={FileCode2}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/project/files",
+                      params: {
+                        projectId: entry.project.id,
+                        hostId: entry.hostId,
+                        cwd: entry.project.workspaceRoot,
+                        title: entry.project.title,
+                        hostName: entry.hostName,
+                      },
+                    })
+                  }
+                />
+                <InsetRow
+                  title="Project settings"
+                  meta="Rename the project or update the synced workspace path."
+                  icon={Pencil}
+                  onPress={() => setShowProjectSettings((current) => !current)}
+                  last
+                />
+              </InsetGroup>
+            </View>
 
             {showProjectSettings ? (
               <Panel style={styles.projectSettingsPanel}>
@@ -2707,18 +2686,6 @@ export default function ProjectDetailScreen() {
   );
 }
 
-function SummaryCell({ label, value }: { label: string; value: number }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.summaryCell}>
-      <Text style={[styles.summaryValue, { color: colors.foreground }]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={[styles.summaryLabel, { color: colors.secondaryLabel }]}>{label}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -2730,23 +2697,20 @@ const styles = StyleSheet.create({
   },
   summaryStrip: {
     marginTop: 2,
+  },
+  summaryTextRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: 10,
+    marginTop: 8,
+    marginBottom: 18,
   },
-  summaryCell: {
-    flex: 1,
-    gap: 2,
-  },
-  summaryValue: {
-    fontSize: 19,
-    lineHeight: 22,
-    fontWeight: "700",
-  },
-  summaryLabel: {
+  summaryText: {
     fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
+  },
+  workspaceSection: {
+    gap: 10,
+    marginBottom: 6,
   },
   heroPanel: {
     marginTop: 16,

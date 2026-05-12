@@ -1,7 +1,7 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { Platform, StyleSheet } from "react-native";
-import { LayoutGrid, MessageSquare, Server, SlidersHorizontal } from "lucide-react-native";
+import { LayoutGrid, MessageSquare, SlidersHorizontal } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Typography } from "../../src/design/tokens";
 
@@ -23,27 +23,20 @@ export default function TabsLayout() {
           marginBottom: Platform.select({ ios: 0, default: 4 }),
         },
         tabBarStyle: {
-          position: "absolute",
-          left: 12,
-          right: 12,
-          bottom: 10,
-          backgroundColor: colors.surfaces.default,
+          backgroundColor: colors.bg.canvas,
           borderTopColor: colors.border.soft,
           borderTopWidth: StyleSheet.hairlineWidth,
-          height: Platform.OS === "ios" ? 78 : 70,
-          paddingTop: 10,
-          paddingBottom: Platform.select({ ios: 18, default: 10 }),
-          paddingHorizontal: 10,
-          borderRadius: 22,
+          height: Platform.OS === "ios" ? 82 : 68,
+          paddingTop: 8,
+          paddingBottom: Platform.select({ ios: 18, default: 8 }),
+          paddingHorizontal: 8,
+          borderRadius: 0,
           elevation: 0,
-          shadowColor: colors.shadow,
-          shadowOpacity: 0.06,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0,
         },
         tabBarItemStyle: {
-          borderRadius: 16,
-          marginHorizontal: 2,
+          borderRadius: 10,
+          marginHorizontal: 4,
         },
         tabBarIconStyle: {
           marginBottom: 1,
@@ -57,33 +50,30 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="projects"
-        options={{
-          title: "Projects",
-          tabBarIcon: ({ color, size }) => <LayoutGrid size={22} color={color} strokeWidth={2.4} />,
-        }}
-      />
-      <Tabs.Screen
         name="index"
         options={{
           title: "Threads",
-          tabBarIcon: ({ color, size }) => (
-            <MessageSquare size={22} color={color} strokeWidth={2.4} />
-          ),
+          tabBarIcon: ({ color }) => <MessageSquare size={22} color={color} strokeWidth={2.4} />,
+        }}
+      />
+      <Tabs.Screen
+        name="projects"
+        options={{
+          title: "Projects",
+          tabBarIcon: ({ color }) => <LayoutGrid size={22} color={color} strokeWidth={2.4} />,
         }}
       />
       <Tabs.Screen
         name="hosts"
         options={{
-          title: "Hosts",
-          tabBarIcon: ({ color, size }) => <Server size={22} color={color} strokeWidth={2.4} />,
+          href: null,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <SlidersHorizontal size={21} color={color} strokeWidth={2.4} />
           ),
         }}

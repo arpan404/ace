@@ -11,30 +11,33 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Bell,
+  Check,
   ChevronRight,
   FolderGit2,
   FolderOpen,
   Plus,
-  RefreshCw,
   Search,
   SlidersHorizontal,
 } from "lucide-react-native";
+import Animated from "react-native-reanimated";
 import { DEFAULT_MODEL_BY_PROVIDER, type FilesystemBrowseResult } from "@ace/contracts";
 import { newCommandId, newProjectId } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
+import { enterRow, exitRow, layoutTransition } from "../../src/design/motion";
 import {
-  ChoiceChip,
   EmptyState,
   FormField,
   IconButton,
+  InsetGroup,
+  InsetRow,
   ListSkeleton,
   NoticeBanner,
   Panel,
   SearchField,
   ScreenBackdrop,
   ScreenHeaderV2,
+  SectionFooter,
   SectionTitle,
   StatusBadge,
 } from "../../src/design/primitives";
@@ -42,7 +45,6 @@ import { useAggregatedOrchestration, formatTimeAgo } from "../../src/orchestrati
 import { useHostStore } from "../../src/store/HostStore";
 import { useUIStateStore } from "../../src/store/UIStateStore";
 import { formatErrorMessage } from "../../src/errors";
-import { connectionManager } from "../../src/rpc/ConnectionManager";
 
 export default function ProjectsScreen() {
   const router = useRouter();
@@ -64,8 +66,8 @@ export default function ProjectsScreen() {
     null,
   );
   const [projectBrowseLoadedPath, setProjectBrowseLoadedPath] = useState<string | null>(null);
-  const [reconnectingHostId, setReconnectingHostId] = useState<string | null>(null);
   const [composerStep, setComposerStep] = useState<"path" | "details">("path");
+  const [selectedHostFilter, setSelectedHostFilter] = useState<string>("all");
 
   useEffect(() => {
     const hasActiveHost = activeHostId ? hosts.some((host) => host.id === activeHostId) : false;
@@ -74,19 +76,30 @@ export default function ProjectsScreen() {
     }
   }, [activeHostId, hosts, setActiveHostId]);
 
+  useEffect(() => {
+    if (selectedHostFilter === "all") {
+      return;
+    }
+    if (!hosts.some((host) => host.id === selectedHostFilter)) {
+      setSelectedHostFilter("all");
+    }
+  }, [hosts, selectedHostFilter]);
+
   const filteredProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (normalizedQuery.length === 0) {
-      return projects;
-    }
-
     return projects.filter((entry) => {
+      if (selectedHostFilter !== "all" && entry.hostId !== selectedHostFilter) {
+        return false;
+      }
+      if (normalizedQuery.length === 0) {
+        return true;
+      }
       const haystack = [entry.project.title, entry.hostName, entry.project.workspaceRoot]
         .join(" ")
         .toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [projects, query]);
+  }, [projects, query, selectedHostFilter]);
 
   const activeConnection = useMemo(() => {
     if (activeHostId) {
@@ -105,23 +118,10 @@ export default function ProjectsScreen() {
   }, [activeHostId, hosts]);
   const activeHostOffline =
     Boolean(activeHost) && (!activeConnection || activeConnection.status.kind !== "connected");
-
-  const reconnectActiveHost = useCallback(async () => {
-    if (!activeHost || reconnectingHostId) {
-      return;
-    }
-
-    setReconnectingHostId(activeHost.id);
-    setComposerError(null);
-    try {
-      const client = await connectionManager.connect(activeHost, { forceReconnect: true });
-      await client.server.getConfig();
-    } catch (cause) {
-      setComposerError(formatErrorMessage(cause));
-    } finally {
-      setReconnectingHostId(null);
-    }
-  }, [activeHost, reconnectingHostId]);
+  const selectedHostName =
+    selectedHostFilter === "all"
+      ? "All hosts"
+      : (hosts.find((host) => host.id === selectedHostFilter)?.name ?? "Selected host");
 
   const createProject = useCallback(async () => {
     if (!activeConnection || activeConnection.status.kind !== "connected") {
@@ -210,14 +210,9 @@ export default function ProjectsScreen() {
       >
         <ScreenHeaderV2
           title="Projects"
-          subtitle="Workspace roots, host state, and project activity across connected environments."
+          subtitle="Workspace roots and project activity across your connected environments."
           actions={
             <View style={styles.headerActions}>
-              <IconButton
-                icon={Bell}
-                label="Alerts"
-                onPress={() => router.push("/notifications")}
-              />
               <IconButton icon={Search} label="Search" onPress={() => router.push("/search")} />
               <IconButton
                 icon={Plus}
@@ -241,40 +236,249 @@ export default function ProjectsScreen() {
             </View>
           }
         />
-        {hosts.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.hostStrip}
-            style={styles.hostStripScroll}
-          >
-            {hosts.map((host) => {
-              const isActive = host.id === activeHostId;
-              return (
-                <ChoiceChip
-                  key={host.id}
-                  label={host.name}
-                  selected={isActive}
-                  onPress={() => setActiveHostId(host.id)}
-                />
-              );
-            })}
-          </ScrollView>
+
+        {activeHostOffline && activeHost ? (
+          <NoticeBanner
+            tone="warning"
+            title={`${activeHost.name} is offline`}
+            body="Reconnect this host to browse directories or create a project on it."
+          />
         ) : null}
 
-        <Panel style={styles.summaryStrip}>
-          <SummaryCell label="Projects" value={String(projects.length)} />
-          <SummaryCell label="Online" value={String(connectedHostCount)} />
-          <SummaryCell label="Target" value={activeConnection?.host.name ?? "None"} />
-        </Panel>
+        <View style={styles.searchWrap}>
+          <SearchField
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Filter by project, host, or path"
+            icon={Search}
+          />
+        </View>
+
+        {hosts.length > 0 ? (
+          <View style={styles.scopeSection}>
+            <View style={styles.sectionHeader}>
+              <SectionTitle>Host Scope</SectionTitle>
+              <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
+                {selectedHostName}
+              </Text>
+            </View>
+            <InsetGroup>
+              <InsetRow
+                title="All hosts"
+                meta="Show projects from every paired environment."
+                trailing={
+                  selectedHostFilter === "all" ? (
+                    <Check size={16} color={colors.accent.primary} strokeWidth={2.4} />
+                  ) : undefined
+                }
+                onPress={() => setSelectedHostFilter("all")}
+              />
+              {hosts.map((host, index) => (
+                <InsetRow
+                  key={host.id}
+                  title={host.name}
+                  meta={host.wsUrl}
+                  trailing={
+                    selectedHostFilter === host.id ? (
+                      <Check size={16} color={colors.accent.primary} strokeWidth={2.4} />
+                    ) : undefined
+                  }
+                  onPress={() => {
+                    setSelectedHostFilter(host.id);
+                    setActiveHostId(host.id);
+                  }}
+                  last={index === hosts.length - 1}
+                />
+              ))}
+            </InsetGroup>
+            <SectionFooter>
+              New projects are created on the current host target. Filter scope only changes this
+              list.
+            </SectionFooter>
+          </View>
+        ) : null}
+
+        {showComposer ? (
+          <Panel style={styles.composerPanel}>
+            <View style={styles.composerHeader}>
+              <View style={styles.composerHeaderCopy}>
+                <SectionTitle>
+                  {composerStep === "path" ? "New project" : "Project details"}
+                </SectionTitle>
+                <Text style={[styles.composerMeta, { color: colors.text.secondary }]}>
+                  {activeConnection?.host.name ?? activeHost?.name ?? "Select a host to continue"}
+                </Text>
+              </View>
+              {activeHost ? (
+                <StatusBadge
+                  label={activeHostOffline ? "offline" : "connected"}
+                  tone={activeHostOffline ? "warning" : "success"}
+                />
+              ) : null}
+            </View>
+
+            <FormField
+              value={newProjectPath}
+              onChangeText={(value) => {
+                setNewProjectPath(value);
+                setComposerStep("path");
+              }}
+              placeholder="~/work/ace"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            {composerStep === "details" ? (
+              <FormField
+                value={newProjectTitle}
+                onChangeText={setNewProjectTitle}
+                placeholder="Project name (optional)"
+              />
+            ) : null}
+
+            <View style={styles.composerActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={browsingProjectPath || activeHostOffline}
+                onPress={() => void browseProjectPath()}
+                style={({ pressed }) => [
+                  styles.composerAction,
+                  {
+                    backgroundColor: colors.bg.canvas,
+                    borderColor: colors.border.soft,
+                    opacity: pressed ? 0.72 : 1,
+                  },
+                  (browsingProjectPath || activeHostOffline) && styles.disabledAction,
+                ]}
+              >
+                {browsingProjectPath ? (
+                  <ActivityIndicator size="small" color={colors.accent.primary} />
+                ) : (
+                  <FolderOpen size={16} color={colors.accent.primary} strokeWidth={2.1} />
+                )}
+                <Text style={[styles.composerActionLabel, { color: colors.text.primary }]}>
+                  {browsingProjectPath ? "Browsing" : "Browse"}
+                </Text>
+              </Pressable>
+
+              {composerStep === "path" ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={newProjectPath.trim().length === 0}
+                  onPress={() => setComposerStep("details")}
+                  style={({ pressed }) => [
+                    styles.composerAction,
+                    {
+                      backgroundColor:
+                        newProjectPath.trim().length > 0 ? colors.accent.primary : colors.bg.canvas,
+                      borderColor:
+                        newProjectPath.trim().length > 0
+                          ? colors.accent.primary
+                          : colors.border.soft,
+                      opacity: pressed ? 0.72 : 1,
+                    },
+                    newProjectPath.trim().length === 0 && styles.disabledAction,
+                  ]}
+                >
+                  <ChevronRight
+                    size={16}
+                    color={
+                      newProjectPath.trim().length > 0 ? colors.text.inverse : colors.text.secondary
+                    }
+                    strokeWidth={2.1}
+                  />
+                  <Text
+                    style={[
+                      styles.composerActionLabel,
+                      {
+                        color:
+                          newProjectPath.trim().length > 0
+                            ? colors.text.inverse
+                            : colors.text.secondary,
+                      },
+                    ]}
+                  >
+                    Continue
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={creatingProject || activeHostOffline}
+                  onPress={() => void createProject()}
+                  style={({ pressed }) => [
+                    styles.composerAction,
+                    {
+                      backgroundColor: colors.accent.primary,
+                      borderColor: colors.accent.primary,
+                      opacity: pressed ? 0.72 : 1,
+                    },
+                    (creatingProject || activeHostOffline) && styles.disabledAction,
+                  ]}
+                >
+                  {creatingProject ? (
+                    <ActivityIndicator size="small" color={colors.text.inverse} />
+                  ) : (
+                    <Plus size={16} color={colors.text.inverse} strokeWidth={2.1} />
+                  )}
+                  <Text style={[styles.composerActionLabel, { color: colors.text.inverse }]}>
+                    {creatingProject ? "Creating" : "Create"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+
+            {projectBrowseResult ? (
+              <View style={[styles.browseResults, { borderTopColor: colors.border.soft }]}>
+                <Text style={[styles.browseMeta, { color: colors.text.tertiary }]}>
+                  {projectBrowseLoadedPath ?? projectBrowseResult.parentPath}
+                </Text>
+                {projectBrowseResult.entries.slice(0, 6).map((entry) => (
+                  <Pressable
+                    key={entry.fullPath}
+                    onPress={() => {
+                      setNewProjectPath(entry.fullPath);
+                      setComposerStep("details");
+                    }}
+                    style={({ pressed }) => [
+                      styles.browseRow,
+                      {
+                        backgroundColor: pressed
+                          ? withAlpha(colors.text.primary, 0.03)
+                          : "transparent",
+                        borderBottomColor: colors.border.soft,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.browseRowTitle, { color: colors.text.primary }]}>
+                      {entry.name}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.browseRowPath, { color: colors.text.secondary }]}
+                    >
+                      {entry.fullPath}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
+            {composerError ? (
+              <Text style={[styles.composerError, { color: colors.status.danger }]}>
+                {composerError}
+              </Text>
+            ) : null}
+          </Panel>
+        ) : null}
 
         <View style={styles.sectionHeader}>
           <SectionTitle>Workspace Index</SectionTitle>
-          {hasHosts ? (
-            <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
-              {filteredProjects.length} visible
-            </Text>
-          ) : null}
+          <Text style={[styles.sectionMeta, { color: colors.text.tertiary }]}>
+            {hasHosts
+              ? `${filteredProjects.length} visible · ${connectedHostCount} online`
+              : "No hosts"}
+          </Text>
         </View>
 
         {!hasHosts ? (
@@ -297,91 +501,85 @@ export default function ProjectsScreen() {
             }
           />
         ) : (
-          <Panel padded={false} style={styles.projectShell}>
+          <InsetGroup style={styles.projectShell}>
             {filteredProjects.map((entry, index) => (
-              <Pressable
+              <Animated.View
                 key={`${entry.hostId}-${entry.project.id}`}
-                onPress={() =>
-                  router.push({
-                    pathname: "/project/[projectId]",
-                    params: {
-                      projectId: entry.project.id,
-                      hostId: entry.hostId,
-                    },
-                  })
-                }
-                style={({ pressed }) => [
-                  styles.projectRow,
-                  {
-                    backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
-                    transform: [{ scale: pressed ? 0.995 : 1 }],
-                  },
-                ]}
+                entering={enterRow(index)}
+                exiting={exitRow}
+                layout={layoutTransition}
               >
-                <View
-                  style={[
-                    styles.projectIcon,
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/project/[projectId]",
+                      params: {
+                        projectId: entry.project.id,
+                        hostId: entry.hostId,
+                      },
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.projectRow,
                     {
-                      backgroundColor: withAlpha(colors.primary, 0.12),
+                      backgroundColor: pressed ? withAlpha(colors.foreground, 0.04) : "transparent",
+                      transform: [{ scale: pressed ? 0.995 : 1 }],
                     },
                   ]}
                 >
-                  <FolderGit2 size={18} color={colors.primary} strokeWidth={2.1} />
-                </View>
-                <View style={styles.projectCopy}>
-                  <View style={styles.projectTitleRow}>
+                  <View
+                    style={[
+                      styles.projectIcon,
+                      {
+                        backgroundColor: withAlpha(colors.primary, 0.12),
+                      },
+                    ]}
+                  >
+                    <FolderGit2 size={18} color={colors.primary} strokeWidth={2.1} />
+                  </View>
+                  <View style={styles.projectCopy}>
+                    <View style={styles.projectTitleRow}>
+                      <Text
+                        style={[styles.projectTitle, { color: colors.foreground }]}
+                        numberOfLines={1}
+                      >
+                        {entry.project.title}
+                      </Text>
+                      {entry.liveCount > 0 ? (
+                        <StatusBadge label={`${entry.liveCount} live`} tone="success" />
+                      ) : entry.pendingCount > 0 ? (
+                        <StatusBadge label={`${entry.pendingCount} pending`} tone="warning" />
+                      ) : (
+                        <StatusBadge label={`${entry.completedCount} complete`} tone="muted" />
+                      )}
+                    </View>
                     <Text
-                      style={[styles.projectTitle, { color: colors.foreground }]}
+                      style={[styles.projectMeta, { color: colors.secondaryLabel }]}
                       numberOfLines={1}
                     >
-                      {entry.project.title}
+                      {entry.hostName} · {entry.threads.length} threads ·{" "}
+                      {formatTimeAgo(entry.lastActivityAt)}
                     </Text>
-                    {entry.liveCount > 0 ? (
-                      <StatusBadge label={`${entry.liveCount} live`} tone="success" />
-                    ) : entry.pendingCount > 0 ? (
-                      <StatusBadge label={`${entry.pendingCount} pending`} tone="warning" />
-                    ) : (
-                      <StatusBadge label={`${entry.completedCount} complete`} tone="muted" />
-                    )}
+                    <Text
+                      style={[styles.projectPath, { color: colors.tertiaryLabel }]}
+                      numberOfLines={1}
+                    >
+                      {entry.project.workspaceRoot}
+                    </Text>
                   </View>
-                  <Text
-                    style={[styles.projectMeta, { color: colors.secondaryLabel }]}
-                    numberOfLines={1}
-                  >
-                    {entry.hostName} · {entry.threads.length} threads ·{" "}
-                    {formatTimeAgo(entry.lastActivityAt)}
-                  </Text>
-                  <Text
-                    style={[styles.projectPath, { color: colors.tertiaryLabel }]}
-                    numberOfLines={1}
-                  >
-                    {entry.project.workspaceRoot}
-                  </Text>
-                </View>
-                {index < filteredProjects.length - 1 ? (
-                  <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-                ) : null}
-              </Pressable>
+                  {index < filteredProjects.length - 1 ? (
+                    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                  ) : null}
+                </Pressable>
+              </Animated.View>
             ))}
-          </Panel>
+          </InsetGroup>
         )}
 
         {error ? (
           <NoticeBanner tone="danger" title="Unable to refresh projects" body={error} />
         ) : null}
       </ScrollView>
-    </View>
-  );
-}
-
-function SummaryCell({ label, value }: { label: string; value: string }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.summaryCell}>
-      <Text style={[styles.summaryValue, { color: colors.text.primary }]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={[styles.summaryLabel, { color: colors.text.secondary }]}>{label}</Text>
     </View>
   );
 }
@@ -395,28 +593,78 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  hostStripScroll: {
-    marginTop: 12,
-    marginBottom: 12,
+  searchWrap: {
+    marginTop: 14,
   },
-  hostStrip: {
+  scopeSection: {
+    gap: 10,
+    marginTop: 8,
+  },
+  composerPanel: {
+    marginTop: 14,
+    gap: 14,
+  },
+  composerHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  composerHeaderCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  composerMeta: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  composerActions: {
+    flexDirection: "row",
     gap: 10,
   },
-  summaryStrip: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  summaryCell: {
+  composerAction: {
+    minHeight: 44,
     flex: 1,
-    gap: 2,
+    borderRadius: Radius.input,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
-  summaryValue: {
-    fontSize: 17,
+  composerActionLabel: {
+    fontSize: 14,
     fontWeight: "600",
   },
-  summaryLabel: {
+  disabledAction: {
+    opacity: 0.5,
+  },
+  browseResults: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    gap: 2,
+  },
+  browseMeta: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  browseRow: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  browseRowTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  browseRowPath: {
+    marginTop: 3,
     fontSize: 12,
+  },
+  composerError: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   sectionHeader: {
     marginTop: 12,

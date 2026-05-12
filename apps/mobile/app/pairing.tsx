@@ -1,21 +1,29 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   Dimensions,
   Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowRight, ClipboardPaste, Keyboard, ScanLine, X } from "lucide-react-native";
+import { ArrowRight, X } from "lucide-react-native";
+import Animated, {
+  Easing,
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import { useTheme } from "../src/design/ThemeContext";
+import { withAlpha } from "../src/design/system";
+import { FormField, Panel, SegmentedControl } from "../src/design/primitives";
 import {
   createHostInstance,
   parseHostConnectionQrPayload,
@@ -31,10 +39,10 @@ const SCAN_LINE_PERIOD = 2400;
 const PAIRING_REQUEST_TIMEOUT_MS = 90_000;
 const DEFAULT_REQUESTER_NAME = `ace mobile (${Platform.OS})`;
 
-const TAB_META: { key: ConnectionTab; label: string; Icon: React.ElementType }[] = [
-  { key: "scan", label: "Scan", Icon: ScanLine },
-  { key: "paste", label: "Paste", Icon: ClipboardPaste },
-  { key: "manual", label: "Manual", Icon: Keyboard },
+const TAB_META: ReadonlyArray<{ key: ConnectionTab; label: string }> = [
+  { key: "scan", label: "Scan" },
+  { key: "paste", label: "Paste" },
+  { key: "manual", label: "Manual" },
 ];
 
 export default function PairingScreen() {
@@ -64,24 +72,16 @@ export default function PairingScreen() {
   const [statusText, setStatusText] = useState("");
 
   // Scan line animation
-  const scanLineY = useRef(new Animated.Value(0)).current;
+  const scanLineY = useSharedValue(0);
   useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scanLineY, {
-          toValue: SCAN_AREA_SIZE - 2,
-          duration: SCAN_LINE_PERIOD,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scanLineY, {
-          toValue: 0,
-          duration: SCAN_LINE_PERIOD,
-          useNativeDriver: true,
-        }),
-      ]),
+    scanLineY.value = withRepeat(
+      withTiming(SCAN_AREA_SIZE - 2, {
+        duration: SCAN_LINE_PERIOD,
+        easing: Easing.inOut(Easing.ease),
+      }),
+      -1,
+      true,
     );
-    anim.start();
-    return () => anim.stop();
   }, [scanLineY]);
 
   const clearError = useCallback(() => setError(null), []);
@@ -221,28 +221,14 @@ export default function PairingScreen() {
 
       {/* Paste / Manual input card */}
       {activeTab !== "scan" && (
-        <View
-          style={[
-            styles.inputCard,
-            { backgroundColor: colors.secondaryGroupedBackground, borderColor: colors.separator },
-          ]}
-        >
+        <Panel style={styles.inputCard}>
           {activeTab === "paste" && (
             <>
               <Text style={[styles.inputLabel, { color: colors.secondaryLabel }]}>
                 Paste an ace:// pairing link or host URL
               </Text>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: colors.background,
-                    color: colors.foreground,
-                    borderColor: error ? colors.red : colors.separator,
-                  },
-                ]}
+              <FormField
                 placeholder="ace://pair?p=… or ws://host:port"
-                placeholderTextColor={colors.muted}
                 value={pasteValue}
                 onChangeText={(t) => {
                   setPasteValue(t);
@@ -260,17 +246,8 @@ export default function PairingScreen() {
               <Text style={[styles.inputLabel, { color: colors.secondaryLabel }]}>
                 Enter a host WebSocket URL
               </Text>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: colors.background,
-                    color: colors.foreground,
-                    borderColor: error ? colors.red : colors.separator,
-                  },
-                ]}
+              <FormField
                 placeholder="ws://192.168.1.100:3773"
-                placeholderTextColor={colors.muted}
                 value={manualValue}
                 onChangeText={(t) => {
                   setManualValue(t);
@@ -290,21 +267,27 @@ export default function PairingScreen() {
           <Pressable
             onPress={activeTab === "paste" ? handlePasteSubmit : handleManualSubmit}
             disabled={connecting}
-            style={[styles.connectBtn, { backgroundColor: colors.primary }]}
+            style={[
+              styles.connectBtn,
+              {
+                backgroundColor: colors.primary,
+                borderColor: colors.primary,
+              },
+            ]}
           >
             <Text style={styles.connectBtnText}>Connect</Text>
             <ArrowRight size={16} color={colors.primaryForeground} />
           </Pressable>
-        </View>
+        </Panel>
       )}
 
       {/* Loading overlay */}
       {connecting && (
         <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
+          <Panel style={styles.loadingCard}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.foreground }]}>{statusText}</Text>
-          </View>
+          </Panel>
         </View>
       )}
 
@@ -330,13 +313,16 @@ function ScanOverlay({
   scanLineY,
   primaryColor,
 }: {
-  scanLineY: Animated.Value;
+  scanLineY: SharedValue<number>;
   primaryColor: string;
 }) {
   const { width, height } = Dimensions.get("window");
   const cx = width / 2;
   const cy = height / 2 - 40; // offset upward slightly
   const half = SCAN_AREA_SIZE / 2;
+  const scanLineStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: scanLineY.value }],
+  }));
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -368,10 +354,7 @@ function ScanOverlay({
 
         {/* Animated scan line */}
         <Animated.View
-          style={[
-            styles.scanLine,
-            { backgroundColor: primaryColor, transform: [{ translateY: scanLineY }] },
-          ]}
+          style={[styles.scanLine, { backgroundColor: primaryColor }, scanLineStyle]}
         />
       </View>
     </View>
@@ -393,32 +376,24 @@ function TabBar({
   colors: ReturnType<typeof useTheme>["colors"];
   bottomInset: number;
 }) {
+  const options = TAB_META.map(({ key, label }) => ({ key, label }));
+
   return (
     <View style={[styles.tabBarOuter, { paddingBottom: Math.max(bottomInset, 16) }]}>
-      <View style={[styles.tabBarInner, { backgroundColor: "rgba(0,0,0,0.55)" }]}>
-        {TAB_META.map(({ key, label, Icon }) => {
-          const active = key === activeTab;
-          return (
-            <Pressable
-              key={key}
-              onPress={() => onTabChange(key)}
-              style={[
-                styles.tabItem,
-                active && { backgroundColor: colors.primary, borderRadius: 20 },
-              ]}
-            >
-              <Icon size={16} color={active ? colors.primaryForeground : "rgba(255,255,255,0.7)"} />
-              <Text
-                style={[
-                  styles.tabLabel,
-                  { color: active ? colors.primaryForeground : "rgba(255,255,255,0.7)" },
-                ]}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <View
+        style={[
+          styles.tabBarInner,
+          {
+            backgroundColor: withAlpha(colors.bg.canvas, 0.94),
+            borderColor: colors.border.soft,
+          },
+        ]}
+      >
+        <SegmentedControl
+          options={options}
+          selectedKey={activeTab}
+          onSelect={(key) => onTabChange(key as ConnectionTab)}
+        />
       </View>
     </View>
   );
@@ -536,26 +511,12 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     bottom: 120,
-    borderRadius: 20,
     padding: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
   inputLabel: {
     fontSize: 14,
     fontWeight: "500",
     marginBottom: 10,
-  },
-  textInput: {
-    fontSize: 15,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
   },
   errorText: {
     fontSize: 13,
@@ -569,6 +530,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     paddingVertical: 13,
     borderRadius: 12,
+    borderWidth: 1,
   },
   connectBtnText: {
     color: "#fff",
@@ -585,6 +547,9 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   loadingCard: {
+    minWidth: 180,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     alignItems: "center",
     gap: 14,
   },
@@ -603,21 +568,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   tabBarInner: {
-    flexDirection: "row",
-    borderRadius: 24,
+    borderRadius: 16,
     padding: 4,
-    gap: 2,
-  },
-  tabItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-  },
-  tabLabel: {
-    fontSize: 13,
-    fontWeight: "600",
+    borderWidth: StyleSheet.hairlineWidth,
   },
 });
