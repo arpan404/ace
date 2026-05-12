@@ -258,9 +258,7 @@ export function unregisterRemoteRoute(connectionUrl: string): void {
   });
 }
 
-export function readRemoteRouteAvailability(
-  connectionUrl: string,
-): RemoteRouteAvailabilitySnapshot {
+function readRemoteRouteAvailability(connectionUrl: string): RemoteRouteAvailabilitySnapshot {
   return resolveRouteAvailability(connectionUrl);
 }
 
@@ -426,7 +424,7 @@ export async function disposeRemoteRouteClient(connectionUrl: string): Promise<v
   await disposeRouteClientOnly(normalizedConnectionUrl);
 }
 
-export async function disposeAllRemoteRouteClients(): Promise<void> {
+async function disposeAllRemoteRouteClients(): Promise<void> {
   routeRegistrationCountByConnectionUrl.clear();
   routeAvailabilityByConnectionUrl.clear();
   inFlightAvailabilityByConnectionUrl.clear();

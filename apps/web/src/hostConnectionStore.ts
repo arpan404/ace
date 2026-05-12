@@ -23,12 +23,18 @@ interface HostConnectionState {
 }
 
 function resolveSnapshotOwnership(snapshot: OrchestrationReadModel): ConnectionOwnership {
-  const projectIds = snapshot.projects
-    .filter((project) => project.deletedAt === null && project.archivedAt === null)
-    .map((project) => project.id);
-  const threadIds = snapshot.threads
-    .filter((thread) => thread.deletedAt === null && thread.archivedAt === null)
-    .map((thread) => thread.id);
+  const projectIds: ProjectId[] = [];
+  for (const project of snapshot.projects) {
+    if (project.deletedAt === null && project.archivedAt === null) {
+      projectIds.push(project.id);
+    }
+  }
+  const threadIds: ThreadId[] = [];
+  for (const thread of snapshot.threads) {
+    if (thread.deletedAt === null && thread.archivedAt === null) {
+      threadIds.push(thread.id);
+    }
+  }
   return {
     projectIds,
     threadIds,

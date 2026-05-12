@@ -8,7 +8,7 @@ import {
   resolveElementCommentWheelForwardingMode,
   shouldRunElementHoverInspection,
   shouldSubmitDesignDraftFromTextareaKey,
-} from "./BrowserWebviewSurface";
+} from "./browserWebviewSurfaceUtils";
 
 describe("hasMinimumSelectionSize", () => {
   it("keeps area captures at the default 24px minimum", () => {

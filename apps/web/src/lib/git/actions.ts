@@ -2,7 +2,7 @@ import type { GitRunStackedActionResult, GitStackedAction, GitStatusResult } fro
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
-export type GitDialogAction = "commit" | "push" | "create_pr";
+type GitDialogAction = "commit" | "push" | "create_pr";
 
 export interface GitActionMenuItem {
   id: "commit" | "push" | "pr";

@@ -305,7 +305,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   return <InfoIcon className={iconClassName} />;
 }
 
-export default function GitActionsControl({
+function useGitActionsControlComponent({
   gitCwd,
   activeThreadId,
   workspaceMode,
@@ -1109,9 +1109,7 @@ export default function GitActionsControl({
                   </p>
                 )}
               {isGitStatusOutOfSync && (
-                <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                  Refreshing git status...
-                </p>
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">Refreshing git status…</p>
               )}
               {gitStatusError && (
                 <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError.message}</p>
@@ -1305,9 +1303,10 @@ export default function GitActionsControl({
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
-            <label className="grid gap-1.5">
+            <label htmlFor="git-ssh-passphrase" className="grid gap-1.5">
               <span className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Passphrase</span>
               <Input
+                id="git-ssh-passphrase"
                 type="password"
                 value={sshPassphraseDraft}
                 className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
@@ -1405,4 +1404,8 @@ export default function GitActionsControl({
       </Dialog>
     </>
   );
+}
+
+export default function GitActionsControl(props: GitActionsControlProps) {
+  return useGitActionsControlComponent(props);
 }

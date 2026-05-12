@@ -1,7 +1,6 @@
 import { DESKTOP_BOOTSTRAP_DEV_BUILD_QUERY_PARAM } from "@ace/contracts";
 
 export const APP_BASE_NAME = "ace";
-export const APP_DISPLAY_NAME = APP_BASE_NAME;
 
 function hasDesktopDevelopmentQueryFlag(): boolean {
   if (typeof window === "undefined") {

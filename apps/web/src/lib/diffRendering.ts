@@ -1,4 +1,4 @@
-export const DIFF_THEME_NAMES = {
+const DIFF_THEME_NAMES = {
   light: "pierre-light",
   dark: "pierre-dark",
 } as const;

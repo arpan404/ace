@@ -175,6 +175,7 @@ export default function MermaidDiagram({ source, theme, className }: MermaidDiag
         className,
       )}
       data-mermaid-diagram-state="ready"
+      // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: renderedSvg }}
     />
   );

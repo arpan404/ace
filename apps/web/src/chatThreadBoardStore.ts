@@ -22,13 +22,13 @@ export interface ChatThreadBoardPaneState {
 
 export type ChatThreadBoardLayoutAxis = "horizontal" | "vertical";
 
-export interface ChatThreadBoardLeafNode {
+interface ChatThreadBoardLeafNode {
   id: string;
   kind: "pane";
   paneId: string;
 }
 
-export interface ChatThreadBoardSplitNode {
+interface ChatThreadBoardSplitNode {
   axis: ChatThreadBoardLayoutAxis;
   children: ChatThreadBoardLayoutNode[];
   id: string;
@@ -507,9 +507,12 @@ function boardLayoutNodesEqual(
       return false;
     }
   }
-  return left.children.every((child, index) =>
-    boardLayoutNodesEqual(child, right.children[index] ?? null),
-  );
+  for (const [index, child] of left.children.entries()) {
+    if (!boardLayoutNodesEqual(child, right.children[index] ?? null)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function boardPanesEqual(
@@ -522,16 +525,19 @@ function boardPanesEqual(
   if (left.length !== right.length) {
     return false;
   }
-  return left.every((leftPane, index) => {
+  for (const [index, leftPane] of left.entries()) {
     const rightPane = right[index];
-    return (
-      rightPane !== undefined &&
-      leftPane.id === rightPane.id &&
-      leftPane.threadId === rightPane.threadId &&
-      leftPane.connectionUrl === rightPane.connectionUrl &&
-      leftPane.title === rightPane.title
-    );
-  });
+    if (
+      rightPane === undefined ||
+      leftPane.id !== rightPane.id ||
+      leftPane.threadId !== rightPane.threadId ||
+      leftPane.connectionUrl !== rightPane.connectionUrl ||
+      leftPane.title !== rightPane.title
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function boardStatesEqual(left: BoardStateFields, right: BoardStateFields): boolean {
@@ -1089,9 +1095,13 @@ function removePaneFromLayout(
     return root.paneId === paneId ? null : root;
   }
 
-  const nextChildren = root.children
-    .map((child) => removePaneFromLayout(child, paneId))
-    .filter((child): child is ChatThreadBoardLayoutNode => child !== null);
+  const nextChildren: ChatThreadBoardLayoutNode[] = [];
+  for (const child of root.children) {
+    const nextChild = removePaneFromLayout(child, paneId);
+    if (nextChild) {
+      nextChildren.push(nextChild);
+    }
+  }
 
   if (nextChildren.length === 0) {
     return null;

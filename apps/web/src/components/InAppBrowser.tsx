@@ -23,7 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { motion, type MotionStyle } from "motion/react";
+import { LazyMotion, domAnimation, m, type MotionStyle } from "motion/react";
 import { isElectron } from "~/env";
 import {
   useInAppBrowserState,
@@ -687,458 +687,466 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }
 
   const browserContent = (
-    <motion.div
-      aria-hidden={!visible}
-      initial={browserShellInitial}
-      animate={browserShellAnimate}
-      exit={browserShellExit}
-      transition={BROWSER_SHELL_TRANSITION}
-      className={cn(
-        mode === "split"
-          ? visible
-            ? "relative flex h-full min-h-0 min-w-0"
-            : "pointer-events-none invisible absolute inset-0 z-0 min-h-0 min-w-0"
-          : cn(
-              "absolute inset-0 min-h-0 min-w-0",
-              visible ? "z-30" : "pointer-events-none invisible z-0",
-            ),
-      )}
-      {...(browserShellStyle ? { style: browserShellStyle as MotionStyle } : {})}
-    >
-      <section
-        ref={browserShellRef}
-        data-in-app-browser-shell="true"
-        onKeyDownCapture={handleBrowserSectionKeyDownCapture}
+    <LazyMotion features={domAnimation}>
+      <m.div
+        aria-hidden={!visible}
+        initial={browserShellInitial}
+        animate={browserShellAnimate}
+        exit={browserShellExit}
+        transition={BROWSER_SHELL_TRANSITION}
         className={cn(
-          "flex size-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground [-webkit-app-region:no-drag]",
-          mode === "full"
-            ? "rounded-none shadow-none"
-            : "rounded-none border-y-0 border-r-0 border-l-0 shadow-none",
+          mode === "split"
+            ? visible
+              ? "relative flex h-full min-h-0 min-w-0"
+              : "pointer-events-none invisible absolute inset-0 z-0 min-h-0 min-w-0"
+            : cn(
+                "absolute inset-0 min-h-0 min-w-0",
+                visible ? "z-30" : "pointer-events-none invisible z-0",
+              ),
         )}
+        {...(browserShellStyle ? { style: browserShellStyle as MotionStyle } : {})}
       >
-        <>
-          <div
-            ref={browserToolbarRef}
-            className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
-          >
-            <div className="flex shrink-0 items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={goBack}
-                      disabled={activeTabIsInternal || !activeRuntime.canGoBack}
-                      aria-label="Go back"
-                    >
-                      <ArrowLeftIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {backShortcutLabel ? `Back (${backShortcutLabel})` : "Back"}
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={goForward}
-                      disabled={activeTabIsInternal || !activeRuntime.canGoForward}
-                      aria-label="Go forward"
-                    >
-                      <ArrowRightIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {forwardShortcutLabel ? `Forward (${forwardShortcutLabel})` : "Forward"}
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={reload}
-                      disabled={activeTabIsInternal}
-                      aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
-                    >
-                      {activeRuntime.loading ? (
-                        <LoaderCircleIcon className="size-4 animate-spin" />
-                      ) : (
-                        <RefreshCwIcon className="size-4" />
-                      )}
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {reloadShortcutLabel
-                    ? `${activeRuntime.loading ? "Stop or reload" : "Reload"} (${reloadShortcutLabel})`
-                    : activeRuntime.loading
-                      ? "Stop or reload"
-                      : "Reload"}
-                </TooltipPopup>
-              </Tooltip>
-            </div>
+        <section
+          ref={browserShellRef}
+          data-in-app-browser-shell="true"
+          onKeyDownCapture={handleBrowserSectionKeyDownCapture}
+          className={cn(
+            "flex size-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground [-webkit-app-region:no-drag]",
+            mode === "full"
+              ? "rounded-none shadow-none"
+              : "rounded-none border-y-0 border-r-0 border-l-0 shadow-none",
+          )}
+        >
+          <>
             <div
-              role="search"
-              className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
+              ref={browserToolbarRef}
+              className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
             >
-              <div
-                className={cn(
-                  "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
-                  shouldShowExpandedAddressField
-                    ? "border border-border bg-background focus-within:border-primary focus-within:bg-background"
-                    : "border border-transparent bg-transparent hover:border-border/70 hover:bg-background/55",
-                )}
-              >
-                {SecurityIcon ? (
-                  <SecurityIcon
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-label={addressPresentation.securityLabel ?? undefined}
-                  />
-                ) : null}
-                {shouldShowExpandedAddressField ? (
-                  <Input
-                    ref={addressInputRef}
-                    className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
-                    unstyled
-                    value={draftUrl}
-                    onChange={(event) => {
-                      showAddressBarSuggestionOverlay();
-                      setDraftUrl(event.target.value);
-                    }}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onBlur={() => {
-                      if (!forceExpandedAddressField) {
-                        setAddressFieldExpanded(false);
-                      }
-                      window.setTimeout(() => {
-                        setIsAddressBarFocused(false);
-                      }, 100);
-                    }}
-                    onFocusCapture={() => {
-                      if (!forceExpandedAddressField) {
-                        setAddressFieldExpanded(true);
-                      }
-                      showAddressBarSuggestionOverlay();
-                      setIsAddressBarFocused(true);
-                    }}
-                    onKeyDown={handleAddressBarKeyDown}
-                    placeholder="Enter a URL or search the web"
-                    aria-label="Browser address bar"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                  />
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
-                          onClick={() => {
-                            setAddressFieldExpanded(true);
-                            setIsAddressBarFocused(true);
-                            window.requestAnimationFrame(() => {
-                              addressInputRef.current?.focus();
-                              addressInputRef.current?.select();
-                            });
-                          }}
-                          aria-label="Expand address bar"
-                        />
-                      }
-                    >
-                      {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
-                    </TooltipTrigger>
-                    <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
-                      {activeTab?.url ?? draftUrl}
-                    </TooltipPopup>
-                  </Tooltip>
-                )}
+              <div className="flex shrink-0 items-center gap-0.5">
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        type="button"
-                        className={cn(
-                          "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
-                          "pointer-events-none opacity-0 transition-opacity duration-150",
-                          "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
-                          "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
-                          forceExpandedAddressField &&
-                            "pointer-events-auto opacity-100 group-hover/address:opacity-100",
-                        )}
-                        onClick={() => {
-                          openActiveTabExternally();
-                        }}
-                        disabled={!activeTab || activeTabIsInternal}
-                        aria-label="Open current page externally"
+                        className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                        onClick={goBack}
+                        disabled={activeTabIsInternal || !activeRuntime.canGoBack}
+                        aria-label="Go back"
                       >
-                        <ExternalLinkIcon className="size-3.5" />
+                        <ArrowLeftIcon className="size-4" />
                       </Button>
                     }
                   />
-                  <TooltipPopup side="bottom">Open externally</TooltipPopup>
+                  <TooltipPopup side="bottom">
+                    {backShortcutLabel ? `Back (${backShortcutLabel})` : "Back"}
+                  </TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                        onClick={goForward}
+                        disabled={activeTabIsInternal || !activeRuntime.canGoForward}
+                        aria-label="Go forward"
+                      >
+                        <ArrowRightIcon className="size-4" />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">
+                    {forwardShortcutLabel ? `Forward (${forwardShortcutLabel})` : "Forward"}
+                  </TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                        onClick={reload}
+                        disabled={activeTabIsInternal}
+                        aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
+                      >
+                        {activeRuntime.loading ? (
+                          <LoaderCircleIcon className="size-4 animate-spin" />
+                        ) : (
+                          <RefreshCwIcon className="size-4" />
+                        )}
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">
+                    {reloadShortcutLabel
+                      ? `${activeRuntime.loading ? "Stop or reload" : "Reload"} (${reloadShortcutLabel})`
+                      : activeRuntime.loading
+                        ? "Stop or reload"
+                        : "Reload"}
+                  </TooltipPopup>
                 </Tooltip>
               </div>
-              {showAddressBarSuggestions ? (
-                <BrowserSuggestionList
-                  activeIndex={selectedSuggestionIndex}
-                  onHighlight={setSelectedSuggestionIndex}
-                  suggestions={addressBarSuggestions}
-                  onSelect={applySuggestion}
-                />
-              ) : null}
-            </div>
-            {designerModeAvailable ? (
               <div
-                ref={designerToolSlotRef}
-                className="relative flex shrink-0 items-center justify-end"
+                role="search"
+                className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
               >
                 <div
-                  ref={designerToolMeasureRef}
-                  aria-hidden="true"
-                  className="pointer-events-none invisible absolute right-0 top-0 flex items-center gap-1 opacity-0"
+                  className={cn(
+                    "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
+                    shouldShowExpandedAddressField
+                      ? "border border-border bg-background focus-within:border-primary focus-within:bg-background"
+                      : "border border-transparent bg-transparent hover:border-border/70 hover:bg-background/55",
+                  )}
                 >
-                  {DESIGNER_TOOL_BUTTONS.map(({ Icon, tool }) => (
-                    <span
-                      key={`measure:${tool}`}
-                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60"
-                    >
-                      <Icon className="size-3.5" />
-                    </span>
-                  ))}
-                </div>
-                {designerToolsCollapsed ? (
-                  <Menu>
+                  {SecurityIcon ? (
+                    <SecurityIcon
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-label={addressPresentation.securityLabel ?? undefined}
+                    />
+                  ) : null}
+                  {shouldShowExpandedAddressField ? (
+                    <Input
+                      ref={addressInputRef}
+                      className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
+                      unstyled
+                      value={draftUrl}
+                      onChange={(event) => {
+                        showAddressBarSuggestionOverlay();
+                        setDraftUrl(event.target.value);
+                      }}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onBlur={() => {
+                        if (!forceExpandedAddressField) {
+                          setAddressFieldExpanded(false);
+                        }
+                        window.setTimeout(() => {
+                          setIsAddressBarFocused(false);
+                        }, 100);
+                      }}
+                      onFocusCapture={() => {
+                        if (!forceExpandedAddressField) {
+                          setAddressFieldExpanded(true);
+                        }
+                        showAddressBarSuggestionOverlay();
+                        setIsAddressBarFocused(true);
+                      }}
+                      onKeyDown={handleAddressBarKeyDown}
+                      placeholder="Enter a URL or search the web"
+                      aria-label="Browser address bar"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  ) : (
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <MenuTrigger
-                            className={cn(
-                              "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
-                              "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
-                              collapsedDesignerSelectorActive
-                                ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
-                                : "border-border/60 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-border/90 data-[popup-open]:bg-accent/55 data-[popup-open]:text-foreground",
-                            )}
-                          >
-                            <span
+                          <button
+                            type="button"
+                            className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
+                            onClick={() => {
+                              setAddressFieldExpanded(true);
+                              setIsAddressBarFocused(true);
+                              window.requestAnimationFrame(() => {
+                                addressInputRef.current?.focus();
+                                addressInputRef.current?.select();
+                              });
+                            }}
+                            aria-label="Expand address bar"
+                          />
+                        }
+                      >
+                        {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
+                      </TooltipTrigger>
+                      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                        {activeTab?.url ?? draftUrl}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          type="button"
+                          className={cn(
+                            "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                            "pointer-events-none opacity-0 transition-opacity duration-150",
+                            "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                            "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                            forceExpandedAddressField &&
+                              "pointer-events-auto opacity-100 group-hover/address:opacity-100",
+                          )}
+                          onClick={() => {
+                            openActiveTabExternally();
+                          }}
+                          disabled={!activeTab || activeTabIsInternal}
+                          aria-label="Open current page externally"
+                        >
+                          <ExternalLinkIcon className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="bottom">Open externally</TooltipPopup>
+                  </Tooltip>
+                </div>
+                {showAddressBarSuggestions ? (
+                  <BrowserSuggestionList
+                    activeIndex={selectedSuggestionIndex}
+                    onHighlight={setSelectedSuggestionIndex}
+                    suggestions={addressBarSuggestions}
+                    onSelect={applySuggestion}
+                  />
+                ) : null}
+              </div>
+              {designerModeAvailable ? (
+                <div
+                  ref={designerToolSlotRef}
+                  className="relative flex shrink-0 items-center justify-end"
+                >
+                  <div
+                    ref={designerToolMeasureRef}
+                    aria-hidden="true"
+                    className="pointer-events-none invisible absolute right-0 top-0 flex items-center gap-1 opacity-0"
+                  >
+                    {DESIGNER_TOOL_BUTTONS.map(({ Icon, tool }) => (
+                      <span
+                        key={`measure:${tool}`}
+                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60"
+                      >
+                        <Icon className="size-3.5" />
+                      </span>
+                    ))}
+                  </div>
+                  {designerToolsCollapsed ? (
+                    <Menu>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <MenuTrigger
                               className={cn(
-                                "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
+                                "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
                                 collapsedDesignerSelectorActive
-                                  ? "border-primary/28 bg-primary/[0.12] text-primary"
-                                  : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
+                                  ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
+                                  : "border-border/60 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-border/90 data-[popup-open]:bg-accent/55 data-[popup-open]:text-foreground",
                               )}
                             >
                               <span
                                 className={cn(
-                                  "absolute inset-0 bg-linear-to-br opacity-100",
-                                  activeDesignerToolButton.accent,
+                                  "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                  collapsedDesignerSelectorActive
+                                    ? "border-primary/28 bg-primary/[0.12] text-primary"
+                                    : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
                                 )}
-                              />
-                              <activeDesignerToolButton.Icon className="relative size-3.5" />
-                            </span>
-                            <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
-                          </MenuTrigger>
-                        }
-                      />
-                      <TooltipPopup side="bottom">{activeDesignerToolButton.label}</TooltipPopup>
-                    </Tooltip>
-                    <MenuPopup
-                      align="end"
-                      side="bottom"
-                      sideOffset={8}
-                      className="min-w-[18.5rem] border-border/70 bg-popover/96  supports-[backdrop-filter]:bg-popover/92"
-                    >
-                      <div className="px-1.5 pb-1 pt-0.5">
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
-                              Annotation mode
-                            </p>
-                            <p className="mt-1 truncate text-sm font-medium text-foreground/92">
-                              {activeDesignerToolButton.label}
-                            </p>
-                          </div>
-                          <span
-                            className={cn(
-                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
-                              collapsedDesignerSelectorActive
-                                ? "border-primary/26 bg-primary/[0.09] text-primary"
-                                : "border-border/60 bg-background/70 text-muted-foreground/82",
-                            )}
-                          >
-                            {collapsedDesignerSelectorActive ? "Annotating" : "Off"}
-                          </span>
-                        </div>
-                      </div>
-                      <MenuRadioGroup
-                        value={designerState.tool}
-                        onValueChange={(value) => {
-                          toggleOrSelectDesignerTool(value as BrowserDesignerTool);
-                        }}
-                      >
-                        {DESIGNER_TOOL_BUTTONS.map(
-                          ({ Icon, accent, collapsedLabel, description, label, tool }) => (
-                            <MenuRadioItem
-                              key={tool}
-                              value={tool}
-                              onClick={() => {
-                                toggleOrSelectDesignerTool(tool);
-                              }}
-                              className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
-                            >
-                              <div className="flex min-w-0 items-start gap-3">
+                              >
                                 <span
                                   className={cn(
-                                    "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 ",
+                                    "absolute inset-0 bg-linear-to-br opacity-100",
+                                    activeDesignerToolButton.accent,
                                   )}
-                                >
-                                  <span
-                                    className={cn(
-                                      "absolute inset-0 bg-linear-to-br opacity-100",
-                                      accent,
-                                    )}
-                                  />
-                                  <Icon className="relative size-[18px] stroke-[2.25]" />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="flex items-center gap-2">
-                                    <span className="truncate text-sm font-medium text-foreground/92">
-                                      {label}
-                                    </span>
-                                    <span className="rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/74">
-                                      {collapsedLabel}
-                                    </span>
-                                  </span>
-                                  <span className="mt-1 block text-[11px] leading-4 text-muted-foreground/74">
-                                    {description}
-                                  </span>
-                                </span>
-                                {designerShortcutLabelByTool[tool] ? (
-                                  <MenuShortcut className="mt-0.5 shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted-foreground/86">
-                                    {designerShortcutLabelByTool[tool]}
-                                  </MenuShortcut>
-                                ) : null}
-                              </div>
-                            </MenuRadioItem>
-                          ),
-                        )}
-                      </MenuRadioGroup>
-                      <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
-                        Select what to comment on in the embedded browser.
-                      </div>
-                    </MenuPopup>
-                  </Menu>
-                ) : (
-                  <div className="relative flex shrink-0 items-center gap-1">
-                    {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
-                      <Tooltip key={tool}>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              ref={(node) => {
-                                setDesignerToolButtonRef(tool, node);
-                              }}
-                              type="button"
-                              className={cn(
-                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
-                                designerState.tool === tool && designerState.active
-                                  ? "border-primary/30 bg-primary/[0.12] text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
-                                  : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
-                              )}
-                              onPointerDown={(event) => {
-                                handleDesignerToolPointerDown(event, tool);
-                              }}
-                              onKeyDown={(event) => {
-                                handleDesignerToolKeyDown(event, tool);
-                              }}
-                              aria-label={label}
-                            >
-                              <Icon className="size-4 stroke-[2.25]" />
-                              {showDesignerToolShortcutHints &&
-                              designerShortcutLabelByTool[tool] ? (
-                                <span className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground ">
-                                  {resolveDesignerShortcutHintLabel(
-                                    designerShortcutLabelByTool[tool] ?? "",
-                                  )}
-                                </span>
-                              ) : null}
-                            </button>
+                                />
+                                <activeDesignerToolButton.Icon className="relative size-3.5" />
+                              </span>
+                              <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
+                            </MenuTrigger>
                           }
                         />
-                        <TooltipPopup side="bottom">
-                          {designerShortcutLabelByTool[tool]
-                            ? `${label} (${designerShortcutLabelByTool[tool]})`
-                            : label}
-                        </TooltipPopup>
+                        <TooltipPopup side="bottom">{activeDesignerToolButton.label}</TooltipPopup>
                       </Tooltip>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </div>
-        </>
+                      <MenuPopup
+                        align="end"
+                        side="bottom"
+                        sideOffset={8}
+                        className="min-w-[18.5rem] border-border/70 bg-popover/96  supports-[backdrop-filter]:bg-popover/92"
+                      >
+                        <div className="px-1.5 pb-1 pt-0.5">
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
+                                Annotation mode
+                              </p>
+                              <p className="mt-1 truncate text-sm font-medium text-foreground/92">
+                                {activeDesignerToolButton.label}
+                              </p>
+                            </div>
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
+                                collapsedDesignerSelectorActive
+                                  ? "border-primary/26 bg-primary/[0.09] text-primary"
+                                  : "border-border/60 bg-background/70 text-muted-foreground/82",
+                              )}
+                            >
+                              {collapsedDesignerSelectorActive ? "Annotating" : "Off"}
+                            </span>
+                          </div>
+                        </div>
+                        <MenuRadioGroup
+                          value={designerState.tool}
+                          onValueChange={(value) => {
+                            toggleOrSelectDesignerTool(value as BrowserDesignerTool);
+                          }}
+                        >
+                          {DESIGNER_TOOL_BUTTONS.map(
+                            ({ Icon, accent, collapsedLabel, description, label, tool }) => (
+                              <MenuRadioItem
+                                key={tool}
+                                value={tool}
+                                onClick={() => {
+                                  toggleOrSelectDesignerTool(tool);
+                                }}
+                                className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
+                              >
+                                <div className="flex min-w-0 items-start gap-3">
+                                  <span
+                                    className={cn(
+                                      "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 ",
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "absolute inset-0 bg-linear-to-br opacity-100",
+                                        accent,
+                                      )}
+                                    />
+                                    <Icon className="relative size-[18px] stroke-[2.25]" />
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2">
+                                      <span className="truncate text-sm font-medium text-foreground/92">
+                                        {label}
+                                      </span>
+                                      <span className="rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/74">
+                                        {collapsedLabel}
+                                      </span>
+                                    </span>
+                                    <span className="mt-1 block text-[11px] leading-4 text-muted-foreground/74">
+                                      {description}
+                                    </span>
+                                  </span>
+                                  {designerShortcutLabelByTool[tool] ? (
+                                    <MenuShortcut className="mt-0.5 shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted-foreground/86">
+                                      {designerShortcutLabelByTool[tool]}
+                                    </MenuShortcut>
+                                  ) : null}
+                                </div>
+                              </MenuRadioItem>
+                            ),
+                          )}
+                        </MenuRadioGroup>
+                        <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
+                          Select what to comment on in the embedded browser.
+                        </div>
+                      </MenuPopup>
+                    </Menu>
+                  ) : (
+                    <div className="relative flex shrink-0 items-center gap-1">
+                      {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
+                        <Tooltip key={tool}>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                ref={(node) => {
+                                  setDesignerToolButtonRef(tool, node);
+                                }}
+                                type="button"
+                                className={cn(
+                                  "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
+                                  designerState.tool === tool && designerState.active
+                                    ? "border-primary/30 bg-primary/[0.12] text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
+                                    : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
+                                )}
+                                onPointerDown={(event) => {
+                                  handleDesignerToolPointerDown(event, tool);
+                                }}
+                                onKeyDown={(event) => {
+                                  handleDesignerToolKeyDown(event, tool);
+                                }}
+                                aria-label={label}
+                              >
+                                <Icon className="size-4 stroke-[2.25]" />
+                                {showDesignerToolShortcutHints &&
+                                designerShortcutLabelByTool[tool] ? (
+                                  <span className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground ">
+                                    {resolveDesignerShortcutHintLabel(
+                                      designerShortcutLabelByTool[tool] ?? "",
+                                    )}
+                                  </span>
+                                ) : null}
+                              </button>
+                            }
+                          />
+                          <TooltipPopup side="bottom">
+                            {designerShortcutLabelByTool[tool]
+                              ? `${label} (${designerShortcutLabelByTool[tool]})`
+                              : label}
+                          </TooltipPopup>
+                        </Tooltip>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </>
 
-        <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
-          {activeTabIsNewTab ? (
-            <BrowserNewTabPanel browserSearchEngine={browserSearchEngine} onSubmitQuery={openUrl} />
-          ) : null}
-          {mountedBrowserTabs.map((tab) => (
-            <BrowserTabWebview
-              key={`${browserResetKey}:${tab.id}`}
-              active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
-              connectionUrl={connectionUrl}
-              designerModeActive={
-                visible && designerState.active && !activeTabIsInternal && activeTab?.id === tab.id
-              }
-              designerTool={designerState.tool}
-              onBrowserLoadError={(message) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Browser load failed.",
-                  description: message,
-                });
-              }}
-              onDesignCaptureCancel={() => {
-                return;
-              }}
-              onDesignCaptureError={(message) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Comment failed.",
-                  description: message,
-                });
-              }}
-              {...(onQueueDesignRequest
-                ? {
-                    onDesignCaptureSubmit: queueDesignRequest,
-                  }
-                : {})}
-              onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
-              onOpenUrlInNewTab={openUrlInNewTabFromPage}
-              tab={tab}
-              onHandleChange={registerWebviewHandle}
-              onSnapshotChange={handleTabSnapshotChange}
-            />
-          ))}
-        </div>
-      </section>
-    </motion.div>
+          <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
+            {activeTabIsNewTab ? (
+              <BrowserNewTabPanel
+                browserSearchEngine={browserSearchEngine}
+                onSubmitQuery={openUrl}
+              />
+            ) : null}
+            {mountedBrowserTabs.map((tab) => (
+              <BrowserTabWebview
+                key={`${browserResetKey}:${tab.id}`}
+                active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
+                connectionUrl={connectionUrl}
+                designerModeActive={
+                  visible &&
+                  designerState.active &&
+                  !activeTabIsInternal &&
+                  activeTab?.id === tab.id
+                }
+                designerTool={designerState.tool}
+                onBrowserLoadError={(message) => {
+                  toastManager.add({
+                    type: "error",
+                    title: "Browser load failed.",
+                    description: message,
+                  });
+                }}
+                onDesignCaptureCancel={() => {
+                  return;
+                }}
+                onDesignCaptureError={(message) => {
+                  toastManager.add({
+                    type: "error",
+                    title: "Comment failed.",
+                    description: message,
+                  });
+                }}
+                {...(onQueueDesignRequest
+                  ? {
+                      onDesignCaptureSubmit: queueDesignRequest,
+                    }
+                  : {})}
+                onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+                onOpenUrlInNewTab={openUrlInNewTabFromPage}
+                tab={tab}
+                onHandleChange={registerWebviewHandle}
+                onSnapshotChange={handleTabSnapshotChange}
+              />
+            ))}
+          </div>
+        </section>
+      </m.div>
+    </LazyMotion>
   );
 
   const browserProfileName = scopeId ? `in-app-browser:${scopeId}` : "in-app-browser";

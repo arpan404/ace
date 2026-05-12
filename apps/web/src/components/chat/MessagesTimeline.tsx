@@ -81,6 +81,7 @@ import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
+  findTextIndexOf,
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
@@ -394,10 +395,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
   }, [cachedTimelineRows, timelineRowsInput]);
-  const rows = useMemo(
-    () => (syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS),
-    [syncTimelineRows],
-  );
+  const rows = syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS;
 
   useEffect(() => {
     if (cachedTimelineRows) {
@@ -559,10 +557,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => new Set(immediateAssistantMarkdownMessageIds),
     [immediateAssistantMarkdownMessageIds],
   );
-  const allAssistantMarkdownMessageIds = useMemo(
-    () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
-    [rows],
-  );
+  const allAssistantMarkdownMessageIds = useMemo(() => {
+    const messageIds: string[] = [];
+    for (const row of rows) {
+      if (isCompletedAssistantMessageRow(row)) {
+        messageIds.push(String(row.message.id));
+      }
+    }
+    return messageIds;
+  }, [rows]);
   const pendingAssistantMarkdownMessageIds = useMemo(
     () =>
       shouldPrewarmAssistantMarkdown
@@ -917,7 +920,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, []);
 
-  const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
+  const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
     return (
       <div
         className="group/timeline relative pb-3"
@@ -1189,18 +1192,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                {renderRowContent(row, virtualRow.index)}
+                {buildRowContent(row, virtualRow.index)}
               </div>
             );
           })}
         </div>
       ) : (
         virtualizedRows.map((row, index) => (
-          <div key={`row:${row.id}`}>{renderRowContent(row, index)}</div>
+          <div key={`row:${row.id}`}>{buildRowContent(row, index)}</div>
         ))
       )}
       {trailingRows.map((row, index) => (
-        <div key={`row:${row.id}`}>{renderRowContent(row, virtualizedRows.length + index)}</div>
+        <div key={`row:${row.id}`}>{buildRowContent(row, virtualizedRows.length + index)}</div>
       ))}
     </div>
   );
@@ -1885,7 +1888,7 @@ function splitTrailingMentionPunctuation(token: string): {
   };
 }
 
-function renderUserMessageInlineText(
+function buildUserMessageInlineText(
   text: string,
   keyPrefix: string,
   providerCommandLookup: UserMessageProviderCommandLookup,
@@ -2006,14 +2009,14 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
       for (const context of props.terminalContexts) {
         const label = formatInlineTerminalContextLabel(context.header);
-        const matchIndex = props.text.indexOf(label, cursor);
+        const matchIndex = findTextIndexOf(props.text, label, cursor);
         if (matchIndex === -1) {
           inlineNodes.length = 0;
           break;
         }
         if (matchIndex > cursor) {
           inlineNodes.push(
-            ...renderUserMessageInlineText(
+            ...buildUserMessageInlineText(
               props.text.slice(cursor, matchIndex),
               `user-terminal-context-inline-before:${context.header}:${cursor}`,
               props.providerCommandLookup,
@@ -2033,7 +2036,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       if (inlineNodes.length > 0) {
         if (cursor < props.text.length) {
           inlineNodes.push(
-            ...renderUserMessageInlineText(
+            ...buildUserMessageInlineText(
               props.text.slice(cursor),
               `user-message-terminal-context-inline-rest:${cursor}`,
               props.providerCommandLookup,
@@ -2066,7 +2069,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
     if (props.text.length > 0) {
       inlineNodes.push(
-        ...renderUserMessageInlineText(
+        ...buildUserMessageInlineText(
           props.text,
           "user-message-terminal-context-inline-text",
           props.providerCommandLookup,
@@ -2090,7 +2093,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
   return (
     <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
-      {renderUserMessageInlineText(
+      {buildUserMessageInlineText(
         props.text,
         "user-message-provider-command",
         props.providerCommandLookup,
@@ -2516,7 +2519,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div
-        className="group relative max-w-[82%] px-0 py-0 sm:max-w-[72%]"
+        className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
         <div className="relative rounded-2xl rounded-br-lg border border-border/65 bg-chat-bubble px-3.5 py-2.5 ">

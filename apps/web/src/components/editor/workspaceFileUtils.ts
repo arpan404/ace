@@ -85,7 +85,7 @@ export function revealInFileManagerLabel(platform?: string): string {
   return "Reveal in File Manager";
 }
 
-export function canOpenFileExternallyFromReadError(message: string): boolean {
+function canOpenFileExternallyFromReadError(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
     normalized.includes("binary files are not supported") ||

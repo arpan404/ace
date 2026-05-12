@@ -9,10 +9,10 @@ import {
 import type { BrowserTabState } from "~/lib/browser/session";
 
 export const BROWSER_HISTORY_STORAGE_KEY = "ace:browser:history:v1";
-export const MAX_BROWSER_HISTORY_ENTRIES = 200;
-export const MAX_BROWSER_SUGGESTIONS = 8;
+const MAX_BROWSER_HISTORY_ENTRIES = 200;
+const MAX_BROWSER_SUGGESTIONS = 8;
 
-export const BrowserHistoryEntrySchema = Schema.Struct({
+const BrowserHistoryEntrySchema = Schema.Struct({
   title: Schema.String,
   url: Schema.String,
   visitedAt: Schema.Number,

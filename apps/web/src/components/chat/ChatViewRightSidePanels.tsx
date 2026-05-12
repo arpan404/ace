@@ -76,7 +76,7 @@ export function LocalDiffPanel(props: {
   );
 }
 
-export function RouteDiffPanel(props: { threadId: ThreadId }) {
+function RouteDiffPanel(props: { threadId: ThreadId }) {
   return (
     <DiffWorkerPoolProvider>
       <Suspense fallback={<LocalDiffLoadingFallback />}>
@@ -120,9 +120,8 @@ function RightSidePanelBrowserTab(props: {
       >
         <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
           <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-          <span
-            role="button"
-            tabIndex={-1}
+          <button
+            type="button"
             className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
             aria-label={`Close ${props.tab.title}`}
             onPointerDown={(event) => {
@@ -136,7 +135,7 @@ function RightSidePanelBrowserTab(props: {
             }}
           >
             <XIcon className="size-3.5" />
-          </span>
+          </button>
         </span>
         <span className="max-w-48 truncate">{props.tab.title}</span>
       </TooltipTrigger>
@@ -209,6 +208,86 @@ function RightSidePanelAddTabMenu(props: {
         </MenuItem>
       </MenuPopup>
     </Menu>
+  );
+}
+
+function RightSidePanelActionButtons(props: {
+  floatingChatOpen: boolean;
+  floatingChatTooltipWithShortcut: string;
+  fullscreen: boolean;
+  fullscreenTooltipWithShortcut: string;
+  onToggleFloatingChat: () => void;
+  onToggleFullscreen: () => void;
+  onTogglePanelVisibility: () => void;
+  panelToggleTooltipLabel: string;
+}) {
+  return (
+    <>
+      {props.fullscreen ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  props.floatingChatOpen
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                aria-pressed={props.floatingChatOpen}
+                aria-label={props.floatingChatTooltipWithShortcut}
+                onClick={props.onToggleFloatingChat}
+              />
+            }
+          >
+            <MessageSquareIcon className="size-4.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" align="end">
+            {props.floatingChatTooltipWithShortcut}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={props.fullscreenTooltipWithShortcut}
+              onClick={props.onToggleFullscreen}
+            />
+          }
+        >
+          {props.fullscreen ? (
+            <Minimize2Icon className="size-4.5" />
+          ) : (
+            <Maximize2Icon className="size-4.5" />
+          )}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="end">
+          {props.fullscreenTooltipWithShortcut}
+        </TooltipPopup>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-pressed="true"
+              aria-label={props.panelToggleTooltipLabel}
+              onClick={props.onTogglePanelVisibility}
+            />
+          }
+        >
+          <IconLayoutSidebarRightFilled className="size-5" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="end">
+          {props.panelToggleTooltipLabel}
+        </TooltipPopup>
+      </Tooltip>
+    </>
   );
 }
 
@@ -348,9 +427,8 @@ export function RightSidePanelTabStrip(props: {
               >
                 <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                   <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                  <span
-                    role="button"
-                    tabIndex={-1}
+                  <button
+                    type="button"
                     className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
                     aria-label="Close review tab"
                     onPointerDown={(event) => {
@@ -364,7 +442,7 @@ export function RightSidePanelTabStrip(props: {
                     }}
                   >
                     <XIcon className="size-3.5" />
-                  </span>
+                  </button>
                 </span>
                 <span className="min-w-0 truncate text-left">Review</span>
               </TooltipTrigger>
@@ -390,9 +468,8 @@ export function RightSidePanelTabStrip(props: {
               >
                 <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                   <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                  <span
-                    role="button"
-                    tabIndex={-1}
+                  <button
+                    type="button"
                     className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
                     aria-label="Close editor tab"
                     onPointerDown={(event) => {
@@ -406,7 +483,7 @@ export function RightSidePanelTabStrip(props: {
                     }}
                   >
                     <XIcon className="size-3.5" />
-                  </span>
+                  </button>
                 </span>
                 <span className="min-w-0 truncate text-left">Editor</span>
               </TooltipTrigger>
@@ -475,70 +552,16 @@ export function RightSidePanelTabStrip(props: {
           onSelectMode={props.onSelectMode}
         />
       ) : null}
-      {props.fullscreen ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
-                  props.floatingChatOpen
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                aria-pressed={props.floatingChatOpen}
-                aria-label={floatingChatTooltipWithShortcut}
-                onClick={props.onToggleFloatingChat}
-              />
-            }
-          >
-            <MessageSquareIcon className="size-4.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="bottom" align="end">
-            {floatingChatTooltipWithShortcut}
-          </TooltipPopup>
-        </Tooltip>
-      ) : null}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label={fullscreenTooltipWithShortcut}
-              onClick={props.onToggleFullscreen}
-            />
-          }
-        >
-          {props.fullscreen ? (
-            <Minimize2Icon className="size-4.5" />
-          ) : (
-            <Maximize2Icon className="size-4.5" />
-          )}
-        </TooltipTrigger>
-        <TooltipPopup side="bottom" align="end">
-          {fullscreenTooltipWithShortcut}
-        </TooltipPopup>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-pressed="true"
-              aria-label={panelToggleTooltipLabel}
-              onClick={props.onTogglePanelVisibility}
-            />
-          }
-        >
-          <IconLayoutSidebarRightFilled className="size-5" />
-        </TooltipTrigger>
-        <TooltipPopup side="bottom" align="end">
-          {panelToggleTooltipLabel}
-        </TooltipPopup>
-      </Tooltip>
+      <RightSidePanelActionButtons
+        floatingChatOpen={props.floatingChatOpen}
+        floatingChatTooltipWithShortcut={floatingChatTooltipWithShortcut}
+        fullscreen={props.fullscreen}
+        fullscreenTooltipWithShortcut={fullscreenTooltipWithShortcut}
+        onToggleFloatingChat={props.onToggleFloatingChat}
+        onToggleFullscreen={props.onToggleFullscreen}
+        onTogglePanelVisibility={props.onTogglePanelVisibility}
+        panelToggleTooltipLabel={panelToggleTooltipLabel}
+      />
     </div>
   );
 }

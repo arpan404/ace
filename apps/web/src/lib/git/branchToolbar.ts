@@ -74,9 +74,12 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
 export function dedupeRemoteBranchesWithLocalMatches(
   branches: ReadonlyArray<GitBranch>,
 ): ReadonlyArray<GitBranch> {
-  const localBranchNames = new Set(
-    branches.filter((branch) => !branch.isRemote).map((branch) => branch.name),
-  );
+  const localBranchNames = new Set<string>();
+  for (const branch of branches) {
+    if (!branch.isRemote) {
+      localBranchNames.add(branch.name);
+    }
+  }
 
   return branches.filter((branch) => {
     if (!branch.isRemote) {

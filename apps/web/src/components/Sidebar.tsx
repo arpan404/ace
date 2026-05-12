@@ -10,12 +10,13 @@ import {
 } from "lucide-react";
 import {
   startTransition,
+  memo,
   useCallback,
   useEffect,
   useMemo,
   useReducer,
   useRef,
-  useState,
+  type ComponentProps,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
@@ -294,6 +295,122 @@ type SidebarProjectListItem =
       key: string;
       renderedProject: RenderedRemoteSidebarProject;
     };
+type RemoteThreadRenameTarget = {
+  connectionUrl: string;
+  project: RemoteSidebarProjectEntry;
+  thread: RemoteSidebarThreadEntry;
+};
+type SidebarEditorState = {
+  renamingThreadId: ThreadId | null;
+  renamingTitle: string;
+  projectEditorOpen: boolean;
+  editingProjectId: ProjectId | null;
+  editingProjectConnectionUrl: string | null;
+  editingProjectName: string;
+  editingProjectIcon: Project["icon"];
+  remoteThreadRenameTarget: RemoteThreadRenameTarget | null;
+  remoteThreadRenameTitle: string;
+};
+type SidebarEditorAction =
+  | { type: "clear-thread-rename" }
+  | { type: "clear-thread-rename-if-match"; renamingThreadId: ThreadId }
+  | { type: "set-renaming-title"; renamingTitle: string }
+  | { type: "start-thread-rename"; renamingThreadId: ThreadId; renamingTitle: string }
+  | { type: "close-project-editor" }
+  | {
+      type: "open-project-editor";
+      editingProjectConnectionUrl: string;
+      editingProjectIcon: Project["icon"];
+      editingProjectId: ProjectId;
+      editingProjectName: string;
+    }
+  | { type: "set-editing-project-name"; editingProjectName: string }
+  | {
+      type: "set-editing-project-icon";
+      nextIcon: Project["icon"] | ((current: Project["icon"]) => Project["icon"]);
+    }
+  | { type: "close-remote-thread-rename" }
+  | {
+      type: "open-remote-thread-rename";
+      remoteThreadRenameTarget: RemoteThreadRenameTarget;
+      remoteThreadRenameTitle: string;
+    }
+  | { type: "set-remote-thread-rename-title"; remoteThreadRenameTitle: string };
+type SidebarSplitBoardUiState = {
+  splitSortOrder: SidebarSplitSortOrder;
+  splitRevealCount: number;
+  splitPickerOpen: boolean;
+  splitPickerQuery: string;
+  splitPickerProjectFilter: string;
+  splitPickerSortOrder: SplitPickerSortOrder;
+  splitPickerSelectedThreadIds: Set<ThreadId>;
+  splitContextMenuState: SplitContextMenuState | null;
+  renamingSplitId: string | null;
+  renamingSplitTitle: string;
+  boardThreadDragState: BoardThreadDragState | null;
+};
+type SidebarSplitBoardUiAction =
+  | { type: "set-split-sort-order"; splitSortOrder: SidebarSplitSortOrder }
+  | { type: "set-split-reveal-count"; nextCount: number | ((current: number) => number) }
+  | { type: "open-split-picker" }
+  | { type: "close-split-picker" }
+  | { type: "set-split-picker-open"; splitPickerOpen: boolean }
+  | { type: "set-split-picker-query"; splitPickerQuery: string }
+  | { type: "set-split-picker-project-filter"; splitPickerProjectFilter: string }
+  | { type: "set-split-picker-sort-order"; splitPickerSortOrder: SplitPickerSortOrder }
+  | { type: "toggle-split-picker-thread"; threadId: ThreadId }
+  | { type: "set-split-context-menu-state"; splitContextMenuState: SplitContextMenuState | null }
+  | { type: "start-split-rename"; renamingSplitId: string; renamingSplitTitle: string }
+  | { type: "cancel-split-rename" }
+  | { type: "set-renaming-split-title"; renamingSplitTitle: string }
+  | { type: "set-board-thread-drag-state"; boardThreadDragState: BoardThreadDragState | null }
+  | { type: "set-board-thread-drag-over-target"; overTargetKey: string | null };
+type SidebarAuxUiState = {
+  confirmingArchiveThreadId: ThreadId | null;
+  threadRevealCountByProject: Partial<Record<ProjectId, number>>;
+  desktopUpdateState: DesktopUpdateState | null;
+  remoteSidebarHosts: ReadonlyArray<RemoteSidebarHostEntry>;
+  remoteProjectExpandedById: Record<string, boolean>;
+  remoteThreadRevealCountByProject: Record<string, number>;
+};
+type SidebarAuxUiAction =
+  | {
+      type: "set-confirming-archive-thread-id";
+      confirmingArchiveThreadId: ThreadId | null | ((current: ThreadId | null) => ThreadId | null);
+    }
+  | {
+      type: "set-thread-reveal-count-by-project";
+      threadRevealCountByProject:
+        | Partial<Record<ProjectId, number>>
+        | ((current: Partial<Record<ProjectId, number>>) => Partial<Record<ProjectId, number>>);
+    }
+  | {
+      type: "set-desktop-update-state";
+      desktopUpdateState:
+        | DesktopUpdateState
+        | null
+        | ((current: DesktopUpdateState | null) => DesktopUpdateState | null);
+    }
+  | {
+      type: "set-remote-sidebar-hosts";
+      remoteSidebarHosts:
+        | ReadonlyArray<RemoteSidebarHostEntry>
+        | ((
+            current: ReadonlyArray<RemoteSidebarHostEntry>,
+          ) => ReadonlyArray<RemoteSidebarHostEntry>);
+    }
+  | {
+      type: "set-remote-project-expanded-by-id";
+      remoteProjectExpandedById:
+        | Record<string, boolean>
+        | ((current: Record<string, boolean>) => Record<string, boolean>);
+    }
+  | {
+      type: "set-remote-thread-reveal-count-by-project";
+      remoteThreadRevealCountByProject:
+        | Record<string, number>
+        | ((current: Record<string, number>) => Record<string, number>);
+    };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
 const EMPTY_PROJECT_BROWSE_STATE: ProjectBrowseState = {
   isBrowsing: false,
@@ -306,9 +423,53 @@ const EMPTY_PROJECT_PICKER_BROWSE_UI_STATE: ProjectPickerBrowseUiState = {
   addProjectError: null,
   projectPickerKeyboardNavigationId: 0,
 };
+const EMPTY_SIDEBAR_EDITOR_STATE: SidebarEditorState = {
+  renamingThreadId: null,
+  renamingTitle: "",
+  projectEditorOpen: false,
+  editingProjectId: null,
+  editingProjectConnectionUrl: null,
+  editingProjectName: "",
+  editingProjectIcon: null,
+  remoteThreadRenameTarget: null,
+  remoteThreadRenameTitle: "",
+};
+const EMPTY_SIDEBAR_SPLIT_BOARD_UI_STATE: SidebarSplitBoardUiState = {
+  splitSortOrder: "updated_at",
+  splitRevealCount: SPLIT_REVEAL_STEP,
+  splitPickerOpen: false,
+  splitPickerQuery: "",
+  splitPickerProjectFilter: "all",
+  splitPickerSortOrder: "recent",
+  splitPickerSelectedThreadIds: new Set(),
+  splitContextMenuState: null,
+  renamingSplitId: null,
+  renamingSplitTitle: "",
+  boardThreadDragState: null,
+};
+const EMPTY_SIDEBAR_AUX_UI_STATE: SidebarAuxUiState = {
+  confirmingArchiveThreadId: null,
+  threadRevealCountByProject: {},
+  desktopUpdateState: null,
+  remoteSidebarHosts: [],
+  remoteProjectExpandedById: {},
+  remoteThreadRevealCountByProject: {},
+};
 
 function shouldUseProjectPickerHoverSelection(lastKeyboardNavigationAt: number): boolean {
   return Date.now() - lastKeyboardNavigationAt > 500;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function createContainsMatcher(query: string): RegExp | null {
+  if (query.length === 0) {
+    return null;
+  }
+
+  return new RegExp(escapeRegExp(query), "i");
 }
 
 function projectPickerBrowseUiStateReducer(
@@ -402,6 +563,272 @@ function projectPickerBrowseUiStateReducer(
   }
 }
 
+function sidebarEditorStateReducer(
+  state: SidebarEditorState,
+  action: SidebarEditorAction,
+): SidebarEditorState {
+  switch (action.type) {
+    case "clear-thread-rename":
+      return {
+        ...state,
+        renamingThreadId: null,
+      };
+    case "clear-thread-rename-if-match":
+      return state.renamingThreadId !== action.renamingThreadId
+        ? state
+        : {
+            ...state,
+            renamingThreadId: null,
+          };
+    case "set-renaming-title":
+      return {
+        ...state,
+        renamingTitle: action.renamingTitle,
+      };
+    case "start-thread-rename":
+      return {
+        ...state,
+        renamingThreadId: action.renamingThreadId,
+        renamingTitle: action.renamingTitle,
+      };
+    case "close-project-editor":
+      return {
+        ...state,
+        projectEditorOpen: false,
+        editingProjectId: null,
+        editingProjectConnectionUrl: null,
+        editingProjectName: "",
+        editingProjectIcon: null,
+      };
+    case "open-project-editor":
+      return {
+        ...state,
+        projectEditorOpen: true,
+        editingProjectId: action.editingProjectId,
+        editingProjectConnectionUrl: action.editingProjectConnectionUrl,
+        editingProjectName: action.editingProjectName,
+        editingProjectIcon: action.editingProjectIcon,
+      };
+    case "set-editing-project-name":
+      return {
+        ...state,
+        editingProjectName: action.editingProjectName,
+      };
+    case "set-editing-project-icon":
+      return {
+        ...state,
+        editingProjectIcon:
+          typeof action.nextIcon === "function"
+            ? action.nextIcon(state.editingProjectIcon)
+            : action.nextIcon,
+      };
+    case "close-remote-thread-rename":
+      return {
+        ...state,
+        remoteThreadRenameTarget: null,
+        remoteThreadRenameTitle: "",
+      };
+    case "open-remote-thread-rename":
+      return {
+        ...state,
+        remoteThreadRenameTarget: action.remoteThreadRenameTarget,
+        remoteThreadRenameTitle: action.remoteThreadRenameTitle,
+      };
+    case "set-remote-thread-rename-title":
+      return {
+        ...state,
+        remoteThreadRenameTitle: action.remoteThreadRenameTitle,
+      };
+    default:
+      return state;
+  }
+}
+
+function sidebarSplitBoardUiStateReducer(
+  state: SidebarSplitBoardUiState,
+  action: SidebarSplitBoardUiAction,
+): SidebarSplitBoardUiState {
+  switch (action.type) {
+    case "set-split-sort-order":
+      return {
+        ...state,
+        splitSortOrder: action.splitSortOrder,
+      };
+    case "set-split-reveal-count": {
+      const nextCount =
+        typeof action.nextCount === "function"
+          ? action.nextCount(state.splitRevealCount)
+          : action.nextCount;
+      return state.splitRevealCount === nextCount
+        ? state
+        : {
+            ...state,
+            splitRevealCount: nextCount,
+          };
+    }
+    case "open-split-picker":
+      return {
+        ...state,
+        splitPickerOpen: true,
+        splitPickerQuery: "",
+        splitPickerProjectFilter: "all",
+        splitPickerSortOrder: "recent",
+        splitPickerSelectedThreadIds: new Set(),
+      };
+    case "close-split-picker":
+      return {
+        ...state,
+        splitPickerOpen: false,
+        splitPickerQuery: "",
+        splitPickerProjectFilter: "all",
+        splitPickerSortOrder: "recent",
+        splitPickerSelectedThreadIds: new Set(),
+      };
+    case "set-split-picker-open":
+      return state.splitPickerOpen === action.splitPickerOpen
+        ? state
+        : {
+            ...state,
+            splitPickerOpen: action.splitPickerOpen,
+          };
+    case "set-split-picker-query":
+      return {
+        ...state,
+        splitPickerQuery: action.splitPickerQuery,
+      };
+    case "set-split-picker-project-filter":
+      return {
+        ...state,
+        splitPickerProjectFilter: action.splitPickerProjectFilter,
+      };
+    case "set-split-picker-sort-order":
+      return {
+        ...state,
+        splitPickerSortOrder: action.splitPickerSortOrder,
+      };
+    case "toggle-split-picker-thread": {
+      const next = new Set(state.splitPickerSelectedThreadIds);
+      if (next.has(action.threadId)) {
+        next.delete(action.threadId);
+      } else {
+        next.add(action.threadId);
+      }
+      return {
+        ...state,
+        splitPickerSelectedThreadIds: next,
+      };
+    }
+    case "set-split-context-menu-state":
+      return {
+        ...state,
+        splitContextMenuState: action.splitContextMenuState,
+      };
+    case "start-split-rename":
+      return {
+        ...state,
+        renamingSplitId: action.renamingSplitId,
+        renamingSplitTitle: action.renamingSplitTitle,
+      };
+    case "cancel-split-rename":
+      return {
+        ...state,
+        renamingSplitId: null,
+        renamingSplitTitle: "",
+      };
+    case "set-renaming-split-title":
+      return {
+        ...state,
+        renamingSplitTitle: action.renamingSplitTitle,
+      };
+    case "set-board-thread-drag-state":
+      return {
+        ...state,
+        boardThreadDragState: action.boardThreadDragState,
+      };
+    case "set-board-thread-drag-over-target":
+      return !state.boardThreadDragState ||
+        state.boardThreadDragState.overTargetKey === action.overTargetKey
+        ? state
+        : {
+            ...state,
+            boardThreadDragState: {
+              ...state.boardThreadDragState,
+              overTargetKey: action.overTargetKey,
+            },
+          };
+    default:
+      return state;
+  }
+}
+
+function resolveSidebarAuxUiValue<T>(current: T, next: T | ((current: T) => T)): T {
+  return typeof next === "function" ? (next as (current: T) => T)(current) : next;
+}
+
+function sidebarAuxUiStateReducer(
+  state: SidebarAuxUiState,
+  action: SidebarAuxUiAction,
+): SidebarAuxUiState {
+  switch (action.type) {
+    case "set-confirming-archive-thread-id": {
+      const confirmingArchiveThreadId = resolveSidebarAuxUiValue(
+        state.confirmingArchiveThreadId,
+        action.confirmingArchiveThreadId,
+      );
+      return confirmingArchiveThreadId === state.confirmingArchiveThreadId
+        ? state
+        : { ...state, confirmingArchiveThreadId };
+    }
+    case "set-thread-reveal-count-by-project": {
+      const threadRevealCountByProject = resolveSidebarAuxUiValue(
+        state.threadRevealCountByProject,
+        action.threadRevealCountByProject,
+      );
+      return threadRevealCountByProject === state.threadRevealCountByProject
+        ? state
+        : { ...state, threadRevealCountByProject };
+    }
+    case "set-desktop-update-state": {
+      const desktopUpdateState = resolveSidebarAuxUiValue(
+        state.desktopUpdateState,
+        action.desktopUpdateState,
+      );
+      return desktopUpdateState === state.desktopUpdateState
+        ? state
+        : { ...state, desktopUpdateState };
+    }
+    case "set-remote-sidebar-hosts": {
+      const remoteSidebarHosts = resolveSidebarAuxUiValue(
+        state.remoteSidebarHosts,
+        action.remoteSidebarHosts,
+      );
+      return remoteSidebarHosts === state.remoteSidebarHosts
+        ? state
+        : { ...state, remoteSidebarHosts };
+    }
+    case "set-remote-project-expanded-by-id": {
+      const remoteProjectExpandedById = resolveSidebarAuxUiValue(
+        state.remoteProjectExpandedById,
+        action.remoteProjectExpandedById,
+      );
+      return remoteProjectExpandedById === state.remoteProjectExpandedById
+        ? state
+        : { ...state, remoteProjectExpandedById };
+    }
+    case "set-remote-thread-reveal-count-by-project": {
+      const remoteThreadRevealCountByProject = resolveSidebarAuxUiValue(
+        state.remoteThreadRevealCountByProject,
+        action.remoteThreadRevealCountByProject,
+      );
+      return remoteThreadRevealCountByProject === state.remoteThreadRevealCountByProject
+        ? state
+        : { ...state, remoteThreadRevealCountByProject };
+    }
+    default:
+      return state;
+  }
+}
+
 function estimateSidebarProjectListItemSize(item: SidebarProjectListItem | undefined): number {
   if (!item) {
     return SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX;
@@ -484,6 +911,89 @@ function isEditableHotkeyTarget(target: EventTarget | null): boolean {
 
 type ProjectPickerStep = "environment" | "directory";
 
+type ProjectPickerState = {
+  addingProject: boolean;
+  projectPickerStep: ProjectPickerStep;
+  projectPickerEnvironmentQuery: string;
+  projectPickerRemoteHosts: RemoteHostInstance[];
+  projectPickerConnectedHostIds: string[];
+  projectPickerSelectedConnectionUrl: string | null;
+  newCwd: string;
+  projectPickerEnvironmentProbeId: string | null;
+  isAddingProject: boolean;
+};
+
+type ProjectPickerAction =
+  | { type: "set-adding-project"; addingProject: boolean }
+  | { type: "set-project-picker-step"; projectPickerStep: ProjectPickerStep }
+  | { type: "set-project-picker-environment-query"; projectPickerEnvironmentQuery: string }
+  | { type: "set-project-picker-remote-hosts"; projectPickerRemoteHosts: RemoteHostInstance[] }
+  | { type: "set-project-picker-connected-host-ids"; projectPickerConnectedHostIds: string[] }
+  | {
+      type: "set-project-picker-selected-connection-url";
+      projectPickerSelectedConnectionUrl: string | null;
+    }
+  | { type: "set-new-cwd"; newCwd: string }
+  | {
+      type: "set-project-picker-environment-probe-id";
+      projectPickerEnvironmentProbeId: string | null;
+    }
+  | { type: "set-is-adding-project"; isAddingProject: boolean };
+
+function projectPickerStateReducer(
+  state: ProjectPickerState,
+  action: ProjectPickerAction,
+): ProjectPickerState {
+  switch (action.type) {
+    case "set-adding-project":
+      return state.addingProject === action.addingProject
+        ? state
+        : { ...state, addingProject: action.addingProject };
+    case "set-project-picker-step":
+      return state.projectPickerStep === action.projectPickerStep
+        ? state
+        : { ...state, projectPickerStep: action.projectPickerStep };
+    case "set-project-picker-environment-query":
+      return state.projectPickerEnvironmentQuery === action.projectPickerEnvironmentQuery
+        ? state
+        : {
+            ...state,
+            projectPickerEnvironmentQuery: action.projectPickerEnvironmentQuery,
+          };
+    case "set-project-picker-remote-hosts":
+      return state.projectPickerRemoteHosts === action.projectPickerRemoteHosts
+        ? state
+        : { ...state, projectPickerRemoteHosts: action.projectPickerRemoteHosts };
+    case "set-project-picker-connected-host-ids":
+      return state.projectPickerConnectedHostIds === action.projectPickerConnectedHostIds
+        ? state
+        : {
+            ...state,
+            projectPickerConnectedHostIds: action.projectPickerConnectedHostIds,
+          };
+    case "set-project-picker-selected-connection-url":
+      return state.projectPickerSelectedConnectionUrl === action.projectPickerSelectedConnectionUrl
+        ? state
+        : {
+            ...state,
+            projectPickerSelectedConnectionUrl: action.projectPickerSelectedConnectionUrl,
+          };
+    case "set-new-cwd":
+      return state.newCwd === action.newCwd ? state : { ...state, newCwd: action.newCwd };
+    case "set-project-picker-environment-probe-id":
+      return state.projectPickerEnvironmentProbeId === action.projectPickerEnvironmentProbeId
+        ? state
+        : {
+            ...state,
+            projectPickerEnvironmentProbeId: action.projectPickerEnvironmentProbeId,
+          };
+    case "set-is-adding-project":
+      return state.isAddingProject === action.isAddingProject
+        ? state
+        : { ...state, isAddingProject: action.isAddingProject };
+  }
+}
+
 interface ProjectPickerEnvironment {
   id: string;
   name: string;
@@ -526,17 +1036,18 @@ async function mapWithConcurrencyLimit<TInput, TResult>(
   const results: TResult[] = [];
   results.length = entries.length;
   let nextIndex = 0;
-  const workers = Array.from({ length: limitedConcurrency }, async () => {
-    while (nextIndex < entries.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const entry = entries[index];
-      if (entry === undefined) {
-        continue;
-      }
-      results[index] = await mapper(entry, index);
+  const runWorker = async (): Promise<void> => {
+    const index = nextIndex;
+    nextIndex += 1;
+    const entry = entries[index];
+    if (entry === undefined) {
+      return;
     }
-  });
+    results[index] = await mapper(entry, index);
+    return runWorker();
+  };
+
+  const workers = Array.from({ length: limitedConcurrency }, () => runWorker());
   await Promise.all(workers);
   return results;
 }
@@ -802,25 +1313,27 @@ function mapRemoteProjectsFromSnapshot(
     threadsByProjectId.set(thread.projectId, projectThreads);
   }
 
-  return snapshot.projects
-    .filter((project) => project.deletedAt === null && project.archivedAt === null)
-    .map((project) => {
-      const projectThreads = threadsByProjectId.get(project.id) ?? [];
-      const lastUserMessageAt =
-        getProjectLastUserMessageAt(project.id, snapshot.threads) || project.updatedAt;
-      return {
-        id: project.id,
-        name: project.title,
-        cwd: project.workspaceRoot,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-        lastUserMessageAt,
-        icon: project.icon ?? null,
-        defaultModelSelection: project.defaultModelSelection,
-        threads: sortThreadsFn(projectThreads),
-      };
-    })
-    .toSorted(sortFn);
+  const remoteProjects: RemoteSidebarProjectEntry[] = [];
+  for (const project of snapshot.projects) {
+    if (project.deletedAt !== null || project.archivedAt !== null) {
+      continue;
+    }
+    const projectThreads = sortThreadsFn(threadsByProjectId.get(project.id) ?? []);
+    const lastUserMessageAt =
+      getProjectLastUserMessageAt(project.id, snapshot.threads) || project.updatedAt;
+    remoteProjects.push({
+      id: project.id,
+      name: project.title,
+      cwd: project.workspaceRoot,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      lastUserMessageAt,
+      icon: project.icon ?? null,
+      defaultModelSelection: project.defaultModelSelection,
+      threads: projectThreads,
+    });
+  }
+  return remoteProjects.toSorted(sortFn);
 }
 
 function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boolean {
@@ -926,7 +1439,13 @@ function sortProjectsByTimestamp(
   });
 }
 
-function renderSidebarHeaderTooltipContent(label: string, shortcutLabel: string | null) {
+function SidebarHeaderTooltipContent({
+  label,
+  shortcutLabel,
+}: {
+  label: string;
+  shortcutLabel: string | null;
+}) {
   return (
     <span className="inline-flex items-center gap-2">
       <span>{label}</span>
@@ -939,7 +1458,260 @@ function renderSidebarHeaderTooltipContent(label: string, shortcutLabel: string 
   );
 }
 
-export default function Sidebar() {
+type SidebarLocalProjectItemProps = Omit<
+  ComponentProps<typeof SidebarLocalProjectSection>,
+  "projectId" | "dragHandleProps"
+> & {
+  dragHandleProps: SortableProjectHandleProps | null;
+  projectId: ProjectId;
+};
+
+const SidebarLocalProjectItem = memo(function SidebarLocalProjectItem({
+  dragHandleProps,
+  projectId,
+  ...props
+}: SidebarLocalProjectItemProps) {
+  return (
+    <SidebarLocalProjectSection
+      projectId={projectId}
+      dragHandleProps={dragHandleProps}
+      {...props}
+    />
+  );
+});
+
+type SidebarRemoteProjectItemRowProps = Omit<
+  ComponentProps<typeof SidebarThreadRow>,
+  | "threadId"
+  | "orderedProjectThreadIds"
+  | "routeThreadId"
+  | "activeRouteConnectionUrl"
+  | "connectionUrl"
+  | "showThreadJumpHints"
+  | "jumpLabel"
+  | "boardDrag"
+  | "pr"
+  | "handleThreadContextMenu"
+  | "navigateToThread"
+>;
+
+type SidebarRemoteProjectItemProps = {
+  readonly activeRouteConnectionUrl: string;
+  readonly createBoardThreadRowDragProps: (thread: {
+    connectionUrl: string;
+    threadId: ThreadId;
+  }) => NonNullable<ComponentProps<typeof SidebarThreadRow>["boardDrag"]>;
+  readonly expandThreadListForRemoteProject: (projectKey: string) => void;
+  readonly collapseThreadListForRemoteProject: (projectKey: string) => void;
+  readonly getThreadPr: (threadId: ThreadId) => ComponentProps<typeof SidebarThreadRow>["pr"];
+  readonly handleRemoteProjectContextMenu: (
+    input: { connectionUrl: string; project: RemoteSidebarProjectEntry },
+    position: { x: number; y: number },
+  ) => Promise<void>;
+  readonly handleRemoteThreadContextMenu: (
+    input: {
+      connectionUrl: string;
+      project: RemoteSidebarProjectEntry;
+      thread: RemoteSidebarThreadEntry;
+    },
+    position: { x: number; y: number },
+  ) => Promise<void>;
+  readonly handleStartNewThreadForRemoteProject: (input: {
+    connectionUrl: string;
+    project: RemoteSidebarProjectEntry;
+  }) => void;
+  readonly navigateToThreadOnConnection: (connectionUrl: string, threadId: ThreadId) => void;
+  readonly newThreadShortcutLabel: string | null;
+  readonly renderedProject: RenderedRemoteSidebarProject;
+  readonly routeThreadId: ThreadId | null;
+  readonly showThreadJumpHints: boolean;
+  readonly threadRowSharedProps: SidebarRemoteProjectItemRowProps;
+  readonly toggleRemoteProject: (projectKey: string) => void;
+};
+
+const SidebarRemoteProjectItem = memo(function SidebarRemoteProjectItem({
+  activeRouteConnectionUrl,
+  createBoardThreadRowDragProps,
+  expandThreadListForRemoteProject,
+  collapseThreadListForRemoteProject,
+  getThreadPr,
+  handleRemoteProjectContextMenu,
+  handleRemoteThreadContextMenu,
+  handleStartNewThreadForRemoteProject,
+  navigateToThreadOnConnection,
+  newThreadShortcutLabel,
+  renderedProject,
+  routeThreadId,
+  showThreadJumpHints,
+  threadRowSharedProps,
+  toggleRemoteProject,
+}: SidebarRemoteProjectItemProps) {
+  const {
+    project,
+    projectKey,
+    connectionUrl,
+    projectExpanded,
+    visibleThreads,
+    hiddenThreadCount,
+    hasHiddenThreads,
+    canCollapseThreadList,
+  } = renderedProject;
+
+  const sortedThreadIds = sortByUpdatedAtDescending(project.threads).map((thread) =>
+    ThreadId.makeUnsafe(thread.id),
+  );
+  const shouldRenderThreadPanel = projectExpanded;
+
+  return (
+    <>
+      <div className="group/project-header relative">
+        <SidebarMenuButton
+          size="sm"
+          className="cursor-pointer gap-2 px-2 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-pill-foreground group-hover/project-header:bg-foreground/[0.06] group-hover/project-header:text-pill-foreground"
+          onClick={() => toggleRemoteProject(projectKey)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            void handleRemoteProjectContextMenu(
+              {
+                connectionUrl,
+                project,
+              },
+              {
+                x: event.clientX,
+                y: event.clientY,
+              },
+            );
+          }}
+        >
+          <ChevronRightIcon
+            className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
+              projectExpanded ? "rotate-90" : ""
+            }`}
+          />
+          <ProjectAvatar project={{ cwd: project.cwd, icon: project.icon }} />
+          <span className="flex-1 truncate text-xs font-medium">{project.name}</span>
+        </SidebarMenuButton>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <SidebarMenuAction
+                render={
+                  <button
+                    type="button"
+                    aria-label={`Create new thread in ${project.name}`}
+                    data-testid="new-thread-button"
+                  />
+                }
+                showOnHover
+                className="top-1 right-1.5 size-5 rounded-md bg-transparent p-0 text-muted-foreground/70 hover:bg-transparent hover:text-foreground"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void handleStartNewThreadForRemoteProject({
+                    connectionUrl,
+                    project,
+                  });
+                }}
+              >
+                <SquarePenIcon className="size-3.5" />
+              </SidebarMenuAction>
+            }
+          />
+          <TooltipPopup side="top">
+            {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
+
+      {shouldRenderThreadPanel && (
+        <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
+          {projectExpanded && visibleThreads.length === 0 ? (
+            <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
+              <div className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60">
+                <span>No threads yet</span>
+              </div>
+            </SidebarMenuSubItem>
+          ) : null}
+          {projectExpanded &&
+            visibleThreads.map((thread) => {
+              const threadId = ThreadId.makeUnsafe(thread.id);
+              const boardDrag = createBoardThreadRowDragProps({
+                connectionUrl,
+                threadId,
+              });
+              return (
+                <SidebarThreadRow
+                  key={thread.id}
+                  threadId={threadId}
+                  orderedProjectThreadIds={sortedThreadIds}
+                  routeThreadId={routeThreadId}
+                  activeRouteConnectionUrl={activeRouteConnectionUrl}
+                  connectionUrl={connectionUrl}
+                  showThreadJumpHints={showThreadJumpHints}
+                  jumpLabel={null}
+                  pr={getThreadPr(threadId)}
+                  boardDrag={boardDrag}
+                  {...threadRowSharedProps}
+                  handleThreadContextMenu={async (id, position) => {
+                    const remoteThread = project.threads.find((entry) => entry.id === id);
+                    if (!remoteThread) {
+                      return;
+                    }
+                    await handleRemoteThreadContextMenu(
+                      {
+                        connectionUrl,
+                        project,
+                        thread: remoteThread,
+                      },
+                      position,
+                    );
+                  }}
+                  navigateToThread={() => {
+                    navigateToThreadOnConnection(connectionUrl, threadId);
+                  }}
+                />
+              );
+            })}
+
+          {projectExpanded && hasHiddenThreads ? (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={<button type="button" />}
+                data-thread-selection-safe
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
+                onClick={() => {
+                  expandThreadListForRemoteProject(projectKey);
+                }}
+              >
+                <span>Show {Math.min(THREAD_REVEAL_STEP, hiddenThreadCount)} more</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ) : null}
+          {projectExpanded && canCollapseThreadList ? (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={<button type="button" />}
+                data-thread-selection-safe
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
+                onClick={() => {
+                  collapseThreadListForRemoteProject(projectKey);
+                }}
+              >
+                <span>Show less</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ) : null}
+        </SidebarMenuSub>
+      )}
+    </>
+  );
+});
+
+SidebarRemoteProjectItem.displayName = "SidebarRemoteProjectItem";
+
+function useSidebarComponent() {
   const { isMobile, state: sidebarState } = useSidebar();
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
@@ -1019,17 +1791,28 @@ export default function Sidebar() {
     useHandleNewThread();
   const { archiveThread, deleteThread } = useThreadActions();
   const keybindings = useServerKeybindings();
-  const [addingProject, setAddingProject] = useState(false);
-  const [projectPickerStep, setProjectPickerStep] = useState<ProjectPickerStep>("environment");
-  const [projectPickerEnvironmentQuery, setProjectPickerEnvironmentQuery] = useState("");
-  const [projectPickerRemoteHosts, setProjectPickerRemoteHosts] = useState<RemoteHostInstance[]>(
-    [],
-  );
-  const [projectPickerConnectedHostIds, setProjectPickerConnectedHostIds] = useState<string[]>([]);
-  const [projectPickerSelectedConnectionUrl, setProjectPickerSelectedConnectionUrl] = useState<
-    string | null
-  >(null);
-  const [newCwd, setNewCwd] = useState("");
+  const [projectPickerState, dispatchProjectPickerState] = useReducer(projectPickerStateReducer, {
+    addingProject: false,
+    projectPickerStep: "environment",
+    projectPickerEnvironmentQuery: "",
+    projectPickerRemoteHosts: [],
+    projectPickerConnectedHostIds: [],
+    projectPickerSelectedConnectionUrl: null,
+    newCwd: "",
+    projectPickerEnvironmentProbeId: null,
+    isAddingProject: false,
+  });
+  const {
+    addingProject,
+    projectPickerStep,
+    projectPickerEnvironmentQuery,
+    projectPickerRemoteHosts,
+    projectPickerConnectedHostIds,
+    projectPickerSelectedConnectionUrl,
+    newCwd,
+    projectPickerEnvironmentProbeId,
+    isAddingProject,
+  } = projectPickerState;
   const [projectPickerBrowseUiState, dispatchProjectPickerBrowseUiState] = useReducer(
     projectPickerBrowseUiStateReducer,
     EMPTY_PROJECT_PICKER_BROWSE_UI_STATE,
@@ -1041,10 +1824,6 @@ export default function Sidebar() {
     projectPickerKeyboardNavigationId,
   } = projectPickerBrowseUiState;
   const lastKeyboardNavigationTimeRef = useRef(0);
-  const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
-    string | null
-  >(null);
-  const [isAddingProject, setIsAddingProject] = useState(false);
   const providerStatuses = useServerProviders({
     enabled: addingProject || isAddingProject,
   });
@@ -1072,39 +1851,165 @@ export default function Sidebar() {
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
   const browseRequestVersionRef = useRef(0);
-  const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
-  const [renamingTitle, setRenamingTitle] = useState("");
-  const [confirmingArchiveThreadId, setConfirmingArchiveThreadId] = useState<ThreadId | null>(null);
-  const [threadRevealCountByProject, setThreadRevealCountByProject] = useState<
-    Partial<Record<ProjectId, number>>
-  >({});
-  const [projectEditorOpen, setProjectEditorOpen] = useState(false);
-  const [editingProjectId, setEditingProjectId] = useState<ProjectId | null>(null);
-  const [editingProjectConnectionUrl, setEditingProjectConnectionUrl] = useState<string | null>(
-    null,
+  const [sidebarEditorState, dispatchSidebarEditorState] = useReducer(
+    sidebarEditorStateReducer,
+    EMPTY_SIDEBAR_EDITOR_STATE,
   );
-  const [editingProjectName, setEditingProjectName] = useState("");
-  const [editingProjectIcon, setEditingProjectIcon] = useState<Project["icon"]>(null);
-  const [remoteThreadRenameTarget, setRemoteThreadRenameTarget] = useState<{
-    connectionUrl: string;
-    project: RemoteSidebarProjectEntry;
-    thread: RemoteSidebarThreadEntry;
-  } | null>(null);
-  const [remoteThreadRenameTitle, setRemoteThreadRenameTitle] = useState("");
-  const [splitSortOrder, setSplitSortOrder] = useState<SidebarSplitSortOrder>("updated_at");
-  const [splitRevealCount, setSplitRevealCount] = useState(SPLIT_REVEAL_STEP);
-  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
-  const [splitPickerQuery, setSplitPickerQuery] = useState("");
-  const [splitPickerProjectFilter, setSplitPickerProjectFilter] = useState<string>("all");
-  const [splitPickerSortOrder, setSplitPickerSortOrder] = useState<SplitPickerSortOrder>("recent");
-  const [splitPickerSelectedThreadIds, setSplitPickerSelectedThreadIds] = useState<Set<ThreadId>>(
-    () => new Set(),
+  const {
+    renamingThreadId,
+    renamingTitle,
+    projectEditorOpen,
+    editingProjectId,
+    editingProjectConnectionUrl,
+    editingProjectName,
+    editingProjectIcon,
+    remoteThreadRenameTarget,
+    remoteThreadRenameTitle,
+  } = sidebarEditorState;
+  const setRenamingTitle = useCallback((renamingTitle: string) => {
+    dispatchSidebarEditorState({ type: "set-renaming-title", renamingTitle });
+  }, []);
+  const setEditingProjectName = useCallback((editingProjectName: string) => {
+    dispatchSidebarEditorState({ type: "set-editing-project-name", editingProjectName });
+  }, []);
+  const setEditingProjectIcon = useCallback(
+    (nextIcon: Project["icon"] | ((current: Project["icon"]) => Project["icon"])) => {
+      dispatchSidebarEditorState({ type: "set-editing-project-icon", nextIcon });
+    },
+    [],
   );
-  const [splitContextMenuState, setSplitContextMenuState] = useState<SplitContextMenuState | null>(
-    null,
+  const setRemoteThreadRenameTitle = useCallback((remoteThreadRenameTitle: string) => {
+    dispatchSidebarEditorState({ type: "set-remote-thread-rename-title", remoteThreadRenameTitle });
+  }, []);
+  const [sidebarAuxUiState, dispatchSidebarAuxUiState] = useReducer(
+    sidebarAuxUiStateReducer,
+    EMPTY_SIDEBAR_AUX_UI_STATE,
   );
-  const [renamingSplitId, setRenamingSplitId] = useState<string | null>(null);
-  const [renamingSplitTitle, setRenamingSplitTitle] = useState("");
+  const [sidebarSplitBoardUiState, dispatchSidebarSplitBoardUiState] = useReducer(
+    sidebarSplitBoardUiStateReducer,
+    EMPTY_SIDEBAR_SPLIT_BOARD_UI_STATE,
+  );
+  const {
+    splitSortOrder,
+    splitRevealCount,
+    splitPickerOpen,
+    splitPickerQuery,
+    splitPickerProjectFilter,
+    splitPickerSortOrder,
+    splitPickerSelectedThreadIds,
+    splitContextMenuState,
+    renamingSplitId,
+    renamingSplitTitle,
+    boardThreadDragState,
+  } = sidebarSplitBoardUiState;
+  const setSplitSortOrder = useCallback((splitSortOrder: SidebarSplitSortOrder) => {
+    dispatchSidebarSplitBoardUiState({ type: "set-split-sort-order", splitSortOrder });
+  }, []);
+  const setSplitRevealCount = useCallback((nextCount: number | ((current: number) => number)) => {
+    dispatchSidebarSplitBoardUiState({ type: "set-split-reveal-count", nextCount });
+  }, []);
+  const setSplitPickerQuery = useCallback((splitPickerQuery: string) => {
+    dispatchSidebarSplitBoardUiState({ type: "set-split-picker-query", splitPickerQuery });
+  }, []);
+  const setSplitPickerProjectFilter = useCallback((splitPickerProjectFilter: string) => {
+    dispatchSidebarSplitBoardUiState({
+      type: "set-split-picker-project-filter",
+      splitPickerProjectFilter,
+    });
+  }, []);
+  const setSplitPickerSortOrder = useCallback((splitPickerSortOrder: SplitPickerSortOrder) => {
+    dispatchSidebarSplitBoardUiState({ type: "set-split-picker-sort-order", splitPickerSortOrder });
+  }, []);
+  const setRenamingSplitTitle = useCallback((renamingSplitTitle: string) => {
+    dispatchSidebarSplitBoardUiState({ type: "set-renaming-split-title", renamingSplitTitle });
+  }, []);
+  const {
+    confirmingArchiveThreadId,
+    threadRevealCountByProject,
+    desktopUpdateState,
+    remoteSidebarHosts,
+    remoteProjectExpandedById,
+    remoteThreadRevealCountByProject,
+  } = sidebarAuxUiState;
+  const setConfirmingArchiveThreadId = useCallback(
+    (
+      confirmingArchiveThreadId: ThreadId | null | ((current: ThreadId | null) => ThreadId | null),
+    ) => {
+      dispatchSidebarAuxUiState({
+        type: "set-confirming-archive-thread-id",
+        confirmingArchiveThreadId,
+      });
+    },
+    [],
+  );
+  const setThreadRevealCountByProject = useCallback(
+    (
+      threadRevealCountByProject:
+        | Partial<Record<ProjectId, number>>
+        | ((current: Partial<Record<ProjectId, number>>) => Partial<Record<ProjectId, number>>),
+    ) => {
+      dispatchSidebarAuxUiState({
+        type: "set-thread-reveal-count-by-project",
+        threadRevealCountByProject,
+      });
+    },
+    [],
+  );
+  const setDesktopUpdateState = useCallback(
+    (
+      desktopUpdateState:
+        | DesktopUpdateState
+        | null
+        | ((current: DesktopUpdateState | null) => DesktopUpdateState | null),
+    ) => {
+      dispatchSidebarAuxUiState({
+        type: "set-desktop-update-state",
+        desktopUpdateState,
+      });
+    },
+    [],
+  );
+  const setRemoteSidebarHosts = useCallback(
+    (
+      remoteSidebarHosts:
+        | ReadonlyArray<RemoteSidebarHostEntry>
+        | ((
+            current: ReadonlyArray<RemoteSidebarHostEntry>,
+          ) => ReadonlyArray<RemoteSidebarHostEntry>),
+    ) => {
+      dispatchSidebarAuxUiState({
+        type: "set-remote-sidebar-hosts",
+        remoteSidebarHosts,
+      });
+    },
+    [],
+  );
+  const setRemoteProjectExpandedById = useCallback(
+    (
+      remoteProjectExpandedById:
+        | Record<string, boolean>
+        | ((current: Record<string, boolean>) => Record<string, boolean>),
+    ) => {
+      dispatchSidebarAuxUiState({
+        type: "set-remote-project-expanded-by-id",
+        remoteProjectExpandedById,
+      });
+    },
+    [],
+  );
+  const setRemoteThreadRevealCountByProject = useCallback(
+    (
+      remoteThreadRevealCountByProject:
+        | Record<string, number>
+        | ((current: Record<string, number>) => Record<string, number>),
+    ) => {
+      dispatchSidebarAuxUiState({
+        type: "set-remote-thread-reveal-count-by-project",
+        remoteThreadRevealCountByProject,
+      });
+    },
+    [],
+  );
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
@@ -1113,10 +2018,6 @@ export default function Sidebar() {
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
-  const [boardThreadDragState, setBoardThreadDragState] = useState<BoardThreadDragState | null>(
-    null,
-  );
-  const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const showSidebarHeaderToggle = !isMobile && sidebarState === "expanded";
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1181,7 +2082,7 @@ export default function Sidebar() {
   );
   useEffect(() => {
     setSplitRevealCount(SPLIT_REVEAL_STEP);
-  }, [splitSortOrder]);
+  }, [setSplitRevealCount, splitSortOrder]);
   const buildSplitTitle = useCallback(
     (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
       return buildThreadBoardTitle({
@@ -1196,17 +2097,15 @@ export default function Sidebar() {
   );
   const clearBoardThreadDrag = useCallback(() => {
     setActiveThreadBoardDrag(null);
-    setBoardThreadDragState(null);
+    dispatchSidebarSplitBoardUiState({
+      type: "set-board-thread-drag-state",
+      boardThreadDragState: null,
+    });
   }, []);
   const setBoardThreadDragOverTarget = useCallback((targetKey: string | null) => {
-    setBoardThreadDragState((current) => {
-      if (!current || current.overTargetKey === targetKey) {
-        return current;
-      }
-      return {
-        ...current,
-        overTargetKey: targetKey,
-      };
+    dispatchSidebarSplitBoardUiState({
+      type: "set-board-thread-drag-over-target",
+      overTargetKey: targetKey,
     });
   }, []);
   const readBoardThreadDrag = useCallback(
@@ -1325,10 +2224,13 @@ export default function Sidebar() {
       });
       setActiveThreadBoardDrag(dragThread);
       setBoardsSectionExpanded(true);
-      setBoardThreadDragState({
-        activeThread: dragThread,
-        activeThreadKey: getThreadBoardDragThreadKey(dragThread),
-        overTargetKey: null,
+      dispatchSidebarSplitBoardUiState({
+        type: "set-board-thread-drag-state",
+        boardThreadDragState: {
+          activeThread: dragThread,
+          activeThreadKey: getThreadBoardDragThreadKey(dragThread),
+          overTargetKey: null,
+        },
       });
     },
     [setBoardsSectionExpanded, sidebarThreadsById],
@@ -1599,8 +2501,7 @@ export default function Sidebar() {
     });
   }, [navigate, routeThreadId]);
   const cancelSplitRename = useCallback(() => {
-    setRenamingSplitId(null);
-    setRenamingSplitTitle("");
+    dispatchSidebarSplitBoardUiState({ type: "cancel-split-rename" });
   }, []);
   const commitSplitRename = useCallback(
     (split: ChatThreadBoardSplitState) => {
@@ -1619,11 +2520,17 @@ export default function Sidebar() {
     [cancelSplitRename, renamingSplitTitle],
   );
   const closeSplitContextMenu = useCallback(() => {
-    setSplitContextMenuState(null);
+    dispatchSidebarSplitBoardUiState({
+      type: "set-split-context-menu-state",
+      splitContextMenuState: null,
+    });
   }, []);
   const openSplitContextMenu = useCallback(
     (split: ChatThreadBoardSplitState, position: { x: number; y: number }) => {
-      setSplitContextMenuState({ position, splitId: split.id });
+      dispatchSidebarSplitBoardUiState({
+        type: "set-split-context-menu-state",
+        splitContextMenuState: { position, splitId: split.id },
+      });
     },
     [],
   );
@@ -1635,8 +2542,11 @@ export default function Sidebar() {
         return;
       }
       if (action === "rename") {
-        setRenamingSplitId(split.id);
-        setRenamingSplitTitle(split.title);
+        dispatchSidebarSplitBoardUiState({
+          type: "start-split-rename",
+          renamingSplitId: split.id,
+          renamingSplitTitle: split.title,
+        });
         return;
       }
       if (action === "archive") {
@@ -1661,9 +2571,6 @@ export default function Sidebar() {
     },
     [activeStoreSplitId, closeActiveSplitRoute, closeSplitContextMenu, restoreSavedSplit],
   );
-  const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
-    ReadonlyArray<RemoteSidebarHostEntry>
-  >(() => remoteSidebarHostSnapshotCache);
   const remoteSidebarHostsRef = useRef<ReadonlyArray<RemoteSidebarHostEntry>>(
     remoteSidebarHostSnapshotCache,
   );
@@ -1678,12 +2585,6 @@ export default function Sidebar() {
   );
   const remoteSidebarRefreshVersionRef = useRef(0);
   const remoteSidebarRefreshInFlightRef = useRef<Promise<void> | null>(null);
-  const [remoteProjectExpandedById, setRemoteProjectExpandedById] = useState<
-    Record<string, boolean>
-  >({});
-  const [remoteThreadRevealCountByProject, setRemoteThreadRevealCountByProject] = useState<
-    Record<string, number>
-  >({});
   const projectConnectionById = useHostConnectionStore((store) => store.projectConnectionById);
   useEffect(() => {
     remoteSidebarHostsRef.current = remoteSidebarHosts;
@@ -1902,13 +2803,21 @@ export default function Sidebar() {
 
     const refreshPromise = (async () => {
       const connectedHostIds = new Set(loadConnectedRemoteHostIds());
-      const hosts = loadRemoteHostInstances()
-        .filter((host) => connectedHostIds.has(host.id))
-        .filter((host) => resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl)
-        .toSorted((left, right) => left.name.localeCompare(right.name));
-      const nextConnectionUrls = new Set<string>(
-        hosts.map((host) => resolveHostConnectionWsUrl(host)),
-      );
+      const connectedHosts: Array<RemoteHostInstance> = [];
+      for (const host of loadRemoteHostInstances()) {
+        if (
+          !connectedHostIds.has(host.id) ||
+          resolveHostConnectionWsUrl(host) === localDeviceConnectionUrl
+        ) {
+          continue;
+        }
+        connectedHosts.push(host);
+      }
+      const hosts = connectedHosts.toSorted((left, right) => left.name.localeCompare(right.name));
+      const nextConnectionUrls = new Set<string>();
+      for (const host of hosts) {
+        nextConnectionUrls.add(resolveHostConnectionWsUrl(host));
+      }
       const previousConnectionUrls = registeredRemoteRouteConnectionUrlsRef.current;
       for (const connectionUrl of nextConnectionUrls) {
         if (!previousConnectionUrls.has(connectionUrl)) {
@@ -2030,6 +2939,7 @@ export default function Sidebar() {
     localDeviceConnectionUrl,
     reconcileThreadDerivedState,
     scheduleRemoteSnapshotMergeFlush,
+    setRemoteSidebarHosts,
   ]);
   useEffect(() => {
     if (!bootstrapComplete) {
@@ -2186,7 +3096,7 @@ export default function Sidebar() {
       });
       removeFromSelection([input.threadId]);
     },
-    [removeFromSelection],
+    [removeFromSelection, setRemoteSidebarHosts],
   );
   const attemptArchiveThread = useCallback(
     async (threadId: ThreadId, connectionUrl: string) => {
@@ -2221,13 +3131,16 @@ export default function Sidebar() {
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
-      const sortedThreads = sortThreadsForSidebar(
-        (threadIdsByProjectId[projectId] ?? [])
-          .map((threadId) => sidebarThreadsById[threadId])
-          .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
-          .filter((thread) => thread.archivedAt === null),
-        sidebarThreadSortOrder,
-      );
+      const sourceThreads = threadIdsByProjectId[projectId] ?? [];
+      const filteredThreads: SidebarThreadSummary[] = [];
+      for (const threadId of sourceThreads) {
+        const thread = sidebarThreadsById[threadId];
+        if (thread === undefined || thread.archivedAt !== null) {
+          continue;
+        }
+        filteredThreads.push(thread);
+      }
+      const sortedThreads = sortThreadsForSidebar(filteredThreads, sidebarThreadSortOrder);
       const latestThread = sortedThreads[0];
       if (!latestThread) return;
 
@@ -2313,14 +3226,14 @@ export default function Sidebar() {
       ).trim();
       if (!cwd || isAddingProject) return;
 
-      setIsAddingProject(true);
+      dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: true });
       const finishAddingProject = () => {
-        setIsAddingProject(false);
-        setNewCwd("");
+        dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: false });
+        dispatchProjectPickerState({ type: "set-new-cwd", newCwd: "" });
         setAddProjectError(null);
         setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
         setActiveProjectBrowseIndex(-1);
-        setAddingProject(false);
+        dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
       };
 
       const shouldUseLocalProjectDedup = isLocalEnvironment;
@@ -2396,10 +3309,10 @@ export default function Sidebar() {
       } catch (error) {
         const description =
           error instanceof Error ? error.message : "An error occurred while adding the project.";
-        setIsAddingProject(false);
-        setNewCwd(cwd);
+        dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: false });
+        dispatchProjectPickerState({ type: "set-new-cwd", newCwd: cwd });
         if (options?.revealOnError) {
-          setAddingProject(true);
+          dispatchProjectPickerState({ type: "set-adding-project", addingProject: true });
         }
         setAddProjectError(description);
         return;
@@ -2416,6 +3329,9 @@ export default function Sidebar() {
       providerStatuses,
       projects,
       refreshRemoteSidebarHosts,
+      setActiveProjectBrowseIndex,
+      setAddProjectError,
+      setProjectBrowseState,
       selectedProjectPickerConnectionUrl,
       selectedProjectPickerIsLocal,
       selectedProjectPickerName,
@@ -2450,10 +3366,16 @@ export default function Sidebar() {
     currentProjectBrowseResult === null &&
     addProjectError === null;
 
-  const handleBrowseProjectEntry = useCallback((fullPath: string) => {
-    setAddProjectError(null);
-    setNewCwd(toBrowseDirectoryPath(fullPath));
-  }, []);
+  const handleBrowseProjectEntry = useCallback(
+    (fullPath: string) => {
+      setAddProjectError(null);
+      dispatchProjectPickerState({
+        type: "set-new-cwd",
+        newCwd: toBrowseDirectoryPath(fullPath),
+      });
+    },
+    [setAddProjectError],
+  );
 
   const handleBrowseParentPath = useCallback(() => {
     const currentPath = currentProjectBrowseResult?.parentPath ?? newCwd.trim();
@@ -2464,9 +3386,12 @@ export default function Sidebar() {
     if (!nextPath || nextPath === currentPath) {
       return;
     }
-    setNewCwd(toBrowseDirectoryPath(nextPath));
+    dispatchProjectPickerState({
+      type: "set-new-cwd",
+      newCwd: toBrowseDirectoryPath(nextPath),
+    });
     setAddProjectError(null);
-  }, [currentProjectBrowseResult, newCwd]);
+  }, [currentProjectBrowseResult, newCwd, setAddProjectError]);
 
   const normalizedResolvedProjectPath = useMemo(() => {
     const shouldResolveAsLocal = selectedProjectPickerIsLocal;
@@ -2501,7 +3426,10 @@ export default function Sidebar() {
       }
       setAddProjectError(null);
       if (!environment.isLocal) {
-        setProjectPickerEnvironmentProbeId(environment.id);
+        dispatchProjectPickerState({
+          type: "set-project-picker-environment-probe-id",
+          projectPickerEnvironmentProbeId: environment.id,
+        });
         registerRemoteRoute(environment.connectionUrl);
         let availability: Awaited<ReturnType<typeof probeRemoteRouteAvailability>>;
         try {
@@ -2509,7 +3437,10 @@ export default function Sidebar() {
             force: true,
           });
         } finally {
-          setProjectPickerEnvironmentProbeId(null);
+          dispatchProjectPickerState({
+            type: "set-project-picker-environment-probe-id",
+            projectPickerEnvironmentProbeId: null,
+          });
         }
         if (availability.status !== "available") {
           setAddProjectError(
@@ -2520,16 +3451,34 @@ export default function Sidebar() {
           return;
         }
       }
-      setProjectPickerSelectedConnectionUrl(environment.connectionUrl);
-      setProjectPickerStep("directory");
+      dispatchProjectPickerState({
+        type: "set-project-picker-selected-connection-url",
+        projectPickerSelectedConnectionUrl: environment.connectionUrl,
+      });
+      dispatchProjectPickerState({
+        type: "set-project-picker-step",
+        projectPickerStep: "directory",
+      });
       const initialPath = environment.isLocal ? addProjectBaseDirectory : "~";
-      setNewCwd(toBrowseDirectoryPath(initialPath));
+      dispatchProjectPickerState({
+        type: "set-new-cwd",
+        newCwd: toBrowseDirectoryPath(initialPath),
+      });
       setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
       setAddProjectError(null);
-      setProjectPickerEnvironmentQuery("");
+      dispatchProjectPickerState({
+        type: "set-project-picker-environment-query",
+        projectPickerEnvironmentQuery: "",
+      });
       setActiveProjectBrowseIndex(-1);
     },
-    [addProjectBaseDirectory, projectPickerEnvironmentProbeId],
+    [
+      addProjectBaseDirectory,
+      projectPickerEnvironmentProbeId,
+      setActiveProjectBrowseIndex,
+      setAddProjectError,
+      setProjectBrowseState,
+    ],
   );
 
   const handleAddProjectInputKeyDown = useCallback(
@@ -2574,16 +3523,22 @@ export default function Sidebar() {
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          setAddingProject(false);
+          dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
           setAddProjectError(null);
-          setProjectPickerEnvironmentProbeId(null);
+          dispatchProjectPickerState({
+            type: "set-project-picker-environment-probe-id",
+            projectPickerEnvironmentProbeId: null,
+          });
           return;
         }
         if (event.key === "Backspace" && projectPickerEnvironmentQuery.trim().length === 0) {
           event.preventDefault();
-          setAddingProject(false);
+          dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
           setAddProjectError(null);
-          setProjectPickerEnvironmentProbeId(null);
+          dispatchProjectPickerState({
+            type: "set-project-picker-environment-probe-id",
+            projectPickerEnvironmentProbeId: null,
+          });
         }
         return;
       }
@@ -2635,8 +3590,14 @@ export default function Sidebar() {
       if (event.key === "Backspace") {
         if (event.currentTarget.value.trim().length === 0 && pickerEnvironments.length > 1) {
           event.preventDefault();
-          setProjectPickerStep("environment");
-          setProjectPickerEnvironmentQuery("");
+          dispatchProjectPickerState({
+            type: "set-project-picker-step",
+            projectPickerStep: "environment",
+          });
+          dispatchProjectPickerState({
+            type: "set-project-picker-environment-query",
+            projectPickerEnvironmentQuery: "",
+          });
           setActiveProjectBrowseIndex(0);
           requestProjectPickerKeyboardScroll();
           return;
@@ -2657,13 +3618,15 @@ export default function Sidebar() {
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setAddingProject(false);
+        dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
         setAddProjectError(null);
-        setProjectPickerEnvironmentProbeId(null);
+        dispatchProjectPickerState({
+          type: "set-project-picker-environment-probe-id",
+          projectPickerEnvironmentProbeId: null,
+        });
       }
     },
     [
-      activeProjectBrowseIndex,
       filteredPickerEnvironments,
       handleAddProject,
       handleBrowseParentPath,
@@ -2675,6 +3638,8 @@ export default function Sidebar() {
       pickerEnvironments.length,
       requestProjectPickerKeyboardScroll,
       resolvedActiveProjectBrowseIndex,
+      setActiveProjectBrowseIndex,
+      setAddProjectError,
     ],
   );
 
@@ -2714,14 +3679,18 @@ export default function Sidebar() {
   const handleStartAddProject = useCallback(() => {
     setAddProjectError(null);
     if (shouldShowProjectPathEntry) {
-      setAddingProject(false);
-      setProjectPickerEnvironmentProbeId(null);
+      dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
+      dispatchProjectPickerState({
+        type: "set-project-picker-environment-probe-id",
+        projectPickerEnvironmentProbeId: null,
+      });
       return;
     }
     const remoteHosts = loadRemoteHostInstances();
     const connectedHostIds = loadConnectedRemoteHostIds();
+    const connectedHostIdSet = new Set(connectedHostIds);
     for (const host of remoteHosts) {
-      if (!connectedHostIds.includes(host.id)) {
+      if (!connectedHostIdSet.has(host.id)) {
         continue;
       }
       const connectionUrl = resolveHostConnectionWsUrl(host);
@@ -2730,39 +3699,64 @@ export default function Sidebar() {
       }
       registerRemoteRoute(connectionUrl);
     }
-    setProjectPickerRemoteHosts(remoteHosts);
-    setProjectPickerConnectedHostIds(connectedHostIds);
-    setProjectPickerSelectedConnectionUrl(localDeviceConnectionUrl);
+    dispatchProjectPickerState({
+      type: "set-project-picker-remote-hosts",
+      projectPickerRemoteHosts: remoteHosts,
+    });
+    dispatchProjectPickerState({
+      type: "set-project-picker-connected-host-ids",
+      projectPickerConnectedHostIds: connectedHostIds,
+    });
+    dispatchProjectPickerState({
+      type: "set-project-picker-selected-connection-url",
+      projectPickerSelectedConnectionUrl: localDeviceConnectionUrl,
+    });
     const hasRemoteEnvironment = remoteHosts.some(
       (host) =>
-        connectedHostIds.includes(host.id) &&
+        connectedHostIdSet.has(host.id) &&
         resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl,
     );
     const initialPath = addProjectBaseDirectory;
-    setProjectPickerStep(hasRemoteEnvironment ? "environment" : "directory");
-    setProjectPickerEnvironmentQuery("");
-    setNewCwd(hasRemoteEnvironment ? "" : toBrowseDirectoryPath(initialPath));
+    dispatchProjectPickerState({
+      type: "set-project-picker-step",
+      projectPickerStep: hasRemoteEnvironment ? "environment" : "directory",
+    });
+    dispatchProjectPickerState({
+      type: "set-project-picker-environment-query",
+      projectPickerEnvironmentQuery: "",
+    });
+    dispatchProjectPickerState({
+      type: "set-new-cwd",
+      newCwd: hasRemoteEnvironment ? "" : toBrowseDirectoryPath(initialPath),
+    });
     setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
     setActiveProjectBrowseIndex(-1);
-    setAddingProject(true);
-  }, [addProjectBaseDirectory, localDeviceConnectionUrl, shouldShowProjectPathEntry]);
+    dispatchProjectPickerState({ type: "set-adding-project", addingProject: true });
+  }, [
+    addProjectBaseDirectory,
+    localDeviceConnectionUrl,
+    setActiveProjectBrowseIndex,
+    setAddProjectError,
+    setProjectBrowseState,
+    shouldShowProjectPathEntry,
+  ]);
   const handleStartAddProjectEffect = useEffectEvent(() => {
     handleStartAddProject();
   });
 
   const cancelRename = useCallback(() => {
-    setRenamingThreadId(null);
+    dispatchSidebarEditorState({ type: "clear-thread-rename" });
     renamingInputRef.current = null;
   }, []);
 
   const commitRename = useCallback(
     async (threadId: ThreadId, newTitle: string, originalTitle: string) => {
       const finishRename = () => {
-        setRenamingThreadId((current) => {
-          if (current !== threadId) return current;
-          renamingInputRef.current = null;
-          return null;
+        dispatchSidebarEditorState({
+          type: "clear-thread-rename-if-match",
+          renamingThreadId: threadId,
         });
+        renamingInputRef.current = null;
       };
 
       const trimmed = newTitle.trim();
@@ -2875,8 +3869,11 @@ export default function Sidebar() {
       }
 
       if (clicked === "rename") {
-        setRenamingThreadId(threadId);
-        setRenamingTitle(thread.title);
+        dispatchSidebarEditorState({
+          type: "start-thread-rename",
+          renamingThreadId: threadId,
+          renamingTitle: thread.title,
+        });
         renamingCommittedRef.current = false;
         return;
       }
@@ -2979,9 +3976,7 @@ export default function Sidebar() {
       }
 
       const deletedIds = new Set<ThreadId>(ids);
-      for (const id of ids) {
-        await deleteThread(id, { deletedThreadIds: deletedIds });
-      }
+      await Promise.all(ids.map((id) => deleteThread(id, { deletedThreadIds: deletedIds })));
       removeFromSelection(ids);
     },
     [
@@ -3196,11 +4191,13 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "edit") {
-        setEditingProjectId(project.id);
-        setEditingProjectConnectionUrl(activeWsUrl);
-        setEditingProjectName(project.name);
-        setEditingProjectIcon(project.icon);
-        setProjectEditorOpen(true);
+        dispatchSidebarEditorState({
+          type: "open-project-editor",
+          editingProjectId: project.id,
+          editingProjectConnectionUrl: activeWsUrl,
+          editingProjectName: project.name,
+          editingProjectIcon: project.icon,
+        });
         return;
       }
       if (clicked === "copy-path") {
@@ -3273,11 +4270,6 @@ export default function Sidebar() {
       activeWsUrl,
       pinnedProjectIds,
       projects,
-      setEditingProjectIcon,
-      setEditingProjectConnectionUrl,
-      setEditingProjectId,
-      setEditingProjectName,
-      setProjectEditorOpen,
       threadIdsByProjectId,
       togglePinnedProject,
     ],
@@ -3303,11 +4295,13 @@ export default function Sidebar() {
         position,
       );
       if (clicked === "edit") {
-        setEditingProjectId(input.project.id);
-        setEditingProjectConnectionUrl(input.connectionUrl);
-        setEditingProjectName(input.project.name);
-        setEditingProjectIcon(input.project.icon);
-        setProjectEditorOpen(true);
+        dispatchSidebarEditorState({
+          type: "open-project-editor",
+          editingProjectId: input.project.id,
+          editingProjectConnectionUrl: input.connectionUrl,
+          editingProjectName: input.project.name,
+          editingProjectIcon: input.project.icon,
+        });
         return;
       }
       if (clicked === "copy-path") {
@@ -3396,8 +4390,11 @@ export default function Sidebar() {
       }
 
       if (clicked === "rename") {
-        setRemoteThreadRenameTarget(input);
-        setRemoteThreadRenameTitle(input.thread.title);
+        dispatchSidebarEditorState({
+          type: "open-remote-thread-rename",
+          remoteThreadRenameTarget: input,
+          remoteThreadRenameTitle: input.thread.title,
+        });
         return;
       }
       if (clicked === "copy-path") {
@@ -3474,8 +4471,7 @@ export default function Sidebar() {
     ],
   );
   const closeRemoteThreadRenameDialog = useCallback(() => {
-    setRemoteThreadRenameTarget(null);
-    setRemoteThreadRenameTitle("");
+    dispatchSidebarEditorState({ type: "close-remote-thread-rename" });
   }, []);
   const saveRemoteThreadRename = useCallback(async () => {
     const target = remoteThreadRenameTarget;
@@ -3518,12 +4514,8 @@ export default function Sidebar() {
   ]);
 
   const closeProjectEditor = useCallback(() => {
-    setProjectEditorOpen(false);
-    setEditingProjectId(null);
-    setEditingProjectConnectionUrl(null);
-    setEditingProjectName("");
-    setEditingProjectIcon(null);
-  }, [setEditingProjectConnectionUrl]);
+    dispatchSidebarEditorState({ type: "close-project-editor" });
+  }, []);
 
   const saveProjectEdits = useCallback(
     async (event?: { preventDefault: () => void }) => {
@@ -3812,6 +4804,10 @@ export default function Sidebar() {
       sortedRenderedPinnedItems.flatMap((item) => (item.kind === "thread" ? [item.threadId] : [])),
     [sortedRenderedPinnedItems],
   );
+  const remoteSidebarHostSearchMatcher = useMemo(
+    () => createContainsMatcher(normalizedProjectSearchQuery),
+    [normalizedProjectSearchQuery],
+  );
   const filteredRemoteSidebarHosts = useMemo(() => {
     const visibleRemoteSidebarHosts = remoteSidebarHosts.filter(
       (entry) => !isHostConnectionActive(entry.host, activeWsUrl),
@@ -3819,90 +4815,93 @@ export default function Sidebar() {
     if (normalizedProjectSearchQuery.length === 0) {
       return visibleRemoteSidebarHosts;
     }
-    return visibleRemoteSidebarHosts
-      .map((entry) => {
-        const connectionDescriptor = describeHostConnection(entry.host);
-        const hostMatches =
-          entry.host.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
-          connectionDescriptor.selectorValues.some((value) =>
-            value.toLowerCase().includes(normalizedProjectSearchQuery),
-          );
-        const filteredProjects = entry.projects.filter((project) => {
-          if (
-            project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
-            project.cwd.toLowerCase().includes(normalizedProjectSearchQuery)
-          ) {
-            return true;
-          }
-          return project.threads.some((thread) =>
-            thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
-          );
-        });
-        if (hostMatches || filteredProjects.length > 0) {
-          const projects = hostMatches ? entry.projects : filteredProjects;
-          if (entry.error) {
-            return {
-              host: entry.host,
-              connectionUrl: entry.connectionUrl,
-              status: entry.status,
-              projects,
-              error: entry.error,
-            };
-          }
-          return {
-            host: entry.host,
-            connectionUrl: entry.connectionUrl,
-            status: entry.status,
-            projects,
-          };
+    const nextEntries: RemoteSidebarHostEntry[] = [];
+    for (const entry of visibleRemoteSidebarHosts) {
+      const connectionDescriptor = describeHostConnection(entry.host);
+      const containsQuery = (value: string): boolean =>
+        remoteSidebarHostSearchMatcher?.test(value) ?? false;
+      const hostMatches =
+        containsQuery(entry.host.name) ||
+        connectionDescriptor.selectorValues.some((value) => containsQuery(value));
+      const filteredProjects: RemoteSidebarProjectEntry[] = [];
+      for (const project of entry.projects) {
+        if (
+          containsQuery(project.name) ||
+          containsQuery(project.cwd) ||
+          project.threads.some((thread) => containsQuery(thread.title))
+        ) {
+          filteredProjects.push(project);
         }
-        return null;
-      })
-      .filter((entry): entry is RemoteSidebarHostEntry => entry !== null);
+      }
+      if (!hostMatches && filteredProjects.length === 0) {
+        continue;
+      }
+      const projects = hostMatches ? entry.projects : filteredProjects;
+      nextEntries.push({
+        host: entry.host,
+        connectionUrl: entry.connectionUrl,
+        status: entry.status,
+        projects,
+        ...(entry.error ? { error: entry.error } : {}),
+      });
+    }
+    return nextEntries;
   }, [activeWsUrl, normalizedProjectSearchQuery, remoteSidebarHosts]);
   const renderedRemoteProjects = useMemo(() => {
-    return filteredRemoteSidebarHosts
-      .filter((entry) => entry.status === "available")
-      .flatMap((entry) =>
-        entry.projects.map((project) => {
-          const projectKey = remoteProjectKey(entry.connectionUrl, project.id);
-          const projectExpanded = remoteProjectExpandedById[projectKey] ?? true;
-          const visibleThreadCount =
-            remoteThreadRevealCountByProject[projectKey] ?? THREAD_REVEAL_STEP;
-          const sortedThreads = sortByUpdatedAtDescending(project.threads);
-          const activeThreadIdForConnection = connectionUrlsEqual(
-            activeRouteConnectionUrl,
-            entry.connectionUrl,
-          )
-            ? activeThreadId
-            : undefined;
-          const {
-            hasHiddenThreads,
-            hiddenThreads,
-            visibleThreads: previewThreads,
-          } = projectExpanded
-            ? getVisibleRemoteThreadsForProject({
-                threads: sortedThreads,
-                activeThreadId: activeThreadIdForConnection,
-                visibleCount: visibleThreadCount,
-              })
-            : {
-                hasHiddenThreads: false,
-                hiddenThreads: [] as RemoteSidebarThreadEntry[],
-                visibleThreads: [] as RemoteSidebarThreadEntry[],
-              };
-          return {
-            project,
-            projectKey,
-            connectionUrl: entry.connectionUrl,
-            projectExpanded,
-            visibleThreads: previewThreads,
-            hiddenThreadCount: hiddenThreads.length,
-            hasHiddenThreads,
-            canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
-          };
-        }),
-      );
+    const nextRenderedRemoteProjects: Array<{
+      project: RemoteSidebarProjectEntry;
+      projectKey: string;
+      connectionUrl: string;
+      projectExpanded: boolean;
+      visibleThreads: RemoteSidebarThreadEntry[];
+      hiddenThreadCount: number;
+      hasHiddenThreads: boolean;
+      canCollapseThreadList: boolean;
+    }> = [];
+    for (const entry of filteredRemoteSidebarHosts) {
+      if (entry.status !== "available") {
+        continue;
+      }
+      for (const project of entry.projects) {
+        const projectKey = remoteProjectKey(entry.connectionUrl, project.id);
+        const projectExpanded = remoteProjectExpandedById[projectKey] ?? true;
+        const visibleThreadCount =
+          remoteThreadRevealCountByProject[projectKey] ?? THREAD_REVEAL_STEP;
+        const sortedThreads = sortByUpdatedAtDescending(project.threads);
+        const activeThreadIdForConnection = connectionUrlsEqual(
+          activeRouteConnectionUrl,
+          entry.connectionUrl,
+        )
+          ? activeThreadId
+          : undefined;
+        const {
+          hasHiddenThreads,
+          hiddenThreads,
+          visibleThreads: previewThreads,
+        } = projectExpanded
+          ? getVisibleRemoteThreadsForProject({
+              threads: sortedThreads,
+              activeThreadId: activeThreadIdForConnection,
+              visibleCount: visibleThreadCount,
+            })
+          : {
+              hasHiddenThreads: false,
+              hiddenThreads: [],
+              visibleThreads: [],
+            };
+        nextRenderedRemoteProjects.push({
+          project,
+          projectKey,
+          connectionUrl: entry.connectionUrl,
+          projectExpanded,
+          visibleThreads: previewThreads,
+          hiddenThreadCount: hiddenThreads.length,
+          hasHiddenThreads,
+          canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
+        });
+      }
+    }
+    return nextRenderedRemoteProjects;
   }, [
     activeRouteConnectionUrl,
     filteredRemoteSidebarHosts,
@@ -3944,7 +4943,7 @@ export default function Sidebar() {
       }
       return next;
     });
-  }, [activeProjects, projectListThreadsByProjectId]);
+  }, [activeProjects, projectListThreadsByProjectId, setThreadRevealCountByProject]);
   useEffect(() => {
     setRemoteThreadRevealCountByProject((current) => {
       if (Object.keys(current).length === 0) {
@@ -3989,7 +4988,7 @@ export default function Sidebar() {
       }
       return next;
     });
-  }, [remoteSidebarHosts]);
+  }, [remoteSidebarHosts, setRemoteThreadRevealCountByProject]);
   const unifiedRenderedProjects = useMemo(() => {
     const localProjects = filteredLocalProjectIds.flatMap((projectId) => {
       const project = projectById.get(projectId);
@@ -4159,27 +5158,28 @@ export default function Sidebar() {
     localProjectThreadGroupById,
     renderedRemoteProjects,
     setProjectExpanded,
+    setRemoteProjectExpandedById,
   ]);
-  const sortedActiveThreads = useMemo(
-    () =>
-      Object.values(sidebarThreadsById)
-        .filter((thread): thread is SidebarThreadSummary => thread !== undefined)
-        .filter((thread) => thread.archivedAt === null)
-        .toSorted(
-          (left, right) =>
-            Math.max(
-              resolveIsoTimestamp(right.latestUserMessageAt ?? undefined),
-              resolveIsoTimestamp(right.updatedAt),
-              resolveIsoTimestamp(right.createdAt),
-            ) -
-            Math.max(
-              resolveIsoTimestamp(left.latestUserMessageAt ?? undefined),
-              resolveIsoTimestamp(left.updatedAt),
-              resolveIsoTimestamp(left.createdAt),
-            ),
+  const sortedActiveThreads = useMemo(() => {
+    const activeThreads: SidebarThreadSummary[] = [];
+    for (const thread of Object.values(sidebarThreadsById)) {
+      if (thread === undefined || thread.archivedAt !== null) continue;
+      activeThreads.push(thread);
+    }
+    return activeThreads.toSorted(
+      (left, right) =>
+        Math.max(
+          resolveIsoTimestamp(right.latestUserMessageAt ?? undefined),
+          resolveIsoTimestamp(right.updatedAt),
+          resolveIsoTimestamp(right.createdAt),
+        ) -
+        Math.max(
+          resolveIsoTimestamp(left.latestUserMessageAt ?? undefined),
+          resolveIsoTimestamp(left.updatedAt),
+          resolveIsoTimestamp(left.createdAt),
         ),
-    [sidebarThreadsById],
-  );
+    );
+  }, [sidebarThreadsById]);
   const splitPickerAvailableThreadCount = sortedActiveThreads.length;
   const splitPickerThreadOptions = useMemo(() => {
     if (!splitPickerOpen) {
@@ -4245,31 +5245,29 @@ export default function Sidebar() {
   ]);
   const selectedSplitThreadCount = splitPickerSelectedThreadIds.size;
   const openSplitPicker = useCallback(() => {
-    setSplitPickerQuery("");
-    setSplitPickerProjectFilter("all");
-    setSplitPickerSortOrder("recent");
-    setSplitPickerSelectedThreadIds(new Set());
-    setSplitPickerOpen(true);
-  }, []);
-  const toggleSplitPickerThread = useCallback((threadId: ThreadId) => {
-    setSplitPickerSelectedThreadIds((current) => {
-      const next = new Set(current);
-      if (next.has(threadId)) {
-        next.delete(threadId);
-      } else {
-        next.add(threadId);
-      }
-      return next;
-    });
-  }, []);
+    dispatchSidebarSplitBoardUiState({ type: "open-split-picker" });
+  }, [setDesktopUpdateState]);
+  const toggleSplitPickerThread = useCallback(
+    (threadId: ThreadId) => {
+      dispatchSidebarSplitBoardUiState({ type: "toggle-split-picker-thread", threadId });
+    },
+    [setThreadRevealCountByProject],
+  );
   const createSelectedSplit = useCallback(() => {
-    const selectedTargets = splitPickerThreadOptions
-      .filter((thread) => splitPickerSelectedThreadIds.has(thread.id))
-      .map((thread) => ({
-        connectionUrl: thread.connectionUrl,
-        threadId: thread.id,
-        title: thread.title ?? null,
-      }));
+    const selectedTargets: Array<{
+      connectionUrl: string | null;
+      threadId: ThreadId;
+      title: string | null;
+    }> = [];
+    for (const thread of splitPickerThreadOptions) {
+      if (splitPickerSelectedThreadIds.has(thread.id)) {
+        selectedTargets.push({
+          connectionUrl: thread.connectionUrl,
+          threadId: thread.id,
+          title: thread.title ?? null,
+        });
+      }
+    }
     if (selectedTargets.length < 2) {
       return;
     }
@@ -4289,11 +5287,7 @@ export default function Sidebar() {
     if (!splitId) {
       return;
     }
-    setSplitPickerOpen(false);
-    setSplitPickerQuery("");
-    setSplitPickerProjectFilter("all");
-    setSplitPickerSortOrder("recent");
-    setSplitPickerSelectedThreadIds(new Set());
+    dispatchSidebarSplitBoardUiState({ type: "close-split-picker" });
     navigateToBoardThreadRoute(activeTarget);
   }, [
     buildSplitTitle,
@@ -4665,246 +5659,61 @@ export default function Sidebar() {
     );
   }
 
-  function renderLocalProjectItem(
-    projectId: ProjectId,
-    dragHandleProps: SortableProjectHandleProps | null,
-  ) {
-    return (
-      <SidebarLocalProjectSection
-        key={projectId}
-        projectId={projectId}
-        activeRouteConnectionUrl={activeRouteConnectionUrl}
-        activeSidebarRouteThreadId={activeSidebarRouteThreadId}
-        appSettingsConfirmThreadArchive={confirmThreadArchive}
-        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-        confirmingArchiveThreadId={confirmingArchiveThreadId}
-        connectionUrl={activeWsUrl}
-        createBoardThreadRowDragProps={createBoardThreadRowDragProps}
-        dragHandleProps={dragHandleProps}
-        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-        handleProjectContextMenu={handleProjectContextMenu}
-        handleProjectTitleClick={handleProjectTitleClick}
-        handleProjectTitleKeyDown={handleProjectTitleKeyDown}
-        handleProjectTitlePointerDownCapture={handleProjectTitlePointerDownCapture}
-        handleStartNewThreadForProject={handleStartNewThreadForProject}
-        handleThreadClick={handleThreadClick}
-        handleThreadContextMenu={handleThreadContextMenu}
-        isPinned={pinnedProjectIdSet.has(projectId)}
-        jumpLabelByThreadId={threadJumpLabelById}
-        markProjectContextMenuPending={() => {
-          suppressProjectClickForContextMenuRef.current = true;
-        }}
-        newThreadShortcutLabel={newThreadShortcutLabel}
-        onCollapseThreadList={collapseThreadListForProject}
-        onExpandThreadList={expandThreadListForProject}
-        onTogglePinnedProject={togglePinnedProject}
-        onTogglePinnedThread={togglePinnedThread}
-        openPrLink={openPrLink}
-        pinnedThreadIdSet={pinnedThreadIdSet}
-        prByThreadId={prByThreadId}
-        prefetchThreadHistory={prefetchThreadHistory}
-        renamingCommittedRef={renamingCommittedRef}
-        renamingInputRef={renamingInputRef}
-        renamingThreadId={renamingThreadId}
-        renamingTitle={renamingTitle}
-        routeThreadId={activeSidebarRouteThreadId}
-        selectedThreadIds={selectedThreadIds}
-        setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-        setRenamingTitle={setRenamingTitle}
-        showThreadJumpHints={showThreadJumpHints}
-        threadRevealCount={threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP}
-        threadSortOrder={sidebarThreadSortOrder}
-        clearSelection={clearSelection}
-        commitRename={commitRename}
-        cancelRename={cancelRename}
-        attemptArchiveThread={attemptArchiveThread}
-        navigateToThread={navigateToThread}
-      />
-    );
-  }
+  const markProjectContextMenuPending = useCallback(() => {
+    suppressProjectClickForContextMenuRef.current = true;
+  }, []);
 
-  function renderRemoteProjectItem(renderedProject: RenderedRemoteSidebarProject) {
-    const {
-      project,
-      projectKey,
-      connectionUrl,
-      projectExpanded,
-      visibleThreads,
-      hiddenThreadCount,
-      hasHiddenThreads,
-      canCollapseThreadList,
-    } = renderedProject;
-    const sortedThreadIds = sortByUpdatedAtDescending(project.threads).map((thread) =>
-      ThreadId.makeUnsafe(thread.id),
-    );
-    const shouldRenderThreadPanel = projectExpanded;
-
-    return (
-      <>
-        <div className="group/project-header relative">
-          <SidebarMenuButton
-            size="sm"
-            className="cursor-pointer gap-2 px-2 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-pill-foreground group-hover/project-header:bg-foreground/[0.06] group-hover/project-header:text-pill-foreground"
-            onClick={() => toggleRemoteProject(projectKey)}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              void handleRemoteProjectContextMenu(
-                {
-                  connectionUrl,
-                  project,
-                },
-                {
-                  x: event.clientX,
-                  y: event.clientY,
-                },
-              );
-            }}
-          >
-            <ChevronRightIcon
-              className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
-                projectExpanded ? "rotate-90" : ""
-              }`}
-            />
-            <ProjectAvatar project={{ cwd: project.cwd, icon: project.icon }} />
-            <span className="flex-1 truncate text-xs font-medium">{project.name}</span>
-          </SidebarMenuButton>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <SidebarMenuAction
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`Create new thread in ${project.name}`}
-                      data-testid="new-thread-button"
-                    />
-                  }
-                  showOnHover
-                  className="top-1 right-1.5 size-5 rounded-md bg-transparent p-0 text-muted-foreground/70 hover:bg-transparent hover:text-foreground"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void handleStartNewThreadForRemoteProject({
-                      connectionUrl,
-                      project,
-                    });
-                  }}
-                >
-                  <SquarePenIcon className="size-3.5" />
-                </SidebarMenuAction>
-              }
-            />
-            <TooltipPopup side="top">
-              {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
-            </TooltipPopup>
-          </Tooltip>
-        </div>
-
-        {shouldRenderThreadPanel && (
-          <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
-            {projectExpanded && visibleThreads.length === 0 ? (
-              <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
-                <div className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60">
-                  <span>No threads yet</span>
-                </div>
-              </SidebarMenuSubItem>
-            ) : null}
-            {projectExpanded &&
-              visibleThreads.map((thread) => {
-                const threadId = ThreadId.makeUnsafe(thread.id);
-                const boardDrag = createBoardThreadRowDragProps({
-                  connectionUrl,
-                  threadId,
-                });
-                return (
-                  <SidebarThreadRow
-                    key={thread.id}
-                    threadId={threadId}
-                    orderedProjectThreadIds={sortedThreadIds}
-                    routeThreadId={activeSidebarRouteThreadId}
-                    activeRouteConnectionUrl={activeRouteConnectionUrl}
-                    connectionUrl={connectionUrl}
-                    selectedThreadIds={selectedThreadIds}
-                    showThreadJumpHints={showThreadJumpHints}
-                    jumpLabel={null}
-                    appSettingsConfirmThreadArchive={confirmThreadArchive}
-                    isPinned={false}
-                    pinEnabled={false}
-                    boardDrag={boardDrag}
-                    renamingThreadId={renamingThreadId}
-                    renamingTitle={renamingTitle}
-                    setRenamingTitle={setRenamingTitle}
-                    renamingInputRef={renamingInputRef}
-                    renamingCommittedRef={renamingCommittedRef}
-                    confirmingArchiveThreadId={confirmingArchiveThreadId}
-                    setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-                    confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-                    handleThreadClick={handleThreadClick}
-                    navigateToThread={(id) => {
-                      navigateToThreadOnConnection(connectionUrl, id);
-                    }}
-                    prefetchThreadHistory={prefetchThreadHistory}
-                    handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-                    handleThreadContextMenu={async (id, position) => {
-                      const remoteThread = project.threads.find((entry) => entry.id === id);
-                      if (!remoteThread) {
-                        return;
-                      }
-                      await handleRemoteThreadContextMenu(
-                        {
-                          connectionUrl,
-                          project,
-                          thread: remoteThread,
-                        },
-                        position,
-                      );
-                    }}
-                    clearSelection={clearSelection}
-                    commitRename={commitRename}
-                    cancelRename={cancelRename}
-                    attemptArchiveThread={attemptArchiveThread}
-                    onTogglePinnedThread={togglePinnedThread}
-                    openPrLink={openPrLink}
-                    pr={null}
-                  />
-                );
-              })}
-
-            {projectExpanded && hasHiddenThreads ? (
-              <SidebarMenuSubItem className="w-full">
-                <SidebarMenuSubButton
-                  render={<button type="button" />}
-                  data-thread-selection-safe
-                  size="sm"
-                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
-                  onClick={() => {
-                    expandThreadListForRemoteProject(projectKey);
-                  }}
-                >
-                  <span>Show {Math.min(THREAD_REVEAL_STEP, hiddenThreadCount)} more</span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ) : null}
-            {projectExpanded && canCollapseThreadList ? (
-              <SidebarMenuSubItem className="w-full">
-                <SidebarMenuSubButton
-                  render={<button type="button" />}
-                  data-thread-selection-safe
-                  size="sm"
-                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
-                  onClick={() => {
-                    collapseThreadListForRemoteProject(projectKey);
-                  }}
-                >
-                  <span>Show less</span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ) : null}
-          </SidebarMenuSub>
-        )}
-      </>
-    );
-  }
+  const sidebarRemoteProjectThreadRowSharedProps = useMemo(() => {
+    return {
+      appSettingsConfirmThreadArchive: confirmThreadArchive,
+      isPinned: false,
+      pinEnabled: false,
+      renamingThreadId,
+      renamingTitle,
+      setRenamingTitle,
+      renamingInputRef,
+      renamingCommittedRef,
+      confirmingArchiveThreadId,
+      setConfirmingArchiveThreadId,
+      confirmArchiveButtonRefs,
+      handleThreadClick,
+      prefetchThreadHistory,
+      handleMultiSelectContextMenu,
+      clearSelection,
+      commitRename,
+      cancelRename,
+      attemptArchiveThread,
+      onTogglePinnedThread: togglePinnedThread,
+      openPrLink,
+      selectedThreadIds,
+      showThreadJumpHints,
+    };
+  }, [
+    attemptArchiveThread,
+    cancelRename,
+    clearSelection,
+    commitRename,
+    confirmArchiveButtonRefs,
+    confirmThreadArchive,
+    confirmingArchiveThreadId,
+    handleMultiSelectContextMenu,
+    handleThreadClick,
+    openPrLink,
+    prefetchThreadHistory,
+    renamingCommittedRef,
+    renamingInputRef,
+    renamingThreadId,
+    renamingTitle,
+    selectedThreadIds,
+    setConfirmingArchiveThreadId,
+    setRenamingTitle,
+    showThreadJumpHints,
+    togglePinnedThread,
+  ]);
+  const getRemoteThreadPr = useCallback(
+    (threadId: ThreadId) => prByThreadId.get(threadId) ?? null,
+    [prByThreadId],
+  );
 
   function renderVirtualProjectListItem(virtualRow: VirtualItem) {
     const item = sidebarProjectListItems[virtualRow.index];
@@ -4922,7 +5731,55 @@ export default function Sidebar() {
             style={virtualStyle}
             virtualIndex={virtualRow.index}
           >
-            {(dragHandleProps) => renderLocalProjectItem(item.projectId, dragHandleProps)}
+            {(dragHandleProps) => (
+              <SidebarLocalProjectItem
+                activeRouteConnectionUrl={activeRouteConnectionUrl}
+                activeSidebarRouteThreadId={activeSidebarRouteThreadId}
+                appSettingsConfirmThreadArchive={confirmThreadArchive}
+                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                confirmingArchiveThreadId={confirmingArchiveThreadId}
+                connectionUrl={activeWsUrl}
+                createBoardThreadRowDragProps={createBoardThreadRowDragProps}
+                dragHandleProps={dragHandleProps}
+                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                handleProjectContextMenu={handleProjectContextMenu}
+                handleProjectTitleClick={handleProjectTitleClick}
+                handleProjectTitleKeyDown={handleProjectTitleKeyDown}
+                handleProjectTitlePointerDownCapture={handleProjectTitlePointerDownCapture}
+                handleStartNewThreadForProject={handleStartNewThreadForProject}
+                handleThreadClick={handleThreadClick}
+                handleThreadContextMenu={handleThreadContextMenu}
+                isPinned={pinnedProjectIdSet.has(item.projectId)}
+                jumpLabelByThreadId={threadJumpLabelById}
+                markProjectContextMenuPending={markProjectContextMenuPending}
+                newThreadShortcutLabel={newThreadShortcutLabel}
+                onCollapseThreadList={collapseThreadListForProject}
+                onExpandThreadList={expandThreadListForProject}
+                onTogglePinnedProject={togglePinnedProject}
+                onTogglePinnedThread={togglePinnedThread}
+                openPrLink={openPrLink}
+                pinnedThreadIdSet={pinnedThreadIdSet}
+                prByThreadId={prByThreadId}
+                prefetchThreadHistory={prefetchThreadHistory}
+                projectId={item.projectId}
+                renamingCommittedRef={renamingCommittedRef}
+                renamingInputRef={renamingInputRef}
+                renamingThreadId={renamingThreadId}
+                renamingTitle={renamingTitle}
+                routeThreadId={activeSidebarRouteThreadId}
+                selectedThreadIds={selectedThreadIds}
+                setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+                setRenamingTitle={setRenamingTitle}
+                showThreadJumpHints={showThreadJumpHints}
+                threadRevealCount={threadRevealCountByProject[item.projectId] ?? THREAD_REVEAL_STEP}
+                threadSortOrder={sidebarThreadSortOrder}
+                clearSelection={clearSelection}
+                commitRename={commitRename}
+                cancelRename={cancelRename}
+                attemptArchiveThread={attemptArchiveThread}
+                navigateToThread={navigateToThread}
+              />
+            )}
           </SortableProjectItem>
         );
       }
@@ -4934,7 +5791,53 @@ export default function Sidebar() {
           data-index={virtualRow.index}
           style={virtualStyle}
         >
-          {renderLocalProjectItem(item.projectId, null)}
+          <SidebarLocalProjectItem
+            activeRouteConnectionUrl={activeRouteConnectionUrl}
+            activeSidebarRouteThreadId={activeSidebarRouteThreadId}
+            appSettingsConfirmThreadArchive={confirmThreadArchive}
+            confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+            confirmingArchiveThreadId={confirmingArchiveThreadId}
+            connectionUrl={activeWsUrl}
+            createBoardThreadRowDragProps={createBoardThreadRowDragProps}
+            dragHandleProps={null}
+            handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+            handleProjectContextMenu={handleProjectContextMenu}
+            handleProjectTitleClick={handleProjectTitleClick}
+            handleProjectTitleKeyDown={handleProjectTitleKeyDown}
+            handleProjectTitlePointerDownCapture={handleProjectTitlePointerDownCapture}
+            handleStartNewThreadForProject={handleStartNewThreadForProject}
+            handleThreadClick={handleThreadClick}
+            handleThreadContextMenu={handleThreadContextMenu}
+            isPinned={pinnedProjectIdSet.has(item.projectId)}
+            jumpLabelByThreadId={threadJumpLabelById}
+            markProjectContextMenuPending={markProjectContextMenuPending}
+            newThreadShortcutLabel={newThreadShortcutLabel}
+            onCollapseThreadList={collapseThreadListForProject}
+            onExpandThreadList={expandThreadListForProject}
+            onTogglePinnedProject={togglePinnedProject}
+            onTogglePinnedThread={togglePinnedThread}
+            openPrLink={openPrLink}
+            pinnedThreadIdSet={pinnedThreadIdSet}
+            prByThreadId={prByThreadId}
+            prefetchThreadHistory={prefetchThreadHistory}
+            projectId={item.projectId}
+            renamingCommittedRef={renamingCommittedRef}
+            renamingInputRef={renamingInputRef}
+            renamingThreadId={renamingThreadId}
+            renamingTitle={renamingTitle}
+            routeThreadId={activeSidebarRouteThreadId}
+            selectedThreadIds={selectedThreadIds}
+            setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+            setRenamingTitle={setRenamingTitle}
+            showThreadJumpHints={showThreadJumpHints}
+            threadRevealCount={threadRevealCountByProject[item.projectId] ?? THREAD_REVEAL_STEP}
+            threadSortOrder={sidebarThreadSortOrder}
+            clearSelection={clearSelection}
+            commitRename={commitRename}
+            cancelRename={cancelRename}
+            attemptArchiveThread={attemptArchiveThread}
+            navigateToThread={navigateToThread}
+          />
         </SidebarMenuItem>
       );
     }
@@ -4946,7 +5849,23 @@ export default function Sidebar() {
         data-index={virtualRow.index}
         style={virtualStyle}
       >
-        {renderRemoteProjectItem(item.renderedProject)}
+        <SidebarRemoteProjectItem
+          activeRouteConnectionUrl={activeRouteConnectionUrl}
+          createBoardThreadRowDragProps={createBoardThreadRowDragProps}
+          expandThreadListForRemoteProject={expandThreadListForRemoteProject}
+          collapseThreadListForRemoteProject={collapseThreadListForRemoteProject}
+          getThreadPr={getRemoteThreadPr}
+          handleRemoteProjectContextMenu={handleRemoteProjectContextMenu}
+          handleRemoteThreadContextMenu={handleRemoteThreadContextMenu}
+          handleStartNewThreadForRemoteProject={handleStartNewThreadForRemoteProject}
+          navigateToThreadOnConnection={navigateToThreadOnConnection}
+          newThreadShortcutLabel={newThreadShortcutLabel}
+          renderedProject={item.renderedProject}
+          routeThreadId={activeSidebarRouteThreadId}
+          showThreadJumpHints={showThreadJumpHints}
+          threadRowSharedProps={sidebarRemoteProjectThreadRowSharedProps}
+          toggleRemoteProject={toggleRemoteProject}
+        />
       </SidebarMenuItem>
     );
   }
@@ -5042,7 +5961,7 @@ export default function Sidebar() {
       disposed = true;
       unsubscribe();
     };
-  }, []);
+  }, [setThreadRevealCountByProject]);
 
   const desktopUpdateButtonDisabled = isDesktopUpdateButtonDisabled(desktopUpdateState);
   const desktopUpdateButtonAction = desktopUpdateState
@@ -5164,31 +6083,40 @@ export default function Sidebar() {
     }
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
-  const expandThreadListForProject = useCallback((projectId: ProjectId) => {
-    setThreadRevealCountByProject((current) => {
-      const nextCount = (current[projectId] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
-      return {
+  const expandThreadListForProject = useCallback(
+    (projectId: ProjectId) => {
+      setThreadRevealCountByProject((current) => {
+        const nextCount = (current[projectId] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
+        return {
+          ...current,
+          [projectId]: nextCount,
+        };
+      });
+    },
+    [setRemoteProjectExpandedById],
+  );
+
+  const collapseThreadListForProject = useCallback(
+    (projectId: ProjectId) => {
+      setThreadRevealCountByProject((current) => {
+        if (current[projectId] === undefined) return current;
+        const next = { ...current };
+        delete next[projectId];
+        return next;
+      });
+    },
+    [setRemoteThreadRevealCountByProject],
+  );
+
+  const toggleRemoteProject = useCallback(
+    (projectKey: string) => {
+      setRemoteProjectExpandedById((current) => ({
         ...current,
-        [projectId]: nextCount,
-      };
-    });
-  }, []);
-
-  const collapseThreadListForProject = useCallback((projectId: ProjectId) => {
-    setThreadRevealCountByProject((current) => {
-      if (current[projectId] === undefined) return current;
-      const next = { ...current };
-      delete next[projectId];
-      return next;
-    });
-  }, []);
-
-  const toggleRemoteProject = useCallback((projectKey: string) => {
-    setRemoteProjectExpandedById((current) => ({
-      ...current,
-      [projectKey]: !(current[projectKey] ?? true),
-    }));
-  }, []);
+        [projectKey]: !(current[projectKey] ?? true),
+      }));
+    },
+    [setRemoteThreadRevealCountByProject],
+  );
 
   const expandThreadListForRemoteProject = useCallback((projectKey: string) => {
     setRemoteThreadRevealCountByProject((current) => {
@@ -5230,7 +6158,10 @@ export default function Sidebar() {
     <Tooltip>
       <TooltipTrigger render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />} />
       <TooltipPopup side="bottom" sideOffset={4}>
-        {renderSidebarHeaderTooltipContent("Toggle sidebar", sidebarToggleShortcutLabel)}
+        <SidebarHeaderTooltipContent
+          label="Toggle sidebar"
+          shortcutLabel={sidebarToggleShortcutLabel}
+        />
       </TooltipPopup>
     </Tooltip>
   ) : null;
@@ -5260,7 +6191,7 @@ export default function Sidebar() {
             }
           />
           <TooltipPopup side="bottom" sideOffset={4}>
-            {renderSidebarHeaderTooltipContent("Back", navigationBackShortcutLabel)}
+            <SidebarHeaderTooltipContent label="Back" shortcutLabel={navigationBackShortcutLabel} />
           </TooltipPopup>
         </Tooltip>
         <Tooltip>
@@ -5277,7 +6208,10 @@ export default function Sidebar() {
             }
           />
           <TooltipPopup side="bottom" sideOffset={4}>
-            {renderSidebarHeaderTooltipContent("Forward", navigationForwardShortcutLabel)}
+            <SidebarHeaderTooltipContent
+              label="Forward"
+              shortcutLabel={navigationForwardShortcutLabel}
+            />
           </TooltipPopup>
         </Tooltip>
       </div>
@@ -5313,7 +6247,6 @@ export default function Sidebar() {
                 <div className="space-y-1.5">
                   <p className="text-sm font-medium">Name</p>
                   <Input
-                    autoFocus
                     value={editingProjectName}
                     onChange={(event) => setEditingProjectName(event.target.value)}
                   />
@@ -5426,7 +6359,6 @@ export default function Sidebar() {
             <div className="space-y-1.5">
               <p className="text-sm font-medium">Thread title</p>
               <Input
-                autoFocus
                 value={remoteThreadRenameTitle}
                 onChange={(event) => setRemoteThreadRenameTitle(event.target.value)}
                 onKeyDown={(event) => {
@@ -5460,24 +6392,21 @@ export default function Sidebar() {
         selectedThreadIds={splitPickerSelectedThreadIds}
         selectedThreadCount={selectedSplitThreadCount}
         onOpenChange={(open) => {
-          setSplitPickerOpen(open);
-          if (!open) {
-            setSplitPickerQuery("");
-            setSplitPickerProjectFilter("all");
-            setSplitPickerSortOrder("recent");
-            setSplitPickerSelectedThreadIds(new Set());
+          if (open) {
+            dispatchSidebarSplitBoardUiState({
+              type: "set-split-picker-open",
+              splitPickerOpen: true,
+            });
+            return;
           }
+          dispatchSidebarSplitBoardUiState({ type: "close-split-picker" });
         }}
         onQueryChange={setSplitPickerQuery}
         onProjectFilterChange={setSplitPickerProjectFilter}
         onSortOrderChange={setSplitPickerSortOrder}
         onToggleThread={toggleSplitPickerThread}
         onCancel={() => {
-          setSplitPickerOpen(false);
-          setSplitPickerQuery("");
-          setSplitPickerProjectFilter("all");
-          setSplitPickerSortOrder("recent");
-          setSplitPickerSelectedThreadIds(new Set());
+          dispatchSidebarSplitBoardUiState({ type: "close-split-picker" });
         }}
         onCreate={createSelectedSplit}
       />
@@ -5552,13 +6481,25 @@ export default function Sidebar() {
       <CommandDialog
         open={shouldShowProjectPathEntry}
         onOpenChange={(open) => {
-          setAddingProject(open);
+          dispatchProjectPickerState({ type: "set-adding-project", addingProject: open });
           if (!open) {
             setAddProjectError(null);
-            setProjectPickerStep("environment");
-            setProjectPickerEnvironmentQuery("");
-            setProjectPickerSelectedConnectionUrl(null);
-            setProjectPickerEnvironmentProbeId(null);
+            dispatchProjectPickerState({
+              type: "set-project-picker-step",
+              projectPickerStep: "environment",
+            });
+            dispatchProjectPickerState({
+              type: "set-project-picker-environment-query",
+              projectPickerEnvironmentQuery: "",
+            });
+            dispatchProjectPickerState({
+              type: "set-project-picker-selected-connection-url",
+              projectPickerSelectedConnectionUrl: null,
+            });
+            dispatchProjectPickerState({
+              type: "set-project-picker-environment-probe-id",
+              projectPickerEnvironmentProbeId: null,
+            });
           }
         }}
       >
@@ -5569,14 +6510,23 @@ export default function Sidebar() {
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95 disabled:opacity-50"
               onClick={() => {
                 if (projectPickerStep === "environment") {
-                  setAddingProject(false);
+                  dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
                   setAddProjectError(null);
-                  setProjectPickerEnvironmentProbeId(null);
+                  dispatchProjectPickerState({
+                    type: "set-project-picker-environment-probe-id",
+                    projectPickerEnvironmentProbeId: null,
+                  });
                   return;
                 }
                 if (pickerEnvironments.length > 1) {
-                  setProjectPickerStep("environment");
-                  setProjectPickerEnvironmentQuery("");
+                  dispatchProjectPickerState({
+                    type: "set-project-picker-step",
+                    projectPickerStep: "environment",
+                  });
+                  dispatchProjectPickerState({
+                    type: "set-project-picker-environment-query",
+                    projectPickerEnvironmentQuery: "",
+                  });
                   setActiveProjectBrowseIndex(0);
                   return;
                 }
@@ -5606,14 +6556,19 @@ export default function Sidebar() {
               value={projectPickerStep === "environment" ? projectPickerEnvironmentQuery : newCwd}
               onChange={(event) => {
                 if (projectPickerStep === "environment") {
-                  setProjectPickerEnvironmentQuery(event.target.value);
+                  dispatchProjectPickerState({
+                    type: "set-project-picker-environment-query",
+                    projectPickerEnvironmentQuery: event.target.value,
+                  });
                 } else {
-                  setNewCwd(event.target.value);
+                  dispatchProjectPickerState({
+                    type: "set-new-cwd",
+                    newCwd: event.target.value,
+                  });
                 }
                 setAddProjectError(null);
               }}
               onKeyDown={handleAddProjectInputKeyDown}
-              autoFocus
             />
             {projectPickerStep === "directory" ? (
               <button
@@ -5711,7 +6666,7 @@ export default function Sidebar() {
                   )
                 ) : projectBrowseState.isBrowsing || isWaitingForCurrentProjectBrowse ? (
                   <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
-                    Browsing directories...
+                    Browsing directories…
                   </p>
                 ) : (
                   <>
@@ -5908,7 +6863,57 @@ export default function Sidebar() {
                             key={`pinned-project:${item.projectId}`}
                             className="mt-2 rounded-md"
                           >
-                            {renderLocalProjectItem(item.projectId, null)}
+                            <SidebarLocalProjectItem
+                              activeRouteConnectionUrl={activeRouteConnectionUrl}
+                              activeSidebarRouteThreadId={activeSidebarRouteThreadId}
+                              appSettingsConfirmThreadArchive={confirmThreadArchive}
+                              confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                              confirmingArchiveThreadId={confirmingArchiveThreadId}
+                              connectionUrl={activeWsUrl}
+                              createBoardThreadRowDragProps={createBoardThreadRowDragProps}
+                              dragHandleProps={null}
+                              handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                              handleProjectContextMenu={handleProjectContextMenu}
+                              handleProjectTitleClick={handleProjectTitleClick}
+                              handleProjectTitleKeyDown={handleProjectTitleKeyDown}
+                              handleProjectTitlePointerDownCapture={
+                                handleProjectTitlePointerDownCapture
+                              }
+                              handleStartNewThreadForProject={handleStartNewThreadForProject}
+                              handleThreadClick={handleThreadClick}
+                              handleThreadContextMenu={handleThreadContextMenu}
+                              isPinned={pinnedProjectIdSet.has(item.projectId)}
+                              jumpLabelByThreadId={threadJumpLabelById}
+                              markProjectContextMenuPending={markProjectContextMenuPending}
+                              newThreadShortcutLabel={newThreadShortcutLabel}
+                              onCollapseThreadList={collapseThreadListForProject}
+                              onExpandThreadList={expandThreadListForProject}
+                              onTogglePinnedProject={togglePinnedProject}
+                              onTogglePinnedThread={togglePinnedThread}
+                              openPrLink={openPrLink}
+                              pinnedThreadIdSet={pinnedThreadIdSet}
+                              prByThreadId={prByThreadId}
+                              prefetchThreadHistory={prefetchThreadHistory}
+                              projectId={item.projectId}
+                              renamingCommittedRef={renamingCommittedRef}
+                              renamingInputRef={renamingInputRef}
+                              renamingThreadId={renamingThreadId}
+                              renamingTitle={renamingTitle}
+                              routeThreadId={activeSidebarRouteThreadId}
+                              selectedThreadIds={selectedThreadIds}
+                              setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+                              setRenamingTitle={setRenamingTitle}
+                              showThreadJumpHints={showThreadJumpHints}
+                              threadRevealCount={
+                                threadRevealCountByProject[item.projectId] ?? THREAD_REVEAL_STEP
+                              }
+                              threadSortOrder={sidebarThreadSortOrder}
+                              clearSelection={clearSelection}
+                              commitRename={commitRename}
+                              cancelRename={cancelRename}
+                              attemptArchiveThread={attemptArchiveThread}
+                              navigateToThread={navigateToThread}
+                            />
                           </SidebarMenuItem>
                         ),
                       )}
@@ -6059,4 +7064,8 @@ export default function Sidebar() {
       )}
     </>
   );
+}
+
+export default function Sidebar() {
+  return useSidebarComponent();
 }

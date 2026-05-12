@@ -119,9 +119,13 @@ export function gitGitHubIssuesQueryOptions(input: {
 }) {
   const limit = input.limit ?? 50;
   const state = input.state ?? "open";
-  const labels = [...(input.labels ?? [])]
-    .map((label) => label.trim())
-    .filter((label) => label.length > 0);
+  const labels: string[] = [];
+  for (const label of input.labels ?? []) {
+    const normalizedLabel = label.trim();
+    if (normalizedLabel.length > 0) {
+      labels.push(normalizedLabel);
+    }
+  }
   labels.sort((left, right) => left.localeCompare(right));
   const query = input.query?.trim() ?? "";
   return queryOptions({
@@ -208,10 +212,7 @@ export function gitInitMutationOptions(input: { cwd: string | null; queryClient:
   });
 }
 
-export function gitCheckoutMutationOptions(input: {
-  cwd: string | null;
-  queryClient: QueryClient;
-}) {
+function gitCheckoutMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
   return mutationOptions({
     mutationKey: gitMutationKeys.checkout(input.cwd),
     mutationFn: async (branch: string) => {

@@ -70,9 +70,13 @@ export function buildThreadBoardTitle(input: {
   readonly fallbackIndex: number;
   readonly threads: ReadonlyArray<ThreadBoardTitleThread>;
 }): string {
-  const titles = input.threads
-    .map((thread) => normalizeThreadTitle(thread.title))
-    .filter((title): title is string => title !== null);
+  const titles: string[] = [];
+  for (const thread of input.threads) {
+    const normalizedTitle = normalizeThreadTitle(thread.title);
+    if (normalizedTitle !== null) {
+      titles.push(normalizedTitle);
+    }
+  }
 
   if (titles.length === 0) {
     return buildFallbackSplitTitle(input.fallbackIndex);

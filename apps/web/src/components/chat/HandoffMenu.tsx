@@ -11,7 +11,7 @@ function formatProviderLabel(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
 }
 
-export const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
+const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
   providers: ReadonlyArray<ProviderKind>;
   disabled?: boolean;
   onSelect: (provider: ProviderKind, mode: ThreadHandoffMode) => void;

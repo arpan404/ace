@@ -69,6 +69,10 @@ import { normalizeBrowserInput } from "~/lib/browser/url";
 import { readNativeApi } from "~/nativeApi";
 import { toastManager } from "~/components/ui/toast";
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export interface InAppBrowserController {
   clearAgentPointers: () => void;
   closeActiveTab: () => void;
@@ -247,6 +251,27 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+async function pollUntilResult<TResult>(options: {
+  readonly intervalMs: number;
+  readonly timeoutMs: number;
+  readonly errorMessage: string;
+  readonly readResult: () => TResult | null;
+}): Promise<TResult> {
+  const deadline = Date.now() + options.timeoutMs;
+  const poll = async (): Promise<TResult> => {
+    const result = options.readResult();
+    if (result !== null) {
+      return result;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(options.errorMessage);
+    }
+    await sleep(options.intervalMs);
+    return poll();
+  };
+  return poll();
+}
+
 const BROWSER_BRIDGE_TARGET_WAIT_MS = 2500;
 const BROWSER_BRIDGE_READ_CACHE_TTL_MS = 250;
 
@@ -333,22 +358,23 @@ function readBrowserBridgePath(args: Record<string, unknown>): BrowserAgentPoint
   if (!Array.isArray(rawPath)) {
     return undefined;
   }
-  const path = rawPath
-    .map((item) => {
-      if (!item || typeof item !== "object") {
-        return null;
-      }
-      const record = item as Record<string, unknown>;
-      const x = record.x;
-      const y = record.y;
-      return typeof x === "number" &&
-        Number.isFinite(x) &&
-        typeof y === "number" &&
-        Number.isFinite(y)
-        ? { x, y }
-        : null;
-    })
-    .filter((point): point is { x: number; y: number } => point !== null);
+  const path: Array<{ x: number; y: number }> = [];
+  for (const item of rawPath) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const x = record.x;
+    const y = record.y;
+    if (
+      typeof x === "number" &&
+      Number.isFinite(x) &&
+      typeof y === "number" &&
+      Number.isFinite(y)
+    ) {
+      path.push({ x, y });
+    }
+  }
   return path.length > 0 ? path : undefined;
 }
 
@@ -1445,18 +1471,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           const action = operation.replace(/^dom_cua_/u, "");
           const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           clearBridgeReadCache(tab.id);
-          const target = await handle.executeJavaScript(
-            buildBrowserDomCuaTargetScript(action, args),
-          );
+          const [target, result] = await Promise.all([
+            handle.executeJavaScript(buildBrowserDomCuaTargetScript(action, args)),
+            handle.executeJavaScript(buildBrowserDomCuaActionScript(action, args)),
+          ]);
           await handle.animateAgentPointer(
             buildBrowserAgentPointerEffectFromResult(
               action as BrowserAgentPointerEffect["type"],
               target,
               args,
             ),
-          );
-          const result = await handle.executeJavaScript(
-            buildBrowserDomCuaActionScript(action, args),
           );
           return { ok: true, result, tab: { id: tab.id, ...snapshot } };
         }
@@ -1467,11 +1491,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           }
           const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           clearBridgeReadCache(tab.id);
-          const target = await handle.executeJavaScript(buildBrowserSelectorTargetScript(selector));
+          const [target, action] = await Promise.all([
+            handle.executeJavaScript(buildBrowserSelectorTargetScript(selector)),
+            handle.executeJavaScript(buildBrowserClickScript(selector)),
+          ]);
           await handle.animateAgentPointer(
             buildBrowserAgentPointerEffectFromResult("click", target),
           );
-          const action = await handle.executeJavaScript(buildBrowserClickScript(selector));
           return {
             action,
             ok: true,
@@ -1489,11 +1515,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           }
           const { handle, snapshot, tab } = await resolveBridgeTarget(args);
           clearBridgeReadCache(tab.id);
-          const target = await handle.executeJavaScript(buildBrowserSelectorTargetScript(selector));
+          const [target, action] = await Promise.all([
+            handle.executeJavaScript(buildBrowserSelectorTargetScript(selector)),
+            handle.executeJavaScript(buildBrowserFillScript(selector, value)),
+          ]);
           await handle.animateAgentPointer(
             buildBrowserAgentPointerEffectFromResult("type", target),
           );
-          const action = await handle.executeJavaScript(buildBrowserFillScript(selector, value));
           return {
             action,
             ok: true,
@@ -1561,14 +1589,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "playwright_wait_for_load_state": {
           const { handle, tab } = await resolveBridgeTarget(args);
           const timeoutMs = readTimeoutMs(args);
-          const startedAt = Date.now();
-          while (Date.now() - startedAt <= timeoutMs) {
-            if (handle.getSnapshot()?.loading === false) {
-              return { ok: true, tabId: tab.id };
-            }
-            await sleep(100);
-          }
-          throw new Error("Timed out waiting for browser load state.");
+          return pollUntilResult({
+            timeoutMs,
+            intervalMs: 100,
+            errorMessage: "Timed out waiting for browser load state.",
+            readResult: () =>
+              handle.getSnapshot()?.loading === false ? { ok: true as const, tabId: tab.id } : null,
+          });
         }
         case "playwright_wait_for_timeout": {
           const timeoutMs = readTimeoutMs(args, 1000);
@@ -1580,17 +1607,26 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           if (!expectedUrl) {
             throw new Error("playwright_wait_for_url requires a url argument.");
           }
+          const expectedUrlMatcher =
+            expectedUrl.length > 0 ? new RegExp(escapeRegExp(expectedUrl)) : null;
           const { handle, tab } = await resolveBridgeTarget(args);
           const timeoutMs = readTimeoutMs(args);
-          const startedAt = Date.now();
-          while (Date.now() - startedAt <= timeoutMs) {
-            const currentUrl = handle.getSnapshot()?.url ?? "";
-            if (currentUrl === expectedUrl || currentUrl.includes(expectedUrl)) {
-              return { ok: true, tabId: tab.id, url: currentUrl };
-            }
-            await sleep(100);
-          }
-          throw new Error("Timed out waiting for browser URL.");
+          return pollUntilResult({
+            timeoutMs,
+            intervalMs: 100,
+            errorMessage: "Timed out waiting for browser URL.",
+            readResult: () => {
+              const currentUrl = handle.getSnapshot()?.url ?? "";
+              if (
+                currentUrl === expectedUrl ||
+                expectedUrlMatcher === null ||
+                expectedUrlMatcher.test(currentUrl)
+              ) {
+                return { ok: true as const, tabId: tab.id, url: currentUrl };
+              }
+              return null;
+            },
+          });
         }
         case "tab_clipboard_read_text": {
           const { handle, snapshot, tab } = await resolveBridgeTarget(args);

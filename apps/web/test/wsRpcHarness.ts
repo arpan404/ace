@@ -126,9 +126,13 @@ export class BrowserWsRpcHarness {
       throw new Error("RPC test server is not connected");
     }
     const messages = this.parser.decode(rawData);
-    for (const message of messages) {
-      await Effect.runPromise(server.write(0, message as never));
-    }
+    await messages.reduce<Promise<void>>(
+      (pending, message) =>
+        pending.then(() =>
+          Effect.runPromise(server.write(0, message as never)).then(() => undefined),
+        ),
+      Promise.resolve(),
+    );
   }
 
   emitStreamValue(method: string, value: unknown): void {

@@ -126,17 +126,25 @@ function getSocket(): MockWebSocket {
 
 async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
   const startedAt = Date.now();
-  for (;;) {
-    try {
-      assertion();
-      return;
-    } catch (error) {
-      if (Date.now() - startedAt >= timeoutMs) {
-        throw error;
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      try {
+        assertion();
+        resolve();
+      } catch (error) {
+        if (Date.now() - startedAt >= timeoutMs) {
+          reject(error);
+          return;
+        }
+        setTimeout(tick, 10);
       }
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    };
+    try {
+      tick();
+    } catch (error) {
+      reject(error);
     }
-  }
+  });
 }
 
 beforeEach(() => {
@@ -785,12 +793,16 @@ describe("WsTransport", () => {
     emitWindowEvent("focus");
 
     await waitFor(() => {
-      const subscribeRequestCount = socket.sent
-        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
-        .filter(
-          (message) =>
-            message._tag === "Request" && message.tag === WS_METHODS.subscribeServerLifecycle,
-        ).length;
+      let subscribeRequestCount = 0;
+      for (const message of socket.sent) {
+        const parsedMessage = JSON.parse(message) as { _tag?: string; tag?: string };
+        if (
+          parsedMessage._tag === "Request" &&
+          parsedMessage.tag === WS_METHODS.subscribeServerLifecycle
+        ) {
+          subscribeRequestCount += 1;
+        }
+      }
       expect(subscribeRequestCount).toBeGreaterThan(1);
     });
 

@@ -63,7 +63,7 @@ function formatProviderLabel(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
 }
 
-export function formatHandoffMarkerText(handoff: ThreadHandoff): string {
+function formatHandoffMarkerText(handoff: ThreadHandoff): string {
   const fromLabel = formatProviderLabel(handoff.fromProvider);
   const toLabel = formatProviderLabel(handoff.toProvider);
   return `Handoff from ${fromLabel} to ${toLabel}`;
@@ -89,7 +89,7 @@ export function resolveHandoffSourceProvider(thread: Pick<Thread, "handoff" | "m
   return resolveThreadHandoffProvider(thread);
 }
 
-export function buildHandoffMarkerMessage(
+function buildHandoffMarkerMessage(
   handoff: ThreadHandoff,
   sourceThread?: Pick<Thread, "handoff" | "modelSelection"> | null | undefined,
 ): ChatMessage {

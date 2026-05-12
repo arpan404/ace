@@ -22,7 +22,7 @@ const HTML_ATTR_REGEX = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*
  * Converts GitHub-flavored HTML image tags to standard markdown image syntax.
  * GitHub issue bodies often contain `<img src="..." alt="...">` instead of `![alt](url)`.
  */
-export function normalizeGitHubIssueMarkdown(text: string): string {
+function normalizeGitHubIssueMarkdown(text: string): string {
   return text.replace(HTML_IMG_TAG_REGEX, (tag) => {
     let src: string | null = null;
     let alt = "";

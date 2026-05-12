@@ -12,7 +12,7 @@ import { Throttler } from "@tanstack/react-pacer";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
-import { APP_DISPLAY_NAME } from "../branding";
+import { APP_BASE_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
@@ -74,7 +74,7 @@ export const Route = createRootRouteWithContext<{
   component: RootRouteView,
   errorComponent: RootRouteErrorView,
   head: () => ({
-    meta: [{ name: "title", content: APP_DISPLAY_NAME }],
+    meta: [{ name: "title", content: APP_BASE_NAME }],
   }),
 });
 
@@ -150,7 +150,7 @@ function MainRootRouteView() {
       {!remoteBootstrapSettled || startupState === "connecting" ? (
         <AppStartupScreen
           state={startupStateForDisplay}
-          message={resolveAppStartupMessage(startupStateForDisplay, APP_DISPLAY_NAME)}
+          message={resolveAppStartupMessage(startupStateForDisplay, APP_BASE_NAME)}
         />
       ) : (
         <>
@@ -173,7 +173,7 @@ function MainRootRouteView() {
               ) : (
                 <AppStartupScreen
                   state={startupState}
-                  message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
+                  message={resolveAppStartupMessage(startupState, APP_BASE_NAME)}
                 />
               )}
             </AnchoredToastProvider>
@@ -406,7 +406,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
       <section className="relative w-full max-w-xl rounded-xl border border-border bg-card p-6 sm:p-8">
         <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-          {APP_DISPLAY_NAME}
+          {APP_BASE_NAME}
         </p>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
           Something went wrong.
@@ -531,7 +531,7 @@ function RemoteRelayConnectionToastBridge() {
   return null;
 }
 
-function EventRouter() {
+function useEventRouterLifecycle() {
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
@@ -1045,6 +1045,11 @@ function EventRouter() {
   useServerWelcomeSubscription(handleWelcome);
   useServerConfigUpdatedSubscription(handleServerConfigUpdated);
 
+  return null;
+}
+
+function EventRouter() {
+  useEventRouterLifecycle();
   return null;
 }
 

@@ -12,6 +12,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -100,6 +101,21 @@ const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const MARKDOWN_DATA_IMAGE_URL_REGEX = /^data:image\/(?:png|jpe?g|gif|webp);base64,/iu;
 const localFilePathExistsCache = new Map<string, boolean>();
+const localFilePathExistsCacheListeners = new Set<() => void>();
+
+function writeLocalFilePathExistsCache(targetPath: string, exists: boolean): void {
+  localFilePathExistsCache.set(targetPath, exists);
+  for (const listener of localFilePathExistsCacheListeners) {
+    listener();
+  }
+}
+
+function subscribeLocalFilePathExistsCache(listener: () => void): () => void {
+  localFilePathExistsCacheListeners.add(listener);
+  return () => {
+    localFilePathExistsCacheListeners.delete(listener);
+  };
+}
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -214,11 +230,12 @@ function InlineCodeLocalFileLink(props: {
     () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
     [props.code, props.cwd, props.enabled],
   );
-  const cachedExists =
-    props.enabled && targetPath ? localFilePathExistsCache.get(targetPath) : undefined;
-  const [uncachedPathExists, setUncachedPathExists] = useState<boolean | null>(null);
-  const pathExists =
-    !props.enabled || !targetPath ? false : (cachedExists ?? uncachedPathExists) === true;
+  const cachedExists = useSyncExternalStore(
+    subscribeLocalFilePathExistsCache,
+    () => (props.enabled && targetPath ? localFilePathExistsCache.get(targetPath) : undefined),
+    () => undefined,
+  );
+  const pathExists = !props.enabled || !targetPath ? false : cachedExists === true;
 
   useEffect(() => {
     if (!props.enabled || !targetPath || cachedExists !== undefined) {
@@ -236,9 +253,8 @@ function InlineCodeLocalFileLink(props: {
       } catch (error) {
         console.warn("Failed to check local file path.", error);
       }
-      localFilePathExistsCache.set(targetPath, exists);
       if (!cancelled) {
-        setUncachedPathExists(exists);
+        writeLocalFilePathExistsCache(targetPath, exists);
       }
     })();
     return () => {
@@ -375,7 +391,7 @@ function MermaidDiagramLoading({ className }: { className?: string }) {
         .join(" ")}
       data-mermaid-diagram-state="loading"
     >
-      Rendering Mermaid diagram...
+      Rendering Mermaid diagram…
     </div>
   );
 }
@@ -414,7 +430,11 @@ function SuspenseShikiCodeBlock({
 
 function CachedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
   return (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+    <div
+      className="chat-markdown-shiki"
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+    />
   );
 }
 
@@ -457,7 +477,11 @@ function UncachedSuspenseShikiCodeBlock({
   }, [cacheKey, code, highlightedHtml, isStreaming]);
 
   return (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+    <div
+      className="chat-markdown-shiki"
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+    />
   );
 }
 
@@ -524,7 +548,7 @@ function PreviewTextPanel({
 }) {
   return (
     <div
-      className="max-h-96 overflow-auto px-0 py-0"
+      className="max-h-96 overflow-auto p-0"
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
       <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
@@ -605,6 +629,63 @@ function LargeMarkdownPreview({
   );
 }
 
+function useChatMarkdownRenderState(input: {
+  analysisCacheKey: string | undefined;
+  isStreaming: boolean;
+  renderPlainText: boolean;
+  renderPreference: "auto" | "markdown";
+  streamingTextState: ChatMarkdownProps["streamingTextState"];
+  text: string;
+}) {
+  const markdownRenderAnalysisInput = useMemo(
+    () => ({
+      text: input.text,
+      isStreaming: input.isStreaming,
+      renderPlainText: input.renderPlainText,
+      ...(input.streamingTextState
+        ? {
+            streamingTextState: {
+              totalLineCount: input.streamingTextState.totalLineCount,
+              truncatedCharCount: input.streamingTextState.truncatedCharCount,
+              truncatedLineCount: input.streamingTextState.truncatedLineCount,
+            },
+          }
+        : {}),
+    }),
+    [input.isStreaming, input.renderPlainText, input.streamingTextState, input.text],
+  );
+  const resolvedAnalysisCacheKey = useMemo(
+    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, input.analysisCacheKey),
+    [input.analysisCacheKey, markdownRenderAnalysisInput],
+  );
+  const cachedMarkdownRenderAnalysis = useMemo(
+    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
+    [resolvedAnalysisCacheKey],
+  );
+  const markdownRenderAnalysis = useMemo(
+    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
+    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
+  );
+  const effectiveRenderPreference = input.isStreaming ? "auto" : input.renderPreference;
+  const useLargePreview =
+    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
+  const shouldObserveLayout = markdownRenderAnalysis.shouldObserveLayout;
+
+  useEffect(() => {
+    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) return;
+    if (cachedMarkdownRenderAnalysis) return;
+    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
+  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
+
+  return {
+    markdownRenderAnalysis,
+    shouldFastPathPlainText,
+    shouldObserveLayout,
+    useLargePreview,
+  };
+}
+
 function ChatMarkdown({
   text,
   cwd,
@@ -622,52 +703,21 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
-  const markdownRenderAnalysisInput = useMemo(
-    () => ({
-      text,
-      isStreaming,
-      renderPlainText,
-      ...(streamingTextState
-        ? {
-            streamingTextState: {
-              totalLineCount: streamingTextState.totalLineCount,
-              truncatedCharCount: streamingTextState.truncatedCharCount,
-              truncatedLineCount: streamingTextState.truncatedLineCount,
-            },
-          }
-        : {}),
-    }),
-    [isStreaming, renderPlainText, streamingTextState, text],
-  );
-  const resolvedAnalysisCacheKey = useMemo(
-    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, analysisCacheKey),
-    [analysisCacheKey, markdownRenderAnalysisInput],
-  );
-  const cachedMarkdownRenderAnalysis = useMemo(
-    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
-    [resolvedAnalysisCacheKey],
-  );
-  const markdownRenderAnalysis = useMemo(
-    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
-    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
-  );
-  const effectiveRenderPreference = isStreaming ? "auto" : renderPreference;
-  const useLargePreview =
-    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
-  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
-  const shouldObserveLayout =
-    onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
+  const {
+    markdownRenderAnalysis,
+    shouldFastPathPlainText,
+    shouldObserveLayout: shouldObserveLayoutFromAnalysis,
+    useLargePreview,
+  } = useChatMarkdownRenderState({
+    analysisCacheKey,
+    isStreaming,
+    renderPlainText,
+    renderPreference,
+    streamingTextState,
+    text,
+  });
+  const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
-
-  useEffect(() => {
-    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) {
-      return;
-    }
-    if (cachedMarkdownRenderAnalysis) {
-      return;
-    }
-    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
-  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
 
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();

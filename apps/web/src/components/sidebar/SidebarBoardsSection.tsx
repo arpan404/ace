@@ -197,7 +197,6 @@ export function SidebarBoardsSection(props: {
                           }
                         }}
                         className="h-6 bg-transparent px-1.5 text-xs"
-                        autoFocus
                       />
                     </div>
                   ) : (

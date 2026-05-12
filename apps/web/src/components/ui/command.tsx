@@ -94,9 +94,8 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof AutocompleteInput>) {
   return (
-    <div className="border-b border-border/55 bg-background/35 px-3 py-3">
+    <div className="border-b border-border/55 bg-background/35 p-3">
       <AutocompleteInput
-        autoFocus
         className={cn(
           "border-border/60 bg-background/72 shadow-none before:hidden has-focus-visible:border-ring/60 has-focus-visible:ring-2 has-focus-visible:ring-ring/18 dark:bg-card/46",
           className,
@@ -205,20 +204,15 @@ function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 export {
-  CommandCreateHandle,
   Command,
-  CommandCollection,
   CommandDialog,
   CommandDialogPopup,
-  CommandDialogTrigger,
   CommandEmpty,
-  CommandFooter,
   CommandGroup,
   CommandGroupLabel,
   CommandInput,
   CommandItem,
   CommandList,
   CommandPanel,
-  CommandSeparator,
   CommandShortcut,
 };

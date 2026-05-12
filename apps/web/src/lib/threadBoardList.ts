@@ -37,9 +37,13 @@ function summarizeThreadBoardLayout(
     };
   }
 
-  const childSummaries = node.children
-    .map((child) => summarizeThreadBoardLayout(child))
-    .filter((summary): summary is ThreadBoardLayoutSummary => summary !== null);
+  const childSummaries: ThreadBoardLayoutSummary[] = [];
+  for (const child of node.children) {
+    const summary = summarizeThreadBoardLayout(child);
+    if (summary !== null) {
+      childSummaries.push(summary);
+    }
+  }
   if (childSummaries.length === 0) {
     return null;
   }
@@ -90,9 +94,13 @@ export function buildThreadBoardPreview(
   titles: ReadonlyArray<string>,
   maxVisibleTitles = 2,
 ): string {
-  const normalizedTitles = titles
-    .map((title) => title.trim().replace(/\s+/g, " "))
-    .filter((title) => title.length > 0);
+  const normalizedTitles: string[] = [];
+  for (const title of titles) {
+    const normalizedTitle = title.trim().replace(/\s+/g, " ");
+    if (normalizedTitle.length > 0) {
+      normalizedTitles.push(normalizedTitle);
+    }
+  }
   if (normalizedTitles.length === 0) {
     return "Untitled threads";
   }
@@ -139,7 +147,7 @@ export function buildSidebarBoardListItem(input: {
   };
 }
 
-export function createThreadBoardPreviewTitles(
+function createThreadBoardPreviewTitles(
   threadIds: ReadonlyArray<ThreadId>,
   threadById: Readonly<Record<string, SidebarThreadSummary | undefined>>,
 ): string[] {

@@ -163,19 +163,11 @@ function DialogPanel({
 }
 
 export {
-  DialogCreateHandle,
   Dialog,
-  DialogTrigger,
-  DialogPortal,
-  DialogClose,
-  DialogBackdrop,
-  DialogBackdrop as DialogOverlay,
   DialogPopup,
-  DialogPopup as DialogContent,
   DialogHeader,
   DialogFooter,
   DialogTitle,
   DialogDescription,
   DialogPanel,
-  DialogViewport,
 };

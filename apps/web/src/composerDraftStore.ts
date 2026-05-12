@@ -518,12 +518,13 @@ function removeProjectDraftMapping(
       ([projectKey]) => !removedProjectKeys.has(projectKey),
     ),
   ) as Record<ProjectId, ThreadId>;
+  const remainingMappedThreadIds = new Set(Object.values(restProjectMappings));
   const nextDraftThreadsByThreadId: Record<ThreadId, DraftThreadState> = {
     ...state.draftThreadsByThreadId,
   };
   let nextDraftsByThreadId = state.draftsByThreadId;
   for (const threadId of removedThreadIds) {
-    if (Object.values(restProjectMappings).includes(threadId)) {
+    if (remainingMappedThreadIds.has(threadId)) {
       continue;
     }
     delete nextDraftThreadsByThreadId[threadId];
@@ -1415,12 +1416,18 @@ function verifyPersistedAttachments(
       return state;
     }
     const imageIdSet = new Set(current.images.map((image) => image.id));
-    const persistedAttachments = attachments.filter(
-      (attachment) => imageIdSet.has(attachment.id) && persistedIdSet.has(attachment.id),
-    );
-    const nonPersistedImageIds = current.images
-      .map((image) => image.id)
-      .filter((imageId) => !persistedIdSet.has(imageId));
+    const persistedAttachments: PersistedComposerImageAttachment[] = [];
+    for (const attachment of attachments) {
+      if (imageIdSet.has(attachment.id) && persistedIdSet.has(attachment.id)) {
+        persistedAttachments.push(attachment);
+      }
+    }
+    const nonPersistedImageIds: string[] = [];
+    for (const image of current.images) {
+      if (!persistedIdSet.has(image.id)) {
+        nonPersistedImageIds.push(image.id);
+      }
+    }
     const nextDraft: ComposerThreadDraftState = {
       ...current,
       persistedAttachments,
@@ -1587,6 +1594,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...state.projectDraftThreadIdByProjectId,
             [projectId]: threadId,
           };
+          const nextProjectDraftThreadIds = new Set(
+            Object.values(nextProjectDraftThreadIdByProjectId),
+          );
           const nextDraftThreadsByThreadId: Record<ThreadId, DraftThreadState> = {
             ...state.draftThreadsByThreadId,
             [threadId]: nextDraftThread,
@@ -1595,7 +1605,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (
             previousThreadIdForProject &&
             previousThreadIdForProject !== threadId &&
-            !Object.values(nextProjectDraftThreadIdByProjectId).includes(previousThreadIdForProject)
+            !nextProjectDraftThreadIds.has(previousThreadIdForProject)
           ) {
             delete nextDraftThreadsByThreadId[previousThreadIdForProject];
             if (state.draftsByThreadId[previousThreadIdForProject] !== undefined) {
@@ -1699,9 +1709,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         }
         set((state) => {
           const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
-          const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
-            threadId,
-          );
+          const hasProjectMapping = new Set(
+            Object.values(state.projectDraftThreadIdByProjectId),
+          ).has(threadId);
           const hasComposerDraft = state.draftsByThreadId[threadId] !== undefined;
           if (!hasDraftThread && !hasProjectMapping && !hasComposerDraft) {
             return state;

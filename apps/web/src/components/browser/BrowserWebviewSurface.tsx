@@ -15,6 +15,15 @@ import {
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { runAsyncTask } from "~/lib/async";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
+import {
+  hasMinimumSelectionSize,
+  isAbortedWebviewLoad,
+  mapSelectionRectToCapturedImageCrop,
+  normalizeDesignCommentToSingleLine,
+  resolveElementCommentWheelForwardingMode,
+  shouldRunElementHoverInspection,
+  shouldSubmitDesignDraftFromTextareaKey,
+} from "~/components/browser/browserWebviewSurfaceUtils";
 import { type BrowserTabState, resolveBrowserTabTitle } from "~/lib/browser/session";
 import {
   type BrowserAgentPointerEffect,
@@ -43,18 +52,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 const BROWSER_ZOOM_STEP = 0.1;
 const MIN_BROWSER_ZOOM_FACTOR = 0.25;
 const MAX_BROWSER_ZOOM_FACTOR = 3;
-
-export function isAbortedWebviewLoad(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return (
-    ("code" in error && error.code === "ERR_ABORTED") ||
-    ("errno" in error && error.errno === -3) ||
-    /\bERR_ABORTED\b|\(-3\)\s+loading\b/u.test(error.message)
-  );
-}
 
 function loadWebviewUrl(
   webview: BrowserWebview,
@@ -439,92 +436,6 @@ function normalizeSelectionRect(input: {
   };
 }
 
-export function mapSelectionRectToCapturedImageCrop(input: {
-  selection: BrowserDesignSelectionRect;
-  viewportWidth: number;
-  viewportHeight: number;
-  imageWidth: number;
-  imageHeight: number;
-}): BrowserDesignSelectionRect {
-  const viewportWidth = Math.max(1, input.viewportWidth);
-  const viewportHeight = Math.max(1, input.viewportHeight);
-  const imageWidth = Math.max(1, input.imageWidth);
-  const imageHeight = Math.max(1, input.imageHeight);
-  const scaleX = imageWidth / viewportWidth;
-  const scaleY = imageHeight / viewportHeight;
-  const left = clampPoint(Math.floor(input.selection.x * scaleX), 0, Math.max(0, imageWidth - 1));
-  const top = clampPoint(Math.floor(input.selection.y * scaleY), 0, Math.max(0, imageHeight - 1));
-  const right = clampPoint(
-    Math.ceil((input.selection.x + input.selection.width) * scaleX),
-    left + 1,
-    imageWidth,
-  );
-  const bottom = clampPoint(
-    Math.ceil((input.selection.y + input.selection.height) * scaleY),
-    top + 1,
-    imageHeight,
-  );
-  return {
-    x: left,
-    y: top,
-    width: Math.max(1, right - left),
-    height: Math.max(1, bottom - top),
-  };
-}
-
-export function hasMinimumSelectionSize(
-  rect: BrowserDesignSelectionRect | null | undefined,
-  minimumSizePx = MIN_CAPTURE_SIZE_PX,
-): rect is BrowserDesignSelectionRect {
-  return Boolean(rect && rect.width >= minimumSizePx && rect.height >= minimumSizePx);
-}
-
-export function shouldSubmitDesignDraftFromTextareaKey(
-  event: Pick<
-    ReactKeyboardEvent<HTMLTextAreaElement>,
-    "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
-  > & { isComposing?: boolean },
-): boolean {
-  return (
-    event.key === "Enter" &&
-    !event.shiftKey &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    event.isComposing !== true
-  );
-}
-
-export function normalizeDesignCommentToSingleLine(value: string): string {
-  return value.replace(/[\r\n]+/g, " ");
-}
-
-export function shouldRunElementHoverInspection(input: {
-  active: boolean;
-  designerModeActive: boolean;
-  designerTool: BrowserDesignerTool;
-  hasDesignDraft: boolean;
-  requestInFlight: boolean;
-}): boolean {
-  return (
-    input.active &&
-    input.designerModeActive &&
-    input.designerTool === "element-comment" &&
-    !input.hasDesignDraft &&
-    !input.requestInFlight
-  );
-}
-
-export function resolveElementCommentWheelForwardingMode(input: {
-  hasSendInputEvent: boolean;
-  platform: string;
-}): "dom-scroll" | "electron-input" {
-  if (!input.hasSendInputEvent || isMacPlatform(input.platform)) {
-    return "dom-scroll";
-  }
-  return "electron-input";
-}
-
 function resolveDataUrlMimeType(dataUrl: string): string {
   const match = /^data:([^;,]+)[;,]/i.exec(dataUrl);
   return match?.[1] ?? "image/png";
@@ -625,10 +536,10 @@ function normalizeBrowserInputKey(rawKey: string): {
   modifiers: NonNullable<BrowserWebviewKeyboardInputEvent["modifiers"]>;
 } {
   const modifierSet = new Set<NonNullable<BrowserWebviewKeyboardInputEvent["modifiers"]>[number]>();
-  const parts = rawKey
-    .split("+")
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const parts = rawKey.split("+").flatMap((part) => {
+    const trimmedPart = part.trim();
+    return trimmedPart.length > 0 ? [trimmedPart] : [];
+  });
   const keyPart = parts.pop() ?? rawKey;
   for (const part of parts) {
     switch (part.toLowerCase()) {
@@ -1531,7 +1442,7 @@ function stopWebviewBeforeRemoval(webview: BrowserWebview): void {
   }
 }
 
-export function BrowserFavicon(props: {
+function BrowserFavicon(props: {
   url: string;
   title: string;
   className?: string;
@@ -1617,7 +1528,7 @@ function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () 
   );
 }
 
-export function BrowserTabWebview(props: {
+function useBrowserTabWebviewComponent(props: {
   active: boolean;
   connectionUrl?: string | null | undefined;
   designerModeActive?: boolean;
@@ -2151,8 +2062,13 @@ export function BrowserTabWebview(props: {
       clearAgentPointerActionTimer();
 
       const path = effect.path
-        ?.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-        .map(clampAgentPointerPoint);
+        ? effect.path.reduce<Array<{ x: number; y: number }>>((points, point) => {
+            if (Number.isFinite(point.x) && Number.isFinite(point.y)) {
+              points.push(clampAgentPointerPoint(point));
+            }
+            return points;
+          }, [])
+        : undefined;
 
       if (effect.type === "drag" && path && path.length >= 2) {
         await animateAgentPointerTo(effect, path[0]!, {
@@ -2168,20 +2084,20 @@ export function BrowserTabWebview(props: {
         if (agentPointerTokenRef.current !== token) {
           return;
         }
-        const dragMovement = (async () => {
-          const steps = path.slice(1);
-          for (const point of steps) {
-            if (agentPointerTokenRef.current !== token) {
-              return;
-            }
-            await animateAgentPointerTo(effect, point, {
-              durationMultiplier: 0.62,
-              pressed: true,
-              token,
-            });
+        const steps = path.slice(1);
+        const animateDragMovement = async (index: number): Promise<void> => {
+          const point = steps[index];
+          if (!point || agentPointerTokenRef.current !== token) {
+            return;
           }
-        })();
-        await dragMovement;
+          await animateAgentPointerTo(effect, point, {
+            durationMultiplier: 0.62,
+            pressed: true,
+            token,
+          });
+          await animateDragMovement(index + 1);
+        };
+        await animateDragMovement(0);
         if (agentPointerTokenRef.current !== token) {
           return;
         }
@@ -2296,10 +2212,16 @@ export function BrowserTabWebview(props: {
           typeof options?.limit === "number" && Number.isFinite(options.limit)
             ? Math.max(1, Math.min(Math.round(options.limit), 200))
             : 100;
-        return consoleLogsRef.current
-          .filter((entry) => levels.size === 0 || levels.has(entry.level))
-          .filter((entry) => !filter || entry.message.toLowerCase().includes(filter))
-          .slice(-limit);
+        const filteredEntries = consoleLogsRef.current.filter((entry) => {
+          if (levels.size > 0 && !levels.has(entry.level)) {
+            return false;
+          }
+          if (filter && !entry.message.toLowerCase().includes(filter)) {
+            return false;
+          }
+          return true;
+        });
+        return filteredEntries.slice(-limit);
       },
       reload: () => {
         if (!readyRef.current || !webviewRef.current) return;
@@ -2310,10 +2232,12 @@ export function BrowserTabWebview(props: {
         if (!readyRef.current || !webview) {
           throw new Error("The browser tab cannot receive keyboard input yet.");
         }
-        for (const key of keys) {
-          sendBrowserKey(webview, key);
-          await waitForBrowserPointerFrame(12);
-        }
+        await keys.reduce<Promise<void>>((chain, key) => {
+          return chain.then(() => {
+            sendBrowserKey(webview, key);
+            return waitForBrowserPointerFrame(12);
+          });
+        }, Promise.resolve());
       },
       setZoomFactor: (factor) => {
         if (!readyRef.current || !webviewRef.current) return;
@@ -3285,7 +3209,7 @@ export function BrowserTabWebview(props: {
                 style={{ transform: `rotate(${agentPointerScrollRotation}deg)` }}
                 aria-hidden="true"
               >
-                <span className="flex -translate-y-0.5 flex-col items-center gap-0.5 animate-bounce">
+                <span className="flex -translate-y-0.5 flex-col items-center gap-0.5">
                   <span className="size-1.5 rotate-45 border-b border-r border-current" />
                   <span className="size-1.5 rotate-45 border-b border-r border-current opacity-70" />
                 </span>
@@ -3342,7 +3266,6 @@ export function BrowserTabWebview(props: {
                 }}
                 placeholder="Comment for the agent"
                 className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
-                autoFocus
               />
               <Tooltip>
                 <TooltipTrigger
@@ -3368,4 +3291,8 @@ export function BrowserTabWebview(props: {
       )}
     </div>
   );
+}
+
+export function BrowserTabWebview(props: Parameters<typeof useBrowserTabWebviewComponent>[0]) {
+  return useBrowserTabWebviewComponent(props);
 }

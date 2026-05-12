@@ -1,6 +1,6 @@
 import { type ProviderKind } from "@ace/contracts";
 
-export const TRANSCRIPT_REBUILD_PROVIDERS = new Set<ProviderKind>([
+const TRANSCRIPT_REBUILD_PROVIDERS = new Set<ProviderKind>([
   "githubCopilot",
   "cursor",
   "pi",
@@ -8,7 +8,7 @@ export const TRANSCRIPT_REBUILD_PROVIDERS = new Set<ProviderKind>([
   "opencode",
 ]);
 
-export function usesTranscriptRebuildRestore(provider: ProviderKind | null | undefined): boolean {
+function usesTranscriptRebuildRestore(provider: ProviderKind | null | undefined): boolean {
   return provider !== null && provider !== undefined && TRANSCRIPT_REBUILD_PROVIDERS.has(provider);
 }
 

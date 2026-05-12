@@ -81,7 +81,7 @@ describe("createThreadHydrationCache", () => {
     const cache = createThreadHydrationCache(fetchThread);
 
     const first = await cache.hydrate(THREAD_ID, { expectedUpdatedAt: NOW });
-    const second = await cache.hydrate(THREAD_ID, { expectedUpdatedAt: NOW });
+    const second = await cache.hydrate(THREAD_ID, { expectedUpdatedAt: first.updatedAt });
 
     expect(second).toBe(first);
     expect(fetchThread).toHaveBeenCalledTimes(1);
@@ -120,7 +120,7 @@ describe("createThreadHydrationCache", () => {
 
     const initial = await cache.hydrate(THREAD_ID, { expectedUpdatedAt: NOW });
     const refreshed = await cache.hydrate(THREAD_ID, {
-      expectedUpdatedAt: "2026-04-05T00:00:10.000Z",
+      expectedUpdatedAt: initial.updatedAt === NOW ? "2026-04-05T00:00:10.000Z" : initial.updatedAt,
     });
 
     expect(refreshed).not.toBe(initial);

@@ -3,18 +3,18 @@ import { Children, isValidElement, type ComponentProps, type ReactNode } from "r
 import { Separator } from "../ui/separator";
 import { cn } from "~/lib/utils";
 
-export const HEADER_PILL_SURFACE_CLASS_NAME =
+const HEADER_PILL_SURFACE_CLASS_NAME =
   "rounded-[var(--panel-radius)] border border-pill-border/72 bg-pill/92 supports-[backdrop-filter]:bg-pill/84 supports-[backdrop-filter]:backdrop-blur-lg";
 
 export const HEADER_PILL_CONTROL_CLASS_NAME =
   "!h-7 !rounded-[var(--control-radius)] !border !border-transparent !bg-transparent !shadow-none gap-1 px-2.25 sm:px-2.75 text-[10px]/none font-medium text-pill-foreground/76 transition-[background-color,color,border-color,transform,opacity] duration-150 ease-out hover:!bg-foreground/[0.06] hover:text-pill-foreground active:!bg-foreground/[0.08] aria-expanded:!bg-foreground/[0.08] aria-expanded:text-pill-foreground disabled:text-pill-foreground/35 disabled:hover:!bg-transparent";
 
-export const HEADER_PILL_ICON_CONTROL_CLASS_NAME = cn(
+const HEADER_PILL_ICON_CONTROL_CLASS_NAME = cn(
   HEADER_PILL_CONTROL_CLASS_NAME,
   "!size-7 !rounded-[var(--control-radius)] !px-0",
 );
 
-export const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
+const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
   HEADER_PILL_ICON_CONTROL_CLASS_NAME,
   "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground  data-[pressed]:[&_svg]:scale-110 [&_svg]:transition-transform [&_svg]:duration-200",
 );
@@ -56,7 +56,7 @@ export const HEADER_PILL_TRIGGER_CLASS_NAME = cn(
   "h-6.5 sm:h-7 rounded-[var(--control-radius)] px-2.25 sm:px-2.75 text-[10px]/none font-medium text-pill-foreground transition-[transform,border-color,background-color,color] duration-150 ease-out hover:!bg-pill hover:border-pill-border hover:text-pill-foreground active:!bg-foreground/[0.06] disabled:pointer-events-none disabled:opacity-50",
 );
 
-export const HEADER_PILL_ICON_TRIGGER_CLASS_NAME = cn(
+const HEADER_PILL_ICON_TRIGGER_CLASS_NAME = cn(
   HEADER_PILL_SURFACE_CLASS_NAME,
   "size-6.5 sm:size-7 rounded-[var(--control-radius)] px-0 text-pill-foreground transition-[transform,border-color,background-color,color] duration-150 ease-out hover:!bg-pill hover:border-pill-border hover:text-pill-foreground active:!bg-foreground/[0.06] disabled:pointer-events-none disabled:opacity-50",
 );
@@ -81,7 +81,7 @@ export function TopBarCluster({ className, children, ...props }: ComponentProps<
   );
 }
 
-export function TopBarClusterDivider({
+function TopBarClusterDivider({
   className,
   ...props
 }: Omit<ComponentProps<typeof Separator>, "orientation">) {
@@ -94,7 +94,7 @@ export function TopBarClusterDivider({
   );
 }
 
-export function interleaveTopBarItems(items: ReactNode[]) {
+function interleaveTopBarItems(items: ReactNode[]) {
   const filteredItems = Children.toArray(items);
   return filteredItems.flatMap((item, index) =>
     index === 0

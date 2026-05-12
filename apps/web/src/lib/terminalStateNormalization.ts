@@ -1,8 +1,8 @@
 import { DEFAULT_THREAD_TERMINAL_ID, type ThreadTerminalGroup } from "../types";
 
 export const DEFAULT_TERMINAL_SIDEBAR_WIDTH = 236;
-export const MIN_TERMINAL_SIDEBAR_WIDTH = 180;
-export const MAX_TERMINAL_SIDEBAR_WIDTH = 360;
+const MIN_TERMINAL_SIDEBAR_WIDTH = 180;
+const MAX_TERMINAL_SIDEBAR_WIDTH = 360;
 
 export function normalizeTerminalIdList(
   terminalIds: ReadonlyArray<string>,

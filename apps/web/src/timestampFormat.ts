@@ -20,24 +20,36 @@ export function getTimestampFormatOptions(
   };
 }
 
-const timestampFormatterCache = new Map<string, Intl.DateTimeFormat>();
+const TIMESTAMP_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>([
+  [
+    "locale:minutes",
+    new Intl.DateTimeFormat(undefined, getTimestampFormatOptions("locale", false)),
+  ],
+  ["locale:seconds", new Intl.DateTimeFormat(undefined, getTimestampFormatOptions("locale", true))],
+  [
+    "12-hour:minutes",
+    new Intl.DateTimeFormat(undefined, getTimestampFormatOptions("12-hour", false)),
+  ],
+  [
+    "12-hour:seconds",
+    new Intl.DateTimeFormat(undefined, getTimestampFormatOptions("12-hour", true)),
+  ],
+  [
+    "24-hour:minutes",
+    new Intl.DateTimeFormat(undefined, getTimestampFormatOptions("24-hour", false)),
+  ],
+  [
+    "24-hour:seconds",
+    new Intl.DateTimeFormat(undefined, getTimestampFormatOptions("24-hour", true)),
+  ],
+]);
 
 function getTimestampFormatter(
   timestampFormat: TimestampFormat,
   includeSeconds: boolean,
 ): Intl.DateTimeFormat {
   const cacheKey = `${timestampFormat}:${includeSeconds ? "seconds" : "minutes"}`;
-  const cachedFormatter = timestampFormatterCache.get(cacheKey);
-  if (cachedFormatter) {
-    return cachedFormatter;
-  }
-
-  const formatter = new Intl.DateTimeFormat(
-    undefined,
-    getTimestampFormatOptions(timestampFormat, includeSeconds),
-  );
-  timestampFormatterCache.set(cacheKey, formatter);
-  return formatter;
+  return TIMESTAMP_FORMATTER_CACHE.get(cacheKey)!;
 }
 
 export function formatTimestamp(isoDate: string, timestampFormat: TimestampFormat): string {

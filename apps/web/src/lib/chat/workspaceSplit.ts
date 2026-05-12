@@ -1,6 +1,6 @@
 export const WORKSPACE_EDITOR_SPLIT_WIDTH_STORAGE_KEY = "ace:workspace:editor-split-width:v1";
 export const DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH = 760;
-export const MIN_WORKSPACE_EDITOR_SPLIT_WIDTH = 420;
+const MIN_WORKSPACE_EDITOR_SPLIT_WIDTH = 420;
 export const MIN_WORKSPACE_CHAT_SPLIT_WIDTH = 420;
 
 export function clampWorkspaceEditorSplitWidth(width: number, viewportWidth: number): number {

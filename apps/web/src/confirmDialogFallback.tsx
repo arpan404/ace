@@ -23,10 +23,14 @@ let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
 function normalizeMessageLines(message: string): readonly string[] {
-  return message
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  const normalizedLines: string[] = [];
+  for (const rawLine of message.split("\n")) {
+    const line = rawLine.trim();
+    if (line.length > 0) {
+      normalizedLines.push(line);
+    }
+  }
+  return normalizedLines;
 }
 
 function ensureRoot(): Root | null {

@@ -28,7 +28,7 @@ export function GitHubIssueListSkeleton({
         return (
           <div
             key={rowKey}
-            className="flex items-start gap-2 rounded-md border border-border/20 px-2 py-2"
+            className="flex items-start gap-2 rounded-md border border-border/20 p-2"
           >
             <Skeleton className="mt-0.5 size-3.5 rounded-sm" />
             <div className="min-w-0 flex-1 space-y-1.5">
@@ -52,7 +52,7 @@ export function GitHubIssueListSkeleton({
   );
 }
 
-export function IssueMarkdownSkeleton({
+function IssueMarkdownSkeleton({
   lineCount = 7,
   className,
 }: {
@@ -133,7 +133,7 @@ export function ThreadHistoryLoadingNotice() {
     <div className="sticky top-0 z-10 mb-3 flex justify-center">
       <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground  backdrop-blur-sm">
         <Spinner className="size-3 text-primary" />
-        <span>Restoring conversation...</span>
+        <span>Restoring conversation…</span>
         <span className="hidden text-muted-foreground/70 sm:inline">syncing missing messages</span>
       </div>
     </div>

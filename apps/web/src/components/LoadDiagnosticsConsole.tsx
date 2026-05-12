@@ -112,7 +112,7 @@ export function LoadDiagnosticsConsole() {
         </div>
       </div>
 
-      <div className="overflow-auto px-3 py-3">
+      <div className="overflow-auto p-3">
         <div className="space-y-2">
           {visibleEntries.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/12 px-4 py-6 text-center text-sm text-white/45">

@@ -183,18 +183,4 @@ function SheetPanel({
   );
 }
 
-export {
-  Sheet,
-  SheetTrigger,
-  SheetPortal,
-  SheetClose,
-  SheetBackdrop,
-  SheetBackdrop as SheetOverlay,
-  SheetPopup,
-  SheetPopup as SheetContent,
-  SheetHeader,
-  SheetFooter,
-  SheetTitle,
-  SheetDescription,
-  SheetPanel,
-};
+export { Sheet, SheetPopup, SheetHeader, SheetTitle, SheetDescription };

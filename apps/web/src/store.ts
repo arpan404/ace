@@ -109,7 +109,7 @@ export function getThreadById(
   return getThreadLookup(threads).get(threadId);
 }
 
-export function getThreadsByIds(
+function getThreadsByIds(
   threads: ReadonlyArray<Thread>,
   threadIds: readonly ThreadId[],
 ): Array<Thread | undefined> {
@@ -1842,28 +1842,31 @@ export function syncServerReadModel(
   const existingProjectsById = new Map(
     state.projects.map((project) => [project.id, project] as const),
   );
-  const projects = preserveProjectArrayIdentity(
-    state.projects,
-    readModel.projects
-      .filter((project) => project.deletedAt === null)
-      .map((project) =>
+  const nextProjects: Project[] = [];
+  for (const project of readModel.projects) {
+    if (project.deletedAt === null) {
+      nextProjects.push(
         mergeProjectPreservingIdentity(existingProjectsById.get(project.id), mapProject(project)),
-      ),
-  );
-  const threads = readModel.threads
-    .filter((thread) => thread.deletedAt === null)
-    .map((thread) => {
-      const mappedThread = mapThread(thread, options);
-      const nextThread = mergeThreadPreservingHydratedHistory(
-        existingThreadsById.get(thread.id),
-        mappedThread,
-        options === undefined || mappedThread.historyLoaded,
       );
-      if (options !== undefined && nextThread.historyLoaded !== false) {
-        primeHydratedThreadCache(thread);
-      }
-      return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
-    });
+    }
+  }
+  const projects = preserveProjectArrayIdentity(state.projects, nextProjects);
+  const threads: AppState["threads"] = [];
+  for (const thread of readModel.threads) {
+    if (thread.deletedAt !== null) {
+      continue;
+    }
+    const mappedThread = mapThread(thread, options);
+    const nextThread = mergeThreadPreservingHydratedHistory(
+      existingThreadsById.get(thread.id),
+      mappedThread,
+      options === undefined || mappedThread.historyLoaded,
+    );
+    if (options !== undefined && nextThread.historyLoaded !== false) {
+      primeHydratedThreadCache(thread);
+    }
+    threads.push(suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById));
+  }
   const sidebarThreadsById = buildSidebarThreadsByIdPreserving(
     threads,
     state.dismissedThreadErrorKeysById,
@@ -1889,21 +1892,26 @@ export function mergeServerReadModel(
   readModel: OrchestrationReadModel,
   options?: SnapshotSyncOptions,
 ): AppState {
-  const incomingProjects = readModel.projects
-    .filter((project) => project.deletedAt === null)
-    .map((project) => mapProject(project));
-  const incomingThreads = readModel.threads
-    .filter((thread) => thread.deletedAt === null)
-    .map((thread) => {
-      const nextThread = suppressDismissedThreadError(
-        mapThread(thread, options),
-        state.dismissedThreadErrorKeysById,
-      );
-      if (options !== undefined && nextThread.historyLoaded !== false) {
-        primeHydratedThreadCache(thread);
-      }
-      return nextThread;
-    });
+  const incomingProjects: Project[] = [];
+  for (const project of readModel.projects) {
+    if (project.deletedAt === null) {
+      incomingProjects.push(mapProject(project));
+    }
+  }
+  const incomingThreads: AppState["threads"] = [];
+  for (const thread of readModel.threads) {
+    if (thread.deletedAt !== null) {
+      continue;
+    }
+    const nextThread = suppressDismissedThreadError(
+      mapThread(thread, options),
+      state.dismissedThreadErrorKeysById,
+    );
+    if (options !== undefined && nextThread.historyLoaded !== false) {
+      primeHydratedThreadCache(thread);
+    }
+    incomingThreads.push(nextThread);
+  }
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
   for (const project of incomingProjects) {
@@ -1938,7 +1946,7 @@ export function mergeServerReadModel(
   };
 }
 
-export function removeReadModelEntities(
+function removeReadModelEntities(
   state: AppState,
   input: {
     readonly projectIds: ReadonlyArray<ProjectId>;
@@ -2099,7 +2107,7 @@ export const selectSidebarThreadSummariesByProjectId = (
   };
 };
 
-export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
+function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return updateThreadState(state, threadId, (t) => {
     if (t.error === error) return t;
     return { ...t, error };
@@ -2134,7 +2142,7 @@ export function dismissThreadError(state: AppState, threadId: ThreadId): AppStat
   return setError(nextState, threadId, null);
 }
 
-export function setThreadBranch(
+function setThreadBranch(
   state: AppState,
   threadId: ThreadId,
   branch: string | null,

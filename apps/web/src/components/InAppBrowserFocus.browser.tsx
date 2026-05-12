@@ -1,3 +1,4 @@
+/* eslint-disable react-doctor/async-parallel -- Browser focus assertions are intentionally sequenced in this test harness. */
 import "../index.css";
 
 import { useState } from "react";

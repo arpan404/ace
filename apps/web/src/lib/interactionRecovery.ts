@@ -90,7 +90,7 @@ function clearResidualDocumentStyles(doc: Document): void {
   doc.documentElement.style.removeProperty("user-select");
 }
 
-export function recoverWindowInteractions(doc: Document = document): void {
+function recoverWindowInteractions(doc: Document = document): void {
   clearStaleModalPortalParts(doc);
   clearResidualRootModality(doc);
   releaseStaleFocus(doc);
@@ -150,7 +150,7 @@ export function installWindowInteractionRecovery(win: Window = window): () => vo
   };
 }
 
-export const __interactionRecoveryForTests = {
+const __interactionRecoveryForTests = {
   MODAL_PORTAL_PART_SELECTOR,
   MODAL_SURFACE_SELECTOR,
   clearResidualRootModality,

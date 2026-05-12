@@ -74,7 +74,7 @@ export function BrowserNewTabPanel(props: {
                 onSubmitQuery(query);
               }}
             >
-              Go
+              Search
             </Button>
           </div>
         </div>

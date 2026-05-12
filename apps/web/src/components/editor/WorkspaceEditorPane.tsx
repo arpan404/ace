@@ -1,4 +1,3 @@
-import Editor, { type OnMount } from "@monaco-editor/react";
 import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -13,11 +12,12 @@ import {
   SparklesIcon,
   XIcon,
 } from "lucide-react";
-import type { editor as MonacoEditor } from "monaco-editor";
 import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  lazy,
+  Suspense,
   memo,
   useCallback,
   useEffect,
@@ -58,6 +58,33 @@ import {
   type WorkspacePreviewKind,
 } from "./workspaceFileUtils";
 
+const Editor = lazy(async () =>
+  import("@monaco-editor/react").then((module) => ({ default: module.Editor })),
+);
+
+type MonacoUri = {
+  scheme: string;
+  path: string;
+  toString: () => string;
+};
+
+type MonacoApi = Parameters<import("@monaco-editor/react").OnMount>[1];
+type MonacoStandaloneCodeEditor = Parameters<import("@monaco-editor/react").OnMount>[0];
+type MonacoDisposable = MonacoApi["IDisposable"];
+type MonacoRange = MonacoApi["editor"]["IRange"];
+type MonacoPosition = MonacoApi["editor"]["IPosition"];
+type MonacoSelection = MonacoApi["editor"]["ISelection"];
+type MonacoMarker = Omit<MonacoApi["editor"]["IMarkerData"], "owner"> & {
+  owner: string;
+};
+type MonacoMarkerData = MonacoApi["editor"]["IMarkerData"];
+type MonacoTextModel = MonacoApi["editor"]["ITextModel"];
+type MonacoMouseEvent = Parameters<MonacoStandaloneCodeEditor["onMouseDown"]>[0];
+type MonacoStandaloneEditorConstructionOptions = NonNullable<
+  import("@monaco-editor/react").EditorProps["options"]
+>;
+type OnMount = import("@monaco-editor/react").OnMount;
+
 interface WorkspaceEditorPaneProps {
   active: boolean;
   canClosePane: boolean;
@@ -68,7 +95,7 @@ interface WorkspaceEditorPaneProps {
   diagnosticsCwd: string | null;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
-  editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
+  editorOptions: MonacoStandaloneEditorConstructionOptions;
   gitCwd: string | null;
   codeComments: readonly WorkspaceCodeComment[];
   onAddCodeComment: (comment: WorkspaceCodeComment) => void;
@@ -167,8 +194,6 @@ const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 5_000;
 const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as const;
 const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
-type MonacoApi = typeof import("monaco-editor");
-
 interface ActiveSelectionState {
   readonly id: string;
   readonly context: WorkspaceSelectionContext;
@@ -182,7 +207,7 @@ type WorkspaceEditorFeedbackState = {
   diagnosticError: string | null;
   previewError: string | null;
   problemsOpen: boolean;
-  problems: readonly MonacoEditor.IMarker[];
+  problems: readonly MonacoMarker[];
 };
 
 const EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE: WorkspaceEditorFeedbackState = {
@@ -312,11 +337,14 @@ function workspaceEditorSelectionStateReducer(
 }
 
 function normalizeWorkspaceRelativePath(filePath: string): string {
-  return filePath
-    .split(/[\\/]/g)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
-    .join("/");
+  const segments: string[] = [];
+  for (const segment of filePath.split(/[\\/]/g)) {
+    const trimmed = segment.trim();
+    if (trimmed.length > 0) {
+      segments.push(trimmed);
+    }
+  }
+  return segments.join("/");
 }
 
 function createWorkspaceModelUriString(relativePath: string): string {
@@ -338,11 +366,14 @@ function readRelativePathFromWorkspaceModelUri(uri: {
   if (uri.scheme !== WORKSPACE_MODEL_URI_SCHEME) {
     return null;
   }
-  const relativePath = uri.path
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => decodeURIComponent(segment))
-    .join("/");
+  const segments: string[] = [];
+  for (const segment of uri.path.split("/")) {
+    if (segment.length === 0) {
+      continue;
+    }
+    segments.push(decodeURIComponent(segment));
+  }
+  const relativePath = segments.join("/");
   return relativePath.length > 0 ? relativePath : null;
 }
 
@@ -399,7 +430,7 @@ function workspaceSelectionId(input: {
 }
 
 function resolveRelativePathFromEditorModel(
-  model: MonacoEditor.ITextModel,
+  model: MonacoTextModel,
   fallbackRelativePath: string | null,
 ): string | null {
   const fromWorkspaceUri = readRelativePathFromWorkspaceModelUri(model.uri);
@@ -446,7 +477,7 @@ function toWorkspaceSeverity(
 
 function formatProblemSummary(
   monacoInstance: MonacoApi,
-  markers: readonly MonacoEditor.IMarker[],
+  markers: readonly MonacoMarker[],
 ): string | null {
   let errorCount = 0;
   let warningCount = 0;
@@ -481,7 +512,7 @@ function formatProblemSummary(
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-function toWorkspaceEditorPaneProblem(marker: MonacoEditor.IMarker): WorkspaceEditorPaneProblem {
+function toWorkspaceEditorPaneProblem(marker: MonacoMarker): WorkspaceEditorPaneProblem {
   const problem: {
     code?: string | number;
     endColumn: number;
@@ -546,9 +577,77 @@ function createWorkspaceEditorPaneSymbol(input: {
   return symbol;
 }
 
-function extractWorkspaceEditorPaneSymbols(
-  model: MonacoEditor.ITextModel,
-): WorkspaceEditorPaneSymbol[] {
+type WorkspaceEditorPaneSymbolPattern = {
+  detail?: (
+    match: RegExpExecArray & { indices?: Array<[number, number] | undefined> },
+  ) => string | undefined;
+  kind: string;
+  nameIndex: number;
+  pattern: RegExp;
+};
+
+const workspaceEditorPaneSymbolPatternBase: WorkspaceEditorPaneSymbolPattern[] = [
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern:
+      /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern:
+      /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u,
+  },
+  { kind: "function", nameIndex: 1, pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u,
+  },
+  { kind: "class", nameIndex: 1, pattern: /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/u },
+  { kind: "class", nameIndex: 1, pattern: /^\s*class\s+([A-Za-z_]\w*)\b/u },
+  {
+    kind: "interface",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u,
+  },
+  { kind: "type", nameIndex: 1, pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/u },
+  { kind: "type", nameIndex: 1, pattern: /^\s*type\s+([A-Za-z_]\w*)\b/u },
+  { kind: "struct", nameIndex: 1, pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b/u },
+  { kind: "enum", nameIndex: 1, pattern: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\b/u },
+  { kind: "enum", nameIndex: 1, pattern: /^\s*(?:pub\s+)?enum\s+([A-Za-z_]\w*)\b/u },
+  { kind: "trait", nameIndex: 1, pattern: /^\s*(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b/u },
+  { kind: "impl", nameIndex: 1, pattern: /^\s*impl(?:<[^>]+>)?\s+([A-Za-z_][\w:]*)\b/u },
+  {
+    kind: "variable",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u,
+  },
+  { kind: "variable", nameIndex: 1, pattern: /^\s*(?:const|var)\s+([A-Za-z_]\w*)\b/u },
+];
+
+const workspaceEditorPaneSymbolPatterns = workspaceEditorPaneSymbolPatternBase.map((entry) => ({
+  ...entry,
+  pattern: new RegExp(entry.pattern.source, `${entry.pattern.flags}d`),
+}));
+
+function extractWorkspaceEditorPaneSymbols(model: MonacoTextModel): WorkspaceEditorPaneSymbol[] {
   const symbols: WorkspaceEditorPaneSymbol[] = [];
   for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber += 1) {
     const line = model.getLineContent(lineNumber);
@@ -557,71 +656,18 @@ function extractWorkspaceEditorPaneSymbols(
       continue;
     }
 
-    const patterns: Array<{
-      detail?: (match: RegExpExecArray) => string | undefined;
-      kind: string;
-      nameIndex: number;
-      pattern: RegExp;
-    }> = [
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern:
-          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern:
-          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u,
-      },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u,
-      },
-      { kind: "class", nameIndex: 1, pattern: /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/u },
-      { kind: "class", nameIndex: 1, pattern: /^\s*class\s+([A-Za-z_]\w*)\b/u },
-      {
-        kind: "interface",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u,
-      },
-      { kind: "type", nameIndex: 1, pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/u },
-      { kind: "type", nameIndex: 1, pattern: /^\s*type\s+([A-Za-z_]\w*)\b/u },
-      { kind: "struct", nameIndex: 1, pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b/u },
-      { kind: "enum", nameIndex: 1, pattern: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\b/u },
-      { kind: "enum", nameIndex: 1, pattern: /^\s*(?:pub\s+)?enum\s+([A-Za-z_]\w*)\b/u },
-      { kind: "trait", nameIndex: 1, pattern: /^\s*(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b/u },
-      { kind: "impl", nameIndex: 1, pattern: /^\s*impl(?:<[^>]+>)?\s+([A-Za-z_][\w:]*)\b/u },
-      {
-        kind: "variable",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u,
-      },
-      { kind: "variable", nameIndex: 1, pattern: /^\s*(?:const|var)\s+([A-Za-z_]\w*)\b/u },
-    ];
-
-    for (const entry of patterns) {
-      const match = entry.pattern.exec(line);
+    for (const entry of workspaceEditorPaneSymbolPatterns) {
+      const match = entry.pattern.exec(line) as
+        | (RegExpExecArray & {
+            indices?: Array<[number, number] | undefined>;
+          })
+        | null;
       const name = match?.[entry.nameIndex];
       if (!match || !name) {
+        continue;
+      }
+      const matchIndex = match.indices?.[entry.nameIndex]?.[0];
+      if (matchIndex === undefined) {
         continue;
       }
       const symbolInput: {
@@ -635,7 +681,7 @@ function extractWorkspaceEditorPaneSymbols(
         kind: entry.kind,
         line,
         lineNumber,
-        matchIndex: match.index + match[0].indexOf(name),
+        matchIndex,
         name,
       };
       const detail = entry.detail?.(match);
@@ -693,7 +739,7 @@ function toMonacoCompletionItemKind(monacoInstance: MonacoApi, value: string | u
 function toMonacoMarkers(
   monacoInstance: MonacoApi,
   diagnostics: readonly WorkspaceEditorDiagnostic[],
-): MonacoEditor.IMarkerData[] {
+): MonacoMarkerData[] {
   return diagnostics.map((diagnostic) => {
     const startLineNumber = diagnostic.startLine + 1;
     const startColumn = diagnostic.startColumn + 1;
@@ -703,7 +749,7 @@ function toMonacoMarkers(
         ? Math.max(startColumn + 1, diagnostic.endColumn + 1)
         : Math.max(1, diagnostic.endColumn + 1);
 
-    const marker: MonacoEditor.IMarkerData = {
+    const marker: MonacoMarkerData = {
       endColumn,
       endLineNumber,
       message: diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic",
@@ -721,14 +767,14 @@ function toMonacoMarkers(
   });
 }
 
-function clearModelMarkers(monacoInstance: MonacoApi, model: MonacoEditor.ITextModel): void {
+function clearModelMarkers(monacoInstance: MonacoApi, model: MonacoTextModel): void {
   for (const owner of MONACO_DIAGNOSTIC_OWNERS) {
     monacoInstance.editor.setModelMarkers(model, owner, []);
   }
 }
 
 function runEditorAction(
-  editor: MonacoEditor.IStandaloneCodeEditor,
+  editor: MonacoStandaloneCodeEditor,
   actionId: string,
 ): void | Promise<void> {
   const action = editor.getAction(actionId);
@@ -738,7 +784,7 @@ function runEditorAction(
   return action.run();
 }
 
-function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
+function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const api = readNativeApi();
   const pane = props.pane;
   const canReopenClosedTab = props.canReopenClosedTab;
@@ -779,7 +825,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const [textPreviewFilePaths, setTextPreviewFilePaths] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<MonacoStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
@@ -940,10 +986,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   }, []);
 
   const setProblemFeedback = useCallback(
-    (
-      nextProblems: readonly MonacoEditor.IMarker[],
-      input?: { diagnosticError?: string | null },
-    ) => {
+    (nextProblems: readonly MonacoMarker[], input?: { diagnosticError?: string | null }) => {
       const editor = editorRef.current;
       const monacoInstance = monacoRef.current;
       const model = editor?.getModel();
@@ -986,7 +1029,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   );
 
   const applyWorkspaceProblems = useCallback(
-    (activeFilePath: string | null, nextProblems: readonly MonacoEditor.IMarker[]) => {
+    (activeFilePath: string | null, nextProblems: readonly MonacoMarker[]) => {
       setProblemFeedback(nextProblems, { diagnosticError: null });
       onProblemsChange(pane.id, activeFilePath, nextProblems.map(toWorkspaceEditorPaneProblem));
     },
@@ -1076,7 +1119,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     (isPreviewMode || activeDraft !== null || activeFileQuery.data?.contents !== undefined);
 
   const ensureWorkspaceModelLoaded = useCallback(
-    async (relativePath: string): Promise<MonacoEditor.ITextModel | null> => {
+    async (relativePath: string): Promise<MonacoTextModel | null> => {
       const monacoInstance = monacoRef.current;
       if (!api || !monacoInstance || !workspaceCwd) {
         return null;
@@ -1134,7 +1177,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         (
           location,
         ): location is {
-          uri: MonacoEditor.ITextModel["uri"];
+          uri: MonacoTextModel["uri"];
           range: ReturnType<typeof toMonacoRangeFromWorkspaceLocation>;
         } => location !== null,
       );
@@ -1569,8 +1612,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
 
     const modelUri = model.uri.toString();
     syncProblemState();
-    const disposable = monacoInstance.editor.onDidChangeMarkers((uris) => {
-      if (!uris.some((uri) => uri.toString() === modelUri)) {
+    const disposable = monacoInstance.editor.onDidChangeMarkers((uris: readonly MonacoUri[]) => {
+      if (!uris.some((uri: MonacoUri) => uri.toString() === modelUri)) {
         return;
       }
       syncProblemState();
@@ -1596,7 +1639,12 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     }
     const provider = monacoInstance.languages.registerCompletionItemProvider(activeMonacoLanguage, {
       triggerCharacters: [...COMPLETION_TRIGGER_CHARACTERS],
-      provideCompletionItems: async (model, position, _context, _token) => {
+      provideCompletionItems: async (
+        model: MonacoTextModel,
+        position: MonacoPosition,
+        _context: unknown,
+        _token: { isCancellationRequested: boolean },
+      ) => {
         if (!props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
           return { suggestions: [] };
         }
@@ -1681,9 +1729,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       return;
     }
     const provider = monacoInstance.languages.registerDefinitionProvider(activeMonacoLanguage, {
-      provideDefinition: async (model, position, token) => {
+      provideDefinition: async (
+        model: MonacoTextModel,
+        position: MonacoPosition,
+        _context: unknown,
+        token: { isCancellationRequested: boolean },
+      ) => {
         const relativePath = resolveRelativePathFromEditorModel(model, pane.activeFilePath);
-        if (!relativePath || isPreviewMode) {
+        if (!relativePath || isPreviewMode || token.isCancellationRequested) {
           return null;
         }
         const locations = await loadDefinitionLocations({
@@ -1692,11 +1745,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           line: Math.max(0, position.lineNumber - 1),
           column: Math.max(0, position.column - 1),
         });
-        if (token.isCancellationRequested) {
-          return null;
-        }
         const monacoLocations = await toMonacoLocations(locations);
-        return monacoLocations.length > 0 ? monacoLocations : null;
+        return token.isCancellationRequested || monacoLocations.length === 0
+          ? null
+          : monacoLocations;
       },
     });
     return () => {
@@ -1719,9 +1771,17 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       return;
     }
     const provider = monacoInstance.languages.registerReferenceProvider(activeMonacoLanguage, {
-      provideReferences: async (model, position, context, token) => {
+      provideReferences: async (
+        model: MonacoTextModel,
+        position: MonacoPosition,
+        context: { includeDeclaration: boolean },
+        token: { isCancellationRequested: boolean },
+      ) => {
         const relativePath = resolveRelativePathFromEditorModel(model, pane.activeFilePath);
         if (!props.diagnosticsCwd || !relativePath || isPreviewMode) {
+          return [];
+        }
+        if (token.isCancellationRequested) {
           return [];
         }
         try {
@@ -1936,7 +1996,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     [problems],
   );
 
-  const handleProblemClick = useCallback((problem: MonacoEditor.IMarker) => {
+  const handleProblemClick = useCallback((problem: MonacoMarker) => {
     const editor = editorRef.current;
     if (!editor) {
       return;
@@ -2102,7 +2162,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     {isDirty ? (
                       <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
                     ) : null}
-                    <span
+                    <button
+                      type="button"
                       className={cn(
                         "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
                         isActive ? "opacity-100" : "group-hover/tab:opacity-100",
@@ -2115,7 +2176,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                       }}
                     >
                       <XIcon className="size-3" />
-                    </span>
+                    </button>
                   </TooltipTrigger>
                   <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
                     {filePath}
@@ -2307,7 +2368,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
           </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
-          <div className="space-y-4 px-6 py-6">
+          <div className="space-y-4 p-6">
             <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Opening file
             </p>
@@ -2336,21 +2397,29 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           </div>
         ) : (
           <div className="relative h-full min-h-0 min-w-0 overflow-hidden">
-            <Editor
-              height="100%"
-              value={activeFileContents}
-              theme={props.monacoTheme}
-              onMount={handleEditorMount}
-              onChange={(value) => {
-                if (!props.pane.activeFilePath || value === undefined) {
-                  return;
-                }
-                props.onUpdateDraft(props.pane.activeFilePath, value);
-              }}
-              options={props.editorOptions}
-              {...(activeModelPath ? { path: activeModelPath } : {})}
-              {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
-            />
+            <Suspense
+              fallback={
+                <div className="h-full w-full animate-pulse bg-muted/20 p-3 text-xs text-muted-foreground">
+                  Loading editor…
+                </div>
+              }
+            >
+              <Editor
+                height="100%"
+                value={activeFileContents}
+                theme={props.monacoTheme}
+                onMount={handleEditorMount}
+                onChange={(value) => {
+                  if (!props.pane.activeFilePath || value === undefined) {
+                    return;
+                  }
+                  props.onUpdateDraft(props.pane.activeFilePath, value);
+                }}
+                options={props.editorOptions}
+                {...(activeModelPath ? { path: activeModelPath } : {})}
+                {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
+              />
+            </Suspense>
             {activeSelection ? (
               <div
                 className="absolute z-20"
@@ -2406,7 +2475,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                       }}
                       placeholder="Comment for the agent"
                       className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
-                      autoFocus
                     />
                     {props.onAddCodeCommentAndSend ? (
                       <Tooltip>
@@ -2624,6 +2692,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       </footer>
     </section>
   );
+}
+
+function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
+  return useWorkspaceEditorPaneComponent(props);
 }
 
 const MemoizedWorkspaceEditorPane = memo(WorkspaceEditorPane);

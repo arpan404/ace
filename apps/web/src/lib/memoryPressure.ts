@@ -119,7 +119,7 @@ function resolveMemoryPressureThresholds(deviceMemoryGb: number | null): {
   };
 }
 
-export function compareMemoryPressureLevels(
+function compareMemoryPressureLevels(
   left: MemoryPressureLevel,
   right: MemoryPressureLevel,
 ): number {
@@ -163,7 +163,7 @@ export function classifyMemoryPressureUtilization(
   return "normal";
 }
 
-export function getCurrentMemoryPressureSnapshot(): MemoryPressureSnapshot | null {
+function getCurrentMemoryPressureSnapshot(): MemoryPressureSnapshot | null {
   const performanceMemory = readPerformanceMemory();
   if (!performanceMemory) {
     sampledMemoryPressureSnapshot = null;

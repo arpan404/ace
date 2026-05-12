@@ -10,7 +10,7 @@ import "./appearancePrefs";
 
 import { isElectron } from "./env";
 import { getRouter } from "./router";
-import { APP_DISPLAY_NAME } from "./branding";
+import { APP_BASE_NAME } from "./branding";
 import { beginLoadPhase, initLoadDiagnostics, logLoadDiagnostic } from "./loadDiagnostics";
 import { DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE } from "./lib/desktopChrome";
 import { installWindowInteractionRecovery } from "./lib/interactionRecovery";
@@ -97,8 +97,8 @@ if (isElectron) {
   window.addEventListener("resize", markNativeWindowResizing, { passive: true });
 }
 
-document.title = APP_DISPLAY_NAME;
-logLoadDiagnostic({ phase: "main", message: "Document title updated", detail: APP_DISPLAY_NAME });
+document.title = APP_BASE_NAME;
+logLoadDiagnostic({ phase: "main", message: "Document title updated", detail: APP_BASE_NAME });
 
 const rootElement = document.getElementById("root") as HTMLElement;
 const renderPhase = beginLoadPhase("main", "Rendering React root");

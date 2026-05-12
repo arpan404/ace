@@ -112,11 +112,148 @@ const EMPTY_HOST_DRAFT: HostDraftState = {
   iconColor: "slate",
 };
 
+type DevicesPanelState = {
+  hostDraft: HostDraftState;
+  editingHostId: string | null;
+  importingHost: boolean;
+  advertisedLocalWsUrl: string | null;
+  refreshingLocalEndpoint: boolean;
+  pairingLabel: string;
+  relayUrlDraft: string;
+  checkingHostId: string | null;
+  connectingHostId: string | "local" | null;
+};
+
+type DevicesPanelAction =
+  | { type: "set-host-draft"; hostDraft: HostDraftState }
+  | { type: "update-host-draft"; hostDraft: Partial<HostDraftState> }
+  | { type: "set-editing-host-id"; editingHostId: string | null }
+  | { type: "clear-host-draft" }
+  | { type: "set-importing-host"; importingHost: boolean }
+  | { type: "set-advertised-local-ws-url"; advertisedLocalWsUrl: string | null }
+  | { type: "set-refreshing-local-endpoint"; refreshingLocalEndpoint: boolean }
+  | { type: "set-pairing-label"; pairingLabel: string }
+  | { type: "set-relay-url-draft"; relayUrlDraft: string }
+  | { type: "set-checking-host-id"; checkingHostId: string | null }
+  | { type: "set-connecting-host-id"; connectingHostId: string | "local" | null };
+
+function devicesPanelStateReducer(
+  state: DevicesPanelState,
+  action: DevicesPanelAction,
+): DevicesPanelState {
+  switch (action.type) {
+    case "set-host-draft":
+      return state.hostDraft === action.hostDraft
+        ? state
+        : { ...state, hostDraft: action.hostDraft };
+    case "update-host-draft":
+      return { ...state, hostDraft: { ...state.hostDraft, ...action.hostDraft } };
+    case "set-editing-host-id":
+      return state.editingHostId === action.editingHostId
+        ? state
+        : { ...state, editingHostId: action.editingHostId };
+    case "clear-host-draft":
+      return state.hostDraft === EMPTY_HOST_DRAFT && state.editingHostId === null
+        ? state
+        : { ...state, hostDraft: EMPTY_HOST_DRAFT, editingHostId: null };
+    case "set-importing-host":
+      return state.importingHost === action.importingHost
+        ? state
+        : { ...state, importingHost: action.importingHost };
+    case "set-advertised-local-ws-url":
+      return state.advertisedLocalWsUrl === action.advertisedLocalWsUrl
+        ? state
+        : { ...state, advertisedLocalWsUrl: action.advertisedLocalWsUrl };
+    case "set-refreshing-local-endpoint":
+      return state.refreshingLocalEndpoint === action.refreshingLocalEndpoint
+        ? state
+        : { ...state, refreshingLocalEndpoint: action.refreshingLocalEndpoint };
+    case "set-pairing-label":
+      return state.pairingLabel === action.pairingLabel
+        ? state
+        : { ...state, pairingLabel: action.pairingLabel };
+    case "set-relay-url-draft":
+      return state.relayUrlDraft === action.relayUrlDraft
+        ? state
+        : { ...state, relayUrlDraft: action.relayUrlDraft };
+    case "set-checking-host-id":
+      return state.checkingHostId === action.checkingHostId
+        ? state
+        : { ...state, checkingHostId: action.checkingHostId };
+    case "set-connecting-host-id":
+      return state.connectingHostId === action.connectingHostId
+        ? state
+        : { ...state, connectingHostId: action.connectingHostId };
+  }
+}
+
 interface PairingUiState {
   readonly pairingLink: PairingLinkState | null;
   readonly pairingSessionStatus: HostPairingSessionStatus | null;
   readonly creatingPairingLink: boolean;
   readonly revokingPairingLink: boolean;
+}
+
+type HostAvailabilityState = {
+  status: "checking" | "available" | "unavailable" | "unauthenticated";
+  requestId: number;
+};
+
+type DevicesSessionState = {
+  pairedSessions: ReadonlyArray<HostPairingSessionSummary>;
+  refreshingPairedSessions: boolean;
+  revokingPairedSessionIds: Record<string, boolean>;
+  hostAvailability: Record<string, HostAvailabilityState>;
+};
+
+type DevicesSessionAction =
+  | { type: "set-paired-sessions"; pairedSessions: ReadonlyArray<HostPairingSessionSummary> }
+  | { type: "set-refreshing-paired-sessions"; refreshingPairedSessions: boolean }
+  | { type: "set-revoking-paired-session"; sessionId: string; revoking: boolean }
+  | { type: "set-host-availability"; hostId: string; availability: HostAvailabilityState };
+
+function devicesSessionStateReducer(
+  state: DevicesSessionState,
+  action: DevicesSessionAction,
+): DevicesSessionState {
+  switch (action.type) {
+    case "set-paired-sessions":
+      return state.pairedSessions === action.pairedSessions
+        ? state
+        : { ...state, pairedSessions: action.pairedSessions };
+    case "set-refreshing-paired-sessions":
+      return state.refreshingPairedSessions === action.refreshingPairedSessions
+        ? state
+        : { ...state, refreshingPairedSessions: action.refreshingPairedSessions };
+    case "set-revoking-paired-session": {
+      if (action.revoking) {
+        if (state.revokingPairedSessionIds[action.sessionId]) {
+          return state;
+        }
+        return {
+          ...state,
+          revokingPairedSessionIds: {
+            ...state.revokingPairedSessionIds,
+            [action.sessionId]: true,
+          },
+        };
+      }
+      if (!(action.sessionId in state.revokingPairedSessionIds)) {
+        return state;
+      }
+      const next = { ...state.revokingPairedSessionIds };
+      delete next[action.sessionId];
+      return { ...state, revokingPairedSessionIds: next };
+    }
+    case "set-host-availability":
+      return {
+        ...state,
+        hostAvailability: {
+          ...state.hostAvailability,
+          [action.hostId]: action.availability,
+        },
+      };
+  }
 }
 
 type PairingUiAction =
@@ -259,7 +396,7 @@ function resolveAvailabilityPollDelayMs(): number {
   return Math.floor(4_990 + Math.random() * 5_010);
 }
 
-export function DevicesSettingsPanel() {
+function useDevicesSettingsPanelComponent() {
   const desktopMode = isElectron;
   const remoteRelaySettings = useSettings((settings) => settings.remoteRelay);
   const serverConfig = useServerConfig();
@@ -270,34 +407,42 @@ export function DevicesSettingsPanel() {
   const [connectedHostIds, setConnectedHostIds] = useState<string[]>(() =>
     loadConnectedRemoteHostIds(),
   );
-  const [hostDraft, setHostDraft] = useState<HostDraftState>(EMPTY_HOST_DRAFT);
-  const [editingHostId, setEditingHostId] = useState<string | null>(null);
-  const [importingHost, setImportingHost] = useState(false);
-  const [advertisedLocalWsUrl, setAdvertisedLocalWsUrl] = useState<string | null>(null);
-  const [refreshingLocalEndpoint, setRefreshingLocalEndpoint] = useState(false);
-  const [pairingLabel, setPairingLabel] = useState("");
-  const [relayUrlDraft, setRelayUrlDraft] = useState(remoteRelaySettings.defaultUrl);
+  const [panelState, dispatchPanelState] = useReducer(devicesPanelStateReducer, {
+    hostDraft: EMPTY_HOST_DRAFT,
+    editingHostId: null,
+    importingHost: false,
+    advertisedLocalWsUrl: null,
+    refreshingLocalEndpoint: false,
+    pairingLabel: "",
+    relayUrlDraft: remoteRelaySettings.defaultUrl,
+    checkingHostId: null,
+    connectingHostId: null,
+  });
+  const {
+    hostDraft,
+    editingHostId,
+    importingHost,
+    advertisedLocalWsUrl,
+    refreshingLocalEndpoint,
+    pairingLabel,
+    relayUrlDraft,
+    checkingHostId,
+    connectingHostId,
+  } = panelState;
   const [pairingUiState, dispatchPairingUi] = useReducer(
     pairingUiStateReducer,
     EMPTY_PAIRING_UI_STATE,
   );
   const { pairingLink, pairingSessionStatus, creatingPairingLink, revokingPairingLink } =
     pairingUiState;
-  const [pairedSessions, setPairedSessions] = useState<ReadonlyArray<HostPairingSessionSummary>>(
-    [],
-  );
-  const [refreshingPairedSessions, setRefreshingPairedSessions] = useState(false);
-  const [revokingPairedSessionIds, setRevokingPairedSessionIds] = useState<Record<string, boolean>>(
-    {},
-  );
-  const [hostAvailability, setHostAvailability] = useState<
-    Record<
-      string,
-      { status: "checking" | "available" | "unavailable" | "unauthenticated"; requestId: number }
-    >
-  >({});
-  const [checkingHostId, setCheckingHostId] = useState<string | null>(null);
-  const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
+  const [sessionState, dispatchSessionState] = useReducer(devicesSessionStateReducer, {
+    pairedSessions: [],
+    refreshingPairedSessions: false,
+    revokingPairedSessionIds: {},
+    hostAvailability: {},
+  });
+  const { pairedSessions, refreshingPairedSessions, revokingPairedSessionIds, hostAvailability } =
+    sessionState;
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const importingHostRef = useRef(importingHost);
   const pendingDesktopPairingCleanupRef = useRef<(() => void) | null>(null);
@@ -306,7 +451,10 @@ export function DevicesSettingsPanel() {
     importingHostRef.current = importingHost;
   }, [importingHost]);
   useEffect(() => {
-    setRelayUrlDraft(remoteRelaySettings.defaultUrl);
+    dispatchPanelState({
+      type: "set-relay-url-draft",
+      relayUrlDraft: remoteRelaySettings.defaultUrl,
+    });
   }, [remoteRelaySettings.defaultUrl]);
   const localControlConnectionUrl = useMemo(
     () =>
@@ -357,8 +505,7 @@ export function DevicesSettingsPanel() {
   }, []);
 
   const clearHostDraft = useCallback(() => {
-    setHostDraft(EMPTY_HOST_DRAFT);
-    setEditingHostId(null);
+    dispatchPanelState({ type: "clear-host-draft" });
   }, []);
 
   const sortedHosts = useMemo(() => {
@@ -379,7 +526,10 @@ export function DevicesSettingsPanel() {
   }, [hosts, connectedHostIds]);
 
   const pinnedRelayUrls = useMemo(
-    () => Array.from(new Set(pairedSessions.map((session) => session.relayUrl).filter(Boolean))),
+    () =>
+      Array.from(
+        new Set(pairedSessions.flatMap((session) => (session.relayUrl ? [session.relayUrl] : []))),
+      ),
     [pairedSessions],
   );
   const relayRegistrations = serverConfig?.relay?.registrations ?? [];
@@ -396,11 +546,14 @@ export function DevicesSettingsPanel() {
   }, [hosts, connectedHostIds, saveConnectedHostIds]);
 
   useEffect(() => {
-    const nextConnectionUrls = new Set(
-      hosts
-        .filter((host) => connectedHostIds.includes(host.id))
-        .map((host) => resolveHostConnectionWsUrl(host)),
-    );
+    const connectedHostIdSet = new Set(connectedHostIds);
+    const nextConnectionUrls = new Set<string>();
+    for (const host of hosts) {
+      if (!connectedHostIdSet.has(host.id)) {
+        continue;
+      }
+      nextConnectionUrls.add(resolveHostConnectionWsUrl(host));
+    }
     const previousConnectionUrls = registeredRouteConnectionUrlsRef.current;
 
     for (const connectionUrl of nextConnectionUrls) {
@@ -430,17 +583,23 @@ export function DevicesSettingsPanel() {
   );
 
   const refreshLocalEndpoint = useCallback(async () => {
-    setRefreshingLocalEndpoint(true);
+    dispatchPanelState({ type: "set-refreshing-local-endpoint", refreshingLocalEndpoint: true });
     try {
       const endpoint = await readHostPairingAdvertisedEndpoint({
         wsUrl: localDeviceConnection.wsUrl,
         ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
       });
-      setAdvertisedLocalWsUrl(endpoint.wsUrl);
+      dispatchPanelState({
+        type: "set-advertised-local-ws-url",
+        advertisedLocalWsUrl: endpoint.wsUrl,
+      });
     } catch {
-      setAdvertisedLocalWsUrl(null);
+      dispatchPanelState({ type: "set-advertised-local-ws-url", advertisedLocalWsUrl: null });
     } finally {
-      setRefreshingLocalEndpoint(false);
+      dispatchPanelState({
+        type: "set-refreshing-local-endpoint",
+        refreshingLocalEndpoint: false,
+      });
     }
   }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
 
@@ -456,7 +615,7 @@ export function DevicesSettingsPanel() {
           allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
         },
       });
-      setRelayUrlDraft(normalized);
+      dispatchPanelState({ type: "set-relay-url-draft", relayUrlDraft: normalized });
       toastManager.add({
         type: "success",
         title: "Default relay updated.",
@@ -635,15 +794,17 @@ export function DevicesSettingsPanel() {
         await verifyWsHostConnection(resolveHostConnectionWsUrl(upsertedHost), {
           timeoutMs: 2_500,
         });
-        setHostAvailability((current) => ({
-          ...current,
-          [upsertedHost.id]: { status: "available", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: upsertedHost.id,
+          availability: { status: "available", requestId: Date.now() },
+        });
       } catch (error) {
-        setHostAvailability((current) => ({
-          ...current,
-          [upsertedHost.id]: { status: "unavailable", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: upsertedHost.id,
+          availability: { status: "unavailable", requestId: Date.now() },
+        });
         toastManager.add({
           type: "warning",
           title: "Host saved but currently unavailable.",
@@ -667,7 +828,7 @@ export function DevicesSettingsPanel() {
     }
     let active = true;
     importingHostRef.current = true;
-    setImportingHost(true);
+    dispatchPanelState({ type: "set-importing-host", importingHost: true });
     void importRemoteHostConnection(pendingPairingLink, {
       requesterName: "ace desktop",
     })
@@ -694,7 +855,7 @@ export function DevicesSettingsPanel() {
         pendingDesktopPairingCleanupRef.current = null;
         if (active) {
           importingHostRef.current = false;
-          setImportingHost(false);
+          dispatchPanelState({ type: "set-importing-host", importingHost: false });
         }
       });
     return () => {
@@ -721,7 +882,7 @@ export function DevicesSettingsPanel() {
   }, [consumePendingDesktopPairingLink, desktopMode]);
 
   const addRemoteHost = useCallback(async () => {
-    setImportingHost(true);
+    dispatchPanelState({ type: "set-importing-host", importingHost: true });
     try {
       const editingHost = editingHostId
         ? hosts.find((host) => host.id === editingHostId)
@@ -744,7 +905,7 @@ export function DevicesSettingsPanel() {
         description: error instanceof Error ? error.message : "Remote host setup failed.",
       });
     } finally {
-      setImportingHost(false);
+      dispatchPanelState({ type: "set-importing-host", importingHost: false });
     }
   }, [
     clearHostDraft,
@@ -758,12 +919,15 @@ export function DevicesSettingsPanel() {
   ]);
 
   const startEditingHost = useCallback((host: RemoteHostInstance) => {
-    setEditingHostId(host.id);
-    setHostDraft({
-      name: host.name,
-      connection: resolveHostConnectionWsUrl(host),
-      iconGlyph: host.iconGlyph ?? "folder",
-      iconColor: host.iconColor ?? "slate",
+    dispatchPanelState({ type: "set-editing-host-id", editingHostId: host.id });
+    dispatchPanelState({
+      type: "set-host-draft",
+      hostDraft: {
+        name: host.name,
+        connection: resolveHostConnectionWsUrl(host),
+        iconGlyph: host.iconGlyph ?? "folder",
+        iconColor: host.iconColor ?? "slate",
+      },
     });
   }, []);
 
@@ -799,20 +963,22 @@ export function DevicesSettingsPanel() {
       if (checkingHostId !== null) {
         return;
       }
-      setCheckingHostId(host.id);
+      dispatchPanelState({ type: "set-checking-host-id", checkingHostId: host.id });
       try {
         await verifyWsHostConnection(resolveHostConnectionWsUrl(host), {
           timeoutMs: 2_500,
         });
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "available", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "available", requestId: Date.now() },
+        });
       } catch (error) {
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "unavailable", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "unavailable", requestId: Date.now() },
+        });
         toastManager.add({
           type: "error",
           title: "Host is unavailable.",
@@ -820,7 +986,7 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Host connection check did not complete.",
         });
       } finally {
-        setCheckingHostId(null);
+        dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
       }
     },
     [checkingHostId],
@@ -832,15 +998,16 @@ export function DevicesSettingsPanel() {
         return;
       }
       const connectionString = resolveHostConnectionWsUrl(host);
-      setConnectingHostId(host.id);
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
       try {
         await verifyWsHostConnection(connectionString, {
           timeoutMs: 2_500,
         });
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "available", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "available", requestId: Date.now() },
+        });
         markHostLastConnected(host.id);
         registerRemoteRoute(connectionString);
         await probeRemoteRouteAvailability(connectionString, {
@@ -854,10 +1021,11 @@ export function DevicesSettingsPanel() {
           description: "Local host remains the primary server.",
         });
       } catch (error) {
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "unavailable", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "unavailable", requestId: Date.now() },
+        });
         toastManager.add({
           type: "error",
           title: "Could not connect to remote host.",
@@ -865,7 +1033,7 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Host connection check did not complete.",
         });
       } finally {
-        setConnectingHostId(null);
+        dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
       }
     },
     [connectedHostIds, connectingHostId, markHostLastConnected, saveConnectedHostIds],
@@ -876,7 +1044,7 @@ export function DevicesSettingsPanel() {
       if (connectingHostId !== null || !connectedHostIds.includes(host.id)) {
         return;
       }
-      setConnectingHostId(host.id);
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
       try {
         saveConnectedHostIds(
           connectedHostIds.filter((candidateHostId) => candidateHostId !== host.id),
@@ -896,7 +1064,7 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Remote route cleanup did not complete.",
         });
       } finally {
-        setConnectingHostId(null);
+        dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
       }
     },
     [connectedHostIds, connectingHostId, saveConnectedHostIds],
@@ -906,7 +1074,7 @@ export function DevicesSettingsPanel() {
     if (connectingHostId !== null) {
       return;
     }
-    setConnectingHostId("local");
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: "local" });
     try {
       await verifyWsHostConnection(localControlConnectionUrl, { timeoutMs: 2_500 });
     } catch (error) {
@@ -917,7 +1085,7 @@ export function DevicesSettingsPanel() {
           error instanceof Error ? error.message : "Local host connection check did not complete.",
       });
     } finally {
-      setConnectingHostId(null);
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
     }
   }, [connectingHostId, localControlConnectionUrl]);
 
@@ -1059,7 +1227,10 @@ export function DevicesSettingsPanel() {
   const refreshPairedSessions = useCallback(
     async (options?: { readonly quiet?: boolean }) => {
       if (!options?.quiet) {
-        setRefreshingPairedSessions(true);
+        dispatchSessionState({
+          type: "set-refreshing-paired-sessions",
+          refreshingPairedSessions: true,
+        });
       }
       try {
         const sessions = await listHostPairingSessions({
@@ -1068,7 +1239,7 @@ export function DevicesSettingsPanel() {
             ? { authToken: localDeviceConnection.authToken }
             : {}),
         });
-        setPairedSessions(sessions);
+        dispatchSessionState({ type: "set-paired-sessions", pairedSessions: sessions });
       } catch (error) {
         if (!options?.quiet) {
           toastManager.add({
@@ -1079,7 +1250,10 @@ export function DevicesSettingsPanel() {
         }
       } finally {
         if (!options?.quiet) {
-          setRefreshingPairedSessions(false);
+          dispatchSessionState({
+            type: "set-refreshing-paired-sessions",
+            refreshingPairedSessions: false,
+          });
         }
       }
     },
@@ -1094,7 +1268,11 @@ export function DevicesSettingsPanel() {
       if (!confirmed) {
         return;
       }
-      setRevokingPairedSessionIds((current) => ({ ...current, [session.sessionId]: true }));
+      dispatchSessionState({
+        type: "set-revoking-paired-session",
+        sessionId: session.sessionId,
+        revoking: true,
+      });
       try {
         const revoked = await revokeHostPairingSession({
           wsUrl: localAdvertisedWsUrl,
@@ -1103,8 +1281,9 @@ export function DevicesSettingsPanel() {
             : {}),
           sessionId: session.sessionId,
         });
-        setPairedSessions((current) =>
-          current.map((entry) =>
+        dispatchSessionState({
+          type: "set-paired-sessions",
+          pairedSessions: pairedSessions.map((entry) =>
             entry.sessionId === session.sessionId
               ? {
                   ...entry,
@@ -1115,7 +1294,7 @@ export function DevicesSettingsPanel() {
                 }
               : entry,
           ),
-        );
+        });
         toastManager.add({
           type: "success",
           title: "Device access revoked.",
@@ -1128,14 +1307,14 @@ export function DevicesSettingsPanel() {
           description: error instanceof Error ? error.message : "Pairing session revoke failed.",
         });
       } finally {
-        setRevokingPairedSessionIds((current) => {
-          const next = { ...current };
-          delete next[session.sessionId];
-          return next;
+        dispatchSessionState({
+          type: "set-revoking-paired-session",
+          sessionId: session.sessionId,
+          revoking: false,
         });
       }
     },
-    [localAdvertisedWsUrl, localDeviceConnection.authToken, refreshPairedSessions],
+    [localAdvertisedWsUrl, localDeviceConnection.authToken, pairedSessions, refreshPairedSessions],
   );
 
   useEffect(() => {
@@ -1155,15 +1334,17 @@ export function DevicesSettingsPanel() {
     const requestId = Date.now();
     await Promise.all(
       hosts.map(async (host) => {
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "checking", requestId },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "checking", requestId },
+        });
         try {
           await verifyWsHostConnection(resolveHostConnectionWsUrl(host), { timeoutMs: 3_500 });
-          setHostAvailability((current) => {
-            if (current[host.id]?.requestId !== requestId) return current;
-            return { ...current, [host.id]: { status: "available", requestId } };
+          dispatchSessionState({
+            type: "set-host-availability",
+            hostId: host.id,
+            availability: { status: "available", requestId },
           });
         } catch (error) {
           const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -1171,12 +1352,13 @@ export function DevicesSettingsPanel() {
             message.includes("invalid") ||
             message.includes("unauthorized") ||
             message.includes("401");
-          setHostAvailability((current) => {
-            if (current[host.id]?.requestId !== requestId) return current;
-            return {
-              ...current,
-              [host.id]: { status: unauthenticated ? "unauthenticated" : "unavailable", requestId },
-            };
+          dispatchSessionState({
+            type: "set-host-availability",
+            hostId: host.id,
+            availability: {
+              status: unauthenticated ? "unauthenticated" : "unavailable",
+              requestId,
+            },
           });
         }
       }),
@@ -1324,7 +1506,10 @@ export function DevicesSettingsPanel() {
               <Input
                 value={pairingLabel}
                 onChange={(event) => {
-                  setPairingLabel(event.currentTarget.value);
+                  dispatchPanelState({
+                    type: "set-pairing-label",
+                    pairingLabel: event.currentTarget.value,
+                  });
                 }}
                 placeholder="Device label (for example: Office Mac mini)"
               />
@@ -1417,9 +1602,11 @@ export function DevicesSettingsPanel() {
           >
             <div className="space-y-3">
               <label
+                htmlFor="remote-relay-enabled"
                 className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 items-center gap-2 px-3 text-[12px] text-muted-foreground`}
               >
                 <Switch
+                  id="remote-relay-enabled"
                   checked={remoteRelaySettings.enabled}
                   onCheckedChange={toggleRemoteRelayEnabled}
                 />
@@ -1428,13 +1615,20 @@ export function DevicesSettingsPanel() {
               <div className="grid gap-2">
                 <Input
                   value={relayUrlDraft}
-                  onChange={(event) => setRelayUrlDraft(event.currentTarget.value)}
+                  onChange={(event) =>
+                    dispatchPanelState({
+                      type: "set-relay-url-draft",
+                      relayUrlDraft: event.currentTarget.value,
+                    })
+                  }
                   placeholder={DEFAULT_MANAGED_RELAY_URL}
                 />
                 <label
+                  htmlFor="remote-relay-allow-local-ws"
                   className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 w-fit items-center gap-2 px-2.5 text-[12px] text-muted-foreground`}
                 >
                   <Switch
+                    id="remote-relay-allow-local-ws"
                     checked={remoteRelaySettings.allowInsecureLocalUrls}
                     onCheckedChange={toggleInsecureRelayUrls}
                   />
@@ -1610,7 +1804,7 @@ export function DevicesSettingsPanel() {
                 value={hostDraft.name}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  setHostDraft((previous) => ({ ...previous, name: value }));
+                  dispatchPanelState({ type: "update-host-draft", hostDraft: { name: value } });
                 }}
                 placeholder="Device name"
               />
@@ -1618,7 +1812,10 @@ export function DevicesSettingsPanel() {
                 value={hostDraft.connection}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  setHostDraft((previous) => ({ ...previous, connection: value }));
+                  dispatchPanelState({
+                    type: "update-host-draft",
+                    hostDraft: { connection: value },
+                  });
                 }}
                 placeholder="ace://pair?... or ws://host:3773/ws?token=..."
               />
@@ -1632,7 +1829,10 @@ export function DevicesSettingsPanel() {
                     value={hostDraft.iconGlyph ?? "folder"}
                     onChange={(event) => {
                       const value = event.currentTarget.value as RemoteHostInstance["iconGlyph"];
-                      setHostDraft((previous) => ({ ...previous, iconGlyph: value }));
+                      dispatchPanelState({
+                        type: "update-host-draft",
+                        hostDraft: { iconGlyph: value },
+                      });
                     }}
                   >
                     {PROJECT_ICON_OPTIONS.map((option) => (
@@ -1651,7 +1851,10 @@ export function DevicesSettingsPanel() {
                     value={hostDraft.iconColor ?? "slate"}
                     onChange={(event) => {
                       const value = event.currentTarget.value as RemoteHostInstance["iconColor"];
-                      setHostDraft((previous) => ({ ...previous, iconColor: value }));
+                      dispatchPanelState({
+                        type: "update-host-draft",
+                        hostDraft: { iconColor: value },
+                      });
                     }}
                   >
                     {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
@@ -1809,4 +2012,8 @@ export function DevicesSettingsPanel() {
       </DeviceSection>
     </SettingsPageContainer>
   );
+}
+
+export function DevicesSettingsPanel() {
+  return useDevicesSettingsPanelComponent();
 }

@@ -42,9 +42,9 @@ const PersistedUiStateSchema = Schema.Struct({
 type PersistedUiState = typeof PersistedUiStateSchema.Type;
 const decodePersistedUiState = Schema.decodeSync(Schema.fromJsonString(PersistedUiStateSchema));
 
-export type UiPinnedItem = { kind: "project"; id: ProjectId } | { kind: "thread"; id: ThreadId };
+type UiPinnedItem = { kind: "project"; id: ProjectId } | { kind: "thread"; id: ThreadId };
 
-export interface UiProjectState {
+interface UiProjectState {
   boardsSectionExpanded: boolean;
   pinnedSectionExpanded: boolean;
   projectExpandedById: Record<string, boolean>;
@@ -52,7 +52,7 @@ export interface UiProjectState {
   projectsSectionExpanded: boolean;
 }
 
-export interface UiThreadState {
+interface UiThreadState {
   pinnedItems: UiPinnedItem[];
   threadOrderByProjectId: Record<string, ThreadId[]>;
   threadLastVisitedAtById: Record<string, string>;
@@ -60,14 +60,14 @@ export interface UiThreadState {
   previousActiveThreadId: ThreadId | null;
 }
 
-export interface UiState extends UiProjectState, UiThreadState {}
+interface UiState extends UiProjectState, UiThreadState {}
 
-export interface SyncProjectInput {
+interface SyncProjectInput {
   id: ProjectId;
   cwd: string;
 }
 
-export interface SyncThreadInput {
+interface SyncThreadInput {
   id: ThreadId;
   projectId?: ProjectId | undefined;
   seedVisitedAt?: string | undefined;
@@ -92,6 +92,7 @@ const persistedPinnedProjectCwds = new Set<string>();
 const persistedPinnedThreadIds = new Set<string>();
 const persistedThreadOrderByProjectCwd = new Map<string, ThreadId[]>();
 const persistedProjectOrderCwds: string[] = [];
+const persistedProjectOrderCwdSet = new Set<string>();
 const currentProjectCwdById = new Map<ProjectId, string>();
 let legacyKeysCleanedUp = false;
 
@@ -137,6 +138,7 @@ function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedPinnedThreadIds.clear();
   persistedThreadOrderByProjectCwd.clear();
   persistedProjectOrderCwds.length = 0;
+  persistedProjectOrderCwdSet.clear();
   for (const cwd of parsed.expandedProjectCwds ?? []) {
     if (typeof cwd === "string" && cwd.length > 0) {
       persistedExpandedProjectCwds.add(cwd);
@@ -180,7 +182,8 @@ function hydratePersistedProjectState(parsed: PersistedUiState): void {
     }
   }
   for (const cwd of parsed.projectOrderCwds ?? []) {
-    if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwds.includes(cwd)) {
+    if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwdSet.has(cwd)) {
+      persistedProjectOrderCwdSet.add(cwd);
       persistedProjectOrderCwds.push(cwd);
     }
   }
@@ -191,18 +194,19 @@ function persistState(state: UiState): void {
     return;
   }
   try {
-    const expandedProjectCwds = Object.entries(state.projectExpandedById)
-      .filter(([, expanded]) => expanded)
-      .flatMap(([projectId]) => {
-        const cwd = currentProjectCwdById.get(projectId as ProjectId);
-        return cwd ? [cwd] : [];
-      });
-    const collapsedProjectCwds = Object.entries(state.projectExpandedById)
-      .filter(([, expanded]) => !expanded)
-      .flatMap(([projectId]) => {
-        const cwd = currentProjectCwdById.get(projectId as ProjectId);
-        return cwd ? [cwd] : [];
-      });
+    const expandedProjectCwds: string[] = [];
+    const collapsedProjectCwds: string[] = [];
+    for (const [projectId, expanded] of Object.entries(state.projectExpandedById)) {
+      const cwd = currentProjectCwdById.get(projectId as ProjectId);
+      if (!cwd) {
+        continue;
+      }
+      if (expanded) {
+        expandedProjectCwds.push(cwd);
+      } else {
+        collapsedProjectCwds.push(cwd);
+      }
+    }
     const pinnedItems: Array<{ kind: "project" | "thread"; cwd?: string; id?: string }> = [];
     for (const item of state.pinnedItems) {
       if (item.kind === "thread") {
@@ -507,7 +511,8 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
       continue;
     }
     const projectOrder = nextThreadOrderByProjectId[thread.projectId] ?? [];
-    if (!projectOrder.includes(thread.id)) {
+    const projectOrderSet = new Set(projectOrder);
+    if (!projectOrderSet.has(thread.id)) {
       nextThreadOrderByProjectId[thread.projectId] = [...projectOrder, thread.id];
     } else if (projectOrder !== nextThreadOrderByProjectId[thread.projectId]) {
       nextThreadOrderByProjectId[thread.projectId] = projectOrder;
@@ -584,7 +589,7 @@ export function trackActiveThread(state: UiState, threadId: ThreadId | null | un
   };
 }
 
-export function markThreadVisited(state: UiState, threadId: ThreadId, visitedAt?: string): UiState {
+function markThreadVisited(state: UiState, threadId: ThreadId, visitedAt?: string): UiState {
   const at = visitedAt ?? new Date().toISOString();
   const visitedAtMs = Date.parse(at);
   const previousVisitedAt = state.threadLastVisitedAtById[threadId];
@@ -777,7 +782,7 @@ export function reorderPinnedThreads(
   };
 }
 
-export function toggleProject(state: UiState, projectId: ProjectId): UiState {
+function toggleProject(state: UiState, projectId: ProjectId): UiState {
   const expanded = state.projectExpandedById[projectId] ?? true;
   return {
     ...state,
@@ -805,7 +810,7 @@ export function setProjectExpanded(
   };
 }
 
-export function setPinnedSectionExpanded(state: UiState, expanded: boolean): UiState {
+function setPinnedSectionExpanded(state: UiState, expanded: boolean): UiState {
   if (state.pinnedSectionExpanded === expanded) {
     return state;
   }
@@ -815,7 +820,7 @@ export function setPinnedSectionExpanded(state: UiState, expanded: boolean): UiS
   };
 }
 
-export function setProjectsSectionExpanded(state: UiState, expanded: boolean): UiState {
+function setProjectsSectionExpanded(state: UiState, expanded: boolean): UiState {
   if (state.projectsSectionExpanded === expanded) {
     return state;
   }
@@ -825,7 +830,7 @@ export function setProjectsSectionExpanded(state: UiState, expanded: boolean): U
   };
 }
 
-export function setBoardsSectionExpanded(state: UiState, expanded: boolean): UiState {
+function setBoardsSectionExpanded(state: UiState, expanded: boolean): UiState {
   if (state.boardsSectionExpanded === expanded) {
     return state;
   }

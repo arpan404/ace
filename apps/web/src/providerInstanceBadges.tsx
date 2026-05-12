@@ -76,7 +76,7 @@ export function normalizeProviderInstanceBadgeIcon(
     : DEFAULT_BADGE_ICON;
 }
 
-export function getProviderInstanceBadgeColorHex(value: string | undefined): string {
+function getProviderInstanceBadgeColorHex(value: string | undefined): string {
   const normalized = normalizeProviderInstanceBadgeColor(value);
   return (
     PROVIDER_INSTANCE_BADGE_COLORS.find((color) => color.value === normalized)?.hex ??

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { OrchestrationEvent } from "@ace/contracts";
 
-import { APP_DISPLAY_NAME } from "../branding";
+import { APP_BASE_NAME } from "../branding";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { useStore } from "../store";
@@ -99,15 +99,20 @@ function scopedAgentAttentionRequestsEqual(
   previousRequests: ReadonlyArray<ScopedAgentAttentionRequest>,
   nextRequests: ReadonlyArray<ScopedAgentAttentionRequest>,
 ): boolean {
-  return (
-    previousRequests.length === nextRequests.length &&
-    previousRequests.every((request, index) => nextRequests[index]?.key === request.key) &&
-    previousRequests.every(
-      (request, index) =>
-        nextRequests[index]?.createdAt === request.createdAt &&
-        nextRequests[index]?.body === request.body,
-    )
-  );
+  if (previousRequests.length !== nextRequests.length) {
+    return false;
+  }
+  for (const [index, request] of previousRequests.entries()) {
+    const nextRequest = nextRequests[index];
+    if (
+      nextRequest?.key !== request.key ||
+      nextRequest.createdAt !== request.createdAt ||
+      nextRequest.body !== request.body
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function agentAttentionBridgeStateReducer(
@@ -161,7 +166,7 @@ function agentAttentionBridgeStateReducer(
   }
 }
 
-export function AgentAttentionNotificationBridge() {
+function useAgentAttentionNotificationBridgeComponent() {
   const navigate = useNavigate();
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
@@ -467,6 +472,10 @@ export function AgentAttentionNotificationBridge() {
     }
     setWindowState(readAgentAttentionNotificationPermission());
   }, [desktopNotificationBridge]);
+  const syncWindowStateRef = useRef(syncWindowState);
+  useEffect(() => {
+    syncWindowStateRef.current = syncWindowState;
+  }, [syncWindowState]);
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -477,17 +486,20 @@ export function AgentAttentionNotificationBridge() {
       return;
     }
 
-    syncWindowState();
-    document.addEventListener("visibilitychange", syncWindowState);
-    window.addEventListener("focus", syncWindowState);
-    window.addEventListener("blur", syncWindowState);
+    const handleWindowStateSync = () => {
+      syncWindowStateRef.current();
+    };
+    handleWindowStateSync();
+    document.addEventListener("visibilitychange", handleWindowStateSync);
+    window.addEventListener("focus", handleWindowStateSync);
+    window.addEventListener("blur", handleWindowStateSync);
 
     return () => {
-      document.removeEventListener("visibilitychange", syncWindowState);
-      window.removeEventListener("focus", syncWindowState);
-      window.removeEventListener("blur", syncWindowState);
+      document.removeEventListener("visibilitychange", handleWindowStateSync);
+      window.removeEventListener("focus", handleWindowStateSync);
+      window.removeEventListener("blur", handleWindowStateSync);
     };
-  }, [syncWindowState]);
+  }, []);
 
   useEffect(() => {
     const activeRequestKeys = new Set(attentionRequests.map((request) => request.key));
@@ -793,7 +805,7 @@ export function AgentAttentionNotificationBridge() {
     const toastId = toastManager.add({
       type: "info",
       title: "Enable agent notifications",
-      description: `${APP_DISPLAY_NAME} can alert you when agent work finishes or needs input while this window is in the background.`,
+      description: `${APP_BASE_NAME} can alert you when agent work finishes or needs input while this window is in the background.`,
       data: {
         dismissAfterVisibleMs: PERMISSION_OFFER_DISMISS_MS,
       },
@@ -813,7 +825,7 @@ export function AgentAttentionNotificationBridge() {
                 toastManager.add({
                   type: "success",
                   title: "Notifications enabled",
-                  description: `${APP_DISPLAY_NAME} will now alert you when agent work finishes or needs input in the background.`,
+                  description: `${APP_BASE_NAME} will now alert you when agent work finishes or needs input in the background.`,
                 });
                 return;
               }
@@ -881,5 +893,10 @@ export function AgentAttentionNotificationBridge() {
     [resetPermissionOfferTracking],
   );
 
+  return null;
+}
+
+export function AgentAttentionNotificationBridge() {
+  useAgentAttentionNotificationBridgeComponent();
   return null;
 }

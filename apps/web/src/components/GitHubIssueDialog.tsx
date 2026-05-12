@@ -47,6 +47,7 @@ const ISSUE_SKELETON_KEYS = [
 ] as const;
 const ISSUE_STATE_FILTERS: ReadonlyArray<GitHubIssueListStateFilter> = ["open", "all"];
 const ISSUE_LIMIT_OPTIONS = [40, 80, 120] as const;
+const EMPTY_INITIAL_SELECTED_ISSUE_NUMBERS: readonly number[] = [];
 
 function toggleListValue(values: ReadonlyArray<number>, next: number): number[] {
   return values.includes(next) ? values.filter((value) => value !== next) : [...values, next];
@@ -160,11 +161,11 @@ function gitHubIssueDialogReducer(
   }
 }
 
-export function GitHubIssueDialog({
+function useGitHubIssueDialogComponent({
   open,
   cwd,
   initialIssueNumber = null,
-  initialSelectedIssueNumbers = [],
+  initialSelectedIssueNumbers = EMPTY_INITIAL_SELECTED_ISSUE_NUMBERS,
   onOpenChange,
   onFixIssue,
   onFixIssuesInParallelWorktrees,
@@ -369,12 +370,13 @@ export function GitHubIssueDialog({
 
             <div className="flex min-h-0 flex-1 flex-col gap-2 px-3 pb-2.5 pt-2.5 sm:px-3.5">
               {/* Search */}
-              <label className="relative block shrink-0">
+              <label htmlFor="github-issue-search" className="relative block shrink-0">
                 <SearchIcon
                   aria-hidden
                   className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60"
                 />
                 <Input
+                  id="github-issue-search"
                   ref={searchInputRef}
                   placeholder="Search issues…"
                   value={search}
@@ -823,4 +825,8 @@ export function GitHubIssueDialog({
       </DialogPopup>
     </Dialog>
   );
+}
+
+export function GitHubIssueDialog(props: GitHubIssueDialogProps) {
+  return useGitHubIssueDialogComponent(props);
 }

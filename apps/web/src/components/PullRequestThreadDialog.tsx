@@ -226,9 +226,10 @@ export function PullRequestThreadDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-4">
-          <label className="grid gap-1.5">
+          <label htmlFor="pull-request-reference" className="grid gap-1.5">
             <span className="text-xs font-medium text-foreground">Pull request</span>
             <Input
+              id="pull-request-reference"
               ref={referenceInputRef}
               placeholder="https://github.com/owner/repo/pull/42, gh pr checkout 42, or #42"
               value={reference}
@@ -268,7 +269,7 @@ export function PullRequestThreadDialog({
           {isResolving ? (
             <div className="flex items-center gap-2 text-muted-foreground text-xs">
               <Spinner className="size-3.5" />
-              Resolving pull request...
+              Resolving pull request…
             </div>
           ) : null}
 

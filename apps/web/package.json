@@ -69,5 +69,20 @@
     "vite": "^8.0.10",
     "vitest": "catalog:",
     "vitest-browser-react": "^2.2.0"
+  },
+  "knip": {
+    "entry": [
+      "src/main.tsx",
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "src/**/*.browser.tsx",
+      "test/**/*.ts",
+      "test/**/*.tsx",
+      "test/**/*.browser.ts",
+      "test/**/*.browser.tsx",
+      "vitest.browser.config.ts",
+      "public/ace-notifications-sw.js",
+      "public/mockServiceWorker.js"
+    ]
   }
 }

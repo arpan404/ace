@@ -231,7 +231,14 @@ export function ComposerQueuedMessages(props: {
 
   const orderedMessages = useMemo(() => {
     const byId = new Map(props.messages.map((message) => [message.id, message] as const));
-    return baseOrderIds.map((id) => byId.get(id)).filter((value) => value !== undefined);
+    const nextOrderedMessages: ComposerQueuedMessageItem[] = [];
+    for (const id of baseOrderIds) {
+      const message = byId.get(id);
+      if (message) {
+        nextOrderedMessages.push(message);
+      }
+    }
+    return nextOrderedMessages;
   }, [baseOrderIds, props.messages]);
 
   const serverOrderIds = useMemo(
@@ -264,14 +271,27 @@ export function ComposerQueuedMessages(props: {
       return;
     }
     const currentOrder = serverOrderIds;
-    const hasSameIds =
-      currentOrder.length === optimisticOrder.length &&
-      currentOrder.every((id) => optimisticOrder.includes(id));
+    let hasSameIds = currentOrder.length === optimisticOrder.length;
+    if (hasSameIds) {
+      const optimisticOrderSet = new Set(optimisticOrder);
+      for (const id of currentOrder) {
+        if (!optimisticOrderSet.has(id)) {
+          hasSameIds = false;
+          break;
+        }
+      }
+    }
     if (!hasSameIds) {
       setOptimisticOrder(null);
       return;
     }
-    const isSettled = currentOrder.every((id, index) => id === optimisticOrder[index]);
+    let isSettled = true;
+    for (const [index, id] of currentOrder.entries()) {
+      if (id !== optimisticOrder[index]) {
+        isSettled = false;
+        break;
+      }
+    }
     if (isSettled) {
       setOptimisticOrder(null);
     }

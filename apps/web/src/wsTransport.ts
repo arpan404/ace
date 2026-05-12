@@ -346,10 +346,10 @@ export class WsTransport {
       throw new Error("Transport disposed");
     }
 
-    let attempt = 0;
-    let lastError: unknown;
-
-    while (!this.disposed) {
+    const runAttempt = async (attempt: number): Promise<TSuccess> => {
+      if (this.disposed) {
+        throw new Error("Transport disposed");
+      }
       try {
         const client = await this.clientPromise;
         const result = await this.runtime.runPromise(Effect.suspend(() => execute(client)));
@@ -363,27 +363,26 @@ export class WsTransport {
           throw new Error("Transport disposed", { cause: error });
         }
         this.noteDisconnected(error);
-        lastError = error;
         if (!isRetryableRequestError(error) || attempt >= DEFAULT_REQUEST_RETRY_LIMIT) {
           throw error;
         }
-        attempt += 1;
-        const delayMs = DEFAULT_REQUEST_RETRY_DELAY_MS * attempt;
+        const nextAttempt = attempt + 1;
+        const delayMs = DEFAULT_REQUEST_RETRY_DELAY_MS * nextAttempt;
         logLoadDiagnostic({
           phase: "ws",
           level: "warning",
           message: "Retrying WebSocket request after transient disconnect",
           detail: {
-            attempt,
+            attempt: nextAttempt,
             delayMs,
             error: formatErrorMessage(error),
           },
         });
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        return runAttempt(nextAttempt);
       }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error("Transport disposed");
+    };
+    return runAttempt(0);
   }
 
   async requestStream<TValue>(

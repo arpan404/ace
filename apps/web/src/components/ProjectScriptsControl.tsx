@@ -245,6 +245,234 @@ function projectScriptDialogStateReducer(
   }
 }
 
+function ProjectScriptEditorDialog(props: {
+  addScriptFormId: string;
+  captureKeybinding: (event: KeyboardEvent<HTMLInputElement>) => void;
+  command: string;
+  confirmDeleteScript: () => void;
+  deleteConfirmOpen: boolean;
+  dialogOpen: boolean;
+  dispatchDialogState: React.Dispatch<ProjectScriptDialogAction>;
+  icon: ProjectScriptIcon;
+  iconPickerOpen: boolean;
+  isEditing: boolean;
+  keybinding: string;
+  name: string;
+  runOnWorktreeCreate: boolean;
+  submitAddScript: (event: FormEvent) => Promise<void>;
+  validationError: string | null;
+}) {
+  return (
+    <>
+      <Dialog
+        onOpenChange={(open) => {
+          props.dispatchDialogState({ type: "set-dialog-open", dialogOpen: open });
+          if (!open) {
+            props.dispatchDialogState({ type: "set-icon-picker-open", iconPickerOpen: false });
+          }
+        }}
+        onOpenChangeComplete={(open) => {
+          if (open) return;
+          props.dispatchDialogState({ type: "reset-dialog-form" });
+        }}
+        open={props.dialogOpen}
+      >
+        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-2xl`}>
+          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
+            <DialogTitle>{props.isEditing ? "Edit action" : "Add action"}</DialogTitle>
+            <DialogDescription className="max-w-xl">
+              Actions are project-scoped commands you can run from the top bar or keybindings.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
+            <form id={props.addScriptFormId} className="space-y-4" onSubmit={props.submitAddScript}>
+              <div className="space-y-1.5">
+                <Label htmlFor="script-name" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Name
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Popover
+                    onOpenChange={(open) =>
+                      props.dispatchDialogState({
+                        type: "set-icon-picker-open",
+                        iconPickerOpen: open,
+                      })
+                    }
+                    open={props.iconPickerOpen}
+                  >
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="size-9 shrink-0 rounded-xl border-border/55 bg-background/72 shadow-none hover:bg-accent active:bg-accent/80 data-pressed:bg-accent"
+                          aria-label="Choose icon"
+                        />
+                      }
+                    >
+                      <ScriptIcon icon={props.icon} className="size-4.5" />
+                    </PopoverTrigger>
+                    <PopoverPopup align="start" className="border-border/60 bg-popover/96 p-2">
+                      <div className="grid grid-cols-3 gap-2">
+                        {SCRIPT_ICONS.map((entry) => {
+                          const isSelected = entry.id === props.icon;
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              className={`relative flex flex-col items-center gap-2 rounded-lg border px-2 py-2 text-xs transition-colors ${
+                                isSelected
+                                  ? "border-primary/50 bg-primary/10 text-foreground"
+                                  : "border-border/50 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                props.dispatchDialogState({ type: "set-icon", icon: entry.id });
+                                props.dispatchDialogState({
+                                  type: "set-icon-picker-open",
+                                  iconPickerOpen: false,
+                                });
+                              }}
+                            >
+                              <ScriptIcon icon={entry.id} className="size-4" />
+                              <span>{entry.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </PopoverPopup>
+                  </Popover>
+                  <Input
+                    id="script-name"
+                    placeholder="Test"
+                    value={props.name}
+                    className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
+                    onChange={(event) =>
+                      props.dispatchDialogState({ type: "set-name", name: event.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="script-keybinding" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Keybinding
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="script-keybinding"
+                    placeholder="Press shortcut"
+                    value={props.keybinding}
+                    className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} pr-9`}
+                    readOnly
+                    onKeyDown={props.captureKeybinding}
+                  />
+                  {props.keybinding ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute top-1/2 right-1 size-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="Clear keybinding"
+                      onClick={() =>
+                        props.dispatchDialogState({ type: "set-keybinding", keybinding: "" })
+                      }
+                    >
+                      <XIcon className="size-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">Press a shortcut to capture it.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="script-command" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Command
+                </Label>
+                <Textarea
+                  id="script-command"
+                  placeholder="bun test"
+                  value={props.command}
+                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-28 font-mono text-[13px]`}
+                  onChange={(event) =>
+                    props.dispatchDialogState({ type: "set-command", command: event.target.value })
+                  }
+                />
+              </div>
+              <div
+                className={`${HEADER_ACTION_FIELD_CARD_CLASS_NAME} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
+              >
+                <Label htmlFor="script-run-on-worktree-create">
+                  Run automatically on worktree creation
+                </Label>
+                <Switch
+                  id="script-run-on-worktree-create"
+                  checked={props.runOnWorktreeCreate}
+                  onCheckedChange={(checked) =>
+                    props.dispatchDialogState({
+                      type: "set-run-on-worktree-create",
+                      runOnWorktreeCreate: Boolean(checked),
+                    })
+                  }
+                />
+              </div>
+              {props.validationError && (
+                <p className="text-sm text-destructive">{props.validationError}</p>
+              )}
+            </form>
+          </DialogPanel>
+          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
+            {props.isEditing && (
+              <Button
+                type="button"
+                variant="destructive"
+                className="mr-auto"
+                onClick={() =>
+                  props.dispatchDialogState({
+                    type: "set-delete-confirm-open",
+                    deleteConfirmOpen: true,
+                  })
+                }
+              >
+                Delete
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                props.dispatchDialogState({ type: "close-dialog" });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button form={props.addScriptFormId} type="submit">
+              {props.isEditing ? "Save changes" : "Save action"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <AlertDialog
+        open={props.deleteConfirmOpen}
+        onOpenChange={(open) =>
+          props.dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: open })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete action "{props.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="destructive" onClick={props.confirmDeleteScript}>
+              Delete action
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 export default function ProjectScriptsControl({
   scripts,
   keybindings,
@@ -485,201 +713,23 @@ export default function ProjectScriptsControl({
         </div>
       )}
 
-      <Dialog
-        onOpenChange={(open) => {
-          dispatchDialogState({ type: "set-dialog-open", dialogOpen: open });
-          if (!open) {
-            dispatchDialogState({ type: "set-icon-picker-open", iconPickerOpen: false });
-          }
-        }}
-        onOpenChangeComplete={(open) => {
-          if (open) return;
-          dispatchDialogState({ type: "reset-dialog-form" });
-        }}
-        open={dialogOpen}
-      >
-        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-2xl`}>
-          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
-            <DialogTitle>{isEditing ? "Edit action" : "Add action"}</DialogTitle>
-            <DialogDescription className="max-w-xl">
-              Actions are project-scoped commands you can run from the top bar or keybindings.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
-            <form id={addScriptFormId} className="space-y-4" onSubmit={submitAddScript}>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-name" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Name
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Popover
-                    onOpenChange={(open) =>
-                      dispatchDialogState({ type: "set-icon-picker-open", iconPickerOpen: open })
-                    }
-                    open={iconPickerOpen}
-                  >
-                    <PopoverTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="size-9 shrink-0 rounded-xl border-border/55 bg-background/72 shadow-none hover:bg-accent active:bg-accent/80 data-pressed:bg-accent"
-                          aria-label="Choose icon"
-                        />
-                      }
-                    >
-                      <ScriptIcon icon={icon} className="size-4.5" />
-                    </PopoverTrigger>
-                    <PopoverPopup align="start" className="border-border/60 bg-popover/96 p-2">
-                      <div className="grid grid-cols-3 gap-2">
-                        {SCRIPT_ICONS.map((entry) => {
-                          const isSelected = entry.id === icon;
-                          return (
-                            <button
-                              key={entry.id}
-                              type="button"
-                              className={`relative flex flex-col items-center gap-2 rounded-lg border px-2 py-2 text-xs transition-colors ${
-                                isSelected
-                                  ? "border-primary/50 bg-primary/10 text-foreground"
-                                  : "border-border/50 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
-                              }`}
-                              onClick={() => {
-                                dispatchDialogState({ type: "set-icon", icon: entry.id });
-                                dispatchDialogState({
-                                  type: "set-icon-picker-open",
-                                  iconPickerOpen: false,
-                                });
-                              }}
-                            >
-                              <ScriptIcon icon={entry.id} className="size-4" />
-                              <span>{entry.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </PopoverPopup>
-                  </Popover>
-                  <Input
-                    id="script-name"
-                    autoFocus
-                    placeholder="Test"
-                    value={name}
-                    className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
-                    onChange={(event) =>
-                      dispatchDialogState({ type: "set-name", name: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Keybinding
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="script-keybinding"
-                    placeholder="Press shortcut"
-                    value={keybinding}
-                    className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} pr-9`}
-                    readOnly
-                    onKeyDown={captureKeybinding}
-                  />
-                  {keybinding ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute top-1/2 right-1 size-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label="Clear keybinding"
-                      onClick={() =>
-                        dispatchDialogState({ type: "set-keybinding", keybinding: "" })
-                      }
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  ) : null}
-                </div>
-                <p className="text-xs text-muted-foreground">Press a shortcut to capture it.</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-command" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Command
-                </Label>
-                <Textarea
-                  id="script-command"
-                  placeholder="bun test"
-                  value={command}
-                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-28 font-mono text-[13px]`}
-                  onChange={(event) =>
-                    dispatchDialogState({ type: "set-command", command: event.target.value })
-                  }
-                />
-              </div>
-              <label
-                className={`${HEADER_ACTION_FIELD_CARD_CLASS_NAME} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
-              >
-                <span>Run automatically on worktree creation</span>
-                <Switch
-                  checked={runOnWorktreeCreate}
-                  onCheckedChange={(checked) =>
-                    dispatchDialogState({
-                      type: "set-run-on-worktree-create",
-                      runOnWorktreeCreate: Boolean(checked),
-                    })
-                  }
-                />
-              </label>
-              {validationError && <p className="text-sm text-destructive">{validationError}</p>}
-            </form>
-          </DialogPanel>
-          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
-            {isEditing && (
-              <Button
-                type="button"
-                variant="destructive"
-                className="mr-auto"
-                onClick={() =>
-                  dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: true })
-                }
-              >
-                Delete
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                dispatchDialogState({ type: "close-dialog" });
-              }}
-            >
-              Cancel
-            </Button>
-            <Button form={addScriptFormId} type="submit">
-              {isEditing ? "Save changes" : "Save action"}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-
-      <AlertDialog
-        open={deleteConfirmOpen}
-        onOpenChange={(open) =>
-          dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: open })
-        }
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete action "{name}"?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <Button variant="destructive" onClick={confirmDeleteScript}>
-              Delete action
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ProjectScriptEditorDialog
+        addScriptFormId={addScriptFormId}
+        captureKeybinding={captureKeybinding}
+        command={command}
+        confirmDeleteScript={confirmDeleteScript}
+        deleteConfirmOpen={deleteConfirmOpen}
+        dialogOpen={dialogOpen}
+        dispatchDialogState={dispatchDialogState}
+        icon={icon}
+        iconPickerOpen={iconPickerOpen}
+        isEditing={isEditing}
+        keybinding={keybinding}
+        name={name}
+        runOnWorktreeCreate={runOnWorktreeCreate}
+        submitAddScript={submitAddScript}
+        validationError={validationError}
+      />
     </>
   );
 }

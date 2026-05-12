@@ -44,10 +44,11 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -60,10 +61,6 @@ import { isElectron } from "../env";
 import { parseDiffRouteSearch } from "../diffRouteSearch";
 import {
   normalizeThreadWorkspaceLayoutMode,
-  THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
-  THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
-  ThreadWorkspaceLayoutByThreadIdSchema,
-  ThreadWorkspaceModeByThreadIdSchema,
   type ThreadWorkspaceMode,
 } from "../threadWorkspaceMode";
 import {
@@ -220,6 +217,7 @@ import {
 } from "./InAppBrowser";
 import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
+import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
@@ -255,11 +253,7 @@ import {
   type PendingComposerComment,
 } from "~/lib/chat/commentAccumulation";
 import { useThreadPlanCatalog } from "~/lib/chat/threadPlanCatalog";
-import {
-  BROWSER_SPLIT_WIDTH_STORAGE_KEY,
-  DEFAULT_BROWSER_SPLIT_WIDTH,
-  clampBrowserSplitWidth,
-} from "~/lib/chat/browserSplit";
+import { clampBrowserSplitWidth } from "~/lib/chat/browserSplit";
 import {
   DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
   MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
@@ -270,9 +264,7 @@ import {
   resolveBrowserOpenRightSidePanelWidth,
 } from "~/lib/chat/rightSidePanelWidth";
 import {
-  DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
   MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
-  WORKSPACE_EDITOR_SPLIT_WIDTH_STORAGE_KEY,
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
@@ -301,16 +293,7 @@ import {
 } from "~/lib/browser/liveInstanceCache";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import {
-  BROWSER_PANEL_MODE_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_MODE_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY,
-  RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
-  RightSidePanelModeStorageSchema,
   resolveRightSidePanelModeAfterDiffClose,
   shouldApplyThreadBrowserViewportResizeToVisiblePanel,
   type RightSidePanelMode,
@@ -354,8 +337,6 @@ const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
   duration: 0.2,
   ease: [0.16, 1, 0.3, 1],
 } as const;
-const RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY =
-  "ace:chat:right-side-panel-floating-chat:v1";
 const TERMINAL_DRAWER_TRANSITION = {
   duration: 0.2,
   ease: [0.16, 1, 0.3, 1],
@@ -376,7 +357,6 @@ const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
 
 const SCRIPT_TERMINAL_COLS = 120;
@@ -453,7 +433,7 @@ function RetainedThreadTerminalDrawers(props: {
   }, [activeDrawerProps, activeThreadId]);
 
   return (
-    <motion.div
+    <m.div
       className="min-w-0 shrink-0 overflow-hidden"
       initial={false}
       animate={
@@ -473,7 +453,7 @@ function RetainedThreadTerminalDrawers(props: {
           </div>
         );
       })}
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -554,10 +534,26 @@ function ConnectedRetainedThreadTerminalDrawers({
 const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
 const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
 
-function waitForBrowserBridgePoll(): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, BROWSER_BRIDGE_CONTROLLER_POLL_MS);
-  });
+async function waitForBrowserBridgeController<TResult>(options: {
+  readonly timeoutMs: number;
+  readonly pollMs: number;
+  readonly readController: () => TResult | null;
+}): Promise<TResult | null> {
+  const deadline = Date.now() + options.timeoutMs;
+  const poll = async (): Promise<TResult | null> => {
+    const controller = options.readController();
+    if (controller !== null) {
+      return controller;
+    }
+    if (Date.now() >= deadline) {
+      return null;
+    }
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, options.pollMs);
+    });
+    return poll();
+  };
+  return poll();
 }
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
@@ -728,7 +724,265 @@ interface PendingPullRequestSetupRequest {
   scriptId: string;
 }
 
-export default function ChatView({
+type ChatViewDialogState = {
+  gitHubIssueDialogOpen: boolean;
+  gitHubIssueDialogInitialIssueNumber: number | null;
+  gitHubIssueDialogInitialSelectedIssueNumbers: number[];
+  issuePreviewNumber: number | null;
+  pullRequestDialogState: PullRequestDialogState | null;
+  pendingPullRequestSetupRequest: PendingPullRequestSetupRequest | null;
+};
+
+type ChatViewDialogAction =
+  | {
+      type: "open-github-issue-dialog";
+      gitHubIssueDialogInitialIssueNumber: number | null;
+      gitHubIssueDialogInitialSelectedIssueNumbers: number[];
+    }
+  | { type: "close-github-issue-dialog" }
+  | { type: "set-issue-preview-number"; issuePreviewNumber: number | null }
+  | { type: "open-pull-request-dialog"; pullRequestDialogState: PullRequestDialogState }
+  | { type: "close-pull-request-dialog" }
+  | {
+      type: "set-pending-pull-request-setup-request";
+      pendingPullRequestSetupRequest: PendingPullRequestSetupRequest | null;
+    };
+
+type ChatViewTransientState = {
+  localDiffStateByThreadId: Record<ThreadId, LocalDiffState>;
+  localDraftErrorsByThreadId: Record<ThreadId, string | null>;
+  respondingRequestIds: ApprovalRequestId[];
+  respondingUserInputRequestIds: ApprovalRequestId[];
+  pendingUserInputAnswersByRequestId: Record<string, Record<string, PendingUserInputDraftAnswer>>;
+  pendingUserInputQuestionIndexByRequestId: Record<string, number>;
+  expandedWorkGroups: Record<string, boolean>;
+  attachmentPreviewHandoffByMessageId: Record<string, string[]>;
+  pendingComposerCommentsByThreadId: Record<ThreadId, PendingComposerComment[]>;
+};
+
+type ChatViewTransientAction =
+  | {
+      type: "set-local-diff-state-by-thread-id";
+      localDiffStateByThreadId:
+        | Record<ThreadId, LocalDiffState>
+        | ((current: Record<ThreadId, LocalDiffState>) => Record<ThreadId, LocalDiffState>);
+    }
+  | {
+      type: "set-local-draft-errors-by-thread-id";
+      localDraftErrorsByThreadId:
+        | Record<ThreadId, string | null>
+        | ((current: Record<ThreadId, string | null>) => Record<ThreadId, string | null>);
+    }
+  | {
+      type: "set-responding-request-ids";
+      respondingRequestIds:
+        | ApprovalRequestId[]
+        | ((current: ApprovalRequestId[]) => ApprovalRequestId[]);
+    }
+  | {
+      type: "set-responding-user-input-request-ids";
+      respondingUserInputRequestIds:
+        | ApprovalRequestId[]
+        | ((current: ApprovalRequestId[]) => ApprovalRequestId[]);
+    }
+  | {
+      type: "set-pending-user-input-answers-by-request-id";
+      pendingUserInputAnswersByRequestId:
+        | Record<string, Record<string, PendingUserInputDraftAnswer>>
+        | ((
+            current: Record<string, Record<string, PendingUserInputDraftAnswer>>,
+          ) => Record<string, Record<string, PendingUserInputDraftAnswer>>);
+    }
+  | {
+      type: "set-pending-user-input-question-index-by-request-id";
+      pendingUserInputQuestionIndexByRequestId:
+        | Record<string, number>
+        | ((current: Record<string, number>) => Record<string, number>);
+    }
+  | {
+      type: "set-expanded-work-groups";
+      expandedWorkGroups:
+        | Record<string, boolean>
+        | ((current: Record<string, boolean>) => Record<string, boolean>);
+    }
+  | {
+      type: "set-attachment-preview-handoff-by-message-id";
+      attachmentPreviewHandoffByMessageId:
+        | Record<string, string[]>
+        | ((current: Record<string, string[]>) => Record<string, string[]>);
+    }
+  | {
+      type: "set-pending-composer-comments-by-thread-id";
+      pendingComposerCommentsByThreadId:
+        | Record<ThreadId, PendingComposerComment[]>
+        | ((
+            current: Record<ThreadId, PendingComposerComment[]>,
+          ) => Record<ThreadId, PendingComposerComment[]>);
+    };
+
+const EMPTY_CHAT_VIEW_DIALOG_STATE: ChatViewDialogState = {
+  gitHubIssueDialogOpen: false,
+  gitHubIssueDialogInitialIssueNumber: null,
+  gitHubIssueDialogInitialSelectedIssueNumbers: [],
+  issuePreviewNumber: null,
+  pullRequestDialogState: null,
+  pendingPullRequestSetupRequest: null,
+};
+
+const EMPTY_CHAT_VIEW_TRANSIENT_STATE: ChatViewTransientState = {
+  localDiffStateByThreadId: {},
+  localDraftErrorsByThreadId: {},
+  respondingRequestIds: [],
+  respondingUserInputRequestIds: [],
+  pendingUserInputAnswersByRequestId: {},
+  pendingUserInputQuestionIndexByRequestId: {},
+  expandedWorkGroups: {},
+  attachmentPreviewHandoffByMessageId: {},
+  pendingComposerCommentsByThreadId: {},
+};
+
+function chatViewDialogStateReducer(
+  state: ChatViewDialogState,
+  action: ChatViewDialogAction,
+): ChatViewDialogState {
+  switch (action.type) {
+    case "open-github-issue-dialog":
+      return {
+        ...state,
+        gitHubIssueDialogOpen: true,
+        gitHubIssueDialogInitialIssueNumber: action.gitHubIssueDialogInitialIssueNumber,
+        gitHubIssueDialogInitialSelectedIssueNumbers:
+          action.gitHubIssueDialogInitialSelectedIssueNumbers,
+      };
+    case "close-github-issue-dialog":
+      return {
+        ...state,
+        gitHubIssueDialogOpen: false,
+        gitHubIssueDialogInitialIssueNumber: null,
+        gitHubIssueDialogInitialSelectedIssueNumbers: [],
+      };
+    case "set-issue-preview-number":
+      return {
+        ...state,
+        issuePreviewNumber: action.issuePreviewNumber,
+      };
+    case "open-pull-request-dialog":
+      return {
+        ...state,
+        pullRequestDialogState: action.pullRequestDialogState,
+      };
+    case "close-pull-request-dialog":
+      return {
+        ...state,
+        pullRequestDialogState: null,
+      };
+    case "set-pending-pull-request-setup-request":
+      return {
+        ...state,
+        pendingPullRequestSetupRequest: action.pendingPullRequestSetupRequest,
+      };
+    default:
+      return state;
+  }
+}
+
+function resolveStateUpdate<T>(current: T, next: T | ((value: T) => T)): T {
+  return typeof next === "function" ? (next as (value: T) => T)(current) : next;
+}
+
+function chatViewTransientStateReducer(
+  state: ChatViewTransientState,
+  action: ChatViewTransientAction,
+): ChatViewTransientState {
+  switch (action.type) {
+    case "set-local-diff-state-by-thread-id": {
+      const localDiffStateByThreadId = resolveStateUpdate(
+        state.localDiffStateByThreadId,
+        action.localDiffStateByThreadId,
+      );
+      return localDiffStateByThreadId === state.localDiffStateByThreadId
+        ? state
+        : { ...state, localDiffStateByThreadId };
+    }
+    case "set-local-draft-errors-by-thread-id": {
+      const localDraftErrorsByThreadId = resolveStateUpdate(
+        state.localDraftErrorsByThreadId,
+        action.localDraftErrorsByThreadId,
+      );
+      return localDraftErrorsByThreadId === state.localDraftErrorsByThreadId
+        ? state
+        : { ...state, localDraftErrorsByThreadId };
+    }
+    case "set-responding-request-ids": {
+      const respondingRequestIds = resolveStateUpdate(
+        state.respondingRequestIds,
+        action.respondingRequestIds,
+      );
+      return respondingRequestIds === state.respondingRequestIds
+        ? state
+        : { ...state, respondingRequestIds };
+    }
+    case "set-responding-user-input-request-ids": {
+      const respondingUserInputRequestIds = resolveStateUpdate(
+        state.respondingUserInputRequestIds,
+        action.respondingUserInputRequestIds,
+      );
+      return respondingUserInputRequestIds === state.respondingUserInputRequestIds
+        ? state
+        : { ...state, respondingUserInputRequestIds };
+    }
+    case "set-pending-user-input-answers-by-request-id": {
+      const pendingUserInputAnswersByRequestId = resolveStateUpdate(
+        state.pendingUserInputAnswersByRequestId,
+        action.pendingUserInputAnswersByRequestId,
+      );
+      return pendingUserInputAnswersByRequestId === state.pendingUserInputAnswersByRequestId
+        ? state
+        : { ...state, pendingUserInputAnswersByRequestId };
+    }
+    case "set-pending-user-input-question-index-by-request-id": {
+      const pendingUserInputQuestionIndexByRequestId = resolveStateUpdate(
+        state.pendingUserInputQuestionIndexByRequestId,
+        action.pendingUserInputQuestionIndexByRequestId,
+      );
+      return pendingUserInputQuestionIndexByRequestId ===
+        state.pendingUserInputQuestionIndexByRequestId
+        ? state
+        : { ...state, pendingUserInputQuestionIndexByRequestId };
+    }
+    case "set-expanded-work-groups": {
+      const expandedWorkGroups = resolveStateUpdate(
+        state.expandedWorkGroups,
+        action.expandedWorkGroups,
+      );
+      return expandedWorkGroups === state.expandedWorkGroups
+        ? state
+        : { ...state, expandedWorkGroups };
+    }
+    case "set-attachment-preview-handoff-by-message-id": {
+      const attachmentPreviewHandoffByMessageId = resolveStateUpdate(
+        state.attachmentPreviewHandoffByMessageId,
+        action.attachmentPreviewHandoffByMessageId,
+      );
+      return attachmentPreviewHandoffByMessageId === state.attachmentPreviewHandoffByMessageId
+        ? state
+        : { ...state, attachmentPreviewHandoffByMessageId };
+    }
+    case "set-pending-composer-comments-by-thread-id": {
+      const pendingComposerCommentsByThreadId = resolveStateUpdate(
+        state.pendingComposerCommentsByThreadId,
+        action.pendingComposerCommentsByThreadId,
+      );
+      return pendingComposerCommentsByThreadId === state.pendingComposerCommentsByThreadId
+        ? state
+        : { ...state, pendingComposerCommentsByThreadId };
+    }
+    default:
+      return state;
+  }
+}
+
+function useChatViewComponent({
   activeInBoard = true,
   connectionUrl = null,
   paneControls = null,
@@ -780,89 +1034,52 @@ export default function ChatView({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
   });
-  const [localDiffStateByThreadId, setLocalDiffStateByThreadId] = useState<
-    Record<ThreadId, LocalDiffState>
-  >({});
-  const rightSidePanelModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_MODE_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelLastNonDiffModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelReviewOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelEditorOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelFullscreenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelDiffOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelVisibleStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const browserPanelModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const rightSidePanelWidthStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const [rightSidePanelMode, setRightSidePanelMode] = useLocalStorage(
-    rightSidePanelModeStorageKey,
-    null,
-    RightSidePanelModeStorageSchema,
-  );
-  const [rightSidePanelLastNonDiffMode, setRightSidePanelLastNonDiffMode] = useLocalStorage(
-    rightSidePanelLastNonDiffModeStorageKey,
-    "summary" satisfies Exclude<RightSidePanelMode, "diff">,
-    Schema.Literals(["browser", "editor", "summary"]),
-  );
-  const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
-    rightSidePanelDiffOpenStorageKey,
-    false,
-    Schema.Boolean,
-  );
-  const [rightSidePanelReviewOpen, setRightSidePanelReviewOpen] = useLocalStorage(
-    rightSidePanelReviewOpenStorageKey,
-    false,
-    Schema.Boolean,
-  );
-  const [rightSidePanelEditorOpen, setRightSidePanelEditorOpen] = useLocalStorage(
-    rightSidePanelEditorOpenStorageKey,
-    false,
-    Schema.Boolean,
-  );
-  const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useLocalStorage(
-    rightSidePanelFullscreenStorageKey,
-    false,
-    Schema.Boolean,
-  );
-  const [rightSidePanelVisible, setRightSidePanelVisible] = useLocalStorage(
-    rightSidePanelVisibleStorageKey,
-    true,
-    Schema.Boolean,
-  );
-  const rightSidePanelFloatingChatOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY, threadId),
-    [threadId],
-  );
-  const [rightSidePanelFloatingChatOpen, setRightSidePanelFloatingChatOpen] = useLocalStorage(
-    rightSidePanelFloatingChatOpenStorageKey,
-    false,
-    Schema.Boolean,
-  );
+  const {
+    browserSplitWidth,
+    browserMode,
+    handoffInFlight,
+    isHeaderHidden,
+    isRevertingCheckpoint,
+    rightSidePanelDiffOpen,
+    rightSidePanelEditorOpen,
+    rightSidePanelFloatingChatOpen,
+    rightSidePanelFullscreen,
+    rightSidePanelLastNonDiffMode,
+    rightSidePanelMode,
+    rightSidePanelReviewOpen,
+    rightSidePanelVisible,
+    rightSidePanelWidth,
+    setBrowserDevToolsOpen,
+    setBrowserMode,
+    setBrowserSplitWidth,
+    setHandoffInFlight,
+    setIsHeaderHidden,
+    setIsRevertingCheckpoint,
+    setRightSidePanelDiffOpenState,
+    setRightSidePanelEditorOpen,
+    setRightSidePanelFloatingChatOpen,
+    setRightSidePanelFullscreen,
+    setRightSidePanelLastNonDiffMode,
+    setRightSidePanelMode,
+    setRightSidePanelReviewOpen,
+    setRightSidePanelVisible,
+    setRightSidePanelWidth,
+    setShowScrollToBottom,
+    setStoredBrowserSplitWidth,
+    setStoredRightSidePanelWidth,
+    setStoredWorkspaceEditorSplitWidth,
+    setTerminalFocusRequestId,
+    setWorkspaceEditorSplitWidth,
+    setWorkspaceLayoutByThreadId,
+    setWorkspaceModeByThreadId,
+    showScrollToBottom,
+    storedBrowserSplitWidth,
+    storedRightSidePanelWidth,
+    storedWorkspaceEditorSplitWidth,
+    terminalFocusRequestId,
+    workspaceEditorSplitWidth,
+    workspaceLayoutByThreadId,
+  } = useChatViewPersistentPanelState(threadId);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -908,46 +1125,161 @@ export default function ChatView({
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
   const promptRef = useRef("");
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
-  const [localDraftErrorsByThreadId, setLocalDraftErrorsByThreadId] = useState<
-    Record<ThreadId, string | null>
-  >({});
-  const [isConnecting, _setIsConnecting] = useState(false);
-  const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
-  const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
-  const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
-    ApprovalRequestId[]
-  >([]);
-  const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
-    Record<string, Record<string, PendingUserInputDraftAnswer>>
-  >({});
-  const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
-    useState<Record<string, number>>({});
-  const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+  const isConnecting = false;
+  const [chatViewTransientState, dispatchChatViewTransientState] = useReducer(
+    chatViewTransientStateReducer,
+    EMPTY_CHAT_VIEW_TRANSIENT_STATE,
+  );
   const openSummaryOnNextThreadRef = useRef(false);
-  const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
-  const [gitHubIssueDialogOpen, setGitHubIssueDialogOpen] = useState(false);
-  const [gitHubIssueDialogInitialIssueNumber, setGitHubIssueDialogInitialIssueNumber] = useState<
-    number | null
-  >(null);
-  const [
+  const [chatViewDialogState, dispatchChatViewDialogState] = useReducer(
+    chatViewDialogStateReducer,
+    EMPTY_CHAT_VIEW_DIALOG_STATE,
+  );
+  const {
+    gitHubIssueDialogOpen,
+    gitHubIssueDialogInitialIssueNumber,
     gitHubIssueDialogInitialSelectedIssueNumbers,
-    setGitHubIssueDialogInitialSelectedIssueNumbers,
-  ] = useState<number[]>([]);
-  const [issuePreviewNumber, setIssuePreviewNumber] = useState<number | null>(null);
-  const [pullRequestDialogState, setPullRequestDialogState] =
-    useState<PullRequestDialogState | null>(null);
-  const [pendingPullRequestSetupRequest, setPendingPullRequestSetupRequest] =
-    useState<PendingPullRequestSetupRequest | null>(null);
-  const [attachmentPreviewHandoffByMessageId, setAttachmentPreviewHandoffByMessageId] = useState<
-    Record<string, string[]>
-  >({});
+    issuePreviewNumber,
+    pullRequestDialogState,
+    pendingPullRequestSetupRequest,
+  } = chatViewDialogState;
+  const {
+    localDiffStateByThreadId,
+    localDraftErrorsByThreadId,
+    respondingRequestIds,
+    respondingUserInputRequestIds,
+    pendingUserInputAnswersByRequestId,
+    pendingUserInputQuestionIndexByRequestId,
+    expandedWorkGroups,
+    attachmentPreviewHandoffByMessageId,
+    pendingComposerCommentsByThreadId,
+  } = chatViewTransientState;
+  const setLocalDiffStateByThreadId = useCallback(
+    (
+      localDiffStateByThreadId:
+        | Record<ThreadId, LocalDiffState>
+        | ((current: Record<ThreadId, LocalDiffState>) => Record<ThreadId, LocalDiffState>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-local-diff-state-by-thread-id",
+        localDiffStateByThreadId,
+      });
+    },
+    [],
+  );
+  const setLocalDraftErrorsByThreadId = useCallback(
+    (
+      localDraftErrorsByThreadId:
+        | Record<ThreadId, string | null>
+        | ((current: Record<ThreadId, string | null>) => Record<ThreadId, string | null>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-local-draft-errors-by-thread-id",
+        localDraftErrorsByThreadId,
+      });
+    },
+    [],
+  );
+  const setRespondingRequestIds = useCallback(
+    (
+      respondingRequestIds:
+        | ApprovalRequestId[]
+        | ((current: ApprovalRequestId[]) => ApprovalRequestId[]),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-responding-request-ids",
+        respondingRequestIds,
+      });
+    },
+    [],
+  );
+  const setRespondingUserInputRequestIds = useCallback(
+    (
+      respondingUserInputRequestIds:
+        | ApprovalRequestId[]
+        | ((current: ApprovalRequestId[]) => ApprovalRequestId[]),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-responding-user-input-request-ids",
+        respondingUserInputRequestIds,
+      });
+    },
+    [],
+  );
+  const setPendingUserInputAnswersByRequestId = useCallback(
+    (
+      pendingUserInputAnswersByRequestId:
+        | Record<string, Record<string, PendingUserInputDraftAnswer>>
+        | ((
+            current: Record<string, Record<string, PendingUserInputDraftAnswer>>,
+          ) => Record<string, Record<string, PendingUserInputDraftAnswer>>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-pending-user-input-answers-by-request-id",
+        pendingUserInputAnswersByRequestId,
+      });
+    },
+    [],
+  );
+  const setPendingUserInputQuestionIndexByRequestId = useCallback(
+    (
+      pendingUserInputQuestionIndexByRequestId:
+        | Record<string, number>
+        | ((current: Record<string, number>) => Record<string, number>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-pending-user-input-question-index-by-request-id",
+        pendingUserInputQuestionIndexByRequestId,
+      });
+    },
+    [],
+  );
+  const setExpandedWorkGroups = useCallback(
+    (
+      expandedWorkGroups:
+        | Record<string, boolean>
+        | ((current: Record<string, boolean>) => Record<string, boolean>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-expanded-work-groups",
+        expandedWorkGroups,
+      });
+    },
+    [],
+  );
+  const setAttachmentPreviewHandoffByMessageId = useCallback(
+    (
+      attachmentPreviewHandoffByMessageId:
+        | Record<string, string[]>
+        | ((current: Record<string, string[]>) => Record<string, string[]>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-attachment-preview-handoff-by-message-id",
+        attachmentPreviewHandoffByMessageId,
+      });
+    },
+    [],
+  );
+  const setPendingComposerCommentsByThreadId = useCallback(
+    (
+      pendingComposerCommentsByThreadId:
+        | Record<ThreadId, PendingComposerComment[]>
+        | ((
+            current: Record<ThreadId, PendingComposerComment[]>,
+          ) => Record<ThreadId, PendingComposerComment[]>),
+    ) => {
+      dispatchChatViewTransientState({
+        type: "set-pending-composer-comments-by-thread-id",
+        pendingComposerCommentsByThreadId,
+      });
+    },
+    [],
+  );
   const [lastInvokedScriptByProjectId, setLastInvokedScriptByProjectId] = useLocalStorage(
     LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
     {},
@@ -958,9 +1290,8 @@ export default function ChatView({
   const previousThreadIdRef = useRef<ThreadId | null>(null);
   const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const directThreadHydrationFailureCountRef = useRef(0);
-  const [directThreadHydrationRetryAt, setDirectThreadHydrationRetryAt] = useState<number | null>(
-    null,
-  );
+  const directThreadHydrationRetryTimeoutRef = useRef<number | null>(null);
+  const directThreadHydrationRequestTokenRef = useRef(0);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -977,10 +1308,6 @@ export default function ChatView({
   const pendingInterruptStopFallbackRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
-  const [pendingComposerCommentsByThreadId, setPendingComposerCommentsByThreadId] = useState<
-    Record<ThreadId, PendingComposerComment[]>
-  >({});
-  const [handoffInFlight, setHandoffInFlight] = useState(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const chatShellRef = useRef<HTMLDivElement | null>(null);
@@ -1237,13 +1564,75 @@ export default function ChatView({
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
   const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const clearDirectThreadHydrationRetryTimeout = useCallback(() => {
+    if (directThreadHydrationRetryTimeoutRef.current === null) {
+      return;
+    }
+    window.clearTimeout(directThreadHydrationRetryTimeoutRef.current);
+    directThreadHydrationRetryTimeoutRef.current = null;
+  }, []);
   const syncHydratedThreadFromCache = useEffectEvent(
     (thread: Parameters<typeof hydrateThreadFromReadModel>[0]) => {
       directThreadHydrationFailureCountRef.current = 0;
-      setDirectThreadHydrationRetryAt(null);
+      directThreadHydrationRequestTokenRef.current += 1;
+      clearDirectThreadHydrationRetryTimeout();
       startTransition(() => {
         hydrateThreadFromReadModel(thread);
       });
+    },
+  );
+  const attemptDirectThreadHydration = useEffectEvent(
+    (thread: NonNullable<typeof serverThread>) => {
+      if (thread.historyLoaded !== false) {
+        return;
+      }
+      const cachedHydratedThread = thread.updatedAt
+        ? readCachedHydratedThread(thread.id, thread.updatedAt)
+        : null;
+      if (cachedHydratedThread) {
+        syncHydratedThreadFromCache(cachedHydratedThread);
+        return;
+      }
+      if (
+        directThreadHydrationInFlightRef.current === thread.id ||
+        directThreadHydrationRetryTimeoutRef.current !== null
+      ) {
+        return;
+      }
+
+      const requestToken = ++directThreadHydrationRequestTokenRef.current;
+      directThreadHydrationInFlightRef.current = thread.id;
+      void (async () => {
+        try {
+          const readModelThread = await hydrateThreadFromCache(thread.id, {
+            expectedUpdatedAt: thread.updatedAt ?? null,
+          });
+          if (directThreadHydrationRequestTokenRef.current !== requestToken) {
+            return;
+          }
+          syncHydratedThreadFromCache(readModelThread);
+        } catch {
+          if (directThreadHydrationRequestTokenRef.current !== requestToken) {
+            return;
+          }
+          const nextFailureCount = directThreadHydrationFailureCountRef.current + 1;
+          directThreadHydrationFailureCountRef.current = nextFailureCount;
+          clearDirectThreadHydrationRetryTimeout();
+          directThreadHydrationRetryTimeoutRef.current = window.setTimeout(() => {
+            if (directThreadHydrationRetryTimeoutRef.current !== null) {
+              directThreadHydrationRetryTimeoutRef.current = null;
+            }
+            attemptDirectThreadHydration(thread);
+          }, resolveThreadHydrationRetryDelayMs(nextFailureCount));
+        } finally {
+          if (
+            directThreadHydrationInFlightRef.current === thread.id &&
+            directThreadHydrationRequestTokenRef.current === requestToken
+          ) {
+            directThreadHydrationInFlightRef.current = null;
+          }
+        }
+      })();
     },
   );
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
@@ -1294,74 +1683,21 @@ export default function ChatView({
 
   useEffect(() => {
     directThreadHydrationFailureCountRef.current = 0;
-    setDirectThreadHydrationRetryAt(null);
+    directThreadHydrationRequestTokenRef.current += 1;
+    clearDirectThreadHydrationRetryTimeout();
     directThreadHydrationInFlightRef.current = null;
-  }, [serverThread?.id, serverThread?.updatedAt]);
+  }, [clearDirectThreadHydrationRetryTimeout, serverThread?.id, serverThread?.updatedAt]);
 
   useEffect(() => {
-    if (directThreadHydrationRetryAt === null) {
+    if (!serverThread || serverThread.historyLoaded !== false) {
       return;
     }
-    const remainingDelay = Math.max(0, directThreadHydrationRetryAt - Date.now());
-    const timer = window.setTimeout(() => {
-      setDirectThreadHydrationRetryAt((current) =>
-        current === directThreadHydrationRetryAt ? null : current,
-      );
-    }, remainingDelay);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [directThreadHydrationRetryAt]);
+    attemptDirectThreadHydration(serverThread);
+  }, [serverThread]);
 
   useEffect(() => {
-    if (
-      !serverThread ||
-      serverThread.historyLoaded !== false ||
-      directThreadHydrationRetryAt !== null
-    ) {
-      return;
-    }
-    const cachedHydratedThread = serverThread.updatedAt
-      ? readCachedHydratedThread(serverThread.id, serverThread.updatedAt)
-      : null;
-    if (cachedHydratedThread) {
-      syncHydratedThreadFromCache(cachedHydratedThread);
-      return;
-    }
-    if (directThreadHydrationInFlightRef.current === serverThread.id) {
-      return;
-    }
-
-    let canceled = false;
-    directThreadHydrationInFlightRef.current = serverThread.id;
-    void (async () => {
-      try {
-        const readModelThread = await hydrateThreadFromCache(serverThread.id, {
-          expectedUpdatedAt: serverThread.updatedAt ?? null,
-        });
-        if (canceled) {
-          return;
-        }
-        syncHydratedThreadFromCache(readModelThread);
-      } catch {
-        if (!canceled) {
-          const nextFailureCount = directThreadHydrationFailureCountRef.current + 1;
-          directThreadHydrationFailureCountRef.current = nextFailureCount;
-          setDirectThreadHydrationRetryAt(
-            Date.now() + resolveThreadHydrationRetryDelayMs(nextFailureCount),
-          );
-        }
-      } finally {
-        if (directThreadHydrationInFlightRef.current === serverThread.id) {
-          directThreadHydrationInFlightRef.current = null;
-        }
-      }
-    })();
-
-    return () => {
-      canceled = true;
-    };
-  }, [directThreadHydrationRetryAt, serverThread]);
+    return clearDirectThreadHydrationRetryTimeout;
+  }, [clearDirectThreadHydrationRetryTimeout]);
 
   useEffect(() => {
     if (
@@ -1665,9 +2001,12 @@ export default function ChatView({
       if (!canCheckoutPullRequestIntoThread) {
         return;
       }
-      setPullRequestDialogState({
-        initialReference: reference ?? null,
-        key: Date.now(),
+      dispatchChatViewDialogState({
+        type: "open-pull-request-dialog",
+        pullRequestDialogState: {
+          initialReference: reference ?? null,
+          key: Date.now(),
+        },
       });
       composerPanelsRef.current?.resetUi();
     },
@@ -1675,7 +2014,7 @@ export default function ChatView({
   );
 
   const closePullRequestDialog = useCallback(() => {
-    setPullRequestDialogState(null);
+    dispatchChatViewDialogState({ type: "close-pull-request-dialog" });
   }, []);
 
   const openGitHubIssueDialog = useCallback(
@@ -1683,20 +2022,20 @@ export default function ChatView({
       initialIssueNumber?: number | null;
       initialSelectedIssueNumbers?: ReadonlyArray<number>;
     }) => {
-      setGitHubIssueDialogInitialIssueNumber(options?.initialIssueNumber ?? null);
-      setGitHubIssueDialogInitialSelectedIssueNumbers([
-        ...(options?.initialSelectedIssueNumbers ?? []),
-      ]);
-      setGitHubIssueDialogOpen(true);
+      dispatchChatViewDialogState({
+        type: "open-github-issue-dialog",
+        gitHubIssueDialogInitialIssueNumber: options?.initialIssueNumber ?? null,
+        gitHubIssueDialogInitialSelectedIssueNumbers: [
+          ...(options?.initialSelectedIssueNumbers ?? []),
+        ],
+      });
       composerPanelsRef.current?.resetUi();
     },
     [],
   );
 
   const closeGitHubIssueDialog = useCallback(() => {
-    setGitHubIssueDialogOpen(false);
-    setGitHubIssueDialogInitialIssueNumber(null);
-    setGitHubIssueDialogInitialSelectedIssueNumbers([]);
+    dispatchChatViewDialogState({ type: "close-github-issue-dialog" });
   }, []);
 
   const openRightSidePanelDiff = useEffectEvent(() => {
@@ -1714,14 +2053,17 @@ export default function ChatView({
   const resetThreadScopedUi = useEffectEvent(() => {
     setExpandedWorkGroups({});
     closeGitHubIssueDialog();
-    setPullRequestDialogState(null);
+    dispatchChatViewDialogState({ type: "close-pull-request-dialog" });
   });
 
   const onComposerIssueTokenClick = useCallback((issueNumber: number) => {
     if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
       return;
     }
-    setIssuePreviewNumber(issueNumber);
+    dispatchChatViewDialogState({
+      type: "set-issue-preview-number",
+      issuePreviewNumber: issueNumber,
+    });
   }, []);
 
   const openOrReuseProjectDraftThread = useCallback(
@@ -1786,13 +2128,19 @@ export default function ChatView({
       const setupScript =
         input.worktreePath && activeProject ? setupProjectScript(activeProject.scripts) : null;
       if (targetThreadId && input.worktreePath && setupScript) {
-        setPendingPullRequestSetupRequest({
-          threadId: targetThreadId,
-          worktreePath: input.worktreePath,
-          scriptId: setupScript.id,
+        dispatchChatViewDialogState({
+          type: "set-pending-pull-request-setup-request",
+          pendingPullRequestSetupRequest: {
+            threadId: targetThreadId,
+            worktreePath: input.worktreePath,
+            scriptId: setupScript.id,
+          },
         });
       } else {
-        setPendingPullRequestSetupRequest(null);
+        dispatchChatViewDialogState({
+          type: "set-pending-pull-request-setup-request",
+          pendingPullRequestSetupRequest: null,
+        });
       }
     },
     [activeProject, openOrReuseProjectDraftThread],
@@ -2038,8 +2386,9 @@ export default function ChatView({
     if (previewUrls.length === 0) return;
 
     const previousPreviewUrls = attachmentPreviewHandoffByMessageIdRef.current[messageId] ?? [];
+    const nextPreviewUrlSet = new Set(previewUrls);
     for (const previewUrl of previousPreviewUrls) {
-      if (!previewUrls.includes(previewUrl)) {
+      if (!nextPreviewUrlSet.has(previewUrl)) {
         revokeBlobPreviewUrl(previewUrl);
       }
     }
@@ -2482,46 +2831,6 @@ export default function ChatView({
       ),
     [browserActionShortcutLabelOptions, keybindings],
   );
-  const [browserMode, setBrowserMode] = useLocalStorage(
-    browserPanelModeStorageKey,
-    "closed" as const,
-    BrowserPanelModeSchema,
-  );
-  const [, setBrowserDevToolsOpen] = useState(false);
-  const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
-    BROWSER_SPLIT_WIDTH_STORAGE_KEY,
-    DEFAULT_BROWSER_SPLIT_WIDTH,
-    Schema.Number,
-  );
-  const [browserSplitWidth, setBrowserSplitWidth] = useState(() =>
-    clampBrowserSplitWidth(storedBrowserSplitWidth, 0),
-  );
-  const [storedWorkspaceEditorSplitWidth, setStoredWorkspaceEditorSplitWidth] = useLocalStorage(
-    WORKSPACE_EDITOR_SPLIT_WIDTH_STORAGE_KEY,
-    DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
-    Schema.Number,
-  );
-  const [storedRightSidePanelWidth, setStoredRightSidePanelWidth] = useLocalStorage(
-    rightSidePanelWidthStorageKey,
-    DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
-    Schema.Number,
-  );
-  const [, setWorkspaceModeByThreadId] = useLocalStorage(
-    THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
-    {},
-    ThreadWorkspaceModeByThreadIdSchema,
-  );
-  const [workspaceLayoutByThreadId, setWorkspaceLayoutByThreadId] = useLocalStorage(
-    THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
-    {},
-    ThreadWorkspaceLayoutByThreadIdSchema,
-  );
-  const [workspaceEditorSplitWidth, setWorkspaceEditorSplitWidth] = useState(() =>
-    clampWorkspaceEditorSplitWidth(storedWorkspaceEditorSplitWidth, 0),
-  );
-  const [rightSidePanelWidth, setRightSidePanelWidth] = useState(() =>
-    clampRightSidePanelWidth(storedRightSidePanelWidth, 0),
-  );
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
@@ -2601,23 +2910,26 @@ export default function ChatView({
         setBrowserDevToolsOpen(false);
       }
     },
-    [],
+    [setBrowserDevToolsOpen],
   );
-  const resetBrowserCacheState = useCallback((options?: { resetVisibleState?: boolean }) => {
-    browserControllerByThreadRef.current.clear();
-    browserRuntimeStateByThreadRef.current.clear();
-    browserSessionChangeHandlerByThreadRef.current.clear();
-    browserControllerChangeHandlerByThreadRef.current.clear();
-    browserRuntimeStateChangeHandlerByThreadRef.current.clear();
-    clearBrowserSessions();
-    activeBrowserThreadIdRef.current = null;
-    browserControllerRef.current = null;
-    pendingBrowserOpenUrlRef.current = null;
-    previousMountedBrowserInstancesRef.current = [];
-    if (options?.resetVisibleState !== false) {
-      setBrowserDevToolsOpen(false);
-    }
-  }, []);
+  const resetBrowserCacheState = useCallback(
+    (options?: { resetVisibleState?: boolean }) => {
+      browserControllerByThreadRef.current.clear();
+      browserRuntimeStateByThreadRef.current.clear();
+      browserSessionChangeHandlerByThreadRef.current.clear();
+      browserControllerChangeHandlerByThreadRef.current.clear();
+      browserRuntimeStateChangeHandlerByThreadRef.current.clear();
+      clearBrowserSessions();
+      activeBrowserThreadIdRef.current = null;
+      browserControllerRef.current = null;
+      pendingBrowserOpenUrlRef.current = null;
+      previousMountedBrowserInstancesRef.current = [];
+      if (options?.resetVisibleState !== false) {
+        setBrowserDevToolsOpen(false);
+      }
+    },
+    [setBrowserDevToolsOpen],
+  );
   useEffect(() => {
     if (!rightSidePanelEnabled || rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
       return;
@@ -2677,7 +2989,7 @@ export default function ChatView({
         ? (browserRuntimeStateByThreadRef.current.get(activeThreadId)?.devToolsOpen ?? false)
         : false,
     );
-  }, [activeThreadId, rightSidePanelInteractive]);
+  }, [activeThreadId, rightSidePanelInteractive, setBrowserDevToolsOpen]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -2904,7 +3216,7 @@ export default function ChatView({
   }, [onWorkspaceModeChange, workspaceMode]);
   const toggleHeaderVisibility = useCallback(() => {
     setIsHeaderHidden((previous) => !previous);
-  }, []);
+  }, [setIsHeaderHidden]);
   const setRightSidePanelDiffOpen = useCallback(
     (nextDiffOpen: boolean) => {
       setRightSidePanelDiffOpenState(nextDiffOpen);
@@ -3270,9 +3582,13 @@ export default function ChatView({
       const [dragged] = nextQueue.splice(draggedIndex, 1);
       if (!dragged) return;
       nextQueue.splice(targetIndex, 0, dragged);
-      const isUnchanged = nextQueue.every(
-        (message, index) => message.id === currentQueue[index]?.id,
-      );
+      let isUnchanged = true;
+      for (const [index, message] of nextQueue.entries()) {
+        if (message.id !== currentQueue[index]?.id) {
+          isUnchanged = false;
+          break;
+        }
+      }
       if (isUnchanged) {
         return;
       }
@@ -3758,7 +4074,7 @@ export default function ChatView({
       lastSyncedRightSidePanelWidthRef.current = clampedWidth;
       setStoredRightSidePanelWidth(clampedWidth);
     },
-    [setStoredRightSidePanelWidth],
+    [setRightSidePanelWidth, setStoredRightSidePanelWidth],
   );
 
   const ensureBrowserRightSidePanelOpenWidth = useCallback(() => {
@@ -3791,13 +4107,13 @@ export default function ChatView({
 
       ensureBrowserRightSidePanelOpenWidth();
       openBrowser();
-      const deadline = Date.now() + BROWSER_BRIDGE_CONTROLLER_WAIT_MS;
-      while (Date.now() < deadline) {
-        const controller = browserControllerByThreadRef.current.get(requestThreadId);
-        if (controller) {
-          return controller;
-        }
-        await waitForBrowserBridgePoll();
+      const controller = await waitForBrowserBridgeController({
+        timeoutMs: BROWSER_BRIDGE_CONTROLLER_WAIT_MS,
+        pollMs: BROWSER_BRIDGE_CONTROLLER_POLL_MS,
+        readController: () => browserControllerByThreadRef.current.get(requestThreadId) ?? null,
+      });
+      if (controller) {
+        return controller;
       }
 
       throw new Error("Ace browser bridge could not attach to the in-app browser.");
@@ -3808,7 +4124,7 @@ export default function ChatView({
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
     setRightSidePanelMode((current) => (current === "browser" ? null : current));
-  }, [setBrowserMode, setRightSidePanelMode]);
+  }, [setBrowserDevToolsOpen, setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelVisible(false);
@@ -4002,7 +4318,7 @@ export default function ChatView({
       pendingBrowserOpenUrlRef.current = null;
       controller.openUrl(pendingUrl, { newTab: true });
     },
-    [],
+    [setBrowserDevToolsOpen],
   );
   const handleBrowserRuntimeStateChange = useCallback(
     (browserThreadId: ThreadId, state: { devToolsOpen: boolean }) => {
@@ -4012,7 +4328,7 @@ export default function ChatView({
       }
       setBrowserDevToolsOpen(state.devToolsOpen);
     },
-    [],
+    [setBrowserDevToolsOpen],
   );
   const getBrowserControllerChangeHandler = useCallback(
     (browserThreadId: ThreadId) => {
@@ -4235,7 +4551,7 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [browserMode, rightSidePanelInteractive]);
+  }, [browserMode, rightSidePanelInteractive, setBrowserSplitWidth]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -4245,7 +4561,7 @@ export default function ChatView({
     browserSplitWidthRef.current = clampedWidth;
     lastSyncedBrowserSplitWidthRef.current = clampedWidth;
     setBrowserSplitWidth(clampedWidth);
-  }, [rightSidePanelInteractive, storedBrowserSplitWidth]);
+  }, [rightSidePanelInteractive, setBrowserSplitWidth, storedBrowserSplitWidth]);
 
   useEffect(() => {
     if (!rightSidePanelInteractive || browserMode !== "split") {
@@ -4309,7 +4625,7 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [browserMode, rightSidePanelInteractive]);
+  }, [browserMode, rightSidePanelInteractive, setBrowserSplitWidth]);
 
   const syncWorkspaceEditorSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4384,7 +4700,7 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [editorHostedInRightPanel, workspaceMode]);
+  }, [editorHostedInRightPanel, setWorkspaceEditorSplitWidth, workspaceMode]);
 
   useEffect(() => {
     if (workspaceMode !== "split" || editorHostedInRightPanel) {
@@ -4398,7 +4714,12 @@ export default function ChatView({
     workspaceEditorSplitWidthRef.current = clampedWidth;
     lastSyncedWorkspaceEditorSplitWidthRef.current = clampedWidth;
     setWorkspaceEditorSplitWidth(clampedWidth);
-  }, [editorHostedInRightPanel, storedWorkspaceEditorSplitWidth, workspaceMode]);
+  }, [
+    editorHostedInRightPanel,
+    setWorkspaceEditorSplitWidth,
+    storedWorkspaceEditorSplitWidth,
+    workspaceMode,
+  ]);
 
   useEffect(() => {
     if (workspaceMode !== "split" || editorHostedInRightPanel) {
@@ -4465,7 +4786,7 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [editorHostedInRightPanel, workspaceMode]);
+  }, [editorHostedInRightPanel, setWorkspaceEditorSplitWidth, workspaceMode]);
 
   const resizeBrowserViewportForBridge = useCallback(
     (
@@ -4629,7 +4950,7 @@ export default function ChatView({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [rightSidePanelOpen]);
+  }, [rightSidePanelOpen, setRightSidePanelWidth]);
   useEffect(() => {
     if (!ownsGlobalSideEffects) {
       return;
@@ -4676,7 +4997,7 @@ export default function ChatView({
     rightSidePanelWidthRef.current = clampedWidth;
     lastSyncedRightSidePanelWidthRef.current = clampedWidth;
     setRightSidePanelWidth(clampedWidth);
-  }, [rightSidePanelInteractive, storedRightSidePanelWidth]);
+  }, [rightSidePanelInteractive, setRightSidePanelWidth, storedRightSidePanelWidth]);
 
   useEffect(() => {
     if (!rightSidePanelInteractive || !rightSidePanelOpen || rightSidePanelFullscreen) {
@@ -4740,21 +5061,26 @@ export default function ChatView({
         window.removeEventListener("resize", scheduleViewportWidthSync);
       }
     };
-  }, [rightSidePanelFullscreen, rightSidePanelInteractive, rightSidePanelOpen]);
+  }, [
+    rightSidePanelFullscreen,
+    rightSidePanelInteractive,
+    rightSidePanelOpen,
+    setRightSidePanelWidth,
+  ]);
 
   const createNewTerminal = useCallback(() => {
     if (!activeThreadId) return;
     const terminalId = `terminal-${randomUUID()}`;
     storeNewTerminal(activeThreadId, terminalId);
     setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadId, storeNewTerminal]);
+  }, [activeThreadId, setTerminalFocusRequestId, storeNewTerminal]);
   const activateTerminal = useCallback(
     (terminalId: string) => {
       if (!activeThreadId) return;
       storeSetActiveTerminal(activeThreadId, terminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeThreadId, storeSetActiveTerminal],
+    [activeThreadId, setTerminalFocusRequestId, storeSetActiveTerminal],
   );
   const moveTerminal = useCallback(
     (terminalId: string, targetGroupId: string, targetIndex: number) => {
@@ -4818,7 +5144,7 @@ export default function ChatView({
       storeCloseTerminal(activeThreadId, targetTerminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeThreadId, readActiveTerminalState, storeCloseTerminal],
+    [activeThreadId, readActiveTerminalState, setTerminalFocusRequestId, storeCloseTerminal],
   );
   const setTerminalAutoTitle = useCallback(
     (terminalId: string, title: string | null) => {
@@ -4929,6 +5255,7 @@ export default function ChatView({
       storeSetTerminalAutoTitle,
       storeSetActiveTerminal,
       setLastInvokedScriptByProjectId,
+      setTerminalFocusRequestId,
     ],
   );
 
@@ -4947,7 +5274,10 @@ export default function ChatView({
       activeProject.scripts.find(
         (script) => script.id === pendingPullRequestSetupRequest.scriptId,
       ) ?? null;
-    setPendingPullRequestSetupRequest(null);
+    dispatchChatViewDialogState({
+      type: "set-pending-pull-request-setup-request",
+      pendingPullRequestSetupRequest: null,
+    });
     if (!setupScript) {
       return;
     }
@@ -5241,14 +5571,17 @@ export default function ChatView({
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
-  const markMessagesAtBottom = useCallback((scrollContainer: HTMLDivElement) => {
-    lastKnownScrollTopRef.current = scrollContainer.scrollTop;
-    shouldAutoScrollRef.current = true;
-    pendingUserScrollUpIntentRef.current = false;
-    isPointerScrollActiveRef.current = false;
-    lastTouchClientYRef.current = null;
-    setShowScrollToBottom(false);
-  }, []);
+  const markMessagesAtBottom = useCallback(
+    (scrollContainer: HTMLDivElement) => {
+      lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+      shouldAutoScrollRef.current = true;
+      pendingUserScrollUpIntentRef.current = false;
+      isPointerScrollActiveRef.current = false;
+      lastTouchClientYRef.current = null;
+      setShowScrollToBottom(false);
+    },
+    [setShowScrollToBottom],
+  );
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
       const scrollContainer = messagesScrollRef.current;
@@ -5365,7 +5698,7 @@ export default function ChatView({
 
     setShowScrollToBottom(!shouldAutoScrollRef.current);
     lastKnownScrollTopRef.current = currentScrollTop;
-  }, [cancelPendingStickToBottom, scheduleStickToBottom]);
+  }, [cancelPendingStickToBottom, scheduleStickToBottom, setShowScrollToBottom]);
   const onMessagesWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (event.deltaY < 0) {
@@ -5446,6 +5779,7 @@ export default function ChatView({
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
+    setShowScrollToBottom,
   ]);
   useEffect(() => {
     if (!activeForSideEffects) return;
@@ -5469,10 +5803,6 @@ export default function ChatView({
       }
     }
   }, [activeThread?.id, rightSidePanelEnabled, setRightSidePanelMode, setRightSidePanelVisible]);
-
-  useEffect(() => {
-    setIsRevertingCheckpoint(false);
-  }, [activeThread?.id]);
 
   useEffect(() => {
     if (!ownsGlobalSideEffects) return;
@@ -5594,7 +5924,13 @@ export default function ChatView({
     }
 
     terminalOpenByThreadRef.current[activeThreadId] = current;
-  }, [ownsGlobalSideEffects, activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
+  }, [
+    activeThreadId,
+    ownsGlobalSideEffects,
+    scheduleComposerFocus,
+    setTerminalFocusRequestId,
+    terminalState.terminalOpen,
+  ]);
 
   useEffect(() => {
     if (!ownsGlobalSideEffects) return;
@@ -5874,6 +6210,7 @@ export default function ChatView({
       isRevertingCheckpoint,
       isSendBusy,
       liveTurnInProgress,
+      setIsRevertingCheckpoint,
       setThreadError,
     ],
   );
@@ -6039,7 +6376,9 @@ export default function ChatView({
         );
 
         if (isLocalDraftThread) {
-          await api.orchestration.dispatchCommand({
+          const { orchestration } = api;
+
+          await orchestration.dispatchCommand({
             type: "thread.create",
             commandId: newCommandId(),
             threadId: threadIdForSend,
@@ -7172,7 +7511,8 @@ export default function ChatView({
         });
         return;
       }
-      if (!activeThread.branch) {
+      const activeThreadBranch = activeThread.branch;
+      if (!activeThreadBranch) {
         toastManager.add({
           type: "warning",
           title: "Select a base branch first",
@@ -7184,8 +7524,9 @@ export default function ChatView({
       const setupScript = setupProjectScript(activeProject.scripts);
       const startedIssueNumbers: number[] = [];
       const failureMessages: string[] = [];
-
-      for (const issueNumber of issueNumbers) {
+      const startIssueInParallelWorktree = async (
+        issueNumber: number,
+      ): Promise<{ issueNumber: number; success: boolean; error?: Error | string }> => {
         const nextThreadId = newThreadId();
         let threadCreated = false;
 
@@ -7197,7 +7538,11 @@ export default function ChatView({
           });
           const issueThread = payload.threads[0];
           if (!issueThread) {
-            throw new Error(`Issue #${issueNumber} did not return thread details.`);
+            return {
+              issueNumber,
+              success: false,
+              error: `Issue #${issueNumber} did not return thread details.`,
+            };
           }
 
           const createdAt = new Date().toISOString();
@@ -7225,11 +7570,13 @@ export default function ChatView({
           );
           const worktreeResult = await createWorktreeMutation.mutateAsync({
             cwd: activeProject.cwd,
-            branch: activeThread.branch,
+            branch: activeThreadBranch,
             newBranch: buildTemporaryWorktreeBranchName(),
           });
+          const { worktree } = worktreeResult;
+          const { orchestration } = api;
 
-          await api.orchestration.dispatchCommand({
+          await orchestration.dispatchCommand({
             type: "thread.create",
             commandId: newCommandId(),
             threadId: nextThreadId,
@@ -7238,15 +7585,15 @@ export default function ChatView({
             modelSelection: selectedModelSelection,
             runtimeMode,
             interactionMode,
-            branch: worktreeResult.worktree.branch,
-            worktreePath: worktreeResult.worktree.path,
+            branch: worktree.branch,
+            worktreePath: worktree.path,
             createdAt,
           });
           threadCreated = true;
 
           if (setupScript) {
             await runProjectScript(setupScript, {
-              cwd: worktreeResult.worktree.path,
+              cwd: worktree.path,
               worktreePath: worktreeResult.worktree.path,
               rememberAsLastInvoked: false,
             });
@@ -7280,7 +7627,7 @@ export default function ChatView({
             reportBackgroundError("Failed to hydrate issue worktree thread.", error);
           }
 
-          startedIssueNumbers.push(issueNumber);
+          return { issueNumber, success: true };
         } catch (error) {
           if (threadCreated) {
             await api.orchestration
@@ -7296,10 +7643,23 @@ export default function ChatView({
                 );
               });
           }
+          return {
+            issueNumber,
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to start.",
+          };
+        }
+      };
+
+      const issueStartResults = await Promise.all(issueNumbers.map(startIssueInParallelWorktree));
+      for (const result of issueStartResults) {
+        if (result.success) {
+          startedIssueNumbers.push(result.issueNumber);
+        } else {
           failureMessages.push(
-            error instanceof Error
-              ? `#${issueNumber}: ${error.message}`
-              : `#${issueNumber}: Failed to start.`,
+            result.error
+              ? `#${result.issueNumber}: ${result.error}`
+              : `#${result.issueNumber}: Failed to start.`,
           );
         }
       }
@@ -7593,7 +7953,7 @@ export default function ChatView({
     MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
     MIN_RIGHT_SIDE_PANEL_WIDTH,
   );
-  const renderRightSidePanelTabStrip = (className?: string) =>
+  const rightSidePanelTabStrip = (className?: string) =>
     activeRightSidePanelMode ? (
       <RightSidePanelTabStrip
         activeMode={activeRightSidePanelMode}
@@ -7642,12 +8002,13 @@ export default function ChatView({
   if (!activeThread) {
     return <NewThreadLanding />;
   }
+  const rightSidePanelTabStripNode = rightSidePanelTabStrip("h-full bg-transparent px-2.5");
   const showRightPanelChatDock =
     rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
-  const renderDockedRightSidePanelHeader = () => (
+  const dockedRightSidePanelHeader = (
     <AnimatePresence initial={false} mode="sync">
       {showDockedRightSidePanelChrome ? (
-        <motion.div
+        <m.div
           key="thread-right-side-panel-top-bar"
           className={cn(
             "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
@@ -7661,23 +8022,23 @@ export default function ChatView({
           <div className="relative h-full w-3 shrink-0" aria-hidden="true">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
           </div>
-          <motion.div
+          <m.div
             className="min-w-0 flex-1 overflow-hidden"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 8 }}
             transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
           >
-            {renderRightSidePanelTabStrip("h-full bg-transparent px-2.5")}
-          </motion.div>
-        </motion.div>
+            {rightSidePanelTabStripNode}
+          </m.div>
+        </m.div>
       ) : null}
     </AnimatePresence>
   );
-  const renderFullscreenRightSidePanelHeader = () => (
+  const fullscreenRightSidePanelHeader = (
     <AnimatePresence initial={false} mode="sync">
       {activeRightSidePanelMode && rightSidePanelFullscreen ? (
-        <motion.div
+        <m.div
           key="thread-right-side-panel-fullscreen-top-bar"
           className={cn(
             "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
@@ -7688,505 +8049,524 @@ export default function ChatView({
           exit={{ opacity: 0, y: -10 }}
           transition={RIGHT_SIDE_PANEL_HEADER_TRANSITION}
         >
-          <motion.div
+          <m.div
             className="min-w-0 flex-1 overflow-hidden"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 8 }}
             transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
           >
-            {renderRightSidePanelTabStrip("h-full bg-transparent px-2.5")}
-          </motion.div>
-        </motion.div>
+            {rightSidePanelTabStripNode}
+          </m.div>
+        </m.div>
       ) : null}
     </AnimatePresence>
   );
 
   return (
-    <div
-      ref={chatShellRef}
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
-    >
-      {/* Persistent top bar — always visible regardless of workspace mode */}
+    <LazyMotion features={domAnimation}>
       <div
-        className={cn(
-          "relative flex shrink-0 items-stretch overflow-hidden bg-sidebar transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
-          isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
-        )}
+        ref={chatShellRef}
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
       >
-        <AppPageTopBar
-          className="min-w-0 flex-1"
-          desktopDragRegion={!rightSidePanelFullscreen}
-          showSidebarTrigger={showSidebarTrigger}
-        >
-          <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-            {paneControls ? (
-              <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
-            ) : null}
-            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-              <ChatHeader
-                activeThreadId={activeThread.id}
-                activeThreadTitle={activeThread.title}
-                activeProjectId={activeProject?.id ?? null}
-                activeProjectName={activeProject?.name}
-                isGitRepo={isGitRepo}
-                activeProjectScripts={activeProject?.scripts}
-                preferredScriptId={
-                  activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-                }
-                keybindings={keybindings}
-                terminalAvailable={activeProject !== undefined}
-                terminalOpen={terminalState.terminalOpen}
-                terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-                rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
-                gitCwd={gitCwd}
-                activePlanProgress={activePlanProgress}
-                isAgentWorking={isWorking}
-                workspaceChangeStat={workspaceChangeStat}
-                rightSidePanelOpen={rightSidePanelOpen}
-                workspaceMode={headerWorkspaceMode}
-                onRunProjectScript={(script) => {
-                  void runProjectScript(script);
-                }}
-                onAddProjectScript={saveProjectScript}
-                onUpdateProjectScript={updateProjectScript}
-                onDeleteProjectScript={deleteProjectScript}
-                onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
-                onToggleTerminal={toggleTerminalVisibility}
-                onToggleRightSidePanel={onToggleRightSidePanel}
-                onWorkspaceModeChange={onWorkspaceModeChange}
-              />
-            </div>
-          </div>
-        </AppPageTopBar>
-        {renderDockedRightSidePanelHeader()}
-        {renderFullscreenRightSidePanelHeader()}
-      </div>
-
-      <ConnectedComposerProviderStatusBanner
-        threadId={threadId}
-        hasThreadStarted={threadHasStarted(activeThread)}
-        isServerThread={isServerThread}
-        modelSettings={modelSettings}
-        projectModelSelection={activeProject?.defaultModelSelection}
-        providers={providerStatuses}
-        sessionProvider={activeThread.session?.provider ?? null}
-        threadModelSelection={activeThread.modelSelection}
-      />
-
-      {/* Error banner */}
-      <ThreadErrorBanner
-        error={activeThread.error}
-        onDismiss={() => dismissThreadError(activeThread.id)}
-      />
-      {/* Main content area with optional plan sidebar */}
-      <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {/* Chat column */}
+        {/* Persistent top bar — always visible regardless of workspace mode */}
         <div
-          ref={workspaceViewportRef}
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          className={cn(
+            "relative flex shrink-0 items-stretch overflow-hidden bg-sidebar transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
+            isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
+          )}
         >
-          <>
-            {workspaceMode === "editor" && !editorHostedInRightPanel ? (
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <Suspense
-                  fallback={
-                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                      <div className="border-b border-border/60 px-4 py-3">
-                        <div className="h-5 w-44 rounded bg-foreground/6" />
-                      </div>
-                      <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                        <div className="border-r border-border/60 bg-foreground/3" />
-                        <div className="bg-background" />
-                      </div>
-                    </div>
-                  }
-                >
-                  <ThreadWorkspaceEditor
-                    availableEditors={availableEditors}
-                    branch={activeThreadBranchName}
-                    connectionUrl={activeServerConnectionUrl}
-                    gitCwd={gitCwd}
-                    lspCwd={activeProject?.cwd ?? null}
-                    keybindings={keybindings}
-                    browserOpen={browserOpen}
-                    workspaceMode={workspaceMode}
-                    terminalOpen={terminalState.terminalOpen}
-                    threadId={activeThread.id}
-                    worktreePath={activeThread.worktreePath ?? null}
-                    onDetached={() => onWorkspaceModeChange("chat")}
-                    onSubmitAgentNote={submitWorkspaceAgentNote}
-                  />
-                </Suspense>
-              </div>
-            ) : (
-              <div
-                className={cn(
-                  workspaceMode === "split" && !editorHostedInRightPanel
-                    ? "flex min-h-0 min-w-0 flex-1 overflow-hidden"
-                    : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-                )}
-              >
-                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                  {/* Messages Wrapper */}
-                  <ChatMessagesPane {...chatMessagesPaneProps} />
-
-                  <ConnectedChatComposerPanels
-                    ref={composerPanelsRef}
-                    threadId={threadId}
-                    activeForSideEffects={activeForSideEffects}
-                    gitCwd={gitCwd}
-                    isGitRepo={isGitRepo}
-                    modelSettings={modelSettings}
-                    providers={providerStatuses}
-                    isServerThread={isServerThread}
-                    threadRuntimeMode={activeThread.runtimeMode}
-                    threadInteractionMode={activeThread.interactionMode}
-                    composerModelOptions={composerModelOptions}
-                    selectedProvider={selectedProvider}
-                    selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
-                    selectedModel={selectedModel}
-                    selectedProviderModels={selectedProviderModels}
-                    selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
-                    sessionConfigOptions={activeThread.session?.configOptions}
-                    providerCommands={composerProviderCommands}
-                    selectedModelForPickerWithCustomFallback={
-                      selectedModelForPickerWithCustomFallback
-                    }
-                    lockedProvider={lockedProvider}
-                    modelOptionsByProvider={modelOptionsByProvider}
-                    modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
-                    providerInstancesByProvider={providerInstancesByProvider}
-                    handoffTargetProviders={handoffTargetProviders}
-                    handoffDisabled={handoffDisabled}
-                    interactionModeShortcutLabel={togglePlanModeShortcutLabel}
-                    activeContextWindow={activeContextWindow}
-                    queuedComposerMessages={queuedComposerMessages}
-                    queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
-                    canSendQueuedMessages={canSendQueuedComposerMessages}
-                    pendingComposerComments={pendingComposerCommentItems}
-                    liveTurnInProgress={liveTurnInProgress}
-                    isConnecting={isConnecting}
-                    isPreparingWorktree={isPreparingWorktree}
-                    isSendBusy={isSendBusy}
-                    allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
-                    activePendingApproval={activePendingApproval}
-                    pendingApprovalsCount={pendingApprovals.length}
-                    pendingUserInputs={pendingUserInputs}
-                    respondingApprovalRequestIds={respondingRequestIds}
-                    respondingUserInputRequestIds={respondingUserInputRequestIds}
-                    activePendingDraftAnswers={activePendingDraftAnswers}
-                    activePendingQuestionIndex={activePendingQuestionIndex}
-                    activePendingProgress={activePendingProgress}
-                    activePendingIsResponding={activePendingIsResponding}
-                    activePendingResolvedAnswers={activePendingResolvedAnswers}
-                    planFollowUpId={activeProposedPlan?.id ?? null}
-                    planFollowUpTitle={
-                      activeProposedPlan
-                        ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null)
-                        : null
-                    }
-                    resolvedTheme={resolvedTheme}
-                    showFloatingDock={showRightPanelChatDock}
-                    floatingDockFooter={
-                      showRightPanelChatDock && branchToolbarProps ? (
-                        <div className="mx-auto w-full max-w-208 rounded-md bg-background/95 backdrop-blur-sm">
-                          <BranchToolbar {...branchToolbarProps} />
-                        </div>
-                      ) : null
-                    }
-                    floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
-                    onComposerHeightChange={scheduleStickToBottom}
-                    onPreviewExpandedImage={onExpandTimelineImage}
-                    onIssuePreviewOpen={onComposerIssueTokenClick}
-                    onPendingUserInputCustomAnswerChange={
-                      onChangeActivePendingUserInputCustomAnswer
-                    }
-                    onSubmit={handleComposerSubmit}
-                    onRespondToApproval={onRespondToApproval}
-                    onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
-                    onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
-                    onHandoffToProvider={onHandoffToProvider}
-                    onInteractionModeChange={handleInteractionModeChange}
-                    onRuntimeModeChange={handleRuntimeModeChange}
-                    onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                    onInterrupt={onInterrupt}
-                    onImplementPlanInNewThread={onImplementPlanInNewThread}
-                    onQueueMessage={handleQueueComposerMessage}
-                    onEditQueuedComposerMessage={onEditQueuedComposerMessage}
-                    onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
-                    onClearQueuedComposerMessages={clearQueuedComposerMessages}
-                    onDismissPendingComposerComment={dismissPendingComposerComment}
-                    onClearPendingComposerComments={clearPendingComposerComments}
-                    onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
-                    onSendQueuedComposerMessage={sendQueuedComposerMessage}
-                    onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
-                    onSetThreadError={setThreadError}
-                  />
-
-                  <ChatConversationExtras
-                    branchToolbarProps={branchToolbarProps}
-                    gitHubIssueDialogProps={gitHubIssueDialogProps}
-                    pullRequestDialogKey={pullRequestDialogState?.key ?? null}
-                    pullRequestDialogProps={pullRequestDialogProps}
-                  />
-                  {issuePreviewNumber !== null ? (
-                    <GitHubIssuePreviewDialog
-                      open
-                      issueNumber={issuePreviewNumber}
-                      cwd={gitCwd ?? activeProject?.cwd ?? null}
-                      onOpenChange={(open) => {
-                        if (!open) setIssuePreviewNumber(null);
-                      }}
-                    />
-                  ) : null}
-                </div>
-                {workspaceMode === "split" && !editorHostedInRightPanel ? (
-                  <motion.div
-                    key="workspace-split-editor"
-                    className="flex h-full min-h-0 shrink-0 overflow-hidden"
-                    initial={{ width: 0, opacity: 0, x: 18 }}
-                    animate={{ width: "auto", opacity: 1, x: 0 }}
-                    transition={WORKSPACE_SIDE_PANEL_TRANSITION}
-                  >
-                    <div
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label="Resize workspace editor panel"
-                      className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
-                      onPointerDown={handleWorkspaceEditorSplitResizePointerDown}
-                    >
-                      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
-                      <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
-                    </div>
-                    <div
-                      className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
-                      style={{
-                        width: constrainedPanelWidth(
-                          workspaceEditorSplitWidth,
-                          MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
-                        ),
-                        minWidth: constrainedPanelWidth(
-                          workspaceEditorSplitWidth,
-                          MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
-                        ),
-                      }}
-                    >
-                      <Suspense
-                        fallback={
-                          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                            <div className="border-b border-border/60 px-4 py-3">
-                              <div className="h-5 w-44 rounded bg-foreground/6" />
-                            </div>
-                            <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                              <div className="border-r border-border/60 bg-foreground/3" />
-                              <div className="bg-background" />
-                            </div>
-                          </div>
-                        }
-                      >
-                        <ThreadWorkspaceEditor
-                          availableEditors={availableEditors}
-                          branch={activeThreadBranchName}
-                          connectionUrl={activeServerConnectionUrl}
-                          gitCwd={gitCwd}
-                          lspCwd={activeProject?.cwd ?? null}
-                          keybindings={keybindings}
-                          browserOpen={browserOpen}
-                          workspaceMode={workspaceMode}
-                          terminalOpen={terminalState.terminalOpen}
-                          threadId={activeThread.id}
-                          worktreePath={activeThread.worktreePath ?? null}
-                          onDetached={() => onWorkspaceModeChange("chat")}
-                          onSubmitAgentNote={submitWorkspaceAgentNote}
-                        />
-                      </Suspense>
-                    </div>
-                  </motion.div>
-                ) : null}
-              </div>
-            )}
-          </>
-        </div>
-        {/* end chat column */}
-
-        <AnimatePresence initial={false}>
-          {activeRightSidePanelMode ? (
-            <motion.div
-              key="thread-right-side-panel"
-              className={cn(
-                "flex h-full min-h-0 overflow-hidden bg-background",
-                avoidNativeBrowserPanelTransforms
-                  ? "will-change-[width,opacity]"
-                  : "transform-gpu will-change-[width,transform,opacity]",
-                !rightSidePanelInteractive && "pointer-events-none select-none",
-                rightSidePanelFullscreen ? "absolute inset-y-0 right-0 z-40" : "relative shrink-0",
-              )}
-              initial={
-                avoidNativeBrowserPanelTransforms
-                  ? { width: 0, opacity: 0 }
-                  : { width: 0, opacity: 0, x: 24 }
-              }
-              animate={
-                avoidNativeBrowserPanelTransforms
-                  ? {
-                      width: rightSidePanelFullscreen
-                        ? "100%"
-                        : constrainedPanelWidth(
-                            rightSidePanelWidth,
-                            MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                            MIN_RIGHT_SIDE_PANEL_WIDTH,
-                          ),
-                      opacity: 1,
-                    }
-                  : {
-                      width: rightSidePanelFullscreen
-                        ? "100%"
-                        : constrainedPanelWidth(
-                            rightSidePanelWidth,
-                            MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                            MIN_RIGHT_SIDE_PANEL_WIDTH,
-                          ),
-                      opacity: 1,
-                      x: 0,
-                    }
-              }
-              exit={
-                avoidNativeBrowserPanelTransforms
-                  ? { width: 0, opacity: 0 }
-                  : { width: 0, opacity: 0, x: 24 }
-              }
-              transition={RIGHT_SIDE_PANEL_TRANSITION}
-            >
-              {!rightSidePanelFullscreen ? (
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Resize right side panel"
-                  tabIndex={0}
-                  className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none outline-none"
-                  onKeyDown={handleRightSidePanelResizeKeyDown}
-                  onPointerDown={handleRightSidePanelResizePointerDown}
-                >
-                  <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75 transition-colors duration-200 ease-out group-hover:bg-border group-focus-visible:bg-border" />
-                  <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-foreground/5 group-focus-visible:scale-x-100 group-focus-visible:bg-foreground/5" />
-                </div>
+          <AppPageTopBar
+            className="min-w-0 flex-1"
+            desktopDragRegion={!rightSidePanelFullscreen}
+            showSidebarTrigger={showSidebarTrigger}
+          >
+            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+              {paneControls ? (
+                <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
               ) : null}
-              <motion.div
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                initial={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 8 }}
-                animate={avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }}
-                exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 6 }}
-                transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
-              >
-                <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                  <AnimatePresence mode="wait" initial={false}>
-                    {activeRightSidePanelMode !== "browser" ? (
-                      <motion.div
-                        key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
-                        className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
-                        initial={{ opacity: 0, x: 8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -6 }}
-                        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                      >
-                        {activeRightSidePanelMode === "summary" ? (
-                          <PlanSummaryPanel
-                            activePlan={activePlan}
-                            activeProposedPlan={sidebarProposedPlan}
-                            generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
-                            activeProvider={activeThread?.session?.provider ?? null}
-                            markdownCwd={gitCwd ?? undefined}
-                            onOpenDiffPanel={isGitRepo ? () => setRightSidePanelMode("diff") : null}
-                            onRegenerateSummary={handleRegenerateSummary}
-                            onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                            onOpenFilePath={
-                              canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
-                            }
-                            enableLocalFileLinks={canOpenLocalMarkdownFiles}
-                            workspaceDiffSummary={workspaceDiffSummary}
-                            workspaceRoot={activeProject?.cwd ?? undefined}
-                          />
-                        ) : activeRightSidePanelMode === "diff" ? (
-                          <LocalDiffPanel
-                            threadId={activeThread.id}
-                            diffState={localDiffState}
-                            onDiffStateChange={setLocalDiffState}
-                          />
-                        ) : activeRightSidePanelMode === "editor" ? (
-                          <Suspense
-                            fallback={
-                              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                                <div className="border-b border-border/60 px-4 py-3">
-                                  <div className="h-5 w-44 rounded bg-foreground/6" />
-                                </div>
-                                <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                                  <div className="border-r border-border/60 bg-foreground/3" />
-                                  <div className="bg-background" />
-                                </div>
-                              </div>
-                            }
-                          >
-                            <ThreadWorkspaceEditor
-                              availableEditors={availableEditors}
-                              branch={activeThreadBranchName}
-                              connectionUrl={activeServerConnectionUrl}
-                              gitCwd={gitCwd}
-                              lspCwd={activeProject?.cwd ?? null}
-                              keybindings={keybindings}
-                              browserOpen={browserOpen}
-                              workspaceMode="split"
-                              terminalOpen={terminalState.terminalOpen}
-                              threadId={activeThread.id}
-                              worktreePath={activeThread.worktreePath ?? null}
-                              onDetached={onCloseRightSidePanelEditor}
-                              onSubmitAgentNote={submitWorkspaceAgentNote}
-                            />
-                          </Suspense>
-                        ) : null}
-                      </motion.div>
+              <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+                <ChatHeader
+                  activeThreadId={activeThread.id}
+                  activeThreadTitle={activeThread.title}
+                  activeProjectId={activeProject?.id ?? null}
+                  activeProjectName={activeProject?.name}
+                  isGitRepo={isGitRepo}
+                  activeProjectScripts={activeProject?.scripts}
+                  preferredScriptId={
+                    activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+                  }
+                  keybindings={keybindings}
+                  terminalAvailable={activeProject !== undefined}
+                  terminalOpen={terminalState.terminalOpen}
+                  terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+                  rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
+                  gitCwd={gitCwd}
+                  activePlanProgress={activePlanProgress}
+                  isAgentWorking={isWorking}
+                  workspaceChangeStat={workspaceChangeStat}
+                  rightSidePanelOpen={rightSidePanelOpen}
+                  workspaceMode={headerWorkspaceMode}
+                  onRunProjectScript={(script) => {
+                    void runProjectScript(script);
+                  }}
+                  onAddProjectScript={saveProjectScript}
+                  onUpdateProjectScript={updateProjectScript}
+                  onDeleteProjectScript={deleteProjectScript}
+                  onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+                  onToggleTerminal={toggleTerminalVisibility}
+                  onToggleRightSidePanel={onToggleRightSidePanel}
+                  onWorkspaceModeChange={onWorkspaceModeChange}
+                />
+              </div>
+            </div>
+          </AppPageTopBar>
+          {dockedRightSidePanelHeader}
+          {fullscreenRightSidePanelHeader}
+        </div>
+
+        <ConnectedComposerProviderStatusBanner
+          threadId={threadId}
+          hasThreadStarted={threadHasStarted(activeThread)}
+          isServerThread={isServerThread}
+          modelSettings={modelSettings}
+          projectModelSelection={activeProject?.defaultModelSelection}
+          providers={providerStatuses}
+          sessionProvider={activeThread.session?.provider ?? null}
+          threadModelSelection={activeThread.modelSelection}
+        />
+
+        {/* Error banner */}
+        <ThreadErrorBanner
+          error={activeThread.error}
+          onDismiss={() => dismissThreadError(activeThread.id)}
+        />
+        {/* Main content area with optional plan sidebar */}
+        <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          {/* Chat column */}
+          <div
+            ref={workspaceViewportRef}
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          >
+            <>
+              {workspaceMode === "editor" && !editorHostedInRightPanel ? (
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                        <div className="border-b border-border/60 px-4 py-3">
+                          <div className="h-5 w-44 rounded bg-foreground/6" />
+                        </div>
+                        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                          <div className="border-r border-border/60 bg-foreground/3" />
+                          <div className="bg-background" />
+                        </div>
+                      </div>
+                    }
+                  >
+                    <ThreadWorkspaceEditor
+                      availableEditors={availableEditors}
+                      branch={activeThreadBranchName}
+                      connectionUrl={activeServerConnectionUrl}
+                      gitCwd={gitCwd}
+                      lspCwd={activeProject?.cwd ?? null}
+                      keybindings={keybindings}
+                      browserOpen={browserOpen}
+                      workspaceMode={workspaceMode}
+                      terminalOpen={terminalState.terminalOpen}
+                      threadId={activeThread.id}
+                      worktreePath={activeThread.worktreePath ?? null}
+                      onDetached={() => onWorkspaceModeChange("chat")}
+                      onSubmitAgentNote={submitWorkspaceAgentNote}
+                    />
+                  </Suspense>
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    workspaceMode === "split" && !editorHostedInRightPanel
+                      ? "flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                      : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                  )}
+                >
+                  <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    {/* Messages Wrapper */}
+                    <ChatMessagesPane {...chatMessagesPaneProps} />
+
+                    <ConnectedChatComposerPanels
+                      ref={composerPanelsRef}
+                      threadId={threadId}
+                      activeForSideEffects={activeForSideEffects}
+                      gitCwd={gitCwd}
+                      isGitRepo={isGitRepo}
+                      modelSettings={modelSettings}
+                      providers={providerStatuses}
+                      isServerThread={isServerThread}
+                      threadRuntimeMode={activeThread.runtimeMode}
+                      threadInteractionMode={activeThread.interactionMode}
+                      composerModelOptions={composerModelOptions}
+                      selectedProvider={selectedProvider}
+                      selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
+                      selectedModel={selectedModel}
+                      selectedProviderModels={selectedProviderModels}
+                      selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                      sessionConfigOptions={activeThread.session?.configOptions}
+                      providerCommands={composerProviderCommands}
+                      selectedModelForPickerWithCustomFallback={
+                        selectedModelForPickerWithCustomFallback
+                      }
+                      lockedProvider={lockedProvider}
+                      modelOptionsByProvider={modelOptionsByProvider}
+                      modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
+                      providerInstancesByProvider={providerInstancesByProvider}
+                      handoffTargetProviders={handoffTargetProviders}
+                      handoffDisabled={handoffDisabled}
+                      interactionModeShortcutLabel={togglePlanModeShortcutLabel}
+                      activeContextWindow={activeContextWindow}
+                      queuedComposerMessages={queuedComposerMessages}
+                      queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+                      canSendQueuedMessages={canSendQueuedComposerMessages}
+                      pendingComposerComments={pendingComposerCommentItems}
+                      liveTurnInProgress={liveTurnInProgress}
+                      isConnecting={isConnecting}
+                      isPreparingWorktree={isPreparingWorktree}
+                      isSendBusy={isSendBusy}
+                      allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
+                      activePendingApproval={activePendingApproval}
+                      pendingApprovalsCount={pendingApprovals.length}
+                      pendingUserInputs={pendingUserInputs}
+                      respondingApprovalRequestIds={respondingRequestIds}
+                      respondingUserInputRequestIds={respondingUserInputRequestIds}
+                      activePendingDraftAnswers={activePendingDraftAnswers}
+                      activePendingQuestionIndex={activePendingQuestionIndex}
+                      activePendingProgress={activePendingProgress}
+                      activePendingIsResponding={activePendingIsResponding}
+                      activePendingResolvedAnswers={activePendingResolvedAnswers}
+                      planFollowUpId={activeProposedPlan?.id ?? null}
+                      planFollowUpTitle={
+                        activeProposedPlan
+                          ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null)
+                          : null
+                      }
+                      resolvedTheme={resolvedTheme}
+                      showFloatingDock={showRightPanelChatDock}
+                      floatingDockFooter={
+                        showRightPanelChatDock && branchToolbarProps ? (
+                          <div className="mx-auto w-full max-w-208 rounded-md bg-background/95 backdrop-blur-sm">
+                            <BranchToolbar {...branchToolbarProps} />
+                          </div>
+                        ) : null
+                      }
+                      floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
+                      onComposerHeightChange={scheduleStickToBottom}
+                      onPreviewExpandedImage={onExpandTimelineImage}
+                      onIssuePreviewOpen={onComposerIssueTokenClick}
+                      onPendingUserInputCustomAnswerChange={
+                        onChangeActivePendingUserInputCustomAnswer
+                      }
+                      onSubmit={handleComposerSubmit}
+                      onRespondToApproval={onRespondToApproval}
+                      onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
+                      onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
+                      onHandoffToProvider={onHandoffToProvider}
+                      onInteractionModeChange={handleInteractionModeChange}
+                      onRuntimeModeChange={handleRuntimeModeChange}
+                      onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                      onInterrupt={onInterrupt}
+                      onImplementPlanInNewThread={onImplementPlanInNewThread}
+                      onQueueMessage={handleQueueComposerMessage}
+                      onEditQueuedComposerMessage={onEditQueuedComposerMessage}
+                      onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
+                      onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                      onDismissPendingComposerComment={dismissPendingComposerComment}
+                      onClearPendingComposerComments={clearPendingComposerComments}
+                      onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+                      onSendQueuedComposerMessage={sendQueuedComposerMessage}
+                      onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
+                      onSetThreadError={setThreadError}
+                    />
+
+                    <ChatConversationExtras
+                      branchToolbarProps={branchToolbarProps}
+                      gitHubIssueDialogProps={gitHubIssueDialogProps}
+                      pullRequestDialogKey={pullRequestDialogState?.key ?? null}
+                      pullRequestDialogProps={pullRequestDialogProps}
+                    />
+                    {issuePreviewNumber !== null ? (
+                      <GitHubIssuePreviewDialog
+                        open
+                        issueNumber={issuePreviewNumber}
+                        cwd={gitCwd ?? activeProject?.cwd ?? null}
+                        onOpenChange={(open) => {
+                          if (!open) {
+                            dispatchChatViewDialogState({
+                              type: "set-issue-preview-number",
+                              issuePreviewNumber: null,
+                            });
+                          }
+                        }}
+                      />
                     ) : null}
-                  </AnimatePresence>
-                  {browserPanel ? (
-                    <div
-                      className={cn(
-                        "absolute inset-0 min-h-0 min-w-0",
-                        activeRightSidePanelMode === "browser"
-                          ? "z-10"
-                          : "pointer-events-none invisible z-0",
-                      )}
+                  </div>
+                  {workspaceMode === "split" && !editorHostedInRightPanel ? (
+                    <m.div
+                      key="workspace-split-editor"
+                      className="flex h-full min-h-0 shrink-0 overflow-hidden"
+                      initial={{ width: 0, opacity: 0, x: 18 }}
+                      animate={{ width: "auto", opacity: 1, x: 0 }}
+                      transition={WORKSPACE_SIDE_PANEL_TRANSITION}
                     >
-                      <RetainedBrowserInstances instances={browserPanel.instances} />
-                    </div>
+                      <div
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Resize workspace editor panel"
+                        className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
+                        onPointerDown={handleWorkspaceEditorSplitResizePointerDown}
+                      >
+                        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
+                        <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
+                      </div>
+                      <div
+                        className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
+                        style={{
+                          width: constrainedPanelWidth(
+                            workspaceEditorSplitWidth,
+                            MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
+                          ),
+                          minWidth: constrainedPanelWidth(
+                            workspaceEditorSplitWidth,
+                            MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
+                          ),
+                        }}
+                      >
+                        <Suspense
+                          fallback={
+                            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                              <div className="border-b border-border/60 px-4 py-3">
+                                <div className="h-5 w-44 rounded bg-foreground/6" />
+                              </div>
+                              <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                                <div className="border-r border-border/60 bg-foreground/3" />
+                                <div className="bg-background" />
+                              </div>
+                            </div>
+                          }
+                        >
+                          <ThreadWorkspaceEditor
+                            availableEditors={availableEditors}
+                            branch={activeThreadBranchName}
+                            connectionUrl={activeServerConnectionUrl}
+                            gitCwd={gitCwd}
+                            lspCwd={activeProject?.cwd ?? null}
+                            keybindings={keybindings}
+                            browserOpen={browserOpen}
+                            workspaceMode={workspaceMode}
+                            terminalOpen={terminalState.terminalOpen}
+                            threadId={activeThread.id}
+                            worktreePath={activeThread.worktreePath ?? null}
+                            onDetached={() => onWorkspaceModeChange("chat")}
+                            onSubmitAgentNote={submitWorkspaceAgentNote}
+                          />
+                        </Suspense>
+                      </div>
+                    </m.div>
                   ) : null}
                 </div>
-              </motion.div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+              )}
+            </>
+          </div>
+          {/* end chat column */}
 
-        <ChatViewPanels browserPanel={null} expandedImageOverlay={expandedImageOverlay} />
+          <AnimatePresence initial={false}>
+            {activeRightSidePanelMode ? (
+              <m.div
+                key="thread-right-side-panel"
+                className={cn(
+                  "flex h-full min-h-0 overflow-hidden bg-background",
+                  avoidNativeBrowserPanelTransforms
+                    ? "will-change-[width,opacity]"
+                    : "transform-gpu will-change-[width,transform,opacity]",
+                  !rightSidePanelInteractive && "pointer-events-none select-none",
+                  rightSidePanelFullscreen
+                    ? "absolute inset-y-0 right-0 z-40"
+                    : "relative shrink-0",
+                )}
+                initial={
+                  avoidNativeBrowserPanelTransforms
+                    ? { width: 0, opacity: 0 }
+                    : { width: 0, opacity: 0, x: 24 }
+                }
+                animate={
+                  avoidNativeBrowserPanelTransforms
+                    ? {
+                        width: rightSidePanelFullscreen
+                          ? "100%"
+                          : constrainedPanelWidth(
+                              rightSidePanelWidth,
+                              MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                              MIN_RIGHT_SIDE_PANEL_WIDTH,
+                            ),
+                        opacity: 1,
+                      }
+                    : {
+                        width: rightSidePanelFullscreen
+                          ? "100%"
+                          : constrainedPanelWidth(
+                              rightSidePanelWidth,
+                              MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                              MIN_RIGHT_SIDE_PANEL_WIDTH,
+                            ),
+                        opacity: 1,
+                        x: 0,
+                      }
+                }
+                exit={
+                  avoidNativeBrowserPanelTransforms
+                    ? { width: 0, opacity: 0 }
+                    : { width: 0, opacity: 0, x: 24 }
+                }
+                transition={RIGHT_SIDE_PANEL_TRANSITION}
+              >
+                {!rightSidePanelFullscreen ? (
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize right side panel"
+                    tabIndex={0}
+                    className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none outline-none"
+                    onKeyDown={handleRightSidePanelResizeKeyDown}
+                    onPointerDown={handleRightSidePanelResizePointerDown}
+                  >
+                    <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75 transition-colors duration-200 ease-out group-hover:bg-border group-focus-visible:bg-border" />
+                    <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-foreground/5 group-focus-visible:scale-x-100 group-focus-visible:bg-foreground/5" />
+                  </div>
+                ) : null}
+                <m.div
+                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                  initial={
+                    avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 8 }
+                  }
+                  animate={
+                    avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }
+                  }
+                  exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 6 }}
+                  transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+                >
+                  <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <AnimatePresence mode="wait" initial={false}>
+                      {activeRightSidePanelMode !== "browser" ? (
+                        <m.div
+                          key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
+                          className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                          initial={{ opacity: 0, x: 8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -6 }}
+                          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                        >
+                          {activeRightSidePanelMode === "summary" ? (
+                            <PlanSummaryPanel
+                              activePlan={activePlan}
+                              activeProposedPlan={sidebarProposedPlan}
+                              generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                              activeProvider={activeThread?.session?.provider ?? null}
+                              markdownCwd={gitCwd ?? undefined}
+                              onOpenDiffPanel={
+                                isGitRepo ? () => setRightSidePanelMode("diff") : null
+                              }
+                              onRegenerateSummary={handleRegenerateSummary}
+                              onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                              onOpenFilePath={
+                                canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                              }
+                              enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                              workspaceDiffSummary={workspaceDiffSummary}
+                              workspaceRoot={activeProject?.cwd ?? undefined}
+                            />
+                          ) : activeRightSidePanelMode === "diff" ? (
+                            <LocalDiffPanel
+                              threadId={activeThread.id}
+                              diffState={localDiffState}
+                              onDiffStateChange={setLocalDiffState}
+                            />
+                          ) : activeRightSidePanelMode === "editor" ? (
+                            <Suspense
+                              fallback={
+                                <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                                  <div className="border-b border-border/60 px-4 py-3">
+                                    <div className="h-5 w-44 rounded bg-foreground/6" />
+                                  </div>
+                                  <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                                    <div className="border-r border-border/60 bg-foreground/3" />
+                                    <div className="bg-background" />
+                                  </div>
+                                </div>
+                              }
+                            >
+                              <ThreadWorkspaceEditor
+                                availableEditors={availableEditors}
+                                branch={activeThreadBranchName}
+                                connectionUrl={activeServerConnectionUrl}
+                                gitCwd={gitCwd}
+                                lspCwd={activeProject?.cwd ?? null}
+                                keybindings={keybindings}
+                                browserOpen={browserOpen}
+                                workspaceMode="split"
+                                terminalOpen={terminalState.terminalOpen}
+                                threadId={activeThread.id}
+                                worktreePath={activeThread.worktreePath ?? null}
+                                onDetached={onCloseRightSidePanelEditor}
+                                onSubmitAgentNote={submitWorkspaceAgentNote}
+                              />
+                            </Suspense>
+                          ) : null}
+                        </m.div>
+                      ) : null}
+                    </AnimatePresence>
+                    {browserPanel ? (
+                      <div
+                        className={cn(
+                          "absolute inset-0 min-h-0 min-w-0",
+                          activeRightSidePanelMode === "browser"
+                            ? "z-10"
+                            : "pointer-events-none invisible z-0",
+                        )}
+                      >
+                        <RetainedBrowserInstances instances={browserPanel.instances} />
+                      </div>
+                    ) : null}
+                  </div>
+                </m.div>
+              </m.div>
+            ) : null}
+          </AnimatePresence>
+
+          <ChatViewPanels browserPanel={null} expandedImageOverlay={expandedImageOverlay} />
+        </div>
+        {/* end horizontal flex container */}
+
+        <ConnectedRetainedThreadTerminalDrawers
+          activeThreadId={activeThread.id}
+          activeProjectAvailable={activeProject !== undefined}
+          cwd={gitCwd ?? activeProject?.cwd ?? null}
+          runtimeEnv={threadTerminalRuntimeEnv}
+          focusRequestId={terminalFocusRequestId}
+          interactive={activeForSideEffects}
+          onNewTerminal={createNewTerminal}
+          newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+          toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
+          onActiveTerminalChange={activateTerminal}
+          onMoveTerminal={moveTerminal}
+          onAutoTerminalTitleChange={setTerminalAutoTitle}
+          onCloseTerminal={closeTerminal}
+          onToggleTerminal={toggleTerminalVisibility}
+          onHeightChange={setTerminalHeight}
+          onAddTerminalContext={addTerminalContextToDraft}
+        />
       </div>
-      {/* end horizontal flex container */}
-
-      <ConnectedRetainedThreadTerminalDrawers
-        activeThreadId={activeThread.id}
-        activeProjectAvailable={activeProject !== undefined}
-        cwd={gitCwd ?? activeProject?.cwd ?? null}
-        runtimeEnv={threadTerminalRuntimeEnv}
-        focusRequestId={terminalFocusRequestId}
-        interactive={activeForSideEffects}
-        onNewTerminal={createNewTerminal}
-        newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-        toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
-        onActiveTerminalChange={activateTerminal}
-        onMoveTerminal={moveTerminal}
-        onAutoTerminalTitleChange={setTerminalAutoTitle}
-        onCloseTerminal={closeTerminal}
-        onToggleTerminal={toggleTerminalVisibility}
-        onHeightChange={setTerminalHeight}
-        onAddTerminalContext={addTerminalContextToDraft}
-      />
-    </div>
+    </LazyMotion>
   );
+}
+
+export default function ChatView(props: ChatViewProps) {
+  return useChatViewComponent(props);
 }

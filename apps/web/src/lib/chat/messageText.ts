@@ -13,7 +13,7 @@ const LARGE_MARKDOWN_PREVIEW_SEPARATOR =
   "\n\n[... large response collapsed for faster rendering ...]\n\n";
 const MARKDOWN_ESCAPE_BACKSLASH_REGEX = /\\([\\`*_[\]{}()#+\-.!>|])/g;
 
-export const COLLAPSED_ASSISTANT_PREVIEW_MAX_HEIGHT_PX = 384;
+const COLLAPSED_ASSISTANT_PREVIEW_MAX_HEIGHT_PX = 384;
 
 export type AssistantMessageRenderHint = "full-text" | "streaming-preview" | "large-preview";
 
@@ -27,7 +27,7 @@ function countLineBreaks(text: string): number {
   return lineBreaks;
 }
 
-export function countTextLines(text: string): number {
+function countTextLines(text: string): number {
   if (text.length === 0) {
     return 0;
   }
@@ -183,7 +183,7 @@ export function getChatMessageRenderableText(
   return message.text;
 }
 
-export function getChatMessageTextLength(
+function getChatMessageTextLength(
   message: Pick<ChatMessage, "text" | "streamingTextState">,
 ): number {
   return message.streamingTextState?.totalLength ?? message.text.length;

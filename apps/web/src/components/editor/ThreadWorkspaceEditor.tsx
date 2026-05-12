@@ -1,4 +1,3 @@
-import { DiffEditor } from "@monaco-editor/react";
 import type {
   EditorId,
   GitWorkingTreeFileStatus,
@@ -34,12 +33,15 @@ import {
 } from "lucide-react";
 import {
   memo,
+  lazy,
+  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -119,6 +121,11 @@ const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
+const LazyMonacoDiffEditor = lazy(() =>
+  import("@monaco-editor/react").then((module) => ({
+    default: module.DiffEditor,
+  })),
+);
 
 interface SaveConflictState {
   readonly currentContents: string;
@@ -240,6 +247,223 @@ interface QueuedWorkspaceContext {
 interface WorkspaceAgentNoteSubmission {
   readonly mode: "queue" | "send";
   readonly prompt: string;
+}
+
+type ThreadWorkspaceEditorUiState = {
+  treeSearch: string;
+  sidebarMode: WorkspaceSidebarMode;
+  commandPaletteOpen: boolean;
+  commandPaletteMode: WorkspaceCommandPaletteMode;
+  queuedWorkspaceContexts: readonly QueuedWorkspaceContext[];
+  agentNoteSubmissionBusy: boolean;
+  selectedEntryPath: string | null;
+  inlineEntryState: ExplorerInlineEntryState | null;
+  dragTargetParentPath: string | null;
+  saveConflict: SaveConflictState | null;
+  problemReportsByPaneId: Record<
+    string,
+    { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+  >;
+  symbolReportsByPaneId: Record<
+    string,
+    { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+  >;
+  problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null;
+  symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null;
+  findRequestToken: number;
+  collapsedOutlineIds: ReadonlySet<string>;
+  activeOutlineSymbolId: string | null;
+};
+
+type ThreadWorkspaceEditorUiAction =
+  | { type: "set-tree-search"; treeSearch: string }
+  | { type: "set-sidebar-mode"; sidebarMode: WorkspaceSidebarMode }
+  | { type: "set-command-palette-open"; commandPaletteOpen: boolean }
+  | { type: "set-command-palette-mode"; commandPaletteMode: WorkspaceCommandPaletteMode }
+  | {
+      type: "set-queued-workspace-contexts";
+      nextQueuedWorkspaceContexts:
+        | readonly QueuedWorkspaceContext[]
+        | ((current: readonly QueuedWorkspaceContext[]) => readonly QueuedWorkspaceContext[]);
+    }
+  | { type: "set-agent-note-submission-busy"; agentNoteSubmissionBusy: boolean }
+  | { type: "set-selected-entry-path"; selectedEntryPath: string | null }
+  | {
+      type: "set-inline-entry-state";
+      inlineEntryState:
+        | ExplorerInlineEntryState
+        | null
+        | ((current: ExplorerInlineEntryState | null) => ExplorerInlineEntryState | null);
+    }
+  | { type: "set-drag-target-parent-path"; dragTargetParentPath: string | null }
+  | {
+      type: "set-save-conflict";
+      saveConflict:
+        | SaveConflictState
+        | null
+        | ((current: SaveConflictState | null) => SaveConflictState | null);
+    }
+  | {
+      type: "set-problem-reports-by-pane-id";
+      nextProblemReportsByPaneId:
+        | Record<
+            string,
+            { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+          >
+        | ((
+            current: Record<
+              string,
+              { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+            >,
+          ) => Record<
+            string,
+            { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+          >);
+    }
+  | {
+      type: "set-symbol-reports-by-pane-id";
+      nextSymbolReportsByPaneId:
+        | Record<
+            string,
+            { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+          >
+        | ((
+            current: Record<
+              string,
+              { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+            >,
+          ) => Record<
+            string,
+            { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+          >);
+    }
+  | {
+      type: "set-problem-navigation-target";
+      problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null;
+    }
+  | {
+      type: "set-symbol-navigation-target";
+      symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null;
+    }
+  | { type: "bump-find-request-token" }
+  | {
+      type: "set-collapsed-outline-ids";
+      nextCollapsedOutlineIds:
+        | ReadonlySet<string>
+        | ((current: ReadonlySet<string>) => ReadonlySet<string>);
+    }
+  | {
+      type: "set-active-outline-symbol-id";
+      activeOutlineSymbolId: string | null | ((current: string | null) => string | null);
+    };
+
+const EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE: ThreadWorkspaceEditorUiState = {
+  treeSearch: "",
+  sidebarMode: "explorer",
+  commandPaletteOpen: false,
+  commandPaletteMode: "commands",
+  queuedWorkspaceContexts: [],
+  agentNoteSubmissionBusy: false,
+  selectedEntryPath: null,
+  inlineEntryState: null,
+  dragTargetParentPath: null,
+  saveConflict: null,
+  problemReportsByPaneId: {},
+  symbolReportsByPaneId: {},
+  problemNavigationTarget: null,
+  symbolNavigationTarget: null,
+  findRequestToken: 0,
+  collapsedOutlineIds: new Set(),
+  activeOutlineSymbolId: null,
+};
+
+function threadWorkspaceEditorUiStateReducer(
+  state: ThreadWorkspaceEditorUiState,
+  action: ThreadWorkspaceEditorUiAction,
+): ThreadWorkspaceEditorUiState {
+  switch (action.type) {
+    case "set-tree-search":
+      return { ...state, treeSearch: action.treeSearch };
+    case "set-sidebar-mode":
+      return { ...state, sidebarMode: action.sidebarMode };
+    case "set-command-palette-open":
+      return { ...state, commandPaletteOpen: action.commandPaletteOpen };
+    case "set-command-palette-mode":
+      return { ...state, commandPaletteMode: action.commandPaletteMode };
+    case "set-queued-workspace-contexts": {
+      const nextQueuedWorkspaceContexts =
+        typeof action.nextQueuedWorkspaceContexts === "function"
+          ? action.nextQueuedWorkspaceContexts(state.queuedWorkspaceContexts)
+          : action.nextQueuedWorkspaceContexts;
+      return nextQueuedWorkspaceContexts === state.queuedWorkspaceContexts
+        ? state
+        : { ...state, queuedWorkspaceContexts: nextQueuedWorkspaceContexts };
+    }
+    case "set-agent-note-submission-busy":
+      return { ...state, agentNoteSubmissionBusy: action.agentNoteSubmissionBusy };
+    case "set-selected-entry-path":
+      return { ...state, selectedEntryPath: action.selectedEntryPath };
+    case "set-inline-entry-state": {
+      const inlineEntryState =
+        typeof action.inlineEntryState === "function"
+          ? action.inlineEntryState(state.inlineEntryState)
+          : action.inlineEntryState;
+      return inlineEntryState === state.inlineEntryState ? state : { ...state, inlineEntryState };
+    }
+    case "set-drag-target-parent-path":
+      return { ...state, dragTargetParentPath: action.dragTargetParentPath };
+    case "set-save-conflict": {
+      const saveConflict =
+        typeof action.saveConflict === "function"
+          ? action.saveConflict(state.saveConflict)
+          : action.saveConflict;
+      return saveConflict === state.saveConflict ? state : { ...state, saveConflict };
+    }
+    case "set-problem-reports-by-pane-id": {
+      const problemReportsByPaneId =
+        typeof action.nextProblemReportsByPaneId === "function"
+          ? action.nextProblemReportsByPaneId(state.problemReportsByPaneId)
+          : action.nextProblemReportsByPaneId;
+      return problemReportsByPaneId === state.problemReportsByPaneId
+        ? state
+        : { ...state, problemReportsByPaneId };
+    }
+    case "set-symbol-reports-by-pane-id": {
+      const symbolReportsByPaneId =
+        typeof action.nextSymbolReportsByPaneId === "function"
+          ? action.nextSymbolReportsByPaneId(state.symbolReportsByPaneId)
+          : action.nextSymbolReportsByPaneId;
+      return symbolReportsByPaneId === state.symbolReportsByPaneId
+        ? state
+        : { ...state, symbolReportsByPaneId };
+    }
+    case "set-problem-navigation-target":
+      return { ...state, problemNavigationTarget: action.problemNavigationTarget };
+    case "set-symbol-navigation-target":
+      return { ...state, symbolNavigationTarget: action.symbolNavigationTarget };
+    case "bump-find-request-token":
+      return { ...state, findRequestToken: state.findRequestToken + 1 };
+    case "set-collapsed-outline-ids": {
+      const collapsedOutlineIds =
+        typeof action.nextCollapsedOutlineIds === "function"
+          ? action.nextCollapsedOutlineIds(state.collapsedOutlineIds)
+          : action.nextCollapsedOutlineIds;
+      return collapsedOutlineIds === state.collapsedOutlineIds
+        ? state
+        : { ...state, collapsedOutlineIds };
+    }
+    case "set-active-outline-symbol-id": {
+      const activeOutlineSymbolId =
+        typeof action.activeOutlineSymbolId === "function"
+          ? action.activeOutlineSymbolId(state.activeOutlineSymbolId)
+          : action.activeOutlineSymbolId;
+      return activeOutlineSymbolId === state.activeOutlineSymbolId
+        ? state
+        : { ...state, activeOutlineSymbolId };
+    }
+    default:
+      return state;
+  }
 }
 
 function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number {
@@ -769,7 +993,7 @@ function WorkspaceActivityButton(props: {
   );
 }
 
-function ThreadWorkspaceEditor(inputProps: {
+function useThreadWorkspaceEditorComponent(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
   branch?: string | null;
   browserOpen: boolean;
@@ -844,15 +1068,155 @@ function ThreadWorkspaceEditor(inputProps: {
   );
   const queryClient = useQueryClient();
   const api = readNativeApi();
-  const [treeSearch, setTreeSearch] = useState("");
-  const [sidebarMode, setSidebarMode] = useState<WorkspaceSidebarMode>("explorer");
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [commandPaletteMode, setCommandPaletteMode] =
-    useState<WorkspaceCommandPaletteMode>("commands");
-  const [queuedWorkspaceContexts, setQueuedWorkspaceContexts] = useState<
-    readonly QueuedWorkspaceContext[]
-  >([]);
-  const [agentNoteSubmissionBusy, setAgentNoteSubmissionBusy] = useState(false);
+  const [uiState, dispatchUiState] = useReducer(
+    threadWorkspaceEditorUiStateReducer,
+    EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE,
+  );
+  const {
+    treeSearch,
+    sidebarMode,
+    commandPaletteOpen,
+    commandPaletteMode,
+    queuedWorkspaceContexts,
+    agentNoteSubmissionBusy,
+    selectedEntryPath,
+    inlineEntryState,
+    dragTargetParentPath,
+    saveConflict,
+    problemReportsByPaneId,
+    symbolReportsByPaneId,
+    problemNavigationTarget,
+    symbolNavigationTarget,
+    findRequestToken,
+    collapsedOutlineIds,
+    activeOutlineSymbolId,
+  } = uiState;
+  const setTreeSearch = useCallback((treeSearch: string) => {
+    dispatchUiState({ type: "set-tree-search", treeSearch });
+  }, []);
+  const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
+    dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
+  }, []);
+  const setCommandPaletteOpen = useCallback((commandPaletteOpen: boolean) => {
+    dispatchUiState({ type: "set-command-palette-open", commandPaletteOpen });
+  }, []);
+  const setCommandPaletteMode = useCallback((commandPaletteMode: WorkspaceCommandPaletteMode) => {
+    dispatchUiState({ type: "set-command-palette-mode", commandPaletteMode });
+  }, []);
+  const setQueuedWorkspaceContexts = useCallback(
+    (
+      nextQueuedWorkspaceContexts:
+        | readonly QueuedWorkspaceContext[]
+        | ((current: readonly QueuedWorkspaceContext[]) => readonly QueuedWorkspaceContext[]),
+    ) => {
+      dispatchUiState({ type: "set-queued-workspace-contexts", nextQueuedWorkspaceContexts });
+    },
+    [],
+  );
+  const setAgentNoteSubmissionBusy = useCallback((agentNoteSubmissionBusy: boolean) => {
+    dispatchUiState({ type: "set-agent-note-submission-busy", agentNoteSubmissionBusy });
+  }, []);
+  const setSelectedEntryPath = useCallback((selectedEntryPath: string | null) => {
+    dispatchUiState({ type: "set-selected-entry-path", selectedEntryPath });
+  }, []);
+  const setInlineEntryState = useCallback(
+    (
+      inlineEntryState:
+        | ExplorerInlineEntryState
+        | null
+        | ((current: ExplorerInlineEntryState | null) => ExplorerInlineEntryState | null),
+    ) => {
+      dispatchUiState({ type: "set-inline-entry-state", inlineEntryState });
+    },
+    [],
+  );
+  const setDragTargetParentPath = useCallback((dragTargetParentPath: string | null) => {
+    dispatchUiState({ type: "set-drag-target-parent-path", dragTargetParentPath });
+  }, []);
+  const setSaveConflict = useCallback(
+    (
+      saveConflict:
+        | SaveConflictState
+        | null
+        | ((current: SaveConflictState | null) => SaveConflictState | null),
+    ) => {
+      dispatchUiState({ type: "set-save-conflict", saveConflict });
+    },
+    [],
+  );
+  const setProblemReportsByPaneId = useCallback(
+    (
+      nextProblemReportsByPaneId:
+        | Record<
+            string,
+            { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+          >
+        | ((
+            current: Record<
+              string,
+              { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+            >,
+          ) => Record<
+            string,
+            { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+          >),
+    ) => {
+      dispatchUiState({ type: "set-problem-reports-by-pane-id", nextProblemReportsByPaneId });
+    },
+    [],
+  );
+  const setSymbolReportsByPaneId = useCallback(
+    (
+      nextSymbolReportsByPaneId:
+        | Record<
+            string,
+            { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+          >
+        | ((
+            current: Record<
+              string,
+              { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+            >,
+          ) => Record<
+            string,
+            { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+          >),
+    ) => {
+      dispatchUiState({ type: "set-symbol-reports-by-pane-id", nextSymbolReportsByPaneId });
+    },
+    [],
+  );
+  const setProblemNavigationTarget = useCallback(
+    (problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null) => {
+      dispatchUiState({ type: "set-problem-navigation-target", problemNavigationTarget });
+    },
+    [],
+  );
+  const setSymbolNavigationTarget = useCallback(
+    (symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null) => {
+      dispatchUiState({ type: "set-symbol-navigation-target", symbolNavigationTarget });
+    },
+    [],
+  );
+  const bumpFindRequestToken = useCallback(() => {
+    dispatchUiState({ type: "bump-find-request-token" });
+  }, []);
+  const setCollapsedOutlineIds = useCallback(
+    (
+      nextCollapsedOutlineIds:
+        | ReadonlySet<string>
+        | ((current: ReadonlySet<string>) => ReadonlySet<string>),
+    ) => {
+      dispatchUiState({ type: "set-collapsed-outline-ids", nextCollapsedOutlineIds });
+    },
+    [],
+  );
+  const setActiveOutlineSymbolId = useCallback(
+    (activeOutlineSymbolId: string | null | ((current: string | null) => string | null)) => {
+      dispatchUiState({ type: "set-active-outline-symbol-id", activeOutlineSymbolId });
+    },
+    [],
+  );
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -885,34 +1249,12 @@ function ThreadWorkspaceEditor(inputProps: {
   const addCodeComment = useEditorStateStore((state) => state.addCodeComment);
   const removeCodeComment = useEditorStateStore((state) => state.removeCodeComment);
   const updateCodeCommentStatus = useEditorStateStore((state) => state.updateCodeCommentStatus);
-  const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
-  const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
   const inlineEntryFocusKey =
     inlineEntryState?.kind === "rename"
       ? `rename:${inlineEntryState.entry.path}`
       : inlineEntryState
         ? `${inlineEntryState.kind}:${inlineEntryState.parentPath ?? "root"}`
         : null;
-  const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
-  const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
-  const [problemReportsByPaneId, setProblemReportsByPaneId] = useState<
-    Record<
-      string,
-      { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
-    >
-  >({});
-  const [symbolReportsByPaneId, setSymbolReportsByPaneId] = useState<
-    Record<string, { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }>
-  >({});
-  const [problemNavigationTarget, setProblemNavigationTarget] =
-    useState<WorkspaceEditorProblemNavigationTarget | null>(null);
-  const [symbolNavigationTarget, setSymbolNavigationTarget] =
-    useState<WorkspaceEditorSymbolNavigationTarget | null>(null);
-  const [findRequestToken, setFindRequestToken] = useState(0);
-  const [collapsedOutlineIds, setCollapsedOutlineIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const [activeOutlineSymbolId, setActiveOutlineSymbolId] = useState<string | null>(null);
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -1447,45 +1789,47 @@ function ThreadWorkspaceEditor(inputProps: {
     () => normalizePaneRatios(paneRatios, rows.length),
     [paneRatios, rows.length],
   );
-  const layoutRows = useMemo(
-    () =>
-      rows
-        .map((row) => {
-          const rowPanes = row.paneIds
-            .map((paneId) => panesById.get(paneId) ?? null)
-            .filter((pane): pane is NonNullable<typeof pane> => pane !== null);
-          if (rowPanes.length === 0) {
-            return null;
-          }
-          return {
-            ...row,
-            paneRatios: normalizePaneRatios(row.paneRatios, rowPanes.length),
-            panes: rowPanes,
-          };
-        })
-        .filter((row): row is ThreadEditorRowState & { panes: typeof panes } => row !== null),
-    [panesById, rows],
-  );
+  const layoutRows = useMemo(() => {
+    const nextRows: Array<ThreadEditorRowState & { panes: typeof panes }> = [];
+    for (const row of rows) {
+      const rowPanes: typeof panes = [];
+      for (const paneId of row.paneIds) {
+        const pane = panesById.get(paneId);
+        if (pane) {
+          rowPanes.push(pane);
+        }
+      }
+      if (rowPanes.length > 0) {
+        nextRows.push({
+          ...row,
+          paneRatios: normalizePaneRatios(row.paneRatios, rowPanes.length),
+          panes: rowPanes,
+        });
+      }
+    }
+    return nextRows;
+  }, [panesById, rows]);
   const orderedPaneIds = useMemo(() => layoutRows.flatMap((row) => row.paneIds), [layoutRows]);
 
   const activeDirtyPaths = useMemo(
     () =>
-      new Set(
-        Object.entries(draftsByFilePath)
-          .filter(([, draft]) => draft.draftContents !== draft.savedContents)
-          .map(([path]) => path),
-      ),
+      Object.entries(draftsByFilePath).reduce<Set<string>>((paths, [path, draft]) => {
+        if (draft.draftContents !== draft.savedContents) {
+          paths.add(path);
+        }
+        return paths;
+      }, new Set<string>()),
     [draftsByFilePath],
   );
   const gitStatusByPath = useMemo(() => {
     const files = gitStatusQuery.data?.workingTree.files ?? [];
-    return new Map(
-      files
-        .filter((file): file is typeof file & { status: GitWorkingTreeFileStatus } =>
-          Boolean(file.status),
-        )
-        .map((file) => [file.path, file.status] as const),
-    );
+    const statusByPath = new Map<string, GitWorkingTreeFileStatus>();
+    for (const file of files) {
+      if (file.status) {
+        statusByPath.set(file.path, file.status);
+      }
+    }
+    return statusByPath;
   }, [gitStatusQuery.data?.workingTree.files]);
   const changedFiles = gitStatusQuery.data?.workingTree.files ?? [];
   const openCodeCommentCount = useMemo(
@@ -1529,22 +1873,29 @@ function ThreadWorkspaceEditor(inputProps: {
     ) => {
       setProblemReportsByPaneId((current) => {
         const previous = current[paneId];
-        if (
-          previous?.activeFilePath === activeFilePath &&
-          previous.problems.length === problems.length &&
-          previous.problems.every((problem, index) => {
-            const next = problems[index];
-            return (
-              next &&
-              problem.message === next.message &&
-              problem.severity === next.severity &&
-              problem.startLineNumber === next.startLineNumber &&
-              problem.startColumn === next.startColumn &&
-              problem.endLineNumber === next.endLineNumber &&
-              problem.endColumn === next.endColumn
-            );
-          })
-        ) {
+        let hasSameProblems = previous?.activeFilePath === activeFilePath;
+        if (hasSameProblems) {
+          const previousProblems = previous?.problems ?? [];
+          hasSameProblems = previousProblems.length === problems.length;
+          if (hasSameProblems) {
+            for (const [index, problem] of previousProblems.entries()) {
+              const next = problems[index];
+              if (
+                !next ||
+                problem.message !== next.message ||
+                problem.severity !== next.severity ||
+                problem.startLineNumber !== next.startLineNumber ||
+                problem.startColumn !== next.startColumn ||
+                problem.endLineNumber !== next.endLineNumber ||
+                problem.endColumn !== next.endColumn
+              ) {
+                hasSameProblems = false;
+                break;
+              }
+            }
+          }
+        }
+        if (hasSameProblems) {
           return current;
         }
         return {
@@ -1563,23 +1914,30 @@ function ThreadWorkspaceEditor(inputProps: {
     ) => {
       setSymbolReportsByPaneId((current) => {
         const previous = current[paneId];
-        if (
-          previous?.activeFilePath === activeFilePath &&
-          previous.symbols.length === symbols.length &&
-          previous.symbols.every((symbol, index) => {
-            const next = symbols[index];
-            return (
-              next &&
-              symbol.name === next.name &&
-              symbol.kind === next.kind &&
-              symbol.startLineNumber === next.startLineNumber &&
-              symbol.startColumn === next.startColumn &&
-              symbol.endLineNumber === next.endLineNumber &&
-              symbol.endColumn === next.endColumn &&
-              symbol.depth === next.depth
-            );
-          })
-        ) {
+        let hasSameSymbols = previous?.activeFilePath === activeFilePath;
+        if (hasSameSymbols) {
+          const previousSymbols = previous?.symbols ?? [];
+          hasSameSymbols = previousSymbols.length === symbols.length;
+          if (hasSameSymbols) {
+            for (const [index, symbol] of previousSymbols.entries()) {
+              const next = symbols[index];
+              if (
+                !next ||
+                symbol.name !== next.name ||
+                symbol.kind !== next.kind ||
+                symbol.startLineNumber !== next.startLineNumber ||
+                symbol.startColumn !== next.startColumn ||
+                symbol.endLineNumber !== next.endLineNumber ||
+                symbol.endColumn !== next.endColumn ||
+                symbol.depth !== next.depth
+              ) {
+                hasSameSymbols = false;
+                break;
+              }
+            }
+          }
+        }
+        if (hasSameSymbols) {
           return current;
         }
         return {
@@ -1799,8 +2157,10 @@ function ThreadWorkspaceEditor(inputProps: {
         startX: event.clientX,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
+      Object.assign(document.body.style, {
+        cursor: "col-resize",
+        userSelect: "none",
+      });
     },
     [treeWidth],
   );
@@ -1845,8 +2205,10 @@ function ThreadWorkspaceEditor(inputProps: {
           startX: event.clientX,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
+        Object.assign(document.body.style, {
+          cursor: "col-resize",
+          userSelect: "none",
+        });
       },
     [],
   );
@@ -1900,8 +2262,10 @@ function ThreadWorkspaceEditor(inputProps: {
         startY: event.clientY,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
+      Object.assign(document.body.style, {
+        cursor: "row-resize",
+        userSelect: "none",
+      });
     },
     [normalizedRowRatios],
   );
@@ -2002,8 +2366,8 @@ function ThreadWorkspaceEditor(inputProps: {
     setCommandPaletteOpen(true);
   }, []);
   const requestFindInActiveEditor = useCallback(() => {
-    setFindRequestToken((current) => current + 1);
-  }, []);
+    bumpFindRequestToken();
+  }, [bumpFindRequestToken]);
   const editorShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -2191,6 +2555,15 @@ function ThreadWorkspaceEditor(inputProps: {
   const cancelInlineEntry = useCallback(() => {
     setInlineEntryState(null);
   }, []);
+  const handleExplorerToggleDirectory = useCallback(
+    (directoryPath: string) => {
+      toggleDirectory(props.threadId, directoryPath);
+    },
+    [props.threadId, toggleDirectory],
+  );
+  const handleInlineExplorerValueChange = useCallback((value: string) => {
+    setInlineEntryState((current) => (current ? { ...current, value } : current));
+  }, []);
 
   const focusedExplorerEntryPath = selectedEntryPath ?? activePane?.activeFilePath ?? null;
   const focusedExplorerEntry = focusedExplorerEntryPath
@@ -2232,6 +2605,9 @@ function ThreadWorkspaceEditor(inputProps: {
         markFileSaved(props.threadId, result.relativePath, "");
         openFile(props.threadId, result.relativePath, activePane?.id);
       }
+      void queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
+      });
       invalidateWorkspaceTree();
       toastManager.add({
         description: result.relativePath,
@@ -2278,6 +2654,9 @@ function ThreadWorkspaceEditor(inputProps: {
       ]);
       setSelectedEntryPath(result.relativePath);
       clearReadFileCache(result.previousRelativePath);
+      void queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
+      });
       invalidateWorkspaceTree();
       toastManager.add({
         description: result.relativePath,
@@ -2315,6 +2694,9 @@ function ThreadWorkspaceEditor(inputProps: {
       removeEntry(props.threadId, result.relativePath);
       clearReadFileCache(result.relativePath);
       setSelectedEntryPath(null);
+      void queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
+      });
       invalidateWorkspaceTree();
       toastManager.add({
         description: result.relativePath,
@@ -2484,6 +2866,18 @@ function ThreadWorkspaceEditor(inputProps: {
       setDragTargetParentPath(null);
     },
     [entryByPath, renameEntryMutation],
+  );
+  const handleExplorerDropEntry = useCallback(
+    (sourcePath: string, targetParentPath: string | null) => {
+      moveExplorerEntry(sourcePath, targetParentPath);
+    },
+    [moveExplorerEntry],
+  );
+  const handleExplorerRowContextMenu = useCallback(
+    (entry: ProjectEntry, position: { x: number; y: number }) => {
+      void openExplorerContextMenu(entry, position);
+    },
+    [openExplorerContextMenu],
   );
 
   const selectedVisibleEntryIndex = useMemo(
@@ -3058,7 +3452,7 @@ function ThreadWorkspaceEditor(inputProps: {
               </div>
               {sidebarMode === "explorer" ? (
                 <>
-                  <div className="border-b border-border/70 bg-background/35 px-2.5 py-2.5">
+                  <div className="border-b border-border/70 bg-background/35 p-2.5">
                     <div className="relative">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
                       <Input
@@ -3092,6 +3486,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   </div>
                   <div
                     ref={treeScrollRef}
+                    role="presentation"
                     className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1 py-1.5"
                     tabIndex={0}
                     onKeyDown={handleExplorerKeyDown}
@@ -3124,7 +3519,7 @@ function ThreadWorkspaceEditor(inputProps: {
                     }}
                   >
                     {explorerPending ? (
-                      <div className="space-y-1 px-2 py-2">
+                      <div className="space-y-1 p-2">
                         {Array.from({ length: 10 }, (_, index) => {
                           const opacity = 1 - index * 0.06;
                           return (
@@ -3162,19 +3557,13 @@ function ThreadWorkspaceEditor(inputProps: {
                                   expandedDirectoryPaths={expandedDirectoryPathSet}
                                   focusedFilePath={activePane?.activeFilePath ?? null}
                                   gitStatus={gitStatusByPath.get(row.row.entry.path) ?? null}
-                                  onDropEntry={(sourcePath, targetParentPath) => {
-                                    moveExplorerEntry(sourcePath, targetParentPath);
-                                  }}
+                                  onDropEntry={handleExplorerDropEntry}
                                   onFocusEntry={setSelectedEntryPath}
                                   onHoverDropTarget={setDragTargetParentPath}
                                   onOpenFile={handleOpenFile}
-                                  onOpenRowContextMenu={(entry, position) => {
-                                    void openExplorerContextMenu(entry, position);
-                                  }}
+                                  onOpenRowContextMenu={handleExplorerRowContextMenu}
                                   onSelectEntry={setSelectedEntryPath}
-                                  onToggleDirectory={(directoryPath) =>
-                                    toggleDirectory(props.threadId, directoryPath)
-                                  }
+                                  onToggleDirectory={handleExplorerToggleDirectory}
                                   resolvedTheme={resolvedTheme}
                                   row={row.row}
                                   searchMode={searchMode}
@@ -3185,11 +3574,7 @@ function ThreadWorkspaceEditor(inputProps: {
                                   depth={row.depth}
                                   inputRef={entryDialogInputRef}
                                   onCancel={cancelInlineEntry}
-                                  onChangeValue={(value) =>
-                                    setInlineEntryState((current) =>
-                                      current ? { ...current, value } : current,
-                                    )
-                                  }
+                                  onChangeValue={handleInlineExplorerValueChange}
                                   onCommit={submitInlineEntry}
                                   resolvedTheme={resolvedTheme}
                                   searchMode={searchMode}
@@ -3778,13 +4163,22 @@ function ThreadWorkspaceEditor(inputProps: {
           <DialogPanel className="space-y-3">
             {saveConflict ? (
               <div className="overflow-hidden rounded-md">
-                <DiffEditor
-                  height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
-                  original={saveConflict.currentContents}
-                  modified={saveConflict.localContents}
-                  theme={monacoTheme}
-                  options={diffEditorOptions}
-                />
+                <Suspense
+                  fallback={
+                    <div
+                      className="h-[420px] w-full animate-pulse rounded-md bg-muted/15"
+                      aria-hidden
+                    />
+                  }
+                >
+                  <LazyMonacoDiffEditor
+                    height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
+                    original={saveConflict.currentContents}
+                    modified={saveConflict.localContents}
+                    theme={monacoTheme}
+                    options={diffEditorOptions}
+                  />
+                </Suspense>
               </div>
             ) : null}
           </DialogPanel>
@@ -3810,6 +4204,12 @@ function ThreadWorkspaceEditor(inputProps: {
       </Dialog>
     </div>
   );
+}
+
+function ThreadWorkspaceEditor(
+  inputProps: Parameters<typeof useThreadWorkspaceEditorComponent>[0],
+) {
+  return useThreadWorkspaceEditorComponent(inputProps);
 }
 
 const MemoizedThreadWorkspaceEditor = memo(ThreadWorkspaceEditor);

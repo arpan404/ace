@@ -13,7 +13,10 @@ import {
   shortcutFromKeyboardEvent,
   whenExpressionFromAst,
 } from "~/keybindings";
-import { KEYBINDING_COMMAND_DEFINITIONS } from "~/lib/keybindingRegistry";
+import {
+  KEYBINDING_COMMAND_DEFINITIONS,
+  type KeybindingCommandDefinition,
+} from "~/lib/keybindingRegistry";
 import { applyKeybindingsUpdated, useServerKeybindings } from "~/rpc/serverState";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -253,12 +256,25 @@ function KeybindingsSettingsEditorContent(props: {
     dirtyCommands.length > 0 && collisionByCommand.size === 0 && !hasUnsupportedClear && !isSaving;
 
   const categoryGroups = useMemo(() => {
-    return CATEGORY_ORDER.map((category) => ({
-      category,
-      items: KEYBINDING_COMMAND_DEFINITIONS.filter(
-        (definition) => definition.category === category,
-      ),
-    })).filter((group) => group.items.length > 0);
+    const groups: Array<{
+      category: (typeof CATEGORY_ORDER)[number];
+      items: readonly KeybindingCommandDefinition[];
+    }> = [];
+    for (const category of CATEGORY_ORDER) {
+      const items: KeybindingCommandDefinition[] = [];
+      for (const definition of KEYBINDING_COMMAND_DEFINITIONS) {
+        if (definition.category === category) {
+          items.push(definition);
+        }
+      }
+      if (items.length > 0) {
+        groups.push({
+          category,
+          items,
+        });
+      }
+    }
+    return groups;
   }, []);
 
   const captureShortcut = useCallback(
@@ -287,26 +303,29 @@ function KeybindingsSettingsEditorContent(props: {
     dispatch({ type: "start-saving" });
     try {
       const api = ensureNativeApi();
-      let latestResult: ServerUpsertKeybindingResult | null = null;
-
-      for (const definition of dirtyCommands) {
+      const upsertPromises = dirtyCommands.flatMap((definition) => {
         const shortcut = draftShortcuts[definition.command];
         if (!shortcut) {
-          continue;
+          return [];
         }
         const when = draftWhenByCommand[definition.command];
-        latestResult = await api.server.upsertKeybinding({
-          command: definition.command,
-          key: encodeShortcutValue(shortcut),
-          ...(when ? { when } : {}),
-        });
-      }
+        return [
+          api.server.upsertKeybinding({
+            command: definition.command,
+            key: encodeShortcutValue(shortcut),
+            ...(when ? { when } : {}),
+          }),
+        ];
+      });
 
-      if (latestResult) {
-        applyKeybindingsUpdated({
-          keybindings: latestResult.keybindings,
-          issues: latestResult.issues,
-        });
+      if (upsertPromises.length > 0) {
+        const latestResult = (await Promise.all(upsertPromises)).at(-1);
+        if (latestResult) {
+          applyKeybindingsUpdated({
+            keybindings: latestResult.keybindings,
+            issues: latestResult.issues,
+          });
+        }
       }
 
       toastManager.add({

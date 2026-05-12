@@ -1,3 +1,4 @@
+/* eslint-disable react-doctor/async-parallel -- Browser interaction tests require sequential event ordering. */
 import { type ModelSelection, type ProviderKind, type ServerProvider } from "@ace/contracts";
 import { buildProviderModelSelection } from "@ace/shared/model";
 import type { ComponentProps } from "react";
@@ -24,6 +25,10 @@ function effort(value: string, isDefault = false) {
     label: value,
     ...(isDefault ? { isDefault: true } : {}),
   };
+}
+
+function readStoredProviderModelPickerPrefs(): string {
+  return localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "";
 }
 
 const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
@@ -517,7 +522,7 @@ describe("ProviderModelPicker", () => {
       await page.getByRole("button", { name: "Pin Cursor" }).click();
 
       await vi.waitFor(() => {
-        const raw = localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "";
+        const raw = readStoredProviderModelPickerPrefs();
         expect(raw).toContain("cursor");
       });
 
@@ -566,9 +571,8 @@ describe("ProviderModelPicker", () => {
       await page.getByRole("button", { name: "Pin Codex Personal" }).click();
 
       await vi.waitFor(() => {
-        expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
-          "codex:personal",
-        );
+        const storedPickerPrefs = readStoredProviderModelPickerPrefs();
+        expect(storedPickerPrefs).toContain("codex:personal");
       });
 
       await page.getByRole("button", { exact: true, name: "Codex" }).click();
@@ -825,9 +829,7 @@ describe("ProviderModelPicker", () => {
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
         expect(text).toContain("Favorites");
-        expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
-          "codex:default:gpt-5.3-codex",
-        );
+        expect(readStoredProviderModelPickerPrefs()).toContain("codex:default:gpt-5.3-codex");
       });
     } finally {
       await mounted.cleanup();
@@ -876,9 +878,7 @@ describe("ProviderModelPicker", () => {
       await page.getByRole("button").click();
 
       expect(document.body.textContent ?? "").not.toContain("Favorites");
-      expect(localStorage.getItem("ace:provider-model-picker-prefs:v1") ?? "").toContain(
-        "codex:default:gpt-5.3-codex",
-      );
+      expect(readStoredProviderModelPickerPrefs()).toContain("codex:default:gpt-5.3-codex");
     } finally {
       await personalMounted.cleanup();
     }

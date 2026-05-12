@@ -21,7 +21,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export type SplitPickerSortOrder = "recent" | "project" | "title";
 
-export const SPLIT_PICKER_SORT_LABELS: Record<SplitPickerSortOrder, string> = {
+const SPLIT_PICKER_SORT_LABELS: Record<SplitPickerSortOrder, string> = {
   recent: "Recent activity",
   project: "Project",
   title: "Thread title",
@@ -77,7 +77,6 @@ export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(p
                     onChange={(event) => props.onQueryChange(event.target.value)}
                     placeholder="Search threads or projects"
                     className="h-9 bg-background/60 pl-8 text-sm"
-                    autoFocus
                   />
                 </div>
                 <Menu>

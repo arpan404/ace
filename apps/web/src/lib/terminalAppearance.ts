@@ -1,4 +1,4 @@
-export const TERMINAL_ICON_OPTIONS = [
+const TERMINAL_ICON_OPTIONS = [
   { id: "terminal", label: "Terminal" },
   { id: "code", label: "Code" },
   { id: "server", label: "Server" },
@@ -7,7 +7,7 @@ export const TERMINAL_ICON_OPTIONS = [
   { id: "wrench", label: "Wrench" },
 ] as const;
 
-export const TERMINAL_COLOR_OPTIONS = [
+const TERMINAL_COLOR_OPTIONS = [
   { id: "default", label: "Default" },
   { id: "emerald", label: "Emerald" },
   { id: "amber", label: "Amber" },

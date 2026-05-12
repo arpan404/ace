@@ -4,7 +4,7 @@ export type OrchestrationRecoveryReason =
   | "replay-failed"
   | "transport-reconnected";
 
-export interface OrchestrationRecoveryPhase {
+interface OrchestrationRecoveryPhase {
   kind: "snapshot" | "replay";
   reason: OrchestrationRecoveryReason;
 }

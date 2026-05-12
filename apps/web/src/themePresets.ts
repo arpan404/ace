@@ -167,7 +167,7 @@ export const DEFAULT_THEME_PRESET: ThemePresetId = "obsidian";
 
 const PRESET_ID_SET = new Set<string>(THEME_PRESET_OPTIONS.map((o) => o.id));
 
-export function isThemePresetId(value: string): value is ThemePresetId {
+function isThemePresetId(value: string): value is ThemePresetId {
   return PRESET_ID_SET.has(value);
 }
 

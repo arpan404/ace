@@ -2,12 +2,12 @@ import * as Schema from "effect/Schema";
 
 import { resolveScopedBrowserStorageKey } from "./storage";
 
-export const BROWSER_DESIGNER_STATE_STORAGE_KEY = "ace:browser:designer:v1";
+const BROWSER_DESIGNER_STATE_STORAGE_KEY = "ace:browser:designer:v1";
 
-export const BrowserDesignerToolSchema = Schema.Literals(["area-comment", "element-comment"]);
+const BrowserDesignerToolSchema = Schema.Literals(["area-comment", "element-comment"]);
 export type BrowserDesignerTool = typeof BrowserDesignerToolSchema.Type;
 
-export const BrowserDesignerPillPositionSchema = Schema.Struct({
+const BrowserDesignerPillPositionSchema = Schema.Struct({
   x: Schema.Number,
   y: Schema.Number,
 });

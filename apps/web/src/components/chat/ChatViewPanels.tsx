@@ -1,5 +1,5 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
 import { memo, type ComponentProps } from "react";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
@@ -118,11 +118,11 @@ export const ChatViewPanels = memo(function ChatViewPanels({
   expandedImageOverlay: ExpandedImageOverlayProps | null;
 }) {
   return (
-    <>
+    <LazyMotion features={domAnimation}>
       <AnimatePresence initial={false}>
         {browserPanel ? (
           browserPanel.mode === "split" ? (
-            <motion.div
+            <m.div
               key="browser-split-panel"
               className="flex h-full min-h-0 shrink-0 overflow-hidden"
               initial={{ width: 0, opacity: 0, x: 18 }}
@@ -154,9 +154,9 @@ export const ChatViewPanels = memo(function ChatViewPanels({
                   <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
                 ))}
               </div>
-            </motion.div>
+            </m.div>
           ) : (
-            <motion.div
+            <m.div
               key="browser-full-panel"
               className="absolute inset-0 z-30 min-h-0 min-w-0"
               initial={{ opacity: 0, scale: 0.99 }}
@@ -167,11 +167,11 @@ export const ChatViewPanels = memo(function ChatViewPanels({
               {browserPanel.instances.map((instance) => (
                 <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
               ))}
-            </motion.div>
+            </m.div>
           )
         ) : null}
       </AnimatePresence>
       {expandedImageOverlay ? <ExpandedImageOverlay {...expandedImageOverlay} /> : null}
-    </>
+    </LazyMotion>
   );
 });

@@ -55,7 +55,7 @@ function Toggle({
   size,
   ...props
 }: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
-  const context = React.useContext(ToggleGroupContext);
+  const context = React.use(ToggleGroupContext);
 
   const resolvedVariant = variant ?? context.variant;
   const resolvedSize = size ?? context.size;
@@ -93,4 +93,4 @@ function ToggleGroupSeparator({
   );
 }
 
-export { ToggleGroup, Toggle, Toggle as ToggleGroupItem, ToggleGroupSeparator };
+export { ToggleGroup, Toggle };

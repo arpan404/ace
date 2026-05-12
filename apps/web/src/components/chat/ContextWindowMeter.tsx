@@ -75,7 +75,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
                 : `Context usage ${formatContextWindowTokens(usage.usedTokens)} tokens`
             }
           >
-            <span className="relative flex h-6 w-6 items-center justify-center">
+            <span className="relative flex size-6 items-center justify-center">
               <svg
                 viewBox="0 0 24 24"
                 className="-rotate-90 absolute inset-0 h-full w-full transform-gpu"

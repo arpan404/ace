@@ -388,96 +388,91 @@ function AnchoredToastProvider({ children, ...props }: Toast.Provider.Props) {
 function AnchoredToasts() {
   const { toasts } = Toast.useToastManager<ThreadToastData>();
   const activeThreadId = useActiveThreadIdFromRoute();
+  const activeThreadToasts = toasts.flatMap((toast) =>
+    shouldRenderForActiveThread(toast.data, activeThreadId) ? [toast] : [],
+  );
 
   return (
     <Toast.Portal data-slot="toast-portal-anchored">
       <Toast.Viewport className="outline-none" data-slot="toast-viewport-anchored">
-        {toasts
-          .filter((toast) => shouldRenderForActiveThread(toast.data, activeThreadId))
-          .map((toast) => {
-            const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
-            const tooltipStyle = toast.data?.tooltipStyle ?? false;
-            const positionerProps = toast.positionerProps;
-            const progressPercent = resolveToastProgressPercent(toast.data);
+        {activeThreadToasts.map((toast) => {
+          const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
+          const tooltipStyle = toast.data?.tooltipStyle ?? false;
+          const positionerProps = toast.positionerProps;
+          const progressPercent = resolveToastProgressPercent(toast.data);
 
-            if (!positionerProps?.anchor) {
-              return null;
-            }
+          if (!positionerProps?.anchor) {
+            return null;
+          }
 
-            return (
-              <Toast.Positioner
-                className="z-50 max-w-[min(--spacing(64),var(--available-width))]"
-                data-slot="toast-positioner"
-                key={toast.id}
-                sideOffset={positionerProps.sideOffset ?? 4}
+          return (
+            <Toast.Positioner
+              className="z-50 max-w-[min(--spacing(64),var(--available-width))]"
+              data-slot="toast-positioner"
+              key={toast.id}
+              sideOffset={positionerProps.sideOffset ?? 4}
+              toast={toast}
+            >
+              <Toast.Root
+                className={cn(
+                  "relative text-balance border bg-popover text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+                  tooltipStyle ? "rounded-md" : "rounded-lg",
+                )}
+                data-slot="toast-popup"
                 toast={toast}
               >
-                <Toast.Root
-                  className={cn(
-                    "relative text-balance border bg-popover text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
-                    tooltipStyle ? "rounded-md" : "rounded-lg",
-                  )}
-                  data-slot="toast-popup"
-                  toast={toast}
-                >
-                  {tooltipStyle ? (
-                    <Toast.Content className="pointer-events-auto px-2 py-1">
-                      <Toast.Title data-slot="toast-title" />
-                    </Toast.Content>
-                  ) : (
-                    <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm">
-                      <div className="flex min-w-0 flex-1 gap-2">
-                        {Icon && (
-                          <div
-                            className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-                            data-slot="toast-icon"
-                          >
-                            <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
-                          </div>
-                        )}
-
-                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <div className="flex items-center gap-1">
-                            <Toast.Title
-                              className="min-w-0 break-words font-medium"
-                              data-slot="toast-title"
-                            />
-                            {toast.type === "error" && typeof toast.description === "string" && (
-                              <CopyErrorButton text={toast.description} />
-                            )}
-                          </div>
-                          <Toast.Description
-                            className="min-w-0 select-text break-words text-muted-foreground"
-                            data-slot="toast-description"
-                          />
-                          {progressPercent !== null ? (
-                            <ToastProgressBar percent={progressPercent} />
-                          ) : null}
-                        </div>
-                      </div>
-                      {toast.actionProps && (
-                        <Toast.Action
-                          className={cn(buttonVariants({ size: "xs" }), "shrink-0")}
-                          data-slot="toast-action"
+                {tooltipStyle ? (
+                  <Toast.Content className="pointer-events-auto px-2 py-1">
+                    <Toast.Title data-slot="toast-title" />
+                  </Toast.Content>
+                ) : (
+                  <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm">
+                    <div className="flex min-w-0 flex-1 gap-2">
+                      {Icon && (
+                        <div
+                          className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+                          data-slot="toast-icon"
                         >
-                          {toast.actionProps.children}
-                        </Toast.Action>
+                          <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
+                        </div>
                       )}
-                    </Toast.Content>
-                  )}
-                </Toast.Root>
-              </Toast.Positioner>
-            );
-          })}
+
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                          <Toast.Title
+                            className="min-w-0 break-words font-medium"
+                            data-slot="toast-title"
+                          />
+                          {toast.type === "error" && typeof toast.description === "string" && (
+                            <CopyErrorButton text={toast.description} />
+                          )}
+                        </div>
+                        <Toast.Description
+                          className="min-w-0 select-text break-words text-muted-foreground"
+                          data-slot="toast-description"
+                        />
+                        {progressPercent !== null ? (
+                          <ToastProgressBar percent={progressPercent} />
+                        ) : null}
+                      </div>
+                    </div>
+                    {toast.actionProps && (
+                      <Toast.Action
+                        className={cn(buttonVariants({ size: "xs" }), "shrink-0")}
+                        data-slot="toast-action"
+                      >
+                        {toast.actionProps.children}
+                      </Toast.Action>
+                    )}
+                  </Toast.Content>
+                )}
+              </Toast.Root>
+            </Toast.Positioner>
+          );
+        })}
       </Toast.Viewport>
     </Toast.Portal>
   );
 }
 
-export {
-  ToastProvider,
-  type ToastPosition,
-  toastManager,
-  AnchoredToastProvider,
-  anchoredToastManager,
-};
+export { ToastProvider, toastManager, AnchoredToastProvider };

@@ -1,6 +1,6 @@
 export const BROWSER_SPLIT_WIDTH_STORAGE_KEY = "ace:browser:split-width:v1";
 export const DEFAULT_BROWSER_SPLIT_WIDTH = 720;
-export const MIN_BROWSER_SPLIT_WIDTH = 420;
+const MIN_BROWSER_SPLIT_WIDTH = 420;
 export const MIN_CHAT_SPLIT_WIDTH = 420;
 
 export function clampBrowserSplitWidth(width: number, viewportWidth: number): number {
