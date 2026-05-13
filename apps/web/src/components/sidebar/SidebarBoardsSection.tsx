@@ -59,7 +59,7 @@ export function SidebarBoardsSection(props: {
 }) {
   return (
     <SidebarGroup className="order-last px-2.5 pt-1 pb-2">
-      <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
+      <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
         <button
           type="button"
           className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
@@ -75,7 +75,7 @@ export function SidebarBoardsSection(props: {
             }`}
           />
         </button>
-        <div className="flex items-center gap-1">
+        <div className="pointer-events-none flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/section-row:pointer-events-auto group-hover/section-row:opacity-100 group-focus-within/section-row:pointer-events-auto group-focus-within/section-row:opacity-100">
           {props.boardItems.length > 0 ? (
             <Menu>
               <Tooltip>
