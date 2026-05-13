@@ -102,6 +102,11 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).projects.renameEntry(stripRpcRouteConnection(input)),
       writeFile: (input) =>
         resolveRpcClientForInput(input).projects.writeFile(stripRpcRouteConnection(input)),
+      onFileEvents: (input, callback) =>
+        resolveRpcClientForInput(input).projects.onFileEvents(
+          stripRpcRouteConnection(input),
+          callback,
+        ),
     },
     filesystem: {
       browse: (input) =>

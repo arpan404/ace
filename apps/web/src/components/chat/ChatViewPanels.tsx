@@ -1,9 +1,11 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
 import { memo, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
 import { Button } from "../ui/button";
+import { MODAL_LAYER_CLASS_NAME } from "../ui/layers";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { MIN_CHAT_SPLIT_WIDTH } from "~/lib/chat/browserSplit";
 
@@ -43,7 +45,7 @@ function ExpandedImageOverlay({
 }: ExpandedImageOverlayProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
+      className={`${MODAL_LAYER_CLASS_NAME} fixed inset-0 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]`}
       role="dialog"
       aria-modal="true"
       aria-label="Expanded image preview"
@@ -117,63 +119,71 @@ export const ChatViewPanels = memo(function ChatViewPanels({
   browserPanel: BrowserPanelProps | null;
   expandedImageOverlay: ExpandedImageOverlayProps | null;
 }) {
+  const expandedImageOverlayElement = expandedImageOverlay ? (
+    <ExpandedImageOverlay {...expandedImageOverlay} />
+  ) : null;
+
   return (
-    <LazyMotion features={domAnimation}>
-      <AnimatePresence initial={false}>
-        {browserPanel ? (
-          browserPanel.mode === "split" ? (
-            <m.div
-              key="browser-split-panel"
-              className="flex h-full min-h-0 shrink-0 overflow-hidden"
-              data-chat-view-browser-split-panel
-              initial={{ width: 0, opacity: 0, x: 18 }}
-              animate={{ width: "auto", opacity: 1, x: 0 }}
-              exit={{ width: 0, opacity: 0, x: 18 }}
-              transition={BROWSER_PANEL_TRANSITION}
-            >
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize browser panel"
-                aria-valuenow={browserPanel.splitWidth}
-                tabIndex={0}
-                className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
-                onKeyDown={browserPanel.onResizeKeyDown}
-                onPointerDown={browserPanel.onResizePointerDown}
+    <>
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence initial={false}>
+          {browserPanel ? (
+            browserPanel.mode === "split" ? (
+              <m.div
+                key="browser-split-panel"
+                className="flex h-full min-h-0 shrink-0 overflow-hidden"
+                data-chat-view-browser-split-panel
+                initial={{ width: 0, opacity: 0, x: 18 }}
+                animate={{ width: "auto", opacity: 1, x: 0 }}
+                exit={{ width: 0, opacity: 0, x: 18 }}
+                transition={BROWSER_PANEL_TRANSITION}
               >
-                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/55" />
-                <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
-              </div>
-              <div
-                className="relative z-0 min-h-0 shrink-0 overflow-hidden"
-                data-chat-view-browser-split-content
-                style={{
-                  width: constrainedBrowserPanelWidth(browserPanel.splitWidth),
-                  minWidth: constrainedBrowserPanelWidth(browserPanel.splitWidth),
-                }}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize browser panel"
+                  aria-valuenow={browserPanel.splitWidth}
+                  tabIndex={0}
+                  className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
+                  onKeyDown={browserPanel.onResizeKeyDown}
+                  onPointerDown={browserPanel.onResizePointerDown}
+                >
+                  <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/55" />
+                  <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
+                </div>
+                <div
+                  className="relative z-0 min-h-0 shrink-0 overflow-hidden"
+                  data-chat-view-browser-split-content
+                  style={{
+                    width: constrainedBrowserPanelWidth(browserPanel.splitWidth),
+                    minWidth: constrainedBrowserPanelWidth(browserPanel.splitWidth),
+                  }}
+                >
+                  {browserPanel.instances.map((instance) => (
+                    <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
+                  ))}
+                </div>
+              </m.div>
+            ) : (
+              <m.div
+                key="browser-full-panel"
+                className="absolute inset-0 z-30 min-h-0 min-w-0"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                transition={BROWSER_PANEL_TRANSITION}
               >
                 {browserPanel.instances.map((instance) => (
                   <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
                 ))}
-              </div>
-            </m.div>
-          ) : (
-            <m.div
-              key="browser-full-panel"
-              className="absolute inset-0 z-30 min-h-0 min-w-0"
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              transition={BROWSER_PANEL_TRANSITION}
-            >
-              {browserPanel.instances.map((instance) => (
-                <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
-              ))}
-            </m.div>
-          )
-        ) : null}
-      </AnimatePresence>
-      {expandedImageOverlay ? <ExpandedImageOverlay {...expandedImageOverlay} /> : null}
-    </LazyMotion>
+              </m.div>
+            )
+          ) : null}
+        </AnimatePresence>
+      </LazyMotion>
+      {expandedImageOverlayElement && typeof document !== "undefined"
+        ? createPortal(expandedImageOverlayElement, document.body)
+        : expandedImageOverlayElement}
+    </>
   );
 });

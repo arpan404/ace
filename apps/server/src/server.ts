@@ -58,6 +58,7 @@ import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceEditorLive } from "./workspace/Layers/WorkspaceEditor";
+import { WorkspaceFileEventsLive } from "./workspace/Layers/WorkspaceFileEvents";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { PairingPersistenceRuntimeLive } from "./pairingPersistence";
@@ -239,13 +240,19 @@ const GitLayerLive = Layer.empty.pipe(
 
 const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
 
+const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive));
+
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
+  WorkspaceEntriesLayerLive,
   WorkspaceEditorLive.pipe(Layer.provide(WorkspacePathsLive)),
+  WorkspaceFileEventsLive.pipe(
+    Layer.provide(WorkspacePathsLive),
+    Layer.provide(WorkspaceEntriesLayerLive),
+  ),
   WorkspaceFileSystemLive.pipe(
     Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
+    Layer.provide(WorkspaceEntriesLayerLive),
   ),
 );
 

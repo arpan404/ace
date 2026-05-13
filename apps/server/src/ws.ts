@@ -17,6 +17,7 @@ import {
   FilesystemBrowseError,
   ProjectCreateEntryError,
   ProjectDeleteEntryError,
+  ProjectFileEventsError,
   ProjectSearchEntriesError,
   ProjectListTreeError,
   ProjectReadFileError,
@@ -76,6 +77,7 @@ import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
+import { WorkspaceFileEvents } from "./workspace/Services/WorkspaceFileEvents";
 import {
   WorkspaceFileSystem,
   WorkspaceFileSystemError,
@@ -259,6 +261,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceEditor = yield* WorkspaceEditor;
+    const workspaceFileEventsOption = yield* Effect.serviceOption(WorkspaceFileEvents);
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const snapshotViewCache = createReadModelSnapshotViewCache();
 
@@ -782,6 +785,27 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               cause,
             });
           }),
+        ),
+      [WS_METHODS.projectsFileEvents]: (input) =>
+        filterCurrentClientStream(
+          normalizeStreamIdentity(input),
+          Option.isSome(workspaceFileEventsOption)
+            ? workspaceFileEventsOption.value.watch(input.cwd).pipe(
+                Stream.mapError(
+                  (cause) =>
+                    new ProjectFileEventsError({
+                      message:
+                        Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                        Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                          ? cause.message
+                          : Schema.is(WorkspacePathOutsideRootError)(cause)
+                            ? "Workspace file path must stay within the project root."
+                            : "Workspace file watching is unavailable.",
+                      cause,
+                    }),
+                ),
+              )
+            : Stream.empty,
         ),
       [WS_METHODS.workspaceEditorSyncBuffer]: (input) =>
         workspaceEditor.syncBuffer(input).pipe(

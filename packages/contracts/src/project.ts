@@ -173,4 +173,27 @@ export class ProjectReadFileError extends Schema.TaggedErrorClass<ProjectReadFil
   },
 ) {}
 
+export const ProjectFileEventsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  clientSessionId: Schema.optional(Schema.String),
+  connectionId: Schema.optional(Schema.String),
+});
+export type ProjectFileEventsInput = typeof ProjectFileEventsInput.Type;
+
+export const ProjectFileEvent = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  detectedAt: TrimmedNonEmptyString,
+  overflowed: Schema.Boolean,
+  relativePaths: Schema.Array(TrimmedNonEmptyString),
+});
+export type ProjectFileEvent = typeof ProjectFileEvent.Type;
+
+export class ProjectFileEventsError extends Schema.TaggedErrorClass<ProjectFileEventsError>()(
+  "ProjectFileEventsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 export { PROJECT_READ_FILE_MAX_BYTES };

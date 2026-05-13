@@ -62,6 +62,9 @@ import {
   ProjectDeleteEntryError,
   ProjectDeleteEntryInput,
   ProjectDeleteEntryResult,
+  ProjectFileEvent,
+  ProjectFileEventsError,
+  ProjectFileEventsInput,
   ProjectListTreeError,
   ProjectListTreeInput,
   ProjectListTreeResult,
@@ -149,6 +152,7 @@ export const WS_METHODS = {
   projectsReadFile: "projects.readFile",
   projectsRenameEntry: "projects.renameEntry",
   projectsWriteFile: "projects.writeFile",
+  projectsFileEvents: "projects.fileEvents",
   workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
   workspaceEditorComplete: "workspaceEditor.complete",
@@ -356,6 +360,13 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsProjectsFileEventsRpc = Rpc.make(WS_METHODS.projectsFileEvents, {
+  payload: ProjectFileEventsInput,
+  success: ProjectFileEvent,
+  error: ProjectFileEventsError,
+  stream: true,
 });
 
 export const WsWorkspaceEditorSyncBufferRpc = Rpc.make(WS_METHODS.workspaceEditorSyncBuffer, {
@@ -637,6 +648,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsRenameEntryRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsFileEventsRpc,
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
   WsWorkspaceEditorCompleteRpc,
