@@ -1033,12 +1033,12 @@ function SortableTerminalTab(props: {
             ref={setNodeRef}
             style={{ transform: CSS.Translate.toString(transform), transition }}
             className={cn(
-              "group/tab relative inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none cursor-default items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
+              "group/tab relative inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none cursor-default items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
               props.active
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                ? "bg-accent text-accent-foreground shadow-sm shadow-black/5 ring-1 ring-border/50"
+                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               isDragging && "z-20 opacity-70",
-              isOver && !isDragging && "bg-accent/70",
+              isOver && !isDragging && "bg-muted/80",
             )}
             onClick={(event) => {
               event.preventDefault();
@@ -1376,7 +1376,7 @@ export default memo(function ThreadTerminalDrawer({
         onPointerDown={handleResizePointerDown}
       />
 
-      <div className="terminal-tabs-strip flex h-11 shrink-0 items-center gap-2 bg-transparent px-3">
+      <div className="terminal-tabs-strip flex shrink-0 items-center gap-2 bg-transparent px-3 pb-3 pt-2.5">
         <div
           ref={tabStripRef}
           className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

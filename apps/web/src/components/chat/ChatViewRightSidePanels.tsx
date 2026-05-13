@@ -174,12 +174,18 @@ function RightSidePanelAddTabMenu(props: {
           Open side panel tab
         </TooltipPopup>
       </Tooltip>
-      <MenuPopup align="end" side="bottom" className="min-w-52">
-        <MenuItem disabled={!props.browserAvailable} onClick={props.onNewBrowserTab}>
-          <GlobeIcon className="size-4" />
+      <MenuPopup align="end" side="bottom" className="min-w-[200px]">
+        <MenuItem
+          disabled={!props.browserAvailable}
+          onClick={props.onNewBrowserTab}
+          className="gap-2.5 py-1.5 text-[14px]"
+        >
+          <GlobeIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
           <span>Browser</span>
           {props.browserShortcutLabel ? (
-            <MenuShortcut>{props.browserShortcutLabel}</MenuShortcut>
+            <MenuShortcut className="text-muted-foreground/60">
+              {props.browserShortcutLabel}
+            </MenuShortcut>
           ) : null}
         </MenuItem>
         <MenuItem
@@ -187,11 +193,14 @@ function RightSidePanelAddTabMenu(props: {
           onClick={() => {
             props.onSelectMode("diff");
           }}
+          className="gap-2.5 py-1.5 text-[14px]"
         >
-          <DiffIcon className="size-4" />
+          <DiffIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
           <span>Review</span>
           {props.reviewShortcutLabel ? (
-            <MenuShortcut>{props.reviewShortcutLabel}</MenuShortcut>
+            <MenuShortcut className="text-muted-foreground/60">
+              {props.reviewShortcutLabel}
+            </MenuShortcut>
           ) : null}
         </MenuItem>
         <MenuItem
@@ -199,11 +208,14 @@ function RightSidePanelAddTabMenu(props: {
           onClick={() => {
             props.onSelectMode("editor");
           }}
+          className="gap-2.5 py-1.5 text-[14px]"
         >
-          <Code2Icon className="size-4" />
+          <Code2Icon className="size-4.5 opacity-70" strokeWidth={1.75} />
           <span>Editor</span>
           {props.editorShortcutLabel ? (
-            <MenuShortcut>{props.editorShortcutLabel}</MenuShortcut>
+            <MenuShortcut className="text-muted-foreground/60">
+              {props.editorShortcutLabel}
+            </MenuShortcut>
           ) : null}
         </MenuItem>
       </MenuPopup>
@@ -350,18 +362,19 @@ export function RightSidePanelTabStrip(props: {
   const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
-      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
+      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
       active
-        ? "bg-accent text-foreground"
-        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-      disabled && "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
+        ? "bg-accent text-accent-foreground shadow-sm shadow-black/5 ring-1 ring-border/50"
+        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      disabled &&
+        "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
     );
   const browserTabClassName = (active: boolean, dragging = false, over = false) =>
     cn(
       tabClassName(active),
       "touch-none",
       dragging && "z-20 opacity-70",
-      over && !dragging && "bg-accent/70",
+      over && !dragging && "bg-muted/80",
     );
   const handleBrowserTabDragStart = useCallback((_event: DragStartEvent) => {
     suppressBrowserTabClickAfterDragRef.current = true;
