@@ -1,4 +1,5 @@
 import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/contracts";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
@@ -2519,16 +2520,17 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               {sortedProblems.length}
             </span>
           </header>
-          <div className="max-h-44 overflow-y-auto">
+          <ScrollArea className="max-h-44">
             {sortedProblems.length > 0 ? (
               <div className="py-1">
                 {sortedProblems.map((problem) => {
                   const severity = severityFromMarkerValue(problem.severity);
                   return (
-                    <button
+                    <Button
                       key={`${problem.owner}:${problem.startLineNumber}:${problem.startColumn}:${problem.message}`}
                       type="button"
-                      className="mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] hover:bg-accent"
+                      variant="ghost"
+                      className="mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] h-auto font-normal"
                       onClick={() => handleProblemClick(problem)}
                     >
                       <span
@@ -2549,14 +2551,14 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                           {problem.startColumn}
                         </span>
                       </span>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
             ) : (
               <p className="px-2.5 py-2 text-[11px] text-muted-foreground">No problems detected.</p>
             )}
-          </div>
+          </ScrollArea>
         </section>
       ) : null}
 
@@ -2670,23 +2672,27 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             </Tooltip>
           ) : null}
           {props.pane.activeFilePath && activeFileDirty ? (
-            <button
+            <Button
               type="button"
-              className="rounded-md px-1.5 py-px text-foreground/72 transition-[background-color,color] hover:bg-accent hover:text-foreground"
+              variant="ghost"
+              className="h-auto rounded-md px-1.5 py-px text-foreground/72 hover:text-foreground"
               onClick={() => props.onDiscardDraft(props.pane.activeFilePath!)}
+              aria-label="Revert changes"
             >
               Revert
-            </button>
+            </Button>
           ) : null}
           {props.pane.activeFilePath && activeFileDirty ? (
-            <button
+            <Button
               type="button"
-              className="rounded-md bg-foreground/10 px-1.5 py-px font-medium text-foreground transition-colors hover:bg-foreground/14"
+              variant="ghost"
+              className="h-auto rounded-md bg-foreground/10 px-1.5 py-px font-medium text-foreground hover:bg-foreground/14"
               onClick={handleSave}
               disabled={props.savingFilePath === props.pane.activeFilePath}
+              aria-label="Save file"
             >
               {props.savingFilePath === props.pane.activeFilePath ? "Saving…" : "Save"}
-            </button>
+            </Button>
           ) : null}
         </div>
       </footer>

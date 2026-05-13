@@ -32,6 +32,7 @@ import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
+import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const diffCountFormatter = new Intl.NumberFormat();
@@ -361,10 +362,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden p-4">
       <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
-        <div
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-          data-plan-summary-scroll-container="true"
-        >
+        <ScrollArea className="min-h-0 flex-1" data-plan-summary-scroll-container="true">
           <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
             {!hasAnyContent ? null : (
               <>
@@ -378,9 +376,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                     ) : null}
                     <div>
                       <div className="flex items-start justify-between gap-3">
-                        <button
+                        <Button
                           type="button"
-                          className="group inline-flex min-w-0 items-center gap-2 rounded-sm"
+                          variant="ghost"
+                          className="group inline-flex min-w-0 items-center gap-2 rounded-sm h-auto p-0 hover:bg-transparent"
                           onClick={() => setSummaryDetailsExpanded((value) => !value)}
                           aria-expanded={summaryDetailsExpanded}
                           aria-label={
@@ -397,7 +396,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Summary
                           </span>
-                        </button>
+                        </Button>
                         {!workspaceDiffSummary ? regenerateSummaryButton : null}
                       </div>
                       {isRegeneratingSummary ? (
@@ -471,9 +470,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           Plan
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
+                          <Button
                             type="button"
-                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
+                            variant="ghost"
+                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground h-auto p-0 hover:bg-transparent"
                             onClick={() => setPlanDetailsExpanded((value) => !value)}
                             aria-expanded={planDetailsExpanded}
                             aria-label={
@@ -486,7 +486,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                               <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
                             )}
                             <span>{planTitle ?? "Proposed plan"}</span>
-                          </button>
+                          </Button>
                         </div>
                       </div>
                       <Menu>
@@ -541,9 +541,11 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           Todos
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             type="button"
-                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground"
+                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground h-auto p-0 hover:bg-transparent"
                             onClick={() => setTodoDetailsExpanded((value) => !value)}
                             aria-expanded={todoDetailsExpanded}
                             aria-label={
@@ -556,7 +558,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                               <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
                             )}
                             <span>Checklist</span>
-                          </button>
+                          </Button>
                         </div>
                       </div>
                       {planProgress ? (
@@ -632,7 +634,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
               </>
             )}
           </div>
-        </div>
+        </ScrollArea>
       </section>
     </div>
   );
