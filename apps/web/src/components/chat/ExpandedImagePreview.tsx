@@ -1,4 +1,4 @@
-export interface ExpandedImageItem {
+interface ExpandedImageItem {
   src: string;
   name: string;
 }

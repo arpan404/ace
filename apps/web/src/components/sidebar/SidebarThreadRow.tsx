@@ -60,7 +60,7 @@ function connectionUrlsEqual(left: string, right: string): boolean {
 
 type ThreadPr = GitStatusResult["pr"];
 
-export function ThreadStatusLabel({
+function ThreadStatusLabel({
   status,
   compact = false,
 }: {

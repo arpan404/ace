@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import type { HostInstance } from "../hostInstances";
 
 interface UIState {
   // Tab navigation
@@ -52,15 +51,3 @@ export const useUIStateStore = create<UIState>((set) => ({
       activeHostId: null,
     }),
 }));
-
-/**
- * Selector to get the active connection from stored hosts.
- * Pass the hosts array from useHostStore
- */
-export function getActiveConnectionHost(
-  hostId: string | null,
-  hosts: HostInstance[],
-): HostInstance | null {
-  if (!hostId) return null;
-  return hosts.find((h) => h.id === hostId) ?? null;
-}

@@ -43,18 +43,20 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollArea
-        ref={messagesContainerRef}
         className="flex-1 px-3 py-3 sm:px-5 sm:py-4"
-        onScroll={onMessagesScroll}
-        onClickCapture={onMessagesClickCapture}
-        onWheel={onMessagesWheel}
-        onPointerDown={onMessagesPointerDown}
-        onPointerUp={onMessagesPointerUp}
-        onPointerCancel={onMessagesPointerCancel}
-        onTouchStart={onMessagesTouchStart}
-        onTouchMove={onMessagesTouchMove}
-        onTouchEnd={onMessagesTouchEnd}
-        onTouchCancel={onMessagesTouchEnd}
+        viewportRef={messagesContainerRef}
+        viewportProps={{
+          onScroll: onMessagesScroll,
+          onClickCapture: onMessagesClickCapture,
+          onWheel: onMessagesWheel,
+          onPointerDown: onMessagesPointerDown,
+          onPointerUp: onMessagesPointerUp,
+          onPointerCancel: onMessagesPointerCancel,
+          onTouchStart: onMessagesTouchStart,
+          onTouchMove: onMessagesTouchMove,
+          onTouchEnd: onMessagesTouchEnd,
+          onTouchCancel: onMessagesTouchEnd,
+        }}
       >
         {loadingNotice}
         <MessagesTimeline key={timelineKey} {...messagesTimelineProps} />

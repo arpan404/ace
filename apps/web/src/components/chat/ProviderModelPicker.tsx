@@ -104,17 +104,22 @@ function toProviderBackedModelGroupLabel(providerId: string): string {
   }
   return providerId
     .split(/[-_]/g)
-    .filter((part) => part.length > 0)
-    .map((part) => {
+    .reduce<string[]>((parts, part) => {
+      if (part.length === 0) {
+        return parts;
+      }
       const lower = part.toLowerCase();
       if (lower === "ai") {
-        return "AI";
+        parts.push("AI");
+        return parts;
       }
       if (lower.length <= 2) {
-        return lower.toUpperCase();
+        parts.push(lower.toUpperCase());
+        return parts;
       }
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
+      parts.push(lower.charAt(0).toUpperCase() + lower.slice(1));
+      return parts;
+    }, [])
     .join(" ");
 }
 
@@ -151,7 +156,14 @@ function makeFavoriteModelKey(
 }
 
 function dedupeStrings(values: ReadonlyArray<string>): Array<string> {
-  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+  const normalizedValues = new Set<string>();
+  for (const value of values) {
+    const normalizedValue = value.trim();
+    if (normalizedValue.length > 0) {
+      normalizedValues.add(normalizedValue);
+    }
+  }
+  return [...normalizedValues];
 }
 
 function toggleString(values: ReadonlyArray<string>, value: string): Array<string> {
@@ -853,7 +865,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   />
                   <input
                     type="search"
-                    role="searchbox"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={(event) => {

@@ -223,7 +223,7 @@ function TerminalsPage() {
 
               {loadState === "loading" && sortedProcesses.length === 0 ? (
                 <div className="border-t border-border/35 px-0.5 py-6 text-[13px] text-muted-foreground">
-                  Loading terminals...
+                  Loading terminals…
                 </div>
               ) : null}
 

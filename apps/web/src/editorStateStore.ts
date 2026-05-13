@@ -157,11 +157,13 @@ export function resolveEditorStateScopeId(input: {
 
 function normalizePathList(paths: readonly string[]): string[] {
   const unique: string[] = [];
+  const seen = new Set<string>();
   for (const path of paths) {
     const normalized = path.trim();
-    if (normalized.length === 0 || unique.includes(normalized)) {
+    if (normalized.length === 0 || seen.has(normalized)) {
       continue;
     }
+    seen.add(normalized);
     unique.push(normalized);
   }
   return unique;
@@ -340,22 +342,20 @@ function appendRecentlyClosedEntries(
     return [...existingEntries];
   }
 
-  const combined = [...existingEntries];
+  const combinedEntriesByKey = new Map<string, RecentlyClosedEditorEntry>(
+    existingEntries.map((entry) => [`${entry.filePath}\u0000${entry.paneId}`, entry] as const),
+  );
   for (const nextEntry of nextEntries) {
-    const duplicateIndex = combined.findIndex(
-      (entry) => entry.filePath === nextEntry.filePath && entry.paneId === nextEntry.paneId,
-    );
-    if (duplicateIndex >= 0) {
-      combined.splice(duplicateIndex, 1);
-    }
-    combined.push({
+    const entryKey = `${nextEntry.filePath}\u0000${nextEntry.paneId}`;
+    combinedEntriesByKey.delete(entryKey);
+    combinedEntriesByKey.set(entryKey, {
       filePath: nextEntry.filePath,
       paneId: nextEntry.paneId,
       targetIndex: Math.max(0, Math.trunc(nextEntry.targetIndex)),
     });
   }
 
-  return combined.slice(-MAX_RECENTLY_CLOSED_EDITOR_ENTRIES);
+  return Array.from(combinedEntriesByKey.values()).slice(-MAX_RECENTLY_CLOSED_EDITOR_ENTRIES);
 }
 
 function createEditorStateStorage() {
@@ -440,9 +440,12 @@ function normalizeThreadEditorRows(
     ];
   });
 
-  const unassignedPaneIds = panes
-    .map((pane) => pane.id)
-    .filter((paneId) => !assignedPaneIds.has(paneId));
+  const unassignedPaneIds: string[] = [];
+  for (const pane of panes) {
+    if (!assignedPaneIds.has(pane.id)) {
+      unassignedPaneIds.push(pane.id);
+    }
+  }
 
   if (normalizedRows.length === 0) {
     return createDefaultRowsFromPanes(panes, legacyPaneRatios);
@@ -766,12 +769,16 @@ export const useEditorStateStore = create<EditorStoreState>()(
               openFilePaths: pane.openFilePaths.slice(0, targetIndex + 1),
             }),
           };
+          const closedEntries: RecentlyClosedEditorEntry[] = [];
+          for (const closedFilePath of closedFilePaths.toReversed()) {
+            const entry = buildRecentlyClosedEntry(pane, closedFilePath);
+            if (entry !== null) {
+              closedEntries.push(entry);
+            }
+          }
           const recentlyClosedEntries = appendRecentlyClosedEntries(
             runtime.recentlyClosedEntries,
-            closedFilePaths
-              .toReversed()
-              .map((closedFilePath) => buildRecentlyClosedEntry(pane, closedFilePath))
-              .filter((entry): entry is RecentlyClosedEditorEntry => entry !== null),
+            closedEntries,
           );
 
           return {
@@ -816,11 +823,16 @@ export const useEditorStateStore = create<EditorStoreState>()(
               openFilePaths: [normalizedPath],
             }),
           };
+          const closedEntries: RecentlyClosedEditorEntry[] = [];
+          for (const closedFilePath of [...leftClosed, ...rightClosed.toReversed()]) {
+            const entry = buildRecentlyClosedEntry(pane, closedFilePath);
+            if (entry !== null) {
+              closedEntries.push(entry);
+            }
+          }
           const recentlyClosedEntries = appendRecentlyClosedEntries(
             runtime.recentlyClosedEntries,
-            [...leftClosed, ...rightClosed.toReversed()]
-              .map((closedFilePath) => buildRecentlyClosedEntry(pane, closedFilePath))
-              .filter((entry): entry is RecentlyClosedEditorEntry => entry !== null),
+            closedEntries,
           );
 
           return {

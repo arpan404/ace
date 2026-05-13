@@ -6,7 +6,7 @@ import type {
   ThreadId,
 } from "@ace/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   CloudUploadIcon,
@@ -120,6 +120,73 @@ interface RunGitActionWithToastInput {
   featureBranch?: boolean;
   progressToastId?: GitActionToastId;
   filePaths?: string[];
+}
+
+type GitActionsControlState = {
+  isCommitDialogOpen: boolean;
+  dialogCommitMessage: string;
+  excludedFiles: ReadonlySet<string>;
+  isEditingFiles: boolean;
+  isSshPassphraseDialogOpen: boolean;
+  isSshPassphraseSaving: boolean;
+  sshPassphraseDraft: string;
+  pendingDefaultBranchAction: PendingDefaultBranchAction | null;
+};
+
+type GitActionsControlAction =
+  | { type: "set-commit-dialog-open"; value: boolean }
+  | { type: "set-dialog-commit-message"; value: string }
+  | { type: "set-excluded-files"; value: ReadonlySet<string> }
+  | { type: "set-editing-files"; value: boolean }
+  | { type: "set-ssh-passphrase-dialog-open"; value: boolean }
+  | { type: "set-ssh-passphrase-saving"; value: boolean }
+  | { type: "set-ssh-passphrase-draft"; value: string }
+  | { type: "set-pending-default-branch-action"; value: PendingDefaultBranchAction | null }
+  | { type: "reset-commit-dialog" };
+
+const INITIAL_GIT_ACTIONS_CONTROL_STATE: GitActionsControlState = {
+  isCommitDialogOpen: false,
+  dialogCommitMessage: "",
+  excludedFiles: new Set(),
+  isEditingFiles: false,
+  isSshPassphraseDialogOpen: false,
+  isSshPassphraseSaving: false,
+  sshPassphraseDraft: "",
+  pendingDefaultBranchAction: null,
+};
+
+function gitActionsControlReducer(
+  state: GitActionsControlState,
+  action: GitActionsControlAction,
+): GitActionsControlState {
+  switch (action.type) {
+    case "set-commit-dialog-open":
+      return { ...state, isCommitDialogOpen: action.value };
+    case "set-dialog-commit-message":
+      return { ...state, dialogCommitMessage: action.value };
+    case "set-excluded-files":
+      return { ...state, excludedFiles: action.value };
+    case "set-editing-files":
+      return { ...state, isEditingFiles: action.value };
+    case "set-ssh-passphrase-dialog-open":
+      return { ...state, isSshPassphraseDialogOpen: action.value };
+    case "set-ssh-passphrase-saving":
+      return { ...state, isSshPassphraseSaving: action.value };
+    case "set-ssh-passphrase-draft":
+      return { ...state, sshPassphraseDraft: action.value };
+    case "set-pending-default-branch-action":
+      return { ...state, pendingDefaultBranchAction: action.value };
+    case "reset-commit-dialog":
+      return {
+        ...state,
+        isCommitDialogOpen: false,
+        dialogCommitMessage: "",
+        excludedFiles: new Set(),
+        isEditingFiles: false,
+      };
+    default:
+      return state;
+  }
 }
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
@@ -238,7 +305,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   return <InfoIcon className={iconClassName} />;
 }
 
-export default function GitActionsControl({
+function useGitActionsControlComponent({
   gitCwd,
   activeThreadId,
   workspaceMode,
@@ -253,22 +320,24 @@ export default function GitActionsControl({
   );
   const setThreadBranch = useStore((store) => store.setThreadBranch);
   const queryClient = useQueryClient();
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
-  const [dialogCommitMessage, setDialogCommitMessage] = useState("");
-  const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
-  const [isEditingFiles, setIsEditingFiles] = useState(false);
-  const [isSshPassphraseDialogOpen, setIsSshPassphraseDialogOpen] = useState(false);
-  const [isSshPassphraseSaving, setIsSshPassphraseSaving] = useState(false);
-  const [sshPassphraseDraft, setSshPassphraseDraft] = useState("");
-  const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
-    useState<PendingDefaultBranchAction | null>(null);
+  const [state, dispatch] = useReducer(gitActionsControlReducer, INITIAL_GIT_ACTIONS_CONTROL_STATE);
+  const {
+    dialogCommitMessage,
+    excludedFiles,
+    isCommitDialogOpen,
+    isEditingFiles,
+    isSshPassphraseDialogOpen,
+    isSshPassphraseSaving,
+    pendingDefaultBranchAction,
+    sshPassphraseDraft,
+  } = state;
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
   const openFileInWorkspace = useEditorStateStore((state) => state.openFile);
   const configuredGitSshKeyPassphrase = useSettings((settings) => settings.gitSshKeyPassphrase);
 
   useEffect(() => {
     if (!isSshPassphraseDialogOpen) return;
-    setSshPassphraseDraft(configuredGitSshKeyPassphrase);
+    dispatch({ type: "set-ssh-passphrase-draft", value: configuredGitSshKeyPassphrase });
   }, [configuredGitSshKeyPassphrase, isSshPassphraseDialogOpen]);
 
   const persistSshPassphrase = useCallback(
@@ -283,13 +352,13 @@ export default function GitActionsControl({
         return;
       }
 
-      setIsSshPassphraseSaving(true);
+      dispatch({ type: "set-ssh-passphrase-saving", value: true });
       runAsyncTask(
         api.server
           .updateSettings({ gitSshKeyPassphrase: passphrase })
           .then((settings) => {
             applySettingsUpdated(settings);
-            setIsSshPassphraseDialogOpen(false);
+            dispatch({ type: "set-ssh-passphrase-dialog-open", value: false });
           })
           .catch((err: unknown) => {
             toastManager.add({
@@ -299,7 +368,7 @@ export default function GitActionsControl({
               data: threadToastData,
             });
           })
-          .finally(() => setIsSshPassphraseSaving(false)),
+          .finally(() => dispatch({ type: "set-ssh-passphrase-saving", value: false })),
         "Failed to persist Git SSH key passphrase.",
       );
     },
@@ -311,7 +380,7 @@ export default function GitActionsControl({
   }, [persistSshPassphrase, sshPassphraseDraft]);
 
   const clearSshPassphrase = useCallback(() => {
-    setSshPassphraseDraft("");
+    dispatch({ type: "set-ssh-passphrase-draft", value: "" });
     persistSshPassphrase("");
   }, [persistSshPassphrase]);
 
@@ -526,13 +595,16 @@ export default function GitActionsControl({
         ) {
           return;
         }
-        setPendingDefaultBranchAction({
-          action,
-          branchName: actionBranch,
-          includesCommit,
-          ...(commitMessage ? { commitMessage } : {}),
-          ...(onConfirmed ? { onConfirmed } : {}),
-          ...(filePaths ? { filePaths } : {}),
+        dispatch({
+          type: "set-pending-default-branch-action",
+          value: {
+            action,
+            branchName: actionBranch,
+            includesCommit,
+            ...(commitMessage ? { commitMessage } : {}),
+            ...(onConfirmed ? { onConfirmed } : {}),
+            ...(filePaths ? { filePaths } : {}),
+          },
         });
         return;
       }
@@ -708,7 +780,7 @@ export default function GitActionsControl({
   const continuePendingDefaultBranchAction = useCallback(() => {
     if (!pendingDefaultBranchAction) return;
     const { action, commitMessage, onConfirmed, filePaths } = pendingDefaultBranchAction;
-    setPendingDefaultBranchAction(null);
+    dispatch({ type: "set-pending-default-branch-action", value: null });
     void runGitActionWithToast({
       action,
       ...(commitMessage ? { commitMessage } : {}),
@@ -721,7 +793,7 @@ export default function GitActionsControl({
   const checkoutFeatureBranchAndContinuePendingAction = useCallback(() => {
     if (!pendingDefaultBranchAction) return;
     const { action, commitMessage, onConfirmed, filePaths } = pendingDefaultBranchAction;
-    setPendingDefaultBranchAction(null);
+    dispatch({ type: "set-pending-default-branch-action", value: null });
     void runGitActionWithToast({
       action,
       ...(commitMessage ? { commitMessage } : {}),
@@ -736,10 +808,7 @@ export default function GitActionsControl({
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
 
-    setIsCommitDialogOpen(false);
-    setDialogCommitMessage("");
-    setExcludedFiles(new Set());
-    setIsEditingFiles(false);
+    dispatch({ type: "reset-commit-dialog" });
 
     void runGitActionWithToast({
       action: "commit",
@@ -805,33 +874,23 @@ export default function GitActionsControl({
         void runGitActionWithToast({ action: "create_pr" });
         return;
       }
-      setExcludedFiles(new Set());
-      setIsEditingFiles(false);
-      setIsCommitDialogOpen(true);
+      dispatch({ type: "set-excluded-files", value: new Set() });
+      dispatch({ type: "set-editing-files", value: false });
+      dispatch({ type: "set-commit-dialog-open", value: true });
     },
-    [openExistingPr, setIsCommitDialogOpen],
+    [openExistingPr],
   );
 
   const runDialogAction = useCallback(() => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
-    setIsCommitDialogOpen(false);
-    setDialogCommitMessage("");
-    setExcludedFiles(new Set());
-    setIsEditingFiles(false);
+    dispatch({ type: "reset-commit-dialog" });
     void runGitActionWithToast({
       action: "commit",
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
-  }, [
-    allSelected,
-    dialogCommitMessage,
-    isCommitDialogOpen,
-    selectedFiles,
-    setDialogCommitMessage,
-    setIsCommitDialogOpen,
-  ]);
+  }, [allSelected, dialogCommitMessage, isCommitDialogOpen, selectedFiles]);
 
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
@@ -1029,7 +1088,7 @@ export default function GitActionsControl({
               <MenuItem
                 className={gitMenuItemClassName}
                 onClick={() => {
-                  setIsSshPassphraseDialogOpen(true);
+                  dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
                 }}
               >
                 <KeyRoundIcon />
@@ -1050,9 +1109,7 @@ export default function GitActionsControl({
                   </p>
                 )}
               {isGitStatusOutOfSync && (
-                <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                  Refreshing git status...
-                </p>
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">Refreshing git status…</p>
               )}
               {gitStatusError && (
                 <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError.message}</p>
@@ -1066,10 +1123,7 @@ export default function GitActionsControl({
         open={isCommitDialogOpen}
         onOpenChange={(open) => {
           if (!open) {
-            setIsCommitDialogOpen(false);
-            setDialogCommitMessage("");
-            setExcludedFiles(new Set());
-            setIsEditingFiles(false);
+            dispatch({ type: "reset-commit-dialog" });
           }
         }}
       >
@@ -1101,9 +1155,10 @@ export default function GitActionsControl({
                         checked={allSelected}
                         indeterminate={!allSelected && !noneSelected}
                         onCheckedChange={() => {
-                          setExcludedFiles(
-                            allSelected ? new Set(allFiles.map((f) => f.path)) : new Set(),
-                          );
+                          dispatch({
+                            type: "set-excluded-files",
+                            value: allSelected ? new Set(allFiles.map((f) => f.path)) : new Set(),
+                          });
                         }}
                       />
                     )}
@@ -1119,7 +1174,9 @@ export default function GitActionsControl({
                       variant="ghost"
                       size="xs"
                       className="text-foreground/72 hover:bg-accent hover:text-foreground"
-                      onClick={() => setIsEditingFiles((prev) => !prev)}
+                      onClick={() =>
+                        dispatch({ type: "set-editing-files", value: !isEditingFiles })
+                      }
                     >
                       {isEditingFiles ? "Done" : "Edit"}
                     </Button>
@@ -1142,15 +1199,13 @@ export default function GitActionsControl({
                                 <Checkbox
                                   checked={!excludedFiles.has(file.path)}
                                   onCheckedChange={() => {
-                                    setExcludedFiles((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(file.path)) {
-                                        next.delete(file.path);
-                                      } else {
-                                        next.add(file.path);
-                                      }
-                                      return next;
-                                    });
+                                    const next = new Set(excludedFiles);
+                                    if (next.has(file.path)) {
+                                      next.delete(file.path);
+                                    } else {
+                                      next.add(file.path);
+                                    }
+                                    dispatch({ type: "set-excluded-files", value: next });
                                   }}
                                 />
                               )}
@@ -1198,7 +1253,9 @@ export default function GitActionsControl({
               <p className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Commit message (optional)</p>
               <Textarea
                 value={dialogCommitMessage}
-                onChange={(event) => setDialogCommitMessage(event.target.value)}
+                onChange={(event) =>
+                  dispatch({ type: "set-dialog-commit-message", value: event.target.value })
+                }
                 placeholder="Leave empty to auto-generate"
                 size="sm"
                 className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-24`}
@@ -1210,10 +1267,7 @@ export default function GitActionsControl({
               variant="outline"
               size="sm"
               onClick={() => {
-                setIsCommitDialogOpen(false);
-                setDialogCommitMessage("");
-                setExcludedFiles(new Set());
-                setIsEditingFiles(false);
+                dispatch({ type: "reset-commit-dialog" });
               }}
             >
               Cancel
@@ -1237,7 +1291,7 @@ export default function GitActionsControl({
         open={isSshPassphraseDialogOpen}
         onOpenChange={(open) => {
           if (!isSshPassphraseSaving) {
-            setIsSshPassphraseDialogOpen(open);
+            dispatch({ type: "set-ssh-passphrase-dialog-open", value: open });
           }
         }}
       >
@@ -1249,13 +1303,16 @@ export default function GitActionsControl({
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
-            <label className="grid gap-1.5">
+            <label htmlFor="git-ssh-passphrase" className="grid gap-1.5">
               <span className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Passphrase</span>
               <Input
+                id="git-ssh-passphrase"
                 type="password"
                 value={sshPassphraseDraft}
                 className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
-                onChange={(event) => setSshPassphraseDraft(event.target.value)}
+                onChange={(event) =>
+                  dispatch({ type: "set-ssh-passphrase-draft", value: event.target.value })
+                }
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") {
                     return;
@@ -1280,7 +1337,7 @@ export default function GitActionsControl({
               variant="ghost"
               size="sm"
               disabled={isSshPassphraseSaving}
-              onClick={() => setIsSshPassphraseDialogOpen(false)}
+              onClick={() => dispatch({ type: "set-ssh-passphrase-dialog-open", value: false })}
             >
               Cancel
             </Button>
@@ -1309,7 +1366,7 @@ export default function GitActionsControl({
         open={pendingDefaultBranchAction !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setPendingDefaultBranchAction(null);
+            dispatch({ type: "set-pending-default-branch-action", value: null });
           }
         }}
       >
@@ -1329,7 +1386,11 @@ export default function GitActionsControl({
             </div>
           </DialogPanel>
           <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
-            <Button variant="outline" size="sm" onClick={() => setPendingDefaultBranchAction(null)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => dispatch({ type: "set-pending-default-branch-action", value: null })}
+            >
               Abort
             </Button>
             <Button variant="outline" size="sm" onClick={continuePendingDefaultBranchAction}>
@@ -1343,4 +1404,8 @@ export default function GitActionsControl({
       </Dialog>
     </>
   );
+}
+
+export default function GitActionsControl(props: GitActionsControlProps) {
+  return useGitActionsControlComponent(props);
 }

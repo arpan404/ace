@@ -31,13 +31,21 @@ export function deriveActivePlanState(
   latestTurnId: TurnId | undefined,
 ): ActivePlanState | null {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  const allCandidates = ordered.filter((activity) => activity.kind === "turn.plan.updated");
-  const candidates =
-    latestTurnId === undefined
-      ? allCandidates
-      : allCandidates.filter(
-          (activity) => activity.turnId === latestTurnId || activity.turnId === null,
-        );
+  const allCandidates: OrchestrationThreadActivity[] = [];
+  const candidates: OrchestrationThreadActivity[] = [];
+  for (const activity of ordered) {
+    if (activity.kind !== "turn.plan.updated") {
+      continue;
+    }
+    allCandidates.push(activity);
+    if (
+      latestTurnId === undefined ||
+      activity.turnId === latestTurnId ||
+      activity.turnId === null
+    ) {
+      candidates.push(activity);
+    }
+  }
   const latest = candidates.at(-1) ?? allCandidates.at(-1);
   if (!latest) {
     return null;
@@ -50,28 +58,25 @@ export function deriveActivePlanState(
   if (!Array.isArray(rawPlan)) {
     return null;
   }
-  const steps = rawPlan
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const record = entry as Record<string, unknown>;
-      if (typeof record.step !== "string") {
-        return null;
-      }
-      const status =
-        record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
-      return {
-        step: record.step,
-        status,
-      };
-    })
-    .filter(
-      (
-        step,
-      ): step is {
-        step: string;
-        status: "pending" | "inProgress" | "completed";
-      } => step !== null,
-    );
+  const steps: Array<{
+    step: string;
+    status: "pending" | "inProgress" | "completed";
+  }> = [];
+  for (const entry of rawPlan) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    if (typeof record.step !== "string") {
+      continue;
+    }
+    const status =
+      record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
+    steps.push({
+      step: record.step,
+      status,
+    });
+  }
   if (steps.length === 0) {
     return null;
   }

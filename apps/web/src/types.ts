@@ -28,7 +28,7 @@ export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 4;
-export type ProjectScript = ContractProjectScript;
+type ProjectScript = ContractProjectScript;
 export type ProjectIcon = ContractProjectIcon;
 
 export interface ThreadTerminalGroup {
@@ -45,7 +45,7 @@ export interface ChatImageAttachment {
   previewUrl?: string;
 }
 
-export type ChatAttachment = ChatImageAttachment;
+type ChatAttachment = ChatImageAttachment;
 
 export interface QueuedComposerImageAttachment extends ChatImageAttachment {
   dataUrl: string;
@@ -53,7 +53,7 @@ export interface QueuedComposerImageAttachment extends ChatImageAttachment {
   file?: File;
 }
 
-export interface QueuedTerminalContext {
+interface QueuedTerminalContext {
   id: string;
   createdAt: string;
   terminalId: string;
@@ -73,7 +73,7 @@ export interface QueuedComposerMessage {
   interactionMode: ProviderInteractionMode;
 }
 
-export interface QueuedSteerRequest {
+interface QueuedSteerRequest {
   messageId: MessageId;
   baselineWorkLogEntryCount: number;
   interruptRequested: boolean;
@@ -112,7 +112,7 @@ export interface ProposedPlan {
   updatedAt: string;
 }
 
-export type ProposedPlanSummary = OrchestrationProposedPlanSummary;
+type ProposedPlanSummary = OrchestrationProposedPlanSummary;
 
 export interface TurnDiffFileChange {
   path: string;

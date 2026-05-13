@@ -1,5 +1,3 @@
-import { loader } from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
@@ -10,6 +8,27 @@ import { registerWorkspaceEditorLanguages } from "./workspaceLanguages";
 let monacoConfigured = false;
 let lastAppliedMonacoThemeName: string | null = null;
 const definedMonacoThemeNames = new Set<string>();
+type MonacoApi = typeof import("monaco-editor");
+type MonacoRuntime = {
+  loader: typeof import("@monaco-editor/react").loader;
+  monaco: MonacoApi;
+};
+let monacoRuntimePromise: Promise<MonacoRuntime> | null = null;
+
+function getMonacoRuntime(): Promise<MonacoRuntime> {
+  if (monacoRuntimePromise === null) {
+    monacoRuntimePromise = Promise.all([
+      import("@monaco-editor/react").then((module) => ({
+        loader: module.loader,
+      })),
+      import("monaco-editor").then((monaco) => ({ monaco })),
+    ]).then(([loaderResult, monacoResult]) => ({
+      loader: loaderResult.loader,
+      monaco: monacoResult.monaco,
+    }));
+  }
+  return monacoRuntimePromise;
+}
 
 type MonacoThemeMode = "light" | "dark";
 
@@ -232,10 +251,7 @@ function resolveThemeCssColor(cssVariableName: string, fallbackHex: string): str
   }
   const host = document.body ?? document.documentElement;
   const probe = document.createElement("span");
-  probe.style.color = `var(${cssVariableName})`;
-  probe.style.position = "absolute";
-  probe.style.opacity = "0";
-  probe.style.pointerEvents = "none";
+  probe.style.cssText = `color: var(${cssVariableName}); position: absolute; opacity: 0; pointer-events: none;`;
   host.appendChild(probe);
   const computed = window.getComputedStyle(probe).color;
   probe.remove();
@@ -277,7 +293,7 @@ function resolveActiveMonacoThemeMode(): MonacoThemeMode {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-export function resolveMonacoThemeName(input?: {
+function resolveMonacoThemeName(input?: {
   resolvedTheme?: MonacoThemeMode;
   themePreset?: string | null | undefined;
 }): string {
@@ -301,6 +317,18 @@ export function ensureMonacoConfigured(input?: {
     themePreset: input?.themePreset,
   });
 
+  void configureMonacoRuntime({ palette, resolvedTheme, themeName }).catch((error) => {
+    console.error("Failed to configure Monaco editor runtime", error);
+  });
+  return themeName;
+}
+
+async function configureMonacoRuntime(config: {
+  palette: ReturnType<typeof resolveMonacoThemePalette>;
+  resolvedTheme: MonacoThemeMode;
+  themeName: string;
+}): Promise<void> {
+  const { loader, monaco } = await getMonacoRuntime();
   if (!monacoConfigured) {
     const environment = {
       getWorker(_: string, label: string) {
@@ -395,9 +423,9 @@ export function ensureMonacoConfigured(input?: {
     monacoConfigured = true;
   }
 
-  if (!definedMonacoThemeNames.has(themeName)) {
+  if (!definedMonacoThemeNames.has(config.themeName)) {
     const rules =
-      resolvedTheme === "dark"
+      config.resolvedTheme === "dark"
         ? [
             { token: "comment", foreground: "6A9955" },
             { token: "comment.doc", foreground: "7FA36B" },
@@ -462,9 +490,10 @@ export function ensureMonacoConfigured(input?: {
             { token: "delimiter.bracket", foreground: "000000" },
             { token: "operator", foreground: "000000" },
           ];
-    const modePalette = resolvedTheme === "dark" ? palette.dark : palette.light;
-    monaco.editor.defineTheme(themeName, {
-      base: resolvedTheme === "dark" ? "vs-dark" : "vs",
+    const modePalette =
+      config.resolvedTheme === "dark" ? config.palette.dark : config.palette.light;
+    monaco.editor.defineTheme(config.themeName, {
+      base: config.resolvedTheme === "dark" ? "vs-dark" : "vs",
       inherit: true,
       rules,
       colors: {
@@ -472,95 +501,94 @@ export function ensureMonacoConfigured(input?: {
         "editor.foreground": modePalette.foreground,
         "editor.lineHighlightBackground": withAlpha(
           modePalette.accent,
-          resolvedTheme === "dark" ? 0.5 : 0.55,
+          config.resolvedTheme === "dark" ? 0.5 : 0.55,
         ),
         "editor.selectionBackground": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.34 : 0.3,
+          config.resolvedTheme === "dark" ? 0.34 : 0.3,
         ),
         "editor.selectionHighlightBackground": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.2 : 0.18,
+          config.resolvedTheme === "dark" ? 0.2 : 0.18,
         ),
         "editor.selectionHighlightBorder": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.32 : 0.3,
+          config.resolvedTheme === "dark" ? 0.32 : 0.3,
         ),
         "editor.inactiveSelectionBackground": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.18 : 0.14,
+          config.resolvedTheme === "dark" ? 0.18 : 0.14,
         ),
         "editorCursor.foreground": modePalette.foreground,
         "editorWhitespace.foreground": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.2 : 0.22,
+          config.resolvedTheme === "dark" ? 0.2 : 0.22,
         ),
         "editorIndentGuide.background1": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.16 : 0.18,
+          config.resolvedTheme === "dark" ? 0.16 : 0.18,
         ),
         "editorIndentGuide.activeBackground1": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.32 : 0.34,
+          config.resolvedTheme === "dark" ? 0.32 : 0.34,
         ),
         "editorLineNumber.foreground": withAlpha(
           modePalette.mutedForeground,
-          resolvedTheme === "dark" ? 0.74 : 0.84,
+          config.resolvedTheme === "dark" ? 0.74 : 0.84,
         ),
         "editorLineNumber.activeForeground": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.9 : 0.92,
+          config.resolvedTheme === "dark" ? 0.9 : 0.92,
         ),
         "editor.wordHighlightBackground": withAlpha(modePalette.primary, 0.16),
         "editor.wordHighlightBorder": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.46 : 0.4,
+          config.resolvedTheme === "dark" ? 0.46 : 0.4,
         ),
         "editor.wordHighlightStrongBackground": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.26 : 0.24,
+          config.resolvedTheme === "dark" ? 0.26 : 0.24,
         ),
         "editor.wordHighlightStrongBorder": withAlpha(
           modePalette.primary,
-          resolvedTheme === "dark" ? 0.62 : 0.58,
+          config.resolvedTheme === "dark" ? 0.62 : 0.58,
         ),
         "editorHoverWidget.background": modePalette.background,
         "editorHoverWidget.border": withAlpha(
           modePalette.border,
-          resolvedTheme === "dark" ? 0.9 : 0.92,
+          config.resolvedTheme === "dark" ? 0.9 : 0.92,
         ),
         "editorGutter.background": modePalette.background,
         "editorWidget.background": modePalette.background,
         "editorSuggestWidget.background": modePalette.background,
         "editorSuggestWidget.selectedBackground": withAlpha(
           modePalette.accent,
-          resolvedTheme === "dark" ? 0.8 : 0.85,
+          config.resolvedTheme === "dark" ? 0.8 : 0.85,
         ),
         "minimap.background": modePalette.background,
         "scrollbarSlider.background": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.14 : 0.12,
+          config.resolvedTheme === "dark" ? 0.14 : 0.12,
         ),
         "scrollbarSlider.hoverBackground": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.24 : 0.2,
+          config.resolvedTheme === "dark" ? 0.24 : 0.2,
         ),
         "scrollbarSlider.activeBackground": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.32 : 0.28,
+          config.resolvedTheme === "dark" ? 0.32 : 0.28,
         ),
         "editorBracketMatch.background": "#0064001A",
         "editorBracketMatch.border": withAlpha(
           modePalette.foreground,
-          resolvedTheme === "dark" ? 0.36 : 0.35,
+          config.resolvedTheme === "dark" ? 0.36 : 0.35,
         ),
       },
     });
-    definedMonacoThemeNames.add(themeName);
+    definedMonacoThemeNames.add(config.themeName);
   }
-  if (lastAppliedMonacoThemeName !== themeName) {
-    monaco.editor.setTheme(themeName);
-    lastAppliedMonacoThemeName = themeName;
+  if (lastAppliedMonacoThemeName !== config.themeName) {
+    monaco.editor.setTheme(config.themeName);
+    lastAppliedMonacoThemeName = config.themeName;
   }
-  return themeName;
 }

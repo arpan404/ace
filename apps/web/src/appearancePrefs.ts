@@ -28,7 +28,7 @@ function migrateLegacyKeys() {
   }
 }
 
-export function readStoredThemePreset(): ThemePresetId {
+function readStoredThemePreset(): ThemePresetId {
   if (typeof window === "undefined") {
     return DEFAULT_THEME_PRESET;
   }
@@ -46,14 +46,14 @@ function getSnapshot(): ThemePresetId {
 }
 
 /** Sets `data-theme-preset` on the root element for all presets. */
-export function applyThemePreset(preset: ThemePresetId) {
+function applyThemePreset(preset: ThemePresetId) {
   if (typeof document === "undefined") {
     return;
   }
   document.documentElement.setAttribute("data-theme-preset", preset);
 }
 
-export function persistThemePreset(preset: ThemePresetId) {
+function persistThemePreset(preset: ThemePresetId) {
   if (typeof localStorage === "undefined") {
     return;
   }

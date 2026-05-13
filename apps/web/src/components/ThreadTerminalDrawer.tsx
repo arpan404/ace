@@ -157,10 +157,13 @@ function readTerminalFontFamily(): string {
 async function waitForTerminalFontReady(fontFamily: string, fontSize: number): Promise<void> {
   if (typeof document === "undefined" || !("fonts" in document)) return;
   const fontSet = document.fonts;
-  const fontCandidates = fontFamily
-    .split(",")
-    .map((font) => font.trim().replace(/^['"]|['"]$/g, ""))
-    .filter((font) => font.length > 0 && font.toLowerCase() !== "monospace");
+  const fontCandidates: string[] = [];
+  for (const font of fontFamily.split(",")) {
+    const normalizedFont = font.trim().replace(/^['"]|['"]$/g, "");
+    if (normalizedFont.length > 0 && normalizedFont.toLowerCase() !== "monospace") {
+      fontCandidates.push(normalizedFont);
+    }
+  }
   const resolvedFont =
     fontCandidates.find((candidate) => fontSet.check(`${fontSize}px "${candidate}"`)) ??
     fontCandidates[0];
@@ -340,9 +343,10 @@ export function resolveTerminalTabDropTarget(
   overTerminalId: string,
 ): { groupId: string; index: number } | null {
   for (const group of terminalGroups) {
-    const index = group.terminalIds.indexOf(overTerminalId);
-    if (index >= 0) {
-      return { groupId: group.id, index };
+    for (const [index, terminalId] of group.terminalIds.entries()) {
+      if (terminalId === overTerminalId) {
+        return { groupId: group.id, index };
+      }
     }
   }
   return null;
@@ -359,11 +363,11 @@ interface TerminalViewportProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onAutoTerminalTitleChange: (title: string | null) => void;
   focusRequestId: number;
-  autoFocus: boolean;
+  shouldFocusTerminal: boolean;
   drawerHeight: number;
 }
 
-function TerminalViewport({
+function useTerminalViewportComponent({
   threadId,
   terminalId,
   terminalLabel,
@@ -374,7 +378,7 @@ function TerminalViewport({
   onAddTerminalContext,
   onAutoTerminalTitleChange,
   focusRequestId,
-  autoFocus,
+  shouldFocusTerminal,
   drawerHeight,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -748,7 +752,7 @@ function TerminalViewport({
         if (snapshot.history.length > 0) {
           activeTerminal.write(snapshot.history);
         }
-        if (autoFocus && interactive) {
+        if (shouldFocusTerminal && interactive) {
           window.requestAnimationFrame(() => {
             activeTerminal.focus();
           });
@@ -875,7 +879,7 @@ function TerminalViewport({
       fitAddonRef.current = null;
       terminal.dispose();
     };
-    // autoFocus is intentionally omitted;
+    // shouldFocusTerminal is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd, runtimeEnv, terminalId, threadId]);
@@ -890,7 +894,7 @@ function TerminalViewport({
   }, [interactive]);
 
   useEffect(() => {
-    if (!autoFocus || !interactive) return;
+    if (!shouldFocusTerminal || !interactive) return;
     const terminal = terminalRef.current;
     if (!terminal) return;
     if (focusRequestId <= handledFocusRequestIdRef.current) {
@@ -903,7 +907,7 @@ function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [autoFocus, focusRequestId, interactive]);
+  }, [focusRequestId, interactive, shouldFocusTerminal]);
 
   useEffect(() => {
     const api = readNativeApi();
@@ -933,6 +937,10 @@ function TerminalViewport({
   return (
     <div ref={containerRef} className="terminal-viewport relative h-full w-full overflow-hidden" />
   );
+}
+
+function TerminalViewport(props: TerminalViewportProps) {
+  return useTerminalViewportComponent(props);
 }
 
 interface ThreadTerminalDrawerProps {
@@ -1065,9 +1073,8 @@ function SortableTerminalTab(props: {
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <IconTerminal className="size-4 text-muted-foreground" />
           {props.canClose ? (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
               aria-label={`Close ${props.label}`}
               onPointerDown={(event) => {
@@ -1081,7 +1088,7 @@ function SortableTerminalTab(props: {
               }}
             >
               <XIcon className="size-3" />
-            </span>
+            </button>
           ) : null}
         </span>
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
@@ -1338,7 +1345,7 @@ export default memo(function ThreadTerminalDrawer({
     };
   }, [handleResizePointerEnd]);
 
-  const renderNewTerminalButton = () => (
+  const newTerminalButton = (
     <TerminalActionButton
       className="terminal-action-btn inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       onClick={onNewTerminalAction}
@@ -1347,7 +1354,7 @@ export default memo(function ThreadTerminalDrawer({
       <PlusIcon className="size-4" />
     </TerminalActionButton>
   );
-  const renderToggleTerminalButton = () => (
+  const toggleTerminalButton = (
     <TerminalActionButton
       className="terminal-action-btn inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       onClick={onToggleTerminal}
@@ -1400,15 +1407,15 @@ export default memo(function ThreadTerminalDrawer({
                 {tabsOverflow ? (
                   <span className="size-8 shrink-0" aria-hidden="true" />
                 ) : (
-                  renderNewTerminalButton()
+                  newTerminalButton
                 )}
               </div>
             </SortableContext>
           </DndContext>
         </div>
 
-        {tabsOverflow ? renderNewTerminalButton() : null}
-        {renderToggleTerminalButton()}
+        {tabsOverflow ? newTerminalButton : null}
+        {toggleTerminalButton}
       </div>
 
       <div className="min-h-0 w-full flex-1">
@@ -1429,7 +1436,7 @@ export default memo(function ThreadTerminalDrawer({
                   onAutoTerminalTitleChange(resolvedActiveTerminalId, title)
                 }
                 focusRequestId={focusRequestId}
-                autoFocus={interactive}
+                shouldFocusTerminal={interactive}
                 drawerHeight={drawerHeight}
               />
             </div>

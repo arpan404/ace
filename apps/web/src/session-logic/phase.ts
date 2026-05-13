@@ -3,7 +3,7 @@ import type { OrchestrationLatestTurn, OrchestrationThreadActivity, TurnId } fro
 import type { SessionPhase, ThreadSession } from "./types";
 import { findLatestRenderableWorkTurnId } from "./worklog";
 
-export function formatDuration(durationMs: number): string {
+function formatDuration(durationMs: number): string {
   if (!Number.isFinite(durationMs) || durationMs < 0) return "0ms";
   if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`;
   if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(1)}s`;

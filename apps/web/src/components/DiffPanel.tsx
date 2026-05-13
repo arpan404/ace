@@ -125,7 +125,7 @@ interface DiffPanelProps {
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
-export default function DiffPanel({
+function useDiffPanelComponent({
   diffOpen: diffOpenOverride,
   mode = "inline",
   onSelectTurn,
@@ -267,12 +267,14 @@ export default function DiffPanel({
     [selectedCheckpointTurnCount, selectedTurn, selectedTurnQueryable],
   );
   const conversationCheckpointTurnCount = useMemo(() => {
-    const turnCounts = queryableTurnDiffSummaries
-      .map(
-        (summary) =>
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
-      )
-      .filter((value): value is number => typeof value === "number");
+    const turnCounts: number[] = [];
+    for (const summary of queryableTurnDiffSummaries) {
+      const turnCount =
+        summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+      if (typeof turnCount === "number") {
+        turnCounts.push(turnCount);
+      }
+    }
     if (turnCounts.length === 0) {
       return undefined;
     }
@@ -580,7 +582,7 @@ export default function DiffPanel({
         </div>
       ) : isCheckingGitRepo ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground/60">
-          Checking git repository status...
+          Checking git repository status…
         </div>
       ) : gitRepoCheckError && typeof gitRepoStatus !== "boolean" ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground/60">
@@ -676,4 +678,8 @@ export default function DiffPanel({
       )}
     </DiffPanelShell>
   );
+}
+
+export default function DiffPanel(props: DiffPanelProps) {
+  return useDiffPanelComponent(props);
 }

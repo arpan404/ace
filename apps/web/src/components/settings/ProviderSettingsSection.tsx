@@ -7,7 +7,7 @@ import {
   Undo2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import {
@@ -124,6 +124,22 @@ interface AddProviderDraft {
   provider: ProviderKind;
 }
 
+type ProviderSettingsSectionState = {
+  draftProviders: UnifiedSettings["providers"];
+  selectedEntryKey: string;
+  addProviderOpen: boolean;
+  addProviderStep: AddProviderStep;
+  addProviderDraft: AddProviderDraft;
+};
+
+type ProviderSettingsSectionAction =
+  | { type: "set-draft-providers"; draftProviders: UnifiedSettings["providers"] }
+  | { type: "set-selected-entry-key"; selectedEntryKey: string }
+  | { type: "set-add-provider-open"; addProviderOpen: boolean }
+  | { type: "set-add-provider-step"; addProviderStep: AddProviderStep }
+  | { type: "set-add-provider-draft"; addProviderDraft: AddProviderDraft }
+  | { type: "update-add-provider-draft"; updater: (draft: AddProviderDraft) => AddProviderDraft };
+
 const ADD_PROVIDER_STEPS: ReadonlyArray<{
   id: AddProviderStep;
   label: string;
@@ -132,6 +148,40 @@ const ADD_PROVIDER_STEPS: ReadonlyArray<{
   { id: "setup", label: "Setup" },
   { id: "review", label: "Review" },
 ];
+
+function providerSettingsSectionStateReducer(
+  state: ProviderSettingsSectionState,
+  action: ProviderSettingsSectionAction,
+): ProviderSettingsSectionState {
+  switch (action.type) {
+    case "set-draft-providers":
+      return state.draftProviders === action.draftProviders
+        ? state
+        : { ...state, draftProviders: action.draftProviders };
+    case "set-selected-entry-key":
+      return state.selectedEntryKey === action.selectedEntryKey
+        ? state
+        : { ...state, selectedEntryKey: action.selectedEntryKey };
+    case "set-add-provider-open":
+      return state.addProviderOpen === action.addProviderOpen
+        ? state
+        : { ...state, addProviderOpen: action.addProviderOpen };
+    case "set-add-provider-step":
+      return state.addProviderStep === action.addProviderStep
+        ? state
+        : { ...state, addProviderStep: action.addProviderStep };
+    case "set-add-provider-draft":
+      return state.addProviderDraft === action.addProviderDraft
+        ? state
+        : { ...state, addProviderDraft: action.addProviderDraft };
+    case "update-add-provider-draft": {
+      const nextDraft = action.updater(state.addProviderDraft);
+      return nextDraft === state.addProviderDraft
+        ? state
+        : { ...state, addProviderDraft: nextDraft };
+    }
+  }
+}
 
 function resolveCustomModelPlaceholder(provider: ProviderKind): string {
   switch (provider) {
@@ -159,11 +209,11 @@ function parseLaunchEnv(value: string): Record<string, string> {
   for (const rawLine of value.split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex <= 0) continue;
-    const key = line.slice(0, separatorIndex).trim();
+    const [keyPart, ...valueParts] = line.split("=");
+    if (!keyPart || valueParts.length === 0) continue;
+    const key = keyPart.trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    env[key] = line.slice(separatorIndex + 1);
+    env[key] = valueParts.join("=");
   }
   return env;
 }
@@ -325,7 +375,7 @@ function resolveProviderCardSnapshot(
   );
 }
 
-export function ProviderSettingsSection({
+function useProviderSettingsSectionComponent({
   customModelErrorByProvider,
   customModelInputByProvider,
   isRefreshingProviders,
@@ -360,17 +410,24 @@ export function ProviderSettingsSection({
   upgradeProviderCli: (provider: ProviderKind, runtimeId: string) => void;
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
-  const [draftProviders, setDraftProviders] = useState(() => settings.providers);
-  const [selectedEntryKey, setSelectedEntryKey] = useState(() =>
-    providerEntryKey(providerCards[0]?.provider ?? "codex"),
+  const [sectionState, dispatchSectionState] = useReducer(
+    providerSettingsSectionStateReducer,
+    undefined,
+    (): ProviderSettingsSectionState => ({
+      draftProviders: settings.providers,
+      selectedEntryKey: providerEntryKey(providerCards[0]?.provider ?? "codex"),
+      addProviderOpen: false,
+      addProviderStep: "provider",
+      addProviderDraft: createAddProviderDraft(
+        providerCards[0]?.provider ?? "codex",
+        settings.providers,
+      ),
+    }),
   );
-  const [addProviderOpen, setAddProviderOpen] = useState(false);
-  const [addProviderStep, setAddProviderStep] = useState<AddProviderStep>("provider");
-  const [addProviderDraft, setAddProviderDraft] = useState(() =>
-    createAddProviderDraft(providerCards[0]?.provider ?? "codex", settings.providers),
-  );
+  const { addProviderDraft, addProviderOpen, addProviderStep, draftProviders, selectedEntryKey } =
+    sectionState;
   useEffect(() => {
-    setDraftProviders(settings.providers);
+    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   }, [settings.providers]);
   const providerEntries = useMemo(
     () => buildProviderSettingsEntries(providerCards, draftProviders),
@@ -382,7 +439,7 @@ export function ProviderSettingsSection({
     }
     const firstEntry = providerEntries[0];
     if (firstEntry) {
-      setSelectedEntryKey(firstEntry.key);
+      dispatchSectionState({ type: "set-selected-entry-key", selectedEntryKey: firstEntry.key });
     }
   }, [providerEntries, selectedEntryKey]);
 
@@ -394,10 +451,13 @@ export function ProviderSettingsSection({
     provider: TProvider,
     config: UnifiedSettings["providers"][TProvider],
   ) => {
-    setDraftProviders((existing) => ({
-      ...existing,
-      [provider]: config,
-    }));
+    dispatchSectionState({
+      type: "set-draft-providers",
+      draftProviders: {
+        ...draftProviders,
+        [provider]: config,
+      },
+    });
   };
 
   const saveProviderDraft = () => {
@@ -415,7 +475,7 @@ export function ProviderSettingsSection({
   };
 
   const revertProviderDraft = () => {
-    setDraftProviders(settings.providers);
+    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   };
 
   const addProviderInstance = (draft: AddProviderDraft) => {
@@ -452,8 +512,11 @@ export function ProviderSettingsSection({
       ...providerConfig,
       instances: [...providerConfig.instances, nextInstance],
     } as UnifiedSettings["providers"][typeof provider]);
-    setSelectedEntryKey(providerEntryKey(provider, instanceId));
-    setAddProviderOpen(false);
+    dispatchSectionState({
+      type: "set-selected-entry-key",
+      selectedEntryKey: providerEntryKey(provider, instanceId),
+    });
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: false });
   };
 
   const updateProviderInstance = (
@@ -488,6 +551,7 @@ export function ProviderSettingsSection({
       ? providerConfig.instances.find((instance) => instance.id === providerInstanceId)
       : undefined;
     const customModels = providerInstance?.customModels ?? providerConfig.customModels;
+    const customModelSet = new Set(customModels);
     const normalized = normalizeModelSlug(customModelInput, provider);
     if (!normalized) {
       setCustomModelErrorByProvider((existing) => ({
@@ -510,7 +574,7 @@ export function ProviderSettingsSection({
       }));
       return;
     }
-    if (customModels.includes(normalized)) {
+    if (customModelSet.has(normalized)) {
       setCustomModelErrorByProvider((existing) => ({
         ...existing,
         [provider]: "That custom model is already added.",
@@ -649,8 +713,9 @@ export function ProviderSettingsSection({
     } as UnifiedSettings["providers"][typeof providerCard.provider]);
   };
   const baseModels = selectedSnapshot?.models ?? providerCard.models;
+  const selectedCustomModelSet = new Set(selectedCustomModels);
   const displayedModels = baseModels.filter(
-    (model) => !model.isCustom || selectedCustomModels.includes(model.slug),
+    (model) => !model.isCustom || selectedCustomModelSet.has(model.slug),
   );
   for (const slug of selectedCustomModels) {
     if (displayedModels.some((model) => model.slug === slug)) continue;
@@ -679,30 +744,36 @@ export function ProviderSettingsSection({
   );
   const canCreateProviderDraft = addProviderDraft.label.trim().length > 0;
   const resetAddProviderDialog = (provider: ProviderKind) => {
-    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
-    setAddProviderStep("provider");
+    dispatchSectionState({
+      type: "set-add-provider-draft",
+      addProviderDraft: createAddProviderDraft(provider, draftProviders),
+    });
+    dispatchSectionState({ type: "set-add-provider-step", addProviderStep: "provider" });
   };
   const openAddProviderDialog = () => {
     resetAddProviderDialog(selectedProviderEntry.provider);
-    setAddProviderOpen(true);
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: true });
   };
   const closeAddProviderDialog = () => {
-    setAddProviderOpen(false);
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: false });
   };
   const selectAddProvider = (provider: ProviderKind) => {
-    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
+    dispatchSectionState({
+      type: "set-add-provider-draft",
+      addProviderDraft: createAddProviderDraft(provider, draftProviders),
+    });
   };
   const goToPreviousAddProviderStep = () => {
     const previousStep = ADD_PROVIDER_STEPS[Math.max(0, addProviderCurrentStepIndex - 1)];
     if (previousStep) {
-      setAddProviderStep(previousStep.id);
+      dispatchSectionState({ type: "set-add-provider-step", addProviderStep: previousStep.id });
     }
   };
   const goToNextAddProviderStep = () => {
     const nextStep =
       ADD_PROVIDER_STEPS[Math.min(ADD_PROVIDER_STEPS.length - 1, addProviderCurrentStepIndex + 1)];
     if (nextStep) {
-      setAddProviderStep(nextStep.id);
+      dispatchSectionState({ type: "set-add-provider-step", addProviderStep: nextStep.id });
     }
   };
 
@@ -813,7 +884,12 @@ export function ProviderSettingsSection({
                       ? "border-border/50 bg-background/72 text-foreground"
                       : "border-transparent bg-transparent text-muted-foreground hover:bg-background/45 hover:text-foreground/90",
                   )}
-                  onClick={() => setSelectedEntryKey(entry.key)}
+                  onClick={() =>
+                    dispatchSectionState({
+                      type: "set-selected-entry-key",
+                      selectedEntryKey: entry.key,
+                    })
+                  }
                 >
                   <span
                     className={cn(
@@ -907,7 +983,10 @@ export function ProviderSettingsSection({
                     className="size-8 rounded-[var(--control-radius)] text-muted-foreground/60 hover:text-foreground"
                     onClick={() => {
                       removeProviderInstance(providerCard, selectedInstance.id);
-                      setSelectedEntryKey(providerEntryKey(providerCard.provider));
+                      dispatchSectionState({
+                        type: "set-selected-entry-key",
+                        selectedEntryKey: providerEntryKey(providerCard.provider),
+                      });
                     }}
                     aria-label={`Remove ${selectedInstance.label}`}
                   >
@@ -948,9 +1027,13 @@ export function ProviderSettingsSection({
                   <div className="text-xs font-semibold text-foreground/90">Identity</div>
                 </div>
                 <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
-                  <label className="block">
+                  <label
+                    htmlFor={`provider-instance-${providerCard.provider}-name`}
+                    className="block"
+                  >
                     <span className="text-[11px] font-medium text-foreground/75">Name</span>
                     <Input
+                      id={`provider-instance-${providerCard.provider}-name`}
                       className="mt-1"
                       value={selectedInstance.label}
                       onChange={(event) =>
@@ -1049,7 +1132,10 @@ export function ProviderSettingsSection({
                 <div className="text-xs font-semibold text-foreground/90">Launch</div>
               </div>
               <div className="grid gap-3 p-3 md:grid-cols-2">
-                <label className="block">
+                <label
+                  htmlFor={`provider-install-${providerCard.provider}-binary-path`}
+                  className="block"
+                >
                   <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
                   <Input
                     id={`provider-install-${providerCard.provider}-binary-path`}
@@ -1069,11 +1155,15 @@ export function ProviderSettingsSection({
                 </label>
 
                 {providerCard.provider === "githubCopilot" ? (
-                  <label className="block">
+                  <label
+                    htmlFor={`provider-install-${providerCard.provider}-cli-url`}
+                    className="block"
+                  >
                     <span className="text-[11px] font-medium text-foreground/75">
                       CLI server URL
                     </span>
                     <Input
+                      id={`provider-install-${providerCard.provider}-cli-url`}
                       className="mt-1"
                       value={selectedCliUrlValue}
                       onChange={(event) =>
@@ -1093,11 +1183,15 @@ export function ProviderSettingsSection({
                 ) : null}
 
                 {selectedPathLabel ? (
-                  <label className="block">
+                  <label
+                    htmlFor={`provider-install-${providerCard.provider}-path`}
+                    className="block"
+                  >
                     <span className="text-[11px] font-medium text-foreground/75">
                       {selectedPathLabel}
                     </span>
                     <Input
+                      id={`provider-install-${providerCard.provider}-path`}
                       className="mt-1"
                       value={selectedPathValue}
                       onChange={(event) => {
@@ -1121,9 +1215,13 @@ export function ProviderSettingsSection({
                   </label>
                 ) : null}
 
-                <label className="block md:col-span-2">
+                <label
+                  htmlFor={`provider-install-${providerCard.provider}-launch-env`}
+                  className="block md:col-span-2"
+                >
                   <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
                   <Textarea
+                    id={`provider-install-${providerCard.provider}-launch-env`}
                     className="mt-1"
                     size="sm"
                     value={formatLaunchEnv(selectedLaunchEnv)}
@@ -1141,7 +1239,7 @@ export function ProviderSettingsSection({
               </div>
 
               {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
-                <div className="border-t border-border/35 px-3 py-3">
+                <div className="border-t border-border/35 p-3">
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/55">
                     Runtimes
                   </div>
@@ -1329,9 +1427,9 @@ export function ProviderSettingsSection({
       </div>
       <Dialog
         onOpenChange={(open) => {
-          setAddProviderOpen(open);
+          dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: open });
           if (!open) {
-            setAddProviderStep("provider");
+            dispatchSectionState({ type: "set-add-provider-step", addProviderStep: "provider" });
           }
         }}
         open={addProviderOpen}
@@ -1378,7 +1476,10 @@ export function ProviderSettingsSection({
                     )}
                     onClick={() => {
                       if (index <= addProviderCurrentStepIndex) {
-                        setAddProviderStep(step.id);
+                        dispatchSectionState({
+                          type: "set-add-provider-step",
+                          addProviderStep: step.id,
+                        });
                       }
                     }}
                     disabled={index > addProviderCurrentStepIndex}
@@ -1430,34 +1531,41 @@ export function ProviderSettingsSection({
             {addProviderStep === "setup" ? (
               <div className="space-y-4" data-provider-setup-step="setup">
                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <label className="block">
+                  <label htmlFor="add-provider-name" className="block">
                     <span className="text-[11px] font-medium text-foreground/75">Name</span>
                     <Input
+                      id="add-provider-name"
                       className="mt-1"
                       value={addProviderDraft.label}
                       onChange={(event) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          label: event.target.value,
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            label: event.target.value,
+                          }),
+                        })
                       }
                       placeholder="Personal"
-                      autoFocus
                     />
                   </label>
-                  <label className="flex items-end justify-between gap-3 rounded-[var(--control-radius)] border border-border/35 bg-background/45 px-3 py-2">
+                  <div className="flex items-end justify-between gap-3 rounded-[var(--control-radius)] border border-border/35 bg-background/45 px-3 py-2">
                     <span className="text-xs font-medium text-foreground/80">Enabled</span>
                     <Switch
+                      id="add-provider-enabled"
                       checked={addProviderDraft.enabled}
                       onCheckedChange={(checked) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          enabled: Boolean(checked),
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            enabled: Boolean(checked),
+                          }),
+                        })
                       }
                       aria-label="Enable new provider account"
                     />
-                  </label>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1479,10 +1587,13 @@ export function ProviderSettingsSection({
                                     selectedIcon && "bg-foreground/[0.08] text-foreground",
                                   )}
                                   onClick={() =>
-                                    setAddProviderDraft((draft) => ({
-                                      ...draft,
-                                      badgeIcon: badgeIcon.value,
-                                    }))
+                                    dispatchSectionState({
+                                      type: "update-add-provider-draft",
+                                      updater: (draft) => ({
+                                        ...draft,
+                                        badgeIcon: badgeIcon.value,
+                                      }),
+                                    })
                                   }
                                   aria-label={`Use ${badgeIcon.label} badge icon`}
                                 >
@@ -1518,10 +1629,13 @@ export function ProviderSettingsSection({
                                     selectedColor && "border-foreground/75",
                                   )}
                                   onClick={() =>
-                                    setAddProviderDraft((draft) => ({
-                                      ...draft,
-                                      badgeColor: badgeColor.value,
-                                    }))
+                                    dispatchSectionState({
+                                      type: "update-add-provider-draft",
+                                      updater: (draft) => ({
+                                        ...draft,
+                                        badgeColor: badgeColor.value,
+                                      }),
+                                    })
                                   }
                                   aria-label={`Use ${badgeColor.label} badge color`}
                                 >
@@ -1542,16 +1656,20 @@ export function ProviderSettingsSection({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
+                  <label htmlFor="add-provider-binary-path" className="block">
                     <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
                     <Input
+                      id="add-provider-binary-path"
                       className="mt-1"
                       value={addProviderDraft.binaryPath}
                       onChange={(event) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          binaryPath: event.target.value,
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            binaryPath: event.target.value,
+                          }),
+                        })
                       }
                       placeholder={addProviderCard?.binaryPlaceholder}
                       spellCheck={false}
@@ -1559,18 +1677,22 @@ export function ProviderSettingsSection({
                   </label>
 
                   {addProviderPathLabel ? (
-                    <label className="block">
+                    <label htmlFor="add-provider-path" className="block">
                       <span className="text-[11px] font-medium text-foreground/75">
                         {addProviderPathLabel}
                       </span>
                       <Input
+                        id="add-provider-path"
                         className="mt-1"
                         value={addProviderDraft.pathValue}
                         onChange={(event) =>
-                          setAddProviderDraft((draft) => ({
-                            ...draft,
-                            pathValue: event.target.value,
-                          }))
+                          dispatchSectionState({
+                            type: "update-add-provider-draft",
+                            updater: (draft) => ({
+                              ...draft,
+                              pathValue: event.target.value,
+                            }),
+                          })
                         }
                         placeholder={addProviderCard?.homePlaceholder}
                         spellCheck={false}
@@ -1579,18 +1701,22 @@ export function ProviderSettingsSection({
                   ) : null}
 
                   {addProviderDraft.provider === "githubCopilot" ? (
-                    <label className="block">
+                    <label htmlFor="add-provider-cli-url" className="block">
                       <span className="text-[11px] font-medium text-foreground/75">
                         CLI server URL
                       </span>
                       <Input
+                        id="add-provider-cli-url"
                         className="mt-1"
                         value={addProviderDraft.cliUrl}
                         onChange={(event) =>
-                          setAddProviderDraft((draft) => ({
-                            ...draft,
-                            cliUrl: event.target.value,
-                          }))
+                          dispatchSectionState({
+                            type: "update-add-provider-draft",
+                            updater: (draft) => ({
+                              ...draft,
+                              cliUrl: event.target.value,
+                            }),
+                          })
                         }
                         placeholder={addProviderCard?.cliUrlPlaceholder}
                         spellCheck={false}
@@ -1599,17 +1725,21 @@ export function ProviderSettingsSection({
                   ) : null}
                 </div>
 
-                <label className="block">
+                <label htmlFor="add-provider-launch-env" className="block">
                   <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
                   <Textarea
+                    id="add-provider-launch-env"
                     className="mt-1"
                     size="sm"
                     value={addProviderDraft.launchEnvText}
                     onChange={(event) =>
-                      setAddProviderDraft((draft) => ({
-                        ...draft,
-                        launchEnvText: event.target.value,
-                      }))
+                      dispatchSectionState({
+                        type: "update-add-provider-draft",
+                        updater: (draft) => ({
+                          ...draft,
+                          launchEnvText: event.target.value,
+                        }),
+                      })
                     }
                     placeholder={
                       addProviderDraft.provider === "gemini" ? "GEMINI_API_KEY=..." : "KEY=value"
@@ -1622,7 +1752,7 @@ export function ProviderSettingsSection({
 
             {addProviderStep === "review" ? (
               <div className="space-y-3" data-provider-setup-step="review">
-                <div className="flex items-center gap-3 rounded-[var(--control-radius)] border border-border/45 bg-background/45 px-3 py-3">
+                <div className="flex items-center gap-3 rounded-[var(--control-radius)] border border-border/45 bg-background/45 p-3">
                   <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">
                     <AddProviderLogo className="size-5" />
                     <ProviderInstanceBadge
@@ -1709,4 +1839,10 @@ export function ProviderSettingsSection({
       </Dialog>
     </SettingsSection>
   );
+}
+
+export function ProviderSettingsSection(
+  props: Parameters<typeof useProviderSettingsSectionComponent>[0],
+) {
+  return useProviderSettingsSectionComponent(props);
 }

@@ -9,7 +9,15 @@ import {
 } from "lucide-react";
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   type DesktopCliInstallState,
   type ProviderKind,
@@ -170,14 +178,14 @@ const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value))
 const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
 
 function parseDelimitedValues(input: string): string[] {
-  return Array.from(
-    new Set(
-      input
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    ),
-  );
+  const values = new Set<string>();
+  for (const value of input.split(",")) {
+    const normalizedValue = value.trim();
+    if (normalizedValue.length > 0) {
+      values.add(normalizedValue);
+    }
+  }
+  return Array.from(values);
 }
 
 const LSP_CATEGORY_LABELS: Record<ServerLspToolStatus["category"], string> = {
@@ -199,6 +207,111 @@ const LSP_INSTALLER_LABELS: Record<ServerLspToolInstaller, string> = {
 };
 
 const EMPTY_LSP_TOOL_LIST: readonly ServerLspToolStatus[] = [];
+const EMPTY_LSP_CUSTOM_FORM = {
+  installer: "npm" as ServerLspToolInstaller,
+  packageName: "",
+  command: "",
+  label: "",
+  args: "",
+  languageIds: "",
+  fileExtensions: "",
+  fileNames: "",
+};
+
+type SettingsNotificationState = {
+  notificationPermission: AgentAttentionNotificationPermission;
+  isUpdatingNotificationPermission: boolean;
+};
+
+type SettingsNotificationAction =
+  | { type: "set-permission"; notificationPermission: AgentAttentionNotificationPermission }
+  | { type: "set-updating"; isUpdatingNotificationPermission: boolean };
+
+function settingsNotificationStateReducer(
+  state: SettingsNotificationState,
+  action: SettingsNotificationAction,
+): SettingsNotificationState {
+  switch (action.type) {
+    case "set-permission":
+      return state.notificationPermission === action.notificationPermission
+        ? state
+        : { ...state, notificationPermission: action.notificationPermission };
+    case "set-updating":
+      return state.isUpdatingNotificationPermission === action.isUpdatingNotificationPermission
+        ? state
+        : { ...state, isUpdatingNotificationPermission: action.isUpdatingNotificationPermission };
+  }
+}
+
+type SettingsLspState = {
+  lspToolsStatus: ServerLspToolsStatus | null;
+  lspToolsError: string | null;
+  isInstallingLspTools: boolean;
+  lspCatalogQuery: string;
+  lspCatalogCategory: "all" | ServerLspToolStatus["category"];
+  isInstallingCustomLsp: boolean;
+  lspInstallTargetId: string | null;
+  isLspCustomFormOpen: boolean;
+  lspCustomForm: typeof EMPTY_LSP_CUSTOM_FORM;
+};
+
+type SettingsLspAction =
+  | { type: "set-tools-status"; lspToolsStatus: ServerLspToolsStatus | null }
+  | { type: "set-tools-error"; lspToolsError: string | null }
+  | { type: "set-installing-tools"; isInstallingLspTools: boolean }
+  | { type: "set-catalog-query"; lspCatalogQuery: string }
+  | { type: "set-catalog-category"; lspCatalogCategory: "all" | ServerLspToolStatus["category"] }
+  | { type: "set-installing-custom"; isInstallingCustomLsp: boolean }
+  | { type: "set-install-target-id"; lspInstallTargetId: string | null }
+  | { type: "set-custom-form-open"; isLspCustomFormOpen: boolean }
+  | { type: "set-custom-form"; lspCustomForm: typeof EMPTY_LSP_CUSTOM_FORM }
+  | { type: "update-custom-form"; lspCustomForm: Partial<typeof EMPTY_LSP_CUSTOM_FORM> };
+
+function settingsLspStateReducer(
+  state: SettingsLspState,
+  action: SettingsLspAction,
+): SettingsLspState {
+  switch (action.type) {
+    case "set-tools-status":
+      return state.lspToolsStatus === action.lspToolsStatus
+        ? state
+        : { ...state, lspToolsStatus: action.lspToolsStatus };
+    case "set-tools-error":
+      return state.lspToolsError === action.lspToolsError
+        ? state
+        : { ...state, lspToolsError: action.lspToolsError };
+    case "set-installing-tools":
+      return state.isInstallingLspTools === action.isInstallingLspTools
+        ? state
+        : { ...state, isInstallingLspTools: action.isInstallingLspTools };
+    case "set-catalog-query":
+      return state.lspCatalogQuery === action.lspCatalogQuery
+        ? state
+        : { ...state, lspCatalogQuery: action.lspCatalogQuery };
+    case "set-catalog-category":
+      return state.lspCatalogCategory === action.lspCatalogCategory
+        ? state
+        : { ...state, lspCatalogCategory: action.lspCatalogCategory };
+    case "set-installing-custom":
+      return state.isInstallingCustomLsp === action.isInstallingCustomLsp
+        ? state
+        : { ...state, isInstallingCustomLsp: action.isInstallingCustomLsp };
+    case "set-install-target-id":
+      return state.lspInstallTargetId === action.lspInstallTargetId
+        ? state
+        : { ...state, lspInstallTargetId: action.lspInstallTargetId };
+    case "set-custom-form-open":
+      return state.isLspCustomFormOpen === action.isLspCustomFormOpen
+        ? state
+        : { ...state, isLspCustomFormOpen: action.isLspCustomFormOpen };
+    case "set-custom-form":
+      return state.lspCustomForm === action.lspCustomForm
+        ? state
+        : { ...state, lspCustomForm: action.lspCustomForm };
+    case "update-custom-form":
+      return { ...state, lspCustomForm: { ...state.lspCustomForm, ...action.lspCustomForm } };
+  }
+}
 
 function getLspToolSearchText(tool: ServerLspToolStatus): string {
   return [
@@ -898,16 +1011,20 @@ type SettingsPanelPage =
   | "advanced"
   | "about";
 
-function SettingsPanel({ page }: { page: SettingsPanelPage }) {
+function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
   const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const [notificationPermission, setNotificationPermission] =
-    useState<AgentAttentionNotificationPermission>(() =>
-      isElectron ? "default" : readAgentAttentionNotificationPermission(),
-    );
-  const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
+  const [notificationState, dispatchNotificationState] = useReducer(
+    settingsNotificationStateReducer,
+    undefined,
+    (): SettingsNotificationState => ({
+      notificationPermission: isElectron ? "default" : readAgentAttentionNotificationPermission(),
+      isUpdatingNotificationPermission: false,
+    }),
+  );
+  const { notificationPermission, isUpdatingNotificationPermission } = notificationState;
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -924,35 +1041,28 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [upgradingRuntimeKey, setUpgradingRuntimeKey] = useState<string | null>(null);
-  const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
-  const [lspToolsError, setLspToolsError] = useState<string | null>(null);
-  const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
-  const [lspCatalogQuery, setLspCatalogQuery] = useState("");
-  const [lspCatalogCategory, setLspCatalogCategory] = useState<
-    "all" | ServerLspToolStatus["category"]
-  >("all");
-  const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
-  const [lspInstallTargetId, setLspInstallTargetId] = useState<string | null>(null);
-  const [isLspCustomFormOpen, setIsLspCustomFormOpen] = useState(false);
-  const [lspCustomForm, setLspCustomForm] = useState<{
-    installer: ServerLspToolInstaller;
-    packageName: string;
-    command: string;
-    label: string;
-    args: string;
-    languageIds: string;
-    fileExtensions: string;
-    fileNames: string;
-  }>({
-    installer: "npm",
-    packageName: "",
-    command: "",
-    label: "",
-    args: "",
-    languageIds: "",
-    fileExtensions: "",
-    fileNames: "",
+  const [lspState, dispatchLspState] = useReducer(settingsLspStateReducer, {
+    lspToolsStatus: null,
+    lspToolsError: null,
+    isInstallingLspTools: false,
+    lspCatalogQuery: "",
+    lspCatalogCategory: "all",
+    isInstallingCustomLsp: false,
+    lspInstallTargetId: null,
+    isLspCustomFormOpen: false,
+    lspCustomForm: EMPTY_LSP_CUSTOM_FORM,
   });
+  const {
+    lspToolsStatus,
+    lspToolsError,
+    isInstallingLspTools,
+    lspCatalogQuery,
+    lspCatalogCategory,
+    isInstallingCustomLsp,
+    lspInstallTargetId,
+    isLspCustomFormOpen,
+    lspCustomForm,
+  } = lspState;
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -1050,7 +1160,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return Promise.resolve<AgentAttentionNotificationPermission>("unsupported");
     }
     return readSettingsNotificationPermission().then((permission) => {
-      setNotificationPermission(permission);
+      dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
       return permission;
     });
   }, []);
@@ -1062,10 +1172,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const syncPermission = () => {
       void readSettingsNotificationPermission()
         .then((permission) => {
-          setNotificationPermission(permission);
+          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
         })
         .catch(() => {
-          setNotificationPermission("unsupported");
+          dispatchNotificationState({
+            type: "set-permission",
+            notificationPermission: "unsupported",
+          });
         });
     };
     syncPermission();
@@ -1094,7 +1207,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   }, []);
 
   const handleSendNotificationTest = useCallback(() => {
-    setIsUpdatingNotificationPermission(true);
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void refreshNotificationPermission()
       .then(async (permission) => {
         if (permission !== "granted") {
@@ -1134,17 +1247,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       })
       .finally(() => {
         void refreshNotificationPermission();
-        setIsUpdatingNotificationPermission(false);
+        dispatchNotificationState({
+          type: "set-updating",
+          isUpdatingNotificationPermission: false,
+        });
       });
   }, [refreshNotificationPermission, sendNotificationProbe]);
 
   const enableNotifications = useCallback(
     (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
-      setIsUpdatingNotificationPermission(true);
+      dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
 
       void requestSettingsNotificationPermission()
         .then(async (permission) => {
-          setNotificationPermission(permission);
+          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
           if (permission === "granted") {
             await sendNotificationProbe();
             if (enabledKeys && enabledKeys.length > 0) {
@@ -1191,7 +1307,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         })
         .finally(() => {
           void refreshNotificationPermission();
-          setIsUpdatingNotificationPermission(false);
+          dispatchNotificationState({
+            type: "set-updating",
+            isUpdatingNotificationPermission: false,
+          });
         });
     },
     [
@@ -1219,7 +1338,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
       return;
     }
-    setIsUpdatingNotificationPermission(true);
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void (window.desktopBridge?.openExternal(targetUrl) ?? Promise.resolve(false))
       .then((opened) => {
         if (!opened) {
@@ -1232,7 +1351,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         void refreshNotificationPermission();
       })
       .finally(() => {
-        setIsUpdatingNotificationPermission(false);
+        dispatchNotificationState({
+          type: "set-updating",
+          isUpdatingNotificationPermission: false,
+        });
       });
   }, [refreshNotificationPermission]);
 
@@ -1348,15 +1470,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return getLspToolSearchText(tool).includes(normalizedQuery);
     });
   }, [lspCatalogCategory, lspCatalogQuery, lspCatalogTools]);
-  const lspCatalogCategories = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          lspCatalogTools.map((tool) => tool.category).filter((category) => category !== "custom"),
-        ),
-      ),
-    [lspCatalogTools],
-  );
+  const lspCatalogCategories = useMemo(() => {
+    const categories = new Set<ServerLspToolStatus["category"]>();
+    for (const tool of lspCatalogTools) {
+      if (tool.category !== "custom") {
+        categories.add(tool.category);
+      }
+    }
+    return Array.from(categories);
+  }, [lspCatalogTools]);
   const lspCatalogCategoryLabel =
     lspCatalogCategory === "all" ? "All categories" : LSP_CATEGORY_LABELS[lspCatalogCategory];
 
@@ -1364,52 +1486,63 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     void ensureNativeApi()
       .server.getLspToolsStatus()
       .then((status) => {
-        setLspToolsStatus(status);
-        setLspToolsError(null);
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
+        dispatchLspState({ type: "set-tools-error", lspToolsError: null });
       })
       .catch((error: unknown) => {
-        setLspToolsError(getErrorMessage(error, "Unable to load LSP tool status."));
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to load LSP tool status."),
+        });
       });
   }, []);
 
   const installLspToolsFromSettings = useCallback((reinstall: boolean) => {
-    setIsInstallingLspTools(true);
-    setLspToolsError(null);
+    dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: true });
+    dispatchLspState({ type: "set-tools-error", lspToolsError: null });
     void ensureNativeApi()
       .server.installLspTools({ reinstall })
       .then((status) => {
-        setLspToolsStatus(status);
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
         toastManager.add({
           type: "success",
           title: "Language server tools are ready.",
         });
       })
       .catch((error: unknown) => {
-        setLspToolsError(getErrorMessage(error, "Unable to install LSP tools."));
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to install LSP tools."),
+        });
       })
-      .finally(() => setIsInstallingLspTools(false));
+      .finally(() =>
+        dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: false }),
+      );
   }, []);
 
   const installCustomLspTool = useCallback(
     (input: ServerInstallLspToolInput, installTargetId: string | null = null) => {
-      setIsInstallingCustomLsp(true);
-      setLspInstallTargetId(installTargetId);
-      setLspToolsError(null);
+      dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
+      dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: installTargetId });
+      dispatchLspState({ type: "set-tools-error", lspToolsError: null });
       void ensureNativeApi()
         .server.installLspTool(input)
         .then((status) => {
-          setLspToolsStatus(status);
+          dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
           toastManager.add({
             type: "success",
             title: `Installed ${input.label}.`,
           });
         })
         .catch((error: unknown) => {
-          setLspToolsError(getErrorMessage(error, "Unable to install custom language server."));
+          dispatchLspState({
+            type: "set-tools-error",
+            lspToolsError: getErrorMessage(error, "Unable to install custom language server."),
+          });
         })
         .finally(() => {
-          setIsInstallingCustomLsp(false);
-          setLspInstallTargetId(null);
+          dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
+          dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
         });
     },
     [],
@@ -1438,41 +1571,47 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 
   const uninstallCatalogTool = useCallback((tool: ServerLspToolStatus) => {
-    setIsInstallingCustomLsp(true);
-    setLspInstallTargetId(tool.id);
-    setLspToolsError(null);
+    dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
+    dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: tool.id });
+    dispatchLspState({ type: "set-tools-error", lspToolsError: null });
     void ensureNativeApi()
       .server.uninstallLspTool({ id: tool.id })
       .then((status) => {
-        setLspToolsStatus(status);
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
         toastManager.add({
           type: "success",
           title: `Uninstalled ${tool.label}.`,
         });
       })
       .catch((error: unknown) => {
-        setLspToolsError(getErrorMessage(error, "Unable to uninstall language server."));
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to uninstall language server."),
+        });
       })
       .finally(() => {
-        setIsInstallingCustomLsp(false);
-        setLspInstallTargetId(null);
+        dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
+        dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
       });
   }, []);
 
   const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
     if (tool) {
-      setLspCustomForm({
-        installer: tool.installer,
-        packageName: tool.packageName,
-        command: tool.command,
-        label: tool.label,
-        args: tool.args.join(", "),
-        languageIds: tool.languageIds.join(", "),
-        fileExtensions: tool.fileExtensions.join(", "),
-        fileNames: tool.fileNames.join(", "),
+      dispatchLspState({
+        type: "set-custom-form",
+        lspCustomForm: {
+          installer: tool.installer,
+          packageName: tool.packageName,
+          command: tool.command,
+          label: tool.label,
+          args: tool.args.join(", "),
+          languageIds: tool.languageIds.join(", "),
+          fileExtensions: tool.fileExtensions.join(", "),
+          fileNames: tool.fileNames.join(", "),
+        },
       });
     }
-    setIsLspCustomFormOpen(true);
+    dispatchLspState({ type: "set-custom-form-open", isLspCustomFormOpen: true });
   }, []);
 
   const submitCustomLspInstall = useCallback(() => {
@@ -1493,9 +1632,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       languageIds.length === 0 ||
       (fileExtensions.length === 0 && fileNames.length === 0)
     ) {
-      setLspToolsError(
-        "Package, command, label, language IDs, and at least one file extension or file name are required.",
-      );
+      dispatchLspState({
+        type: "set-tools-error",
+        lspToolsError:
+          "Package, command, label, language IDs, and at least one file extension or file name are required.",
+      });
       return;
     }
     installCustomLspTool(
@@ -2497,7 +2638,12 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       <Input
                         className="pl-8"
                         value={lspCatalogQuery}
-                        onChange={(event) => setLspCatalogQuery(event.target.value)}
+                        onChange={(event) =>
+                          dispatchLspState({
+                            type: "set-catalog-query",
+                            lspCatalogQuery: event.target.value,
+                          })
+                        }
                         placeholder="Search language, package, command, or file type"
                       />
                     </div>
@@ -2508,11 +2654,17 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                           return;
                         }
                         if (value === "all") {
-                          setLspCatalogCategory(value);
+                          dispatchLspState({
+                            type: "set-catalog-category",
+                            lspCatalogCategory: value,
+                          });
                           return;
                         }
                         if (value !== "custom" && lspCatalogCategories.includes(value)) {
-                          setLspCatalogCategory(value);
+                          dispatchLspState({
+                            type: "set-catalog-category",
+                            lspCatalogCategory: value,
+                          });
                         }
                       }}
                     >
@@ -2598,7 +2750,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -2642,7 +2794,12 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setIsLspCustomFormOpen((open) => !open)}
+                      onClick={() =>
+                        dispatchLspState({
+                          type: "set-custom-form-open",
+                          isLspCustomFormOpen: !isLspCustomFormOpen,
+                        })
+                      }
                     >
                       <WrenchIcon className="size-3.5" />
                       {isLspCustomFormOpen ? "Hide form" : "Install custom"}
@@ -2650,7 +2807,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </div>
 
                   {isLspCustomFormOpen ? (
-                    <div className="space-y-3 px-3 py-3">
+                    <div className="space-y-3 p-3">
                       <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
                         {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
                           <Button
@@ -2658,10 +2815,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             size="sm"
                             variant={lspCustomForm.installer === installer ? "default" : "ghost"}
                             onClick={() =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                installer,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { installer },
+                              })
                             }
                             className="shrink-0"
                           >
@@ -2670,15 +2827,19 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                         ))}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-package"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Package
                           <Input
+                            id="lsp-custom-package"
                             value={lspCustomForm.packageName}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                packageName: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { packageName: event.target.value },
+                              })
                             }
                             placeholder={
                               lspCustomForm.installer === "uv-tool"
@@ -2691,80 +2852,104 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             }
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-command"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Command
                           <Input
+                            id="lsp-custom-command"
                             value={lspCustomForm.command}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                command: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { command: event.target.value },
+                              })
                             }
                             placeholder="language-server-command"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-label"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Display label
                           <Input
+                            id="lsp-custom-label"
                             value={lspCustomForm.label}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                label: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { label: event.target.value },
+                              })
                             }
                             placeholder="Tailwind CSS"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-args"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Args
                           <Input
+                            id="lsp-custom-args"
                             value={lspCustomForm.args}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                args: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { args: event.target.value },
+                              })
                             }
                             placeholder="comma-separated, optional"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-language-ids"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Language IDs
                           <Input
+                            id="lsp-custom-language-ids"
                             value={lspCustomForm.languageIds}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                languageIds: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { languageIds: event.target.value },
+                              })
                             }
                             placeholder="typescript, javascript"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-file-extensions"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           File extensions
                           <Input
+                            id="lsp-custom-file-extensions"
                             value={lspCustomForm.fileExtensions}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                fileExtensions: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { fileExtensions: event.target.value },
+                              })
                             }
                             placeholder=".ts, .tsx"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2">
+                        <label
+                          htmlFor="lsp-custom-file-names"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2"
+                        >
                           File names
                           <Input
+                            id="lsp-custom-file-names"
                             value={lspCustomForm.fileNames}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                fileNames: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { fileNames: event.target.value },
+                              })
                             }
                             placeholder="comma-separated, optional"
                           />
@@ -3225,6 +3410,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 }
 
+function SettingsPanel(props: { page: SettingsPanelPage }) {
+  return useSettingsPanelComponent(props);
+}
+
 export function GeneralSettingsPanel() {
   return <SettingsPanel page="general" />;
 }
@@ -3283,30 +3472,31 @@ export function ArchivedThreadsPanel() {
   }, [threads]);
   const archivedGroups = useMemo(() => {
     const projectById = new Map(projects.map((project) => [project.id, project] as const));
-    return [...projectById.values()]
-      .map<ArchivedProjectGroup>((project) => {
-        const archivedThreads = threads
-          .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
-          .toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt;
-            return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          });
-
-        return {
-          project,
-          threads: archivedThreads,
-          totalThreadCount: threadCountByProjectId.get(project.id) ?? 0,
-          sortKey: getArchiveSortKey(project, archivedThreads),
-        };
-      })
-      .filter((group) => group.project.archivedAt !== null || group.threads.length > 0)
-      .toSorted(
-        (left, right) =>
-          right.sortKey.localeCompare(left.sortKey) ||
-          left.project.name.localeCompare(right.project.name) ||
-          right.project.id.localeCompare(left.project.id),
-      );
+    const nextGroups: ArchivedProjectGroup[] = [];
+    for (const project of projectById.values()) {
+      const archivedThreads = threads
+        .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
+        .toSorted((left, right) => {
+          const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt;
+          const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt;
+          return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+        });
+      if (project.archivedAt === null && archivedThreads.length === 0) {
+        continue;
+      }
+      nextGroups.push({
+        project,
+        threads: archivedThreads,
+        totalThreadCount: threadCountByProjectId.get(project.id) ?? 0,
+        sortKey: getArchiveSortKey(project, archivedThreads),
+      });
+    }
+    return nextGroups.toSorted(
+      (left, right) =>
+        right.sortKey.localeCompare(left.sortKey) ||
+        left.project.name.localeCompare(right.project.name) ||
+        right.project.id.localeCompare(left.project.id),
+    );
   }, [projects, threadCountByProjectId, threads]);
   const [openGroupIds, setOpenGroupIds] = useState<Record<string, boolean>>({});
   useEffect(() => {

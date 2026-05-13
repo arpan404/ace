@@ -10,7 +10,7 @@ import { resolveProjectAgentStats } from "../projectAgentStats";
 import { formatErrorMessage } from "../errors";
 import { sortedCopy } from "../sortedCopy";
 
-export type MobileThreadBucket =
+type MobileThreadBucket =
   | "live"
   | "queued"
   | "waiting"
@@ -20,7 +20,7 @@ export type MobileThreadBucket =
   | "error"
   | "idle";
 
-export type MobileThreadTone = "accent" | "success" | "warning" | "danger" | "muted";
+type MobileThreadTone = "accent" | "success" | "warning" | "danger" | "muted";
 
 export interface MobileThreadStatus {
   readonly bucket: MobileThreadBucket;
@@ -28,7 +28,7 @@ export interface MobileThreadStatus {
   readonly tone: MobileThreadTone;
 }
 
-export interface MobileProjectSummary {
+interface MobileProjectSummary {
   readonly hostId: string;
   readonly hostName: string;
   readonly project: OrchestrationProject;
@@ -228,23 +228,29 @@ export function useAggregatedOrchestration(): SnapshotState {
   }, [connections, refreshConnectionSnapshots]);
 
   useEffect(() => {
-    const unsubscribeFns = connections
-      .filter((connection) => connection.status.kind === "connected")
-      .map((connection) =>
+    const unsubscribeFns: Array<() => void> = [];
+    for (const connection of connections) {
+      if (connection.status.kind !== "connected") {
+        continue;
+      }
+      const hostId = connection.host.id;
+      const hostName = connection.host.name;
+      unsubscribeFns.push(
         connection.client.orchestration.onDomainEvent(() => {
           void connection.client.orchestration
             .getSnapshot()
             .then((snapshot) => {
               setSnapshots((currentSnapshots) => ({
                 ...currentSnapshots,
-                [connection.host.id]: snapshot,
+                [hostId]: snapshot,
               }));
             })
             .catch((cause) => {
-              setError(`${connection.host.name}: ${formatErrorMessage(cause)}`);
+              setError(`${hostName}: ${formatErrorMessage(cause)}`);
             });
         }),
       );
+    }
 
     return () => {
       unsubscribeFns.forEach((unsubscribe) => unsubscribe());
@@ -260,25 +266,38 @@ export function useAggregatedOrchestration(): SnapshotState {
     const nextThreads: MobileThreadSummary[] = [];
 
     for (const connection of connections) {
-      const snapshot = snapshots[connection.host.id];
+      const hostId = connection.host.id;
+      const hostName = connection.host.name;
+      const snapshot = snapshots[hostId];
       if (!snapshot) {
         continue;
       }
 
-      const projectsById = new Map(
-        snapshot.projects
-          .filter((project) => !project.deletedAt)
-          .map((project) => [project.id, project] as const),
-      );
-      const availableThreads = snapshot.threads.filter(
-        (thread) => !thread.deletedAt && !thread.archivedAt,
-      );
+      const projectsById = new Map<string, OrchestrationProject>();
+      for (const project of snapshot.projects) {
+        if (project.deletedAt) {
+          continue;
+        }
+        projectsById.set(project.id, project);
+      }
+
+      const availableThreads: OrchestrationThread[] = [];
+      const threadsByProject = new Map<string, OrchestrationThread[]>();
+      for (const thread of snapshot.threads) {
+        if (thread.deletedAt || thread.archivedAt) {
+          continue;
+        }
+        availableThreads.push(thread);
+        const projectThreads = threadsByProject.get(thread.projectId) ?? [];
+        projectThreads.push(thread);
+        threadsByProject.set(thread.projectId, projectThreads);
+      }
 
       for (const thread of availableThreads) {
         const project = projectsById.get(thread.projectId) ?? null;
         nextThreads.push({
-          hostId: connection.host.id,
-          hostName: connection.host.name,
+          hostId,
+          hostName,
           project,
           thread,
           status: resolveMobileThreadStatus(thread),
@@ -290,11 +309,11 @@ export function useAggregatedOrchestration(): SnapshotState {
       }
 
       for (const project of projectsById.values()) {
-        const projectThreads = availableThreads.filter((thread) => thread.projectId === project.id);
+        const projectThreads = threadsByProject.get(project.id) ?? [];
         const stats = resolveProjectAgentStats(projectThreads, project.id);
         nextProjects.push({
-          hostId: connection.host.id,
-          hostName: connection.host.name,
+          hostId,
+          hostName,
           project,
           threads: projectThreads,
           liveCount: stats.working,

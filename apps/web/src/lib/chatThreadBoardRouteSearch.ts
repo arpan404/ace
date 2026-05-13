@@ -3,10 +3,10 @@ import { ThreadId } from "@ace/contracts";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "./connectionRouting";
 import { normalizeWsUrl, resolveLocalDeviceWsUrl } from "./remoteHosts";
 
-export const THREAD_BOARD_THREADS_SEARCH_PARAM = "threads";
-export const THREAD_BOARD_ACTIVE_SEARCH_PARAM = "active";
-export const THREAD_BOARD_SPLIT_SEARCH_PARAM = "split";
-export const THREAD_BOARD_PANE_SEARCH_PARAM = "pane";
+const THREAD_BOARD_THREADS_SEARCH_PARAM = "threads";
+const THREAD_BOARD_ACTIVE_SEARCH_PARAM = "active";
+const THREAD_BOARD_SPLIT_SEARCH_PARAM = "split";
+const THREAD_BOARD_PANE_SEARCH_PARAM = "pane";
 
 const THREAD_BOARD_PANE_SEPARATOR = "___";
 const THREAD_BOARD_CONNECTION_SEPARATOR = "|";
@@ -29,7 +29,7 @@ function normalizeRouteConnectionUrl(connectionUrl: string | null | undefined): 
   return normalized;
 }
 
-export function encodeThreadBoardRoutePane(input: ChatThreadBoardRoutePane): string {
+function encodeThreadBoardRoutePane(input: ChatThreadBoardRoutePane): string {
   const connectionUrl = normalizeRouteConnectionUrl(input.connectionUrl);
   if (!connectionUrl) {
     return input.threadId;
@@ -37,7 +37,7 @@ export function encodeThreadBoardRoutePane(input: ChatThreadBoardRoutePane): str
   return `${input.threadId}${THREAD_BOARD_CONNECTION_SEPARATOR}${connectionUrl}`;
 }
 
-export function decodeThreadBoardRoutePane(value: string): ChatThreadBoardRoutePane | null {
+function decodeThreadBoardRoutePane(value: string): ChatThreadBoardRoutePane | null {
   const trimmed = value.trim();
   if (!trimmed) {
     return null;
@@ -58,7 +58,7 @@ export function decodeThreadBoardRoutePane(value: string): ChatThreadBoardRouteP
   }
 }
 
-export function parseThreadBoardRoutePanes(value: string | undefined): ChatThreadBoardRoutePane[] {
+function parseThreadBoardRoutePanes(value: string | undefined): ChatThreadBoardRoutePane[] {
   if (!value) {
     return [];
   }
@@ -79,7 +79,7 @@ export function parseThreadBoardRoutePanes(value: string | undefined): ChatThrea
   return panes;
 }
 
-export function serializeThreadBoardRoutePanes(
+function serializeThreadBoardRoutePanes(
   panes: readonly ChatThreadBoardRoutePane[],
 ): string | undefined {
   if (panes.length <= 1) {

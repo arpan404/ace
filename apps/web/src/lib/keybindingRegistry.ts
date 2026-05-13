@@ -520,12 +520,17 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
 
 const HIDDEN_KEYBINDING_COMMANDS = new Set<StaticKeybindingCommand>(["terminal.split"]);
 
-export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinition[] =
-  STATIC_KEYBINDING_COMMANDS.filter((command) => !HIDDEN_KEYBINDING_COMMANDS.has(command)).map(
-    (command) => Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]),
-  );
+export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinition[] = (() => {
+  const definitions: KeybindingCommandDefinition[] = [];
+  for (const command of STATIC_KEYBINDING_COMMANDS) {
+    if (!HIDDEN_KEYBINDING_COMMANDS.has(command)) {
+      definitions.push(Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]));
+    }
+  }
+  return definitions;
+})();
 
-export function defaultShortcutLabelForCommand(
+function defaultShortcutLabelForCommand(
   command: StaticKeybindingCommand,
   platform?: string,
 ): string | null {

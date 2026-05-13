@@ -84,17 +84,25 @@ function emitServerConfigEvent(event: ServerConfigStreamEvent) {
 
 async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
   const startedAt = Date.now();
-  for (;;) {
-    try {
-      assertion();
-      return;
-    } catch (error) {
-      if (Date.now() - startedAt >= timeoutMs) {
-        throw error;
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      try {
+        assertion();
+        resolve();
+      } catch (error) {
+        if (Date.now() - startedAt >= timeoutMs) {
+          reject(error);
+          return;
+        }
+        setTimeout(tick, 10);
       }
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    };
+    try {
+      tick();
+    } catch (error) {
+      reject(error);
     }
-  }
+  });
 }
 
 beforeEach(() => {

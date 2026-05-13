@@ -1,4 +1,3 @@
-import Editor, { type OnMount } from "@monaco-editor/react";
 import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/contracts";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { useQuery } from "@tanstack/react-query";
@@ -14,15 +13,17 @@ import {
   SparklesIcon,
   XIcon,
 } from "lucide-react";
-import type { editor as MonacoEditor } from "monaco-editor";
 import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  lazy,
+  Suspense,
   memo,
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -58,6 +59,33 @@ import {
   type WorkspacePreviewKind,
 } from "./workspaceFileUtils";
 
+const Editor = lazy(async () =>
+  import("@monaco-editor/react").then((module) => ({ default: module.Editor })),
+);
+
+type MonacoUri = {
+  scheme: string;
+  path: string;
+  toString: () => string;
+};
+
+type MonacoApi = Parameters<import("@monaco-editor/react").OnMount>[1];
+type MonacoStandaloneCodeEditor = Parameters<import("@monaco-editor/react").OnMount>[0];
+type MonacoDisposable = MonacoApi["IDisposable"];
+type MonacoRange = MonacoApi["editor"]["IRange"];
+type MonacoPosition = MonacoApi["editor"]["IPosition"];
+type MonacoSelection = MonacoApi["editor"]["ISelection"];
+type MonacoMarker = Omit<MonacoApi["editor"]["IMarkerData"], "owner"> & {
+  owner: string;
+};
+type MonacoMarkerData = MonacoApi["editor"]["IMarkerData"];
+type MonacoTextModel = MonacoApi["editor"]["ITextModel"];
+type MonacoMouseEvent = Parameters<MonacoStandaloneCodeEditor["onMouseDown"]>[0];
+type MonacoStandaloneEditorConstructionOptions = NonNullable<
+  import("@monaco-editor/react").EditorProps["options"]
+>;
+type OnMount = import("@monaco-editor/react").OnMount;
+
 interface WorkspaceEditorPaneProps {
   active: boolean;
   canClosePane: boolean;
@@ -68,7 +96,7 @@ interface WorkspaceEditorPaneProps {
   diagnosticsCwd: string | null;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
-  editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
+  editorOptions: MonacoStandaloneEditorConstructionOptions;
   gitCwd: string | null;
   codeComments: readonly WorkspaceCodeComment[];
   onAddCodeComment: (comment: WorkspaceCodeComment) => void;
@@ -167,8 +195,6 @@ const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 5_000;
 const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as const;
 const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
-type MonacoApi = typeof import("monaco-editor");
-
 interface ActiveSelectionState {
   readonly id: string;
   readonly context: WorkspaceSelectionContext;
@@ -176,12 +202,150 @@ interface ActiveSelectionState {
   readonly left: number;
 }
 
+type WorkspaceEditorFeedbackState = {
+  actionError: string | null;
+  diagnosticSummary: string | null;
+  diagnosticError: string | null;
+  previewError: string | null;
+  problemsOpen: boolean;
+  problems: readonly MonacoMarker[];
+};
+
+const EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE: WorkspaceEditorFeedbackState = {
+  actionError: null,
+  diagnosticSummary: null,
+  diagnosticError: null,
+  previewError: null,
+  problemsOpen: false,
+  problems: [],
+};
+
+type WorkspaceEditorNavigationState = {
+  editorMountVersion: number;
+  pendingNavigationTarget: WorkspaceEditorLocation | null;
+};
+
+type WorkspaceEditorNavigationAction =
+  | { type: "editor-mounted" }
+  | { type: "set-pending-navigation-target"; location: WorkspaceEditorLocation }
+  | { type: "clear-pending-navigation-target" };
+
+const EMPTY_WORKSPACE_EDITOR_NAVIGATION_STATE: WorkspaceEditorNavigationState = {
+  editorMountVersion: 0,
+  pendingNavigationTarget: null,
+};
+
+function workspaceEditorNavigationStateReducer(
+  state: WorkspaceEditorNavigationState,
+  action: WorkspaceEditorNavigationAction,
+): WorkspaceEditorNavigationState {
+  switch (action.type) {
+    case "editor-mounted":
+      return {
+        ...state,
+        editorMountVersion: state.editorMountVersion + 1,
+      };
+    case "set-pending-navigation-target":
+      return {
+        ...state,
+        pendingNavigationTarget: action.location,
+      };
+    case "clear-pending-navigation-target":
+      return state.pendingNavigationTarget === null
+        ? state
+        : {
+            ...state,
+            pendingNavigationTarget: null,
+          };
+  }
+}
+
+type WorkspaceEditorSelectionState = {
+  cursorLabel: string;
+  activeSelection: ActiveSelectionState | null;
+  selectionActionsExpanded: boolean;
+  selectionCommentSubmitting: boolean;
+  commentDraft: string;
+};
+
+type WorkspaceEditorSelectionAction =
+  | { type: "set-cursor-label"; cursorLabel: string }
+  | { type: "set-active-selection"; activeSelection: ActiveSelectionState | null }
+  | { type: "set-selection-actions-expanded"; selectionActionsExpanded: boolean }
+  | { type: "set-selection-comment-submitting"; selectionCommentSubmitting: boolean }
+  | { type: "set-comment-draft"; commentDraft: string }
+  | { type: "clear-selection" }
+  | { type: "reset-selection-comment" };
+
+const EMPTY_WORKSPACE_EDITOR_SELECTION_STATE: WorkspaceEditorSelectionState = {
+  cursorLabel: "Ln 1, Col 1",
+  activeSelection: null,
+  selectionActionsExpanded: false,
+  selectionCommentSubmitting: false,
+  commentDraft: "",
+};
+
+function workspaceEditorSelectionStateReducer(
+  state: WorkspaceEditorSelectionState,
+  action: WorkspaceEditorSelectionAction,
+): WorkspaceEditorSelectionState {
+  switch (action.type) {
+    case "set-cursor-label":
+      return state.cursorLabel === action.cursorLabel
+        ? state
+        : { ...state, cursorLabel: action.cursorLabel };
+    case "set-active-selection":
+      return state.activeSelection === action.activeSelection
+        ? state
+        : { ...state, activeSelection: action.activeSelection };
+    case "set-selection-actions-expanded":
+      return state.selectionActionsExpanded === action.selectionActionsExpanded
+        ? state
+        : { ...state, selectionActionsExpanded: action.selectionActionsExpanded };
+    case "set-selection-comment-submitting":
+      return state.selectionCommentSubmitting === action.selectionCommentSubmitting
+        ? state
+        : { ...state, selectionCommentSubmitting: action.selectionCommentSubmitting };
+    case "set-comment-draft":
+      return state.commentDraft === action.commentDraft
+        ? state
+        : { ...state, commentDraft: action.commentDraft };
+    case "clear-selection":
+      return state.activeSelection === null &&
+        state.selectionActionsExpanded === false &&
+        state.selectionCommentSubmitting === false &&
+        state.commentDraft === ""
+        ? state
+        : {
+            ...state,
+            activeSelection: null,
+            selectionActionsExpanded: false,
+            selectionCommentSubmitting: false,
+            commentDraft: "",
+          };
+    case "reset-selection-comment":
+      return state.selectionActionsExpanded === false &&
+        state.selectionCommentSubmitting === false &&
+        state.commentDraft === ""
+        ? state
+        : {
+            ...state,
+            selectionActionsExpanded: false,
+            selectionCommentSubmitting: false,
+            commentDraft: "",
+          };
+  }
+}
+
 function normalizeWorkspaceRelativePath(filePath: string): string {
-  return filePath
-    .split(/[\\/]/g)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
-    .join("/");
+  const segments: string[] = [];
+  for (const segment of filePath.split(/[\\/]/g)) {
+    const trimmed = segment.trim();
+    if (trimmed.length > 0) {
+      segments.push(trimmed);
+    }
+  }
+  return segments.join("/");
 }
 
 function createWorkspaceModelUriString(relativePath: string): string {
@@ -203,11 +367,14 @@ function readRelativePathFromWorkspaceModelUri(uri: {
   if (uri.scheme !== WORKSPACE_MODEL_URI_SCHEME) {
     return null;
   }
-  const relativePath = uri.path
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => decodeURIComponent(segment))
-    .join("/");
+  const segments: string[] = [];
+  for (const segment of uri.path.split("/")) {
+    if (segment.length === 0) {
+      continue;
+    }
+    segments.push(decodeURIComponent(segment));
+  }
+  const relativePath = segments.join("/");
   return relativePath.length > 0 ? relativePath : null;
 }
 
@@ -264,7 +431,7 @@ function workspaceSelectionId(input: {
 }
 
 function resolveRelativePathFromEditorModel(
-  model: MonacoEditor.ITextModel,
+  model: MonacoTextModel,
   fallbackRelativePath: string | null,
 ): string | null {
   const fromWorkspaceUri = readRelativePathFromWorkspaceModelUri(model.uri);
@@ -311,7 +478,7 @@ function toWorkspaceSeverity(
 
 function formatProblemSummary(
   monacoInstance: MonacoApi,
-  markers: readonly MonacoEditor.IMarker[],
+  markers: readonly MonacoMarker[],
 ): string | null {
   let errorCount = 0;
   let warningCount = 0;
@@ -346,7 +513,7 @@ function formatProblemSummary(
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-function toWorkspaceEditorPaneProblem(marker: MonacoEditor.IMarker): WorkspaceEditorPaneProblem {
+function toWorkspaceEditorPaneProblem(marker: MonacoMarker): WorkspaceEditorPaneProblem {
   const problem: {
     code?: string | number;
     endColumn: number;
@@ -411,9 +578,77 @@ function createWorkspaceEditorPaneSymbol(input: {
   return symbol;
 }
 
-function extractWorkspaceEditorPaneSymbols(
-  model: MonacoEditor.ITextModel,
-): WorkspaceEditorPaneSymbol[] {
+type WorkspaceEditorPaneSymbolPattern = {
+  detail?: (
+    match: RegExpExecArray & { indices?: Array<[number, number] | undefined> },
+  ) => string | undefined;
+  kind: string;
+  nameIndex: number;
+  pattern: RegExp;
+};
+
+const workspaceEditorPaneSymbolPatternBase: WorkspaceEditorPaneSymbolPattern[] = [
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern:
+      /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern:
+      /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u,
+  },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u,
+  },
+  { kind: "function", nameIndex: 1, pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u },
+  {
+    kind: "function",
+    nameIndex: 1,
+    pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u,
+  },
+  { kind: "class", nameIndex: 1, pattern: /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/u },
+  { kind: "class", nameIndex: 1, pattern: /^\s*class\s+([A-Za-z_]\w*)\b/u },
+  {
+    kind: "interface",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u,
+  },
+  { kind: "type", nameIndex: 1, pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/u },
+  { kind: "type", nameIndex: 1, pattern: /^\s*type\s+([A-Za-z_]\w*)\b/u },
+  { kind: "struct", nameIndex: 1, pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b/u },
+  { kind: "enum", nameIndex: 1, pattern: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\b/u },
+  { kind: "enum", nameIndex: 1, pattern: /^\s*(?:pub\s+)?enum\s+([A-Za-z_]\w*)\b/u },
+  { kind: "trait", nameIndex: 1, pattern: /^\s*(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b/u },
+  { kind: "impl", nameIndex: 1, pattern: /^\s*impl(?:<[^>]+>)?\s+([A-Za-z_][\w:]*)\b/u },
+  {
+    kind: "variable",
+    nameIndex: 1,
+    pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u,
+  },
+  { kind: "variable", nameIndex: 1, pattern: /^\s*(?:const|var)\s+([A-Za-z_]\w*)\b/u },
+];
+
+const workspaceEditorPaneSymbolPatterns = workspaceEditorPaneSymbolPatternBase.map((entry) => ({
+  ...entry,
+  pattern: new RegExp(entry.pattern.source, `${entry.pattern.flags}d`),
+}));
+
+function extractWorkspaceEditorPaneSymbols(model: MonacoTextModel): WorkspaceEditorPaneSymbol[] {
   const symbols: WorkspaceEditorPaneSymbol[] = [];
   for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber += 1) {
     const line = model.getLineContent(lineNumber);
@@ -422,71 +657,18 @@ function extractWorkspaceEditorPaneSymbols(
       continue;
     }
 
-    const patterns: Array<{
-      detail?: (match: RegExpExecArray) => string | undefined;
-      kind: string;
-      nameIndex: number;
-      pattern: RegExp;
-    }> = [
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern:
-          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern:
-          /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/u,
-      },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[{:]/u,
-      },
-      { kind: "function", nameIndex: 1, pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u },
-      {
-        kind: "function",
-        nameIndex: 1,
-        pattern: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*[<(]/u,
-      },
-      { kind: "class", nameIndex: 1, pattern: /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/u },
-      { kind: "class", nameIndex: 1, pattern: /^\s*class\s+([A-Za-z_]\w*)\b/u },
-      {
-        kind: "interface",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u,
-      },
-      { kind: "type", nameIndex: 1, pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/u },
-      { kind: "type", nameIndex: 1, pattern: /^\s*type\s+([A-Za-z_]\w*)\b/u },
-      { kind: "struct", nameIndex: 1, pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b/u },
-      { kind: "enum", nameIndex: 1, pattern: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\b/u },
-      { kind: "enum", nameIndex: 1, pattern: /^\s*(?:pub\s+)?enum\s+([A-Za-z_]\w*)\b/u },
-      { kind: "trait", nameIndex: 1, pattern: /^\s*(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b/u },
-      { kind: "impl", nameIndex: 1, pattern: /^\s*impl(?:<[^>]+>)?\s+([A-Za-z_][\w:]*)\b/u },
-      {
-        kind: "variable",
-        nameIndex: 1,
-        pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/u,
-      },
-      { kind: "variable", nameIndex: 1, pattern: /^\s*(?:const|var)\s+([A-Za-z_]\w*)\b/u },
-    ];
-
-    for (const entry of patterns) {
-      const match = entry.pattern.exec(line);
+    for (const entry of workspaceEditorPaneSymbolPatterns) {
+      const match = entry.pattern.exec(line) as
+        | (RegExpExecArray & {
+            indices?: Array<[number, number] | undefined>;
+          })
+        | null;
       const name = match?.[entry.nameIndex];
       if (!match || !name) {
+        continue;
+      }
+      const matchIndex = match.indices?.[entry.nameIndex]?.[0];
+      if (matchIndex === undefined) {
         continue;
       }
       const symbolInput: {
@@ -500,7 +682,7 @@ function extractWorkspaceEditorPaneSymbols(
         kind: entry.kind,
         line,
         lineNumber,
-        matchIndex: match.index + match[0].indexOf(name),
+        matchIndex,
         name,
       };
       const detail = entry.detail?.(match);
@@ -558,7 +740,7 @@ function toMonacoCompletionItemKind(monacoInstance: MonacoApi, value: string | u
 function toMonacoMarkers(
   monacoInstance: MonacoApi,
   diagnostics: readonly WorkspaceEditorDiagnostic[],
-): MonacoEditor.IMarkerData[] {
+): MonacoMarkerData[] {
   return diagnostics.map((diagnostic) => {
     const startLineNumber = diagnostic.startLine + 1;
     const startColumn = diagnostic.startColumn + 1;
@@ -568,7 +750,7 @@ function toMonacoMarkers(
         ? Math.max(startColumn + 1, diagnostic.endColumn + 1)
         : Math.max(1, diagnostic.endColumn + 1);
 
-    const marker: MonacoEditor.IMarkerData = {
+    const marker: MonacoMarkerData = {
       endColumn,
       endLineNumber,
       message: diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic",
@@ -586,14 +768,14 @@ function toMonacoMarkers(
   });
 }
 
-function clearModelMarkers(monacoInstance: MonacoApi, model: MonacoEditor.ITextModel): void {
+function clearModelMarkers(monacoInstance: MonacoApi, model: MonacoTextModel): void {
   for (const owner of MONACO_DIAGNOSTIC_OWNERS) {
     monacoInstance.editor.setModelMarkers(model, owner, []);
   }
 }
 
 function runEditorAction(
-  editor: MonacoEditor.IStandaloneCodeEditor,
+  editor: MonacoStandaloneCodeEditor,
   actionId: string,
 ): void | Promise<void> {
   const action = editor.getAction(actionId);
@@ -603,7 +785,7 @@ function runEditorAction(
   return action.run();
 }
 
-function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
+function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const api = readNativeApi();
   const pane = props.pane;
   const canReopenClosedTab = props.canReopenClosedTab;
@@ -620,22 +802,31 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const onProblemsChange = props.onProblemsChange;
   const onSymbolsChange = props.onSymbolsChange;
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [diagnosticSummary, setDiagnosticSummary] = useState<string | null>(null);
-  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [problemsOpen, setProblemsOpen] = useState(false);
-  const [problems, setProblems] = useState<readonly MonacoEditor.IMarker[]>([]);
-  const [cursorLabel, setCursorLabel] = useState("Ln 1, Col 1");
-  const [activeSelection, setActiveSelection] = useState<ActiveSelectionState | null>(null);
-  const [selectionActionsExpanded, setSelectionActionsExpanded] = useState(false);
-  const [selectionCommentSubmitting, setSelectionCommentSubmitting] = useState(false);
-  const [commentDraft, setCommentDraft] = useState("");
-  const [editorMountVersion, setEditorMountVersion] = useState(0);
+  const [editorFeedbackState, setEditorFeedbackState] = useState<WorkspaceEditorFeedbackState>(
+    EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE,
+  );
+  const { actionError, diagnosticError, diagnosticSummary, previewError, problems, problemsOpen } =
+    editorFeedbackState;
+  const [navigationState, dispatchNavigationState] = useReducer(
+    workspaceEditorNavigationStateReducer,
+    EMPTY_WORKSPACE_EDITOR_NAVIGATION_STATE,
+  );
+  const { editorMountVersion, pendingNavigationTarget } = navigationState;
+  const [selectionState, dispatchSelectionState] = useReducer(
+    workspaceEditorSelectionStateReducer,
+    EMPTY_WORKSPACE_EDITOR_SELECTION_STATE,
+  );
+  const {
+    cursorLabel,
+    activeSelection,
+    selectionActionsExpanded,
+    selectionCommentSubmitting,
+    commentDraft,
+  } = selectionState;
   const [textPreviewFilePaths, setTextPreviewFilePaths] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<MonacoStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
@@ -713,8 +904,6 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     ? createWorkspaceModelUriString(pane.activeFilePath)
     : undefined;
   const workspaceCwd = props.gitCwd ?? props.diagnosticsCwd;
-  const [pendingNavigationTarget, setPendingNavigationTarget] =
-    useState<WorkspaceEditorLocation | null>(null);
   const latestPaneStateRef = useRef({
     paneId: pane.id,
     activeFilePath: pane.activeFilePath,
@@ -797,21 +986,56 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     clearModelMarkers(monacoInstance, model);
   }, []);
 
+  const setProblemFeedback = useCallback(
+    (nextProblems: readonly MonacoMarker[], input?: { diagnosticError?: string | null }) => {
+      const editor = editorRef.current;
+      const monacoInstance = monacoRef.current;
+      const model = editor?.getModel();
+      const diagnosticSummary =
+        editor && monacoInstance && model
+          ? formatProblemSummary(monacoInstance, nextProblems)
+          : null;
+      setEditorFeedbackState((current) => ({
+        ...current,
+        problems: nextProblems,
+        diagnosticSummary,
+        ...(input && "diagnosticError" in input
+          ? { diagnosticError: input.diagnosticError ?? null }
+          : {}),
+      }));
+    },
+    [],
+  );
+
   const syncProblemState = useCallback(() => {
     const editor = editorRef.current;
     const monacoInstance = monacoRef.current;
     const model = editor?.getModel();
     if (!editor || !monacoInstance || !model) {
-      setProblems([]);
-      setDiagnosticSummary(null);
+      setProblemFeedback([]);
       onProblemsChange(pane.id, pane.activeFilePath, []);
       return;
     }
     const nextProblems = monacoInstance.editor.getModelMarkers({ resource: model.uri });
-    setProblems(nextProblems);
-    setDiagnosticSummary(formatProblemSummary(monacoInstance, nextProblems));
+    setProblemFeedback(nextProblems);
     onProblemsChange(pane.id, pane.activeFilePath, nextProblems.map(toWorkspaceEditorPaneProblem));
-  }, [onProblemsChange, pane.activeFilePath, pane.id]);
+  }, [onProblemsChange, pane.activeFilePath, pane.id, setProblemFeedback]);
+
+  const clearWorkspaceProblems = useCallback(
+    (input?: { diagnosticError?: string | null }) => {
+      setProblemFeedback([], input);
+      onProblemsChange(pane.id, pane.activeFilePath, []);
+    },
+    [onProblemsChange, pane.activeFilePath, pane.id, setProblemFeedback],
+  );
+
+  const applyWorkspaceProblems = useCallback(
+    (activeFilePath: string | null, nextProblems: readonly MonacoMarker[]) => {
+      setProblemFeedback(nextProblems, { diagnosticError: null });
+      onProblemsChange(pane.id, activeFilePath, nextProblems.map(toWorkspaceEditorPaneProblem));
+    },
+    [onProblemsChange, pane.id, setProblemFeedback],
+  );
 
   const syncSymbolState = useCallback(() => {
     const editor = editorRef.current;
@@ -828,14 +1052,16 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     const monacoInstance = monacoRef.current;
     const model = editor?.getModel();
     if (!editor || !monacoInstance || !model || !workspaceCwd || isPreviewMode) {
-      setActiveSelection(null);
-      setSelectionActionsExpanded(false);
+      dispatchSelectionState({ type: "clear-selection" });
       activeSelectionIdRef.current = null;
       return;
     }
     const position = editor.getPosition();
     if (position) {
-      setCursorLabel(`Ln ${position.lineNumber}, Col ${position.column}`);
+      dispatchSelectionState({
+        type: "set-cursor-label",
+        cursorLabel: `Ln ${position.lineNumber}, Col ${position.column}`,
+      });
     }
     const selection = editor.getSelection();
     const relativePath = resolveRelativePathFromEditorModel(
@@ -843,23 +1069,20 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       latestPaneStateRef.current.activeFilePath,
     );
     if (!selection || selection.isEmpty() || !relativePath) {
-      setActiveSelection(null);
-      setSelectionActionsExpanded(false);
+      dispatchSelectionState({ type: "clear-selection" });
       activeSelectionIdRef.current = null;
       return;
     }
     const text = model.getValueInRange(selection);
     if (text.trim().length === 0) {
-      setActiveSelection(null);
-      setSelectionActionsExpanded(false);
+      dispatchSelectionState({ type: "clear-selection" });
       activeSelectionIdRef.current = null;
       return;
     }
     const selectionId = workspaceSelectionId({ relativePath, selection });
     if (activeSelectionIdRef.current !== selectionId) {
       activeSelectionIdRef.current = selectionId;
-      setSelectionActionsExpanded(false);
-      setCommentDraft("");
+      dispatchSelectionState({ type: "reset-selection-comment" });
     }
     const location = toWorkspaceLocationFromSelection(relativePath, selection);
     const visiblePosition = editor.getScrolledVisiblePosition({
@@ -881,11 +1104,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       range: location,
       text,
     });
-    setActiveSelection({
-      id: selectionId,
-      context,
-      left: Math.max(12, Math.min((visiblePosition?.left ?? 24) + 8, 360)),
-      top: Math.max(12, (visiblePosition?.top ?? 24) + 28),
+    dispatchSelectionState({
+      type: "set-active-selection",
+      activeSelection: {
+        id: selectionId,
+        context,
+        left: Math.max(12, Math.min((visiblePosition?.left ?? 24) + 8, 360)),
+        top: Math.max(12, (visiblePosition?.top ?? 24) + 28),
+      },
     });
   }, [activeMonacoLanguage, isPreviewMode, problems, workspaceCwd]);
 
@@ -894,7 +1120,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     (isPreviewMode || activeDraft !== null || activeFileQuery.data?.contents !== undefined);
 
   const ensureWorkspaceModelLoaded = useCallback(
-    async (relativePath: string): Promise<MonacoEditor.ITextModel | null> => {
+    async (relativePath: string): Promise<MonacoTextModel | null> => {
       const monacoInstance = monacoRef.current;
       if (!api || !monacoInstance || !workspaceCwd) {
         return null;
@@ -952,7 +1178,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         (
           location,
         ): location is {
-          uri: MonacoEditor.ITextModel["uri"];
+          uri: MonacoTextModel["uri"];
           range: ReturnType<typeof toMonacoRangeFromWorkspaceLocation>;
         } => location !== null,
       );
@@ -973,7 +1199,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       editor.revealRangeInCenter(range);
       return;
     }
-    setPendingNavigationTarget(location);
+    dispatchNavigationState({ type: "set-pending-navigation-target", location });
     onOpenFileInPaneRef.current(latestPaneState.paneId, location.relativePath);
   }, []);
 
@@ -988,7 +1214,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         return [];
       }
       try {
-        setActionError(null);
+        setEditorFeedbackState((current) => ({ ...current, actionError: null }));
         const result = await api.workspaceEditor.definition(
           withRpcRouteConnection(
             {
@@ -1004,7 +1230,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         return result.locations;
       } catch (error) {
         const message = toErrorMessage(error);
-        setActionError(message);
+        setEditorFeedbackState((current) => ({ ...current, actionError: message }));
         console.error("Failed to resolve workspace editor definitions", {
           diagnosticsCwd: props.diagnosticsCwd,
           relativePath: input.relativePath,
@@ -1049,7 +1275,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     (editor, monacoInstance) => {
       editorRef.current = editor;
       monacoRef.current = monacoInstance;
-      setEditorMountVersion((version) => version + 1);
+      dispatchNavigationState({ type: "editor-mounted" });
       editor.onDidFocusEditorWidget(() => {
         onFocusPane(pane.id);
       });
@@ -1078,14 +1304,20 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         }
         const selection = editor.getSelection();
         if (selection) {
-          setPendingNavigationTarget(toWorkspaceLocationFromSelection(nextRelativePath, selection));
+          dispatchNavigationState({
+            type: "set-pending-navigation-target",
+            location: toWorkspaceLocationFromSelection(nextRelativePath, selection),
+          });
         }
         onOpenFileInPaneRef.current(latestPaneState.paneId, nextRelativePath);
       });
       editor.onDidChangeCursorPosition(() => {
         const position = editor.getPosition();
         if (position) {
-          setCursorLabel(`Ln ${position.lineNumber}, Col ${position.column}`);
+          dispatchSelectionState({
+            type: "set-cursor-label",
+            cursorLabel: `Ln ${position.lineNumber}, Col ${position.column}`,
+          });
         }
       });
       editor.onDidChangeCursorSelection(() => {
@@ -1192,7 +1424,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       editor.addCommand(
         monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyM,
         () => {
-          setProblemsOpen((open) => !open);
+          setEditorFeedbackState((current) => ({
+            ...current,
+            problemsOpen: !current.problemsOpen,
+          }));
         },
       );
       editor.onDidDispose(() => {
@@ -1226,7 +1461,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editor.focus();
     editor.setSelection(range);
     editor.revealRangeInCenter(range);
-    setPendingNavigationTarget(null);
+    dispatchNavigationState({ type: "clear-pending-navigation-target" });
   }, [editorMountVersion, pane.activeFilePath, pendingNavigationTarget]);
 
   useEffect(() => {
@@ -1282,8 +1517,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       !model
     ) {
       clearEditorMarkers();
-      setDiagnosticError(null);
-      syncProblemState();
+      clearWorkspaceProblems({ diagnosticError: null });
       return;
     }
 
@@ -1327,24 +1561,19 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             toMonacoMarkers(liveMonaco, result.diagnostics),
           );
           diagnosticsUnavailableRetryAtRef.current = 0;
-          setDiagnosticError(null);
           const nextProblems = liveMonaco.editor.getModelMarkers({ resource: liveModel.uri });
-          setProblems(nextProblems);
-          setDiagnosticSummary(formatProblemSummary(liveMonaco, nextProblems));
+          applyWorkspaceProblems(pane.activeFilePath, nextProblems);
         })
         .catch((error) => {
           if (syncRequestIdRef.current !== requestId) {
             return;
           }
           clearEditorMarkers();
+          const message = toErrorMessage(error);
           if (isUnavailableWorkspaceDiagnosticsError(error)) {
             diagnosticsUnavailableRetryAtRef.current = Date.now() + DIAGNOSTIC_UNAVAILABLE_RETRY_MS;
-            setDiagnosticError(toErrorMessage(error));
-          } else {
-            const message = toErrorMessage(error);
-            setDiagnosticError(message);
           }
-          syncProblemState();
+          clearWorkspaceProblems({ diagnosticError: message });
           console.error("Failed to sync workspace editor diagnostics", {
             cwd: props.gitCwd,
             diagnosticsCwd: props.diagnosticsCwd,
@@ -1360,8 +1589,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   }, [
     activeFileContents,
     activeFileReady,
+    applyWorkspaceProblems,
     api,
     clearEditorMarkers,
+    clearWorkspaceProblems,
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
@@ -1376,15 +1607,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     const editor = editorRef.current;
     const model = editor?.getModel();
     if (!monacoInstance || !editor || !model) {
-      setProblems([]);
-      setDiagnosticSummary(null);
+      setProblemFeedback([]);
       return;
     }
 
     const modelUri = model.uri.toString();
     syncProblemState();
-    const disposable = monacoInstance.editor.onDidChangeMarkers((uris) => {
-      if (!uris.some((uri) => uri.toString() === modelUri)) {
+    const disposable = monacoInstance.editor.onDidChangeMarkers((uris: readonly MonacoUri[]) => {
+      if (!uris.some((uri: MonacoUri) => uri.toString() === modelUri)) {
         return;
       }
       syncProblemState();
@@ -1393,7 +1623,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     return () => {
       disposable.dispose();
     };
-  }, [editorMountVersion, pane.activeFilePath, syncProblemState]);
+  }, [editorMountVersion, pane.activeFilePath, setProblemFeedback, syncProblemState]);
 
   useEffect(() => {
     syncEditorSelectionContext();
@@ -1410,7 +1640,12 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     }
     const provider = monacoInstance.languages.registerCompletionItemProvider(activeMonacoLanguage, {
       triggerCharacters: [...COMPLETION_TRIGGER_CHARACTERS],
-      provideCompletionItems: async (model, position, _context, _token) => {
+      provideCompletionItems: async (
+        model: MonacoTextModel,
+        position: MonacoPosition,
+        _context: unknown,
+        _token: { isCancellationRequested: boolean },
+      ) => {
         if (!props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
           return { suggestions: [] };
         }
@@ -1495,9 +1730,14 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       return;
     }
     const provider = monacoInstance.languages.registerDefinitionProvider(activeMonacoLanguage, {
-      provideDefinition: async (model, position, token) => {
+      provideDefinition: async (
+        model: MonacoTextModel,
+        position: MonacoPosition,
+        _context: unknown,
+        token: { isCancellationRequested: boolean },
+      ) => {
         const relativePath = resolveRelativePathFromEditorModel(model, pane.activeFilePath);
-        if (!relativePath || isPreviewMode) {
+        if (!relativePath || isPreviewMode || token.isCancellationRequested) {
           return null;
         }
         const locations = await loadDefinitionLocations({
@@ -1506,11 +1746,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           line: Math.max(0, position.lineNumber - 1),
           column: Math.max(0, position.column - 1),
         });
-        if (token.isCancellationRequested) {
-          return null;
-        }
         const monacoLocations = await toMonacoLocations(locations);
-        return monacoLocations.length > 0 ? monacoLocations : null;
+        return token.isCancellationRequested || monacoLocations.length === 0
+          ? null
+          : monacoLocations;
       },
     });
     return () => {
@@ -1533,9 +1772,17 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       return;
     }
     const provider = monacoInstance.languages.registerReferenceProvider(activeMonacoLanguage, {
-      provideReferences: async (model, position, context, token) => {
+      provideReferences: async (
+        model: MonacoTextModel,
+        position: MonacoPosition,
+        context: { includeDeclaration: boolean },
+        token: { isCancellationRequested: boolean },
+      ) => {
         const relativePath = resolveRelativePathFromEditorModel(model, pane.activeFilePath);
         if (!props.diagnosticsCwd || !relativePath || isPreviewMode) {
+          return [];
+        }
+        if (token.isCancellationRequested) {
           return [];
         }
         try {
@@ -1750,7 +1997,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     [problems],
   );
 
-  const handleProblemClick = useCallback((problem: MonacoEditor.IMarker) => {
+  const handleProblemClick = useCallback((problem: MonacoMarker) => {
     const editor = editorRef.current;
     if (!editor) {
       return;
@@ -1776,7 +2023,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     ) {
       return;
     }
-    setSelectionCommentSubmitting(true);
+    dispatchSelectionState({
+      type: "set-selection-comment-submitting",
+      selectionCommentSubmitting: true,
+    });
     let sent = false;
     try {
       sent = await props.onAddCodeCommentAndSend(
@@ -1795,19 +2045,24 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     } catch {
       sent = false;
     } finally {
-      setSelectionCommentSubmitting(false);
+      dispatchSelectionState({
+        type: "set-selection-comment-submitting",
+        selectionCommentSubmitting: false,
+      });
     }
     if (!sent) {
       return;
     }
-    setCommentDraft("");
-    setSelectionActionsExpanded(false);
+    dispatchSelectionState({ type: "reset-selection-comment" });
   }, [activeSelection, commentDraft, props, selectionCommentSubmitting, workspaceCwd]);
 
   useEffect(() => {
-    setActionError(null);
-    setPreviewError(null);
-    setProblemsOpen(false);
+    setEditorFeedbackState((current) => ({
+      ...current,
+      actionError: null,
+      previewError: null,
+      problemsOpen: false,
+    }));
   }, [pane.activeFilePath]);
 
   const activeFileErrorMessage =
@@ -1908,7 +2163,8 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     {isDirty ? (
                       <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
                     ) : null}
-                    <span
+                    <button
+                      type="button"
                       className={cn(
                         "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
                         isActive ? "opacity-100" : "group-hover/tab:opacity-100",
@@ -1921,7 +2177,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                       }}
                     >
                       <XIcon className="size-3" />
-                    </span>
+                    </button>
                   </TooltipTrigger>
                   <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
                     {filePath}
@@ -2054,7 +2310,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     alt={props.pane.activeFilePath}
                     className="max-h-full max-w-full object-contain"
                     onError={() => {
-                      setPreviewError("Unable to preview this image in the embedded editor.");
+                      setEditorFeedbackState((current) => ({
+                        ...current,
+                        previewError: "Unable to preview this image in the embedded editor.",
+                      }));
                     }}
                   />
                 ) : (
@@ -2063,7 +2322,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     controls
                     className="max-h-full max-w-full"
                     onError={() => {
-                      setPreviewError("Unable to preview this video in the embedded editor.");
+                      setEditorFeedbackState((current) => ({
+                        ...current,
+                        previewError: "Unable to preview this video in the embedded editor.",
+                      }));
                     }}
                   />
                 )}
@@ -2107,7 +2369,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
           </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
-          <div className="space-y-4 px-6 py-6">
+          <div className="space-y-4 p-6">
             <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Opening file
             </p>
@@ -2136,21 +2398,29 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           </div>
         ) : (
           <div className="relative h-full min-h-0 min-w-0 overflow-hidden">
-            <Editor
-              height="100%"
-              value={activeFileContents}
-              theme={props.monacoTheme}
-              onMount={handleEditorMount}
-              onChange={(value) => {
-                if (!props.pane.activeFilePath || value === undefined) {
-                  return;
-                }
-                props.onUpdateDraft(props.pane.activeFilePath, value);
-              }}
-              options={props.editorOptions}
-              {...(activeModelPath ? { path: activeModelPath } : {})}
-              {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
-            />
+            <Suspense
+              fallback={
+                <div className="h-full w-full animate-pulse bg-muted/20 p-3 text-xs text-muted-foreground">
+                  Loading editor…
+                </div>
+              }
+            >
+              <Editor
+                height="100%"
+                value={activeFileContents}
+                theme={props.monacoTheme}
+                onMount={handleEditorMount}
+                onChange={(value) => {
+                  if (!props.pane.activeFilePath || value === undefined) {
+                    return;
+                  }
+                  props.onUpdateDraft(props.pane.activeFilePath, value);
+                }}
+                options={props.editorOptions}
+                {...(activeModelPath ? { path: activeModelPath } : {})}
+                {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
+              />
+            </Suspense>
             {activeSelection ? (
               <div
                 className="absolute z-20"
@@ -2166,7 +2436,12 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                         <button
                           type="button"
                           className="inline-flex size-7 items-center justify-center rounded-full border border-border/70 bg-background/92 text-muted-foreground/75 shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
-                          onClick={() => setSelectionActionsExpanded((current) => !current)}
+                          onClick={() =>
+                            dispatchSelectionState({
+                              type: "set-selection-actions-expanded",
+                              selectionActionsExpanded: !selectionActionsExpanded,
+                            })
+                          }
                           aria-label="Open selection actions"
                         />
                       }
@@ -2176,37 +2451,46 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     <TooltipPopup side="top">Selection actions</TooltipPopup>
                   </Tooltip>
                 ) : (
-                  <form
-                    className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void handleAddAndSendSelectionComment();
-                    }}
-                  >
+                  <div className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl">
                     <input
                       value={commentDraft}
-                      onChange={(event) => setCommentDraft(event.target.value)}
+                      onChange={(event) =>
+                        dispatchSelectionState({
+                          type: "set-comment-draft",
+                          commentDraft: event.target.value,
+                        })
+                      }
                       onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleAddAndSendSelectionComment();
+                          return;
+                        }
                         if (event.key === "Escape") {
                           event.preventDefault();
-                          setSelectionActionsExpanded(false);
+                          dispatchSelectionState({
+                            type: "set-selection-actions-expanded",
+                            selectionActionsExpanded: false,
+                          });
                         }
                       }}
                       placeholder="Comment for the agent"
                       className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
-                      autoFocus
                     />
                     {props.onAddCodeCommentAndSend ? (
                       <Tooltip>
                         <TooltipTrigger
                           render={
                             <button
-                              type="submit"
+                              type="button"
                               className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
                               disabled={
                                 commentDraft.trim().length === 0 || selectionCommentSubmitting
                               }
                               aria-label="Submit comment"
+                              onClick={() => {
+                                void handleAddAndSendSelectionComment();
+                              }}
                             />
                           }
                         >
@@ -2215,7 +2499,7 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                         <TooltipPopup side="top">Submit comment</TooltipPopup>
                       </Tooltip>
                     ) : null}
-                  </form>
+                  </div>
                 )}
               </div>
             ) : null}
@@ -2365,7 +2649,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                     type="button"
                     className="rounded-md px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-accent hover:text-foreground"
                     onClick={() => {
-                      setProblemsOpen((open) => !open);
+                      setEditorFeedbackState((current) => ({
+                        ...current,
+                        problemsOpen: !current.problemsOpen,
+                      }));
                     }}
                     aria-label={
                       diagnosticSummary
@@ -2411,6 +2698,10 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       </footer>
     </section>
   );
+}
+
+function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
+  return useWorkspaceEditorPaneComponent(props);
 }
 
 const MemoizedWorkspaceEditorPane = memo(WorkspaceEditorPane);

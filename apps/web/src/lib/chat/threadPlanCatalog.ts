@@ -74,12 +74,17 @@ export function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlan
     return (state: Pick<AppState, "threads" | "threadsById">): ThreadPlanCatalogEntry[] => {
       const nextThreads = getThreadsByIdsFromState(state, threadIds);
       const cachedThreads = previousThreads;
-      if (
-        cachedThreads &&
-        nextThreads.length === cachedThreads.length &&
-        nextThreads.every((thread, index) => thread === cachedThreads[index])
-      ) {
-        return previousEntries;
+      if (cachedThreads && nextThreads.length === cachedThreads.length) {
+        let hasSameThreads = true;
+        for (const [index, thread] of nextThreads.entries()) {
+          if (thread !== cachedThreads[index]) {
+            hasSameThreads = false;
+            break;
+          }
+        }
+        if (hasSameThreads) {
+          return previousEntries;
+        }
       }
 
       previousThreads = nextThreads;

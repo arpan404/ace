@@ -1,10 +1,3 @@
-export const Typography = {
-  fonts: {
-    ui: "System",
-    mono: "Menlo",
-  },
-} as const;
-
 export const Palette = {
   light: {
     background: "#f4f6fa",

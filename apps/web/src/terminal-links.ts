@@ -1,6 +1,6 @@
 import { isMacPlatform } from "./lib/utils";
 
-export type TerminalLinkKind = "url" | "path";
+type TerminalLinkKind = "url" | "path";
 
 export interface TerminalLinkMatch {
   kind: TerminalLinkKind;

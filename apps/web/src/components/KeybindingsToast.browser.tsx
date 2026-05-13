@@ -1,3 +1,4 @@
+/* eslint-disable react-doctor/async-parallel -- Browser event ordering assertions are intentionally sequenced in this test. */
 import "../index.css";
 
 import {
@@ -259,12 +260,14 @@ async function waitForNoToast(title: string): Promise<void> {
 
 async function mountApp(): Promise<{ cleanup: () => Promise<void> }> {
   const host = document.createElement("div");
-  host.style.position = "fixed";
-  host.style.inset = "0";
-  host.style.width = "100vw";
-  host.style.height = "100vh";
-  host.style.display = "grid";
-  host.style.overflow = "hidden";
+  Object.assign(host.style, {
+    position: "fixed",
+    inset: "0",
+    width: "100vw",
+    height: "100vh",
+    display: "grid",
+    overflow: "hidden",
+  });
   document.body.append(host);
 
   const router = getRouter(createMemoryHistory({ initialEntries: [`/${THREAD_ID}`] }));
@@ -378,8 +381,10 @@ describe("Keybindings update toast", () => {
 
     try {
       sendServerConfigUpdatedPush([]);
-      await waitForToast("Keybindings updated");
-      await waitForNoToast("Keybindings updated");
+      await Promise.all([
+        waitForToast("Keybindings updated"),
+        waitForNoToast("Keybindings updated"),
+      ]);
 
       // Remount the app — onServerConfigUpdated replays the cached value
       // synchronously on subscribe. This should NOT produce a toast.

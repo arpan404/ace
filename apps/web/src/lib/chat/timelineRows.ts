@@ -651,10 +651,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
-    if (
-      timelineEntry.message.role === "assistant" &&
-      shouldSkipAssistantMessageRow(timelineEntry.message)
-    ) {
+    const { message } = timelineEntry;
+
+    if (message.role === "assistant" && shouldSkipAssistantMessageRow(message)) {
       continue;
     }
 
@@ -666,48 +665,47 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       hasRenderableCurrentTurnOutput = true;
     }
 
-    const durationStart =
-      messageDurationStartById.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt;
-    if (timelineEntry.message.role === "user") {
+    const durationStart = messageDurationStartById.get(message.id) ?? message.createdAt;
+    if (message.role === "user") {
       hiddenCompletedWork = null;
-      lastMessageBoundaryAt = timelineEntry.message.createdAt;
+      lastMessageBoundaryAt = message.createdAt;
       if (
         Number.isNaN(activeTurnStartedAtMs) ||
         isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
       ) {
         if (activeTurnPrimaryUserMessageCreatedAt === null) {
-          activeTurnPrimaryUserMessageCreatedAt = timelineEntry.message.createdAt;
-          activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(
-            timelineEntry.message.text,
-          );
+          activeTurnPrimaryUserMessageCreatedAt = message.createdAt;
+          activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(message.text);
         }
       }
     }
 
+    const messageCompletedAt = message.completedAt;
+
     if (
       input.hideCompletedWorkMessages === true &&
-      timelineEntry.message.role === "assistant" &&
-      !timelineEntry.message.streaming &&
+      message.role === "assistant" &&
+      !message.streaming &&
       !terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
     ) {
-      recordHiddenAssistantMessage(timelineEntry.message, durationStart);
-      if (timelineEntry.message.completedAt) {
-        lastMessageBoundaryAt = timelineEntry.message.completedAt;
+      recordHiddenAssistantMessage(message, durationStart);
+      if (message.completedAt) {
+        lastMessageBoundaryAt = message.completedAt;
       }
       continue;
     }
 
     if (
       input.hideCompletedWorkMessages === true &&
-      timelineEntry.message.role === "assistant" &&
-      !timelineEntry.message.streaming &&
+      message.role === "assistant" &&
+      !message.streaming &&
       terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
     ) {
       flushHiddenCompletedWorkSummary({
         startedAtFloor: durationStart,
-        endedAt: timelineEntry.message.completedAt ?? timelineEntry.createdAt,
+        endedAt: messageCompletedAt ?? timelineEntry.createdAt,
       });
     }
 
@@ -715,18 +713,16 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       kind: "message",
       id: timelineEntry.id,
       createdAt: timelineEntry.createdAt,
-      message: timelineEntry.message,
+      message,
       durationStart,
       completionSummary:
-        timelineEntry.message.role === "assistant" &&
-        input.completionDividerBeforeEntryId === timelineEntry.id
+        message.role === "assistant" && input.completionDividerBeforeEntryId === timelineEntry.id
           ? input.completionSummary
           : null,
       isAssistantTurnTerminal:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id),
+        message.role === "assistant" && terminalAssistantMessageIds.has(timelineEntry.id),
       showAssistantTiming:
-        timelineEntry.message.role === "assistant" &&
+        message.role === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.id) &&
         !(
           input.activeTurnInProgress &&

@@ -230,7 +230,7 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
       {props.images.map((image) => (
         <div
           key={image.id}
-          className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+          className="relative size-16 overflow-hidden rounded-lg border border-border/80 bg-background"
         >
           {image.previewUrl ? (
             <button
@@ -670,7 +670,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     <ContextWindowMeter usage={props.activeContextWindow} />
                   ) : null}
                   {props.isPreparingWorktree ? (
-                    <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
+                    <span className="text-muted-foreground/70 text-xs">Preparing worktree…</span>
                   ) : null}
                   <ComposerPrimaryActions
                     compact={props.isComposerPrimaryActionsCompact}

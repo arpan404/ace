@@ -22,7 +22,7 @@ const HTML_ATTR_REGEX = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*
  * Converts GitHub-flavored HTML image tags to standard markdown image syntax.
  * GitHub issue bodies often contain `<img src="..." alt="...">` instead of `![alt](url)`.
  */
-export function normalizeGitHubIssueMarkdown(text: string): string {
+function normalizeGitHubIssueMarkdown(text: string): string {
   return text.replace(HTML_IMG_TAG_REGEX, (tag) => {
     let src: string | null = null;
     let alt = "";
@@ -108,17 +108,30 @@ function buildIssueImageSource(
 
 function IssueImage(props: ImgHTMLAttributes<HTMLImageElement> & { cwd?: string | null }) {
   const { cwd, ...imgProps } = props;
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const { primarySrc, fallbackSrc } = useMemo(
     () => buildIssueImageSource(imgProps.src, cwd),
     [cwd, imgProps.src],
   );
-  const [resolvedSrc, setResolvedSrc] = useState(primarySrc);
 
-  useEffect(() => {
-    setResolvedSrc(primarySrc);
-    setStatus("loading");
-  }, [primarySrc]);
+  return (
+    <IssueImageSource
+      key={primarySrc}
+      fallbackSrc={fallbackSrc ?? null}
+      primarySrc={primarySrc ?? ""}
+      {...imgProps}
+    />
+  );
+}
+
+function IssueImageSource(
+  props: ImgHTMLAttributes<HTMLImageElement> & {
+    fallbackSrc: string | null;
+    primarySrc: string;
+  },
+) {
+  const { fallbackSrc, primarySrc, ...imgProps } = props;
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const [resolvedSrc, setResolvedSrc] = useState(primarySrc);
 
   const handleError = useCallback(() => {
     if (fallbackSrc && resolvedSrc !== fallbackSrc) {

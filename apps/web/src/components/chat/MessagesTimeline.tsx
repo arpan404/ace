@@ -81,6 +81,7 @@ import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
+  findTextIndexOf,
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
@@ -116,6 +117,7 @@ const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
@@ -156,6 +158,80 @@ function canResolveTimelineRowsInWorker(): boolean {
     typeof Worker !== "undefined" &&
     typeof document.createElement === "function"
   );
+}
+
+export function shouldRenderTimelineVirtualizedBuffer(input: {
+  readonly virtualizedRowCount: number;
+}): boolean {
+  return input.virtualizedRowCount > 0;
+}
+
+export function deriveFallbackTimelineVirtualItems(input: {
+  readonly rowCount: number;
+  readonly estimateSize: (index: number) => number;
+  readonly getItemKey: (index: number) => VirtualItem["key"];
+  readonly overscan: number;
+  readonly scrollTop: number;
+  readonly viewportHeight: number;
+}): VirtualItem[] {
+  if (input.rowCount <= 0) {
+    return [];
+  }
+
+  const viewportHeight = Math.max(1, input.viewportHeight);
+  const starts: number[] = [];
+  const sizes: number[] = [];
+  let totalSize = 0;
+  for (let index = 0; index < input.rowCount; index += 1) {
+    const rawSize = input.estimateSize(index);
+    const size = Number.isFinite(rawSize) && rawSize > 0 ? rawSize : 96;
+    starts.push(totalSize);
+    sizes.push(size);
+    totalSize += size;
+  }
+
+  const maxScrollTop = Math.max(totalSize - viewportHeight, 0);
+  const scrollTop = Math.min(Math.max(input.scrollTop, 0), maxScrollTop);
+  const visibleStart = Math.max(scrollTop - viewportHeight, 0);
+  const visibleEnd = Math.min(scrollTop + viewportHeight * 2, totalSize);
+
+  let startIndex = 0;
+  while (
+    startIndex < input.rowCount - 1 &&
+    (starts[startIndex] ?? 0) + (sizes[startIndex] ?? 0) < visibleStart
+  ) {
+    startIndex += 1;
+  }
+
+  let endIndex = startIndex;
+  while (endIndex < input.rowCount - 1 && (starts[endIndex] ?? 0) <= visibleEnd) {
+    endIndex += 1;
+  }
+
+  startIndex = Math.max(0, startIndex - input.overscan);
+  endIndex = Math.min(input.rowCount - 1, endIndex + input.overscan);
+
+  if (endIndex - startIndex + 1 < TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS) {
+    const missingRows = TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS - (endIndex - startIndex + 1);
+    const prependRows = Math.min(startIndex, Math.floor(missingRows / 2));
+    startIndex -= prependRows;
+    endIndex = Math.min(input.rowCount - 1, endIndex + missingRows - prependRows);
+  }
+
+  const items: VirtualItem[] = [];
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const start = starts[index] ?? 0;
+    const size = sizes[index] ?? 96;
+    items.push({
+      key: input.getItemKey(index),
+      index,
+      start,
+      end: start + size,
+      size,
+      lane: 0,
+    });
+  }
+  return items;
 }
 
 function assistantImageGenerationDimensionsFromMessageId(
@@ -394,10 +470,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
   }, [cachedTimelineRows, timelineRowsInput]);
-  const rows = useMemo(
-    () => (syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS),
-    [syncTimelineRows],
-  );
+  const rows = syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS;
 
   useEffect(() => {
     if (cachedTimelineRows) {
@@ -529,13 +602,42 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
-  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0 && !activeTurnInProgress;
+  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
   const shouldPrewarmAssistantMarkdown =
     shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
+  const fallbackVirtualItems = useMemo(() => {
+    if (!shouldUseVirtualizedBuffer || virtualItems.length > 0) {
+      return [];
+    }
+    const scrollContainer = getScrollContainer();
+    return deriveFallbackTimelineVirtualItems({
+      rowCount: virtualizedRows.length,
+      estimateSize: estimateVirtualizedRowSize,
+      getItemKey: getVirtualRowKey,
+      overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
+      scrollTop: scrollContainer?.scrollTop ?? Number.POSITIVE_INFINITY,
+      viewportHeight: scrollContainer?.clientHeight ?? TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX,
+    });
+  }, [
+    estimateVirtualizedRowSize,
+    getScrollContainer,
+    getVirtualRowKey,
+    shouldUseVirtualizedBuffer,
+    virtualItems.length,
+    virtualizedRows.length,
+  ]);
+  const renderedVirtualItems = virtualItems.length > 0 ? virtualItems : fallbackVirtualItems;
+  const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
+    virtualizedRowCount: virtualizedRows.length,
+  });
+  const virtualizedBufferHeight =
+    renderedVirtualItems.length > 0
+      ? Math.max(rowVirtualizer.getTotalSize(), renderedVirtualItems.at(-1)?.end ?? 0)
+      : rowVirtualizer.getTotalSize();
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
-    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
+    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(renderedVirtualItems, virtualizedRows)
     : [];
   const mountedVirtualizedAssistantMarkdownMessageIdKey =
     mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
@@ -559,10 +661,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => new Set(immediateAssistantMarkdownMessageIds),
     [immediateAssistantMarkdownMessageIds],
   );
-  const allAssistantMarkdownMessageIds = useMemo(
-    () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
-    [rows],
-  );
+  const allAssistantMarkdownMessageIds = useMemo(() => {
+    const messageIds: string[] = [];
+    for (const row of rows) {
+      if (isCompletedAssistantMessageRow(row)) {
+        messageIds.push(String(row.message.id));
+      }
+    }
+    return messageIds;
+  }, [rows]);
   const pendingAssistantMarkdownMessageIds = useMemo(
     () =>
       shouldPrewarmAssistantMarkdown
@@ -917,7 +1024,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, []);
 
-  const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
+  const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
     return (
       <div
         className="group/timeline relative pb-3"
@@ -1168,13 +1275,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
     >
-      {shouldUseVirtualizedBuffer ? (
+      {shouldRenderVirtualizedBuffer ? (
         <div
           data-virtualizer-buffer="true"
           className="relative"
-          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          style={{ height: `${virtualizedBufferHeight}px` }}
         >
-          {virtualItems.map((virtualRow) => {
+          {renderedVirtualItems.map((virtualRow) => {
             const row = virtualizedRows[virtualRow.index];
             if (!row) {
               return null;
@@ -1189,18 +1296,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                {renderRowContent(row, virtualRow.index)}
+                {buildRowContent(row, virtualRow.index)}
               </div>
             );
           })}
         </div>
       ) : (
         virtualizedRows.map((row, index) => (
-          <div key={`row:${row.id}`}>{renderRowContent(row, index)}</div>
+          <div key={`row:${row.id}`}>{buildRowContent(row, index)}</div>
         ))
       )}
       {trailingRows.map((row, index) => (
-        <div key={`row:${row.id}`}>{renderRowContent(row, virtualizedRows.length + index)}</div>
+        <div key={`row:${row.id}`}>{buildRowContent(row, virtualizedRows.length + index)}</div>
       ))}
     </div>
   );
@@ -1671,7 +1778,7 @@ function classifyToolSummaryEntry(
 
 function summarizeWorkGroupBreakdownParts(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
-): Array<{ text: string; title: string }> {
+): Array<{ key: string; text: string; title: string }> {
   const intentCount = entries.filter((entry) => entry.kind === "intent").length;
   const toolEntries = entries.filter(
     (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
@@ -1718,7 +1825,7 @@ function summarizeWorkGroupBreakdownParts(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
   ).length;
   const eventCount = infoCount;
-  const parts: Array<{ text: string; title: string }> = [];
+  const parts: Array<{ key: string; text: string; title: string }> = [];
   const activityParts: string[] = [];
 
   if (toolSummaryCounts.fileChange > 0) {
@@ -1749,6 +1856,7 @@ function summarizeWorkGroupBreakdownParts(
 
   if (intentCount > 0) {
     parts.push({
+      key: "intent",
       text: intentCount === 1 ? "Worked through plan" : `Worked through ${intentCount} plans`,
       title: summarizeCount(intentCount, "intent"),
     });
@@ -1758,22 +1866,23 @@ function summarizeWorkGroupBreakdownParts(
       activityParts.length > 0
         ? capitalizePhrase(activityParts.join(", "))
         : `Used ${summarizeCount(toolCount, "tool")}`;
-    parts.push({ text: summaryText, title: summaryText });
+    parts.push({ key: "tools", text: summaryText, title: summaryText });
   }
   if (thinkingCount > 0) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
     parts.push({
+      key: "thinking",
       text: `Reasoned through ${thinkingCount === 1 ? "1 step" : `${thinkingCount} steps`}`,
       title: steps,
     });
   }
   if (errorCount > 0) {
     const issues = summarizeCount(errorCount, "issue", "issues");
-    parts.push({ text: `Hit ${issues}`, title: issues });
+    parts.push({ key: "errors", text: `Hit ${issues}`, title: issues });
   }
   if (eventCount > 0) {
     const events = summarizeCount(eventCount, "event");
-    parts.push({ text: `Logged ${events}`, title: events });
+    parts.push({ key: "events", text: `Logged ${events}`, title: events });
   }
 
   if (parts.length > 0) {
@@ -1781,7 +1890,7 @@ function summarizeWorkGroupBreakdownParts(
   }
 
   const entriesLabel = summarizeCount(entries.length, "log entry", "log entries");
-  return [{ text: `Logged ${entriesLabel}`, title: entriesLabel }];
+  return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -1883,7 +1992,7 @@ function splitTrailingMentionPunctuation(token: string): {
   };
 }
 
-function renderUserMessageInlineText(
+function buildUserMessageInlineText(
   text: string,
   keyPrefix: string,
   providerCommandLookup: UserMessageProviderCommandLookup,
@@ -2004,14 +2113,14 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
       for (const context of props.terminalContexts) {
         const label = formatInlineTerminalContextLabel(context.header);
-        const matchIndex = props.text.indexOf(label, cursor);
+        const matchIndex = findTextIndexOf(props.text, label, cursor);
         if (matchIndex === -1) {
           inlineNodes.length = 0;
           break;
         }
         if (matchIndex > cursor) {
           inlineNodes.push(
-            ...renderUserMessageInlineText(
+            ...buildUserMessageInlineText(
               props.text.slice(cursor, matchIndex),
               `user-terminal-context-inline-before:${context.header}:${cursor}`,
               props.providerCommandLookup,
@@ -2031,7 +2140,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       if (inlineNodes.length > 0) {
         if (cursor < props.text.length) {
           inlineNodes.push(
-            ...renderUserMessageInlineText(
+            ...buildUserMessageInlineText(
               props.text.slice(cursor),
               `user-message-terminal-context-inline-rest:${cursor}`,
               props.providerCommandLookup,
@@ -2064,7 +2173,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
     if (props.text.length > 0) {
       inlineNodes.push(
-        ...renderUserMessageInlineText(
+        ...buildUserMessageInlineText(
           props.text,
           "user-message-terminal-context-inline-text",
           props.providerCommandLookup,
@@ -2088,7 +2197,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
   return (
     <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
-      {renderUserMessageInlineText(
+      {buildUserMessageInlineText(
         props.text,
         "user-message-provider-command",
         props.providerCommandLookup,
@@ -2190,7 +2299,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/62">
               {breakdownParts.map((part, index) => (
-                <Fragment key={`${props.row.id}:summary:${part.text}:${index}`}>
+                <Fragment key={`${props.row.id}:summary:${part.key}`}>
                   {index > 0 && (
                     <span className="shrink-0 text-muted-foreground/46 group-hover/disclosure:text-muted-foreground/68">
                       ·
@@ -2514,7 +2623,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div
-        className="group relative max-w-[82%] px-0 py-0 sm:max-w-[72%]"
+        className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
         <div className="relative rounded-2xl rounded-br-lg border border-border/65 bg-chat-bubble px-3.5 py-2.5 ">

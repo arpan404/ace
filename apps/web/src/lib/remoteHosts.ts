@@ -208,9 +208,13 @@ function readStoredRemoteHostInstances(options?: {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    const hosts = parsed
-      .map((candidate) => decodeRemoteHostInstance(candidate))
-      .filter((candidate): candidate is RemoteHostInstance => candidate !== null);
+    const hosts: RemoteHostInstance[] = [];
+    for (const candidate of parsed) {
+      const decoded = decodeRemoteHostInstance(candidate);
+      if (decoded !== null) {
+        hosts.push(decoded);
+      }
+    }
     if (!options?.skipMigration) {
       void scheduleRelayHostSecretMigration(hosts);
     }
@@ -232,7 +236,7 @@ async function writePersistedRemoteHostInstances(
   }
   const operationId = ++remoteHostPersistOperation;
   const previousHosts = readStoredRemoteHostInstances({ skipMigration: true });
-  const persistedHosts = await Promise.all(
+  const persistedHostsPromise = Promise.all(
     hosts.map(async (host) => ({
       ...host,
       wsUrl: await persistWebRelayConnectionSecrets(host.wsUrl),
@@ -241,18 +245,23 @@ async function writePersistedRemoteHostInstances(
   if (operationId !== remoteHostPersistOperation) {
     return;
   }
-  const previousHostIdentities = new Map(
-    previousHosts.map((host) => [persistedHostIdentity(host.wsUrl), host.wsUrl]),
-  );
-  const nextHostIdentities = new Set(
-    persistedHosts.map((host) => persistedHostIdentity(host.wsUrl)),
-  );
-  await Promise.all(
-    [...previousHostIdentities.entries()]
-      .filter(([identity]) => !nextHostIdentities.has(identity))
-      .map(([, wsUrl]) => deleteWebRelayConnectionSecrets(wsUrl)),
-  );
-  window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(persistedHosts));
+  const persistedHosts = await persistedHostsPromise;
+  if (operationId === remoteHostPersistOperation) {
+    const previousHostIdentities = new Map(
+      previousHosts.map((host) => [persistedHostIdentity(host.wsUrl), host.wsUrl]),
+    );
+    const nextHostIdentities = new Set(
+      persistedHosts.map((host) => persistedHostIdentity(host.wsUrl)),
+    );
+    const removedSecretPromises: Array<Promise<void>> = [];
+    for (const [identity, wsUrl] of previousHostIdentities.entries()) {
+      if (!nextHostIdentities.has(identity)) {
+        removedSecretPromises.push(deleteWebRelayConnectionSecrets(wsUrl));
+      }
+    }
+    await Promise.all(removedSecretPromises);
+    window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(persistedHosts));
+  }
   emitRemoteHostStorageChange(REMOTE_HOSTS_CHANGED_EVENT);
 }
 
@@ -331,15 +340,15 @@ export function persistConnectedRemoteHostIds(hostIds: ReadonlyArray<string>): v
   emitRemoteHostStorageChange(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT);
 }
 
-export function loadPinnedRemoteHostIds(): string[] {
+function loadPinnedRemoteHostIds(): string[] {
   return loadConnectedRemoteHostIds();
 }
 
-export function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
+function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
   persistConnectedRemoteHostIds(hostIds);
 }
 
-export function resolveActiveWsUrl(): string {
+function resolveActiveWsUrl(): string {
   const resolved = resolveServerUrl({
     protocol: resolveWsProtocol(),
     pathname: "/ws",
@@ -375,7 +384,7 @@ export function isHostConnectionActive(
   return resolveHostConnectionWsUrl(host) === normalizeWsUrl(activeWsUrl);
 }
 
-export function connectToWsHost(
+function connectToWsHost(
   _targetWsUrl: string,
   options?: { readonly path?: string; readonly reload?: boolean },
 ): void {
@@ -555,7 +564,7 @@ export async function verifyWsHostConnection(
   throw new Error(probeErrors.filter((message) => message.trim().length > 0).join(" "));
 }
 
-export function buildHostSharePayload(input: {
+function buildHostSharePayload(input: {
   readonly name?: string;
   readonly wsUrl: string;
   readonly authToken?: string;
@@ -888,7 +897,7 @@ export async function listHostPairingSessions(input: {
   return assertPairingSessionSummaryList(payload);
 }
 
-export async function resolveHostPairingSession(input: {
+async function resolveHostPairingSession(input: {
   readonly wsUrl: string;
   readonly authToken?: string;
   readonly sessionId: string;
@@ -928,12 +937,6 @@ export async function revokeHostPairingSession(input: {
   return assertPairingSessionStatus(payload);
 }
 
-export { normalizeWsUrl, parseHostDraftFromQrPayload, splitWsUrlAuthToken };
-export {
-  buildPairingPayload,
-  parseHostConnectionQrPayload,
-  readPairingClaim,
-  requestPairingClaim,
-  waitForPairingApproval,
-};
+export { normalizeWsUrl, splitWsUrlAuthToken };
+export { parseHostConnectionQrPayload };
 export type { HostConnectionDraft, HostPairingPayload };

@@ -1,5 +1,4 @@
 import type { EditorLineNumbers } from "@ace/contracts";
-import type { editor as MonacoEditor } from "monaco-editor";
 
 const WORKSPACE_EDITOR_FONT_FAMILY =
   '"SF Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -21,7 +20,7 @@ export interface WorkspaceEditorSettingsSnapshot {
 
 export function createWorkspaceEditorOptions(
   editorSettings: WorkspaceEditorSettingsSnapshot,
-): MonacoEditor.IStandaloneEditorConstructionOptions {
+): import("monaco-editor").editor.IStandaloneEditorConstructionOptions {
   return {
     acceptSuggestionOnCommitCharacter: editorSettings.suggestions,
     acceptSuggestionOnEnter: editorSettings.suggestions ? ("smart" as const) : ("off" as const),
@@ -101,7 +100,7 @@ export function createWorkspaceEditorOptions(
   };
 }
 
-export function createWorkspaceDiffEditorOptions(): MonacoEditor.IDiffEditorConstructionOptions {
+export function createWorkspaceDiffEditorOptions(): import("monaco-editor").editor.IDiffEditorConstructionOptions {
   return {
     automaticLayout: true,
     minimap: { enabled: false },

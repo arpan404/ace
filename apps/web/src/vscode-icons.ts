@@ -91,13 +91,15 @@ function extensionCandidates(fileName: string): string[] {
   if (fileName.includes(".")) {
     candidates.add(fileName);
   }
-  let dotIndex = fileName.indexOf(".");
-  while (dotIndex !== -1 && dotIndex < fileName.length - 1) {
+
+  for (let dotIndex = 0; dotIndex < fileName.length - 1; dotIndex += 1) {
+    if (fileName[dotIndex] !== ".") {
+      continue;
+    }
     const candidate = fileName.slice(dotIndex + 1);
     if (candidate.length > 0) {
       candidates.add(candidate);
     }
-    dotIndex = fileName.indexOf(".", dotIndex + 1);
   }
   return [...candidates];
 }

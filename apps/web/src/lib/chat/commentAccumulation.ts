@@ -39,10 +39,14 @@ export function buildAccumulatedCommentsPrompt(
     ),
     "</accumulated_comments>",
   ].join("\n\n");
-  const hiddenContextBlocks = comments
-    .map((comment) => comment.hiddenContextBlock.trim())
-    .filter((value) => value.length > 0)
-    .join("\n\n");
+  const hiddenContextBlocksParts: string[] = [];
+  for (const comment of comments) {
+    const hiddenContextBlock = comment.hiddenContextBlock.trim();
+    if (hiddenContextBlock.length > 0) {
+      hiddenContextBlocksParts.push(hiddenContextBlock);
+    }
+  }
+  const hiddenContextBlocks = hiddenContextBlocksParts.join("\n\n");
   return [trimmedBasePrompt, commentBlock, hiddenContextBlocks]
     .filter((value) => value.length > 0)
     .join("\n\n");

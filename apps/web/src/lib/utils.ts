@@ -18,7 +18,7 @@ export function isWindowsPlatform(platform: string): boolean {
   return /^win(dows)?/i.test(platform);
 }
 
-export function isLinuxPlatform(platform: string): boolean {
+function isLinuxPlatform(platform: string): boolean {
   return /linux/i.test(platform);
 }
 
@@ -86,7 +86,7 @@ export function clearBootstrapWsUrlQueryParam(): void {
   window.history.replaceState(window.history.state, "", replacement);
 }
 
-export function loadBootstrapWsUrl(): string | undefined {
+function loadBootstrapWsUrl(): string | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }

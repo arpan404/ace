@@ -1,3 +1,4 @@
+/* eslint-disable react-doctor/async-parallel -- Browser interaction tests require sequential event ordering. */
 import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, RuntimeMode, ThreadId } from "@ace/contracts";
 import { buildProviderModelSelection } from "@ace/shared/model";
 import "../../index.css";

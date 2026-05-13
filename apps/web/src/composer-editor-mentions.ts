@@ -26,7 +26,7 @@ export type ComposerPromptSegment =
     };
 
 const MENTION_TOKEN_REGEX = /(^|\s)@([^\s@]+)(?=\s)/g;
-export const COMPOSER_ISSUE_REFERENCE_MARKER = "\u2063";
+const COMPOSER_ISSUE_REFERENCE_MARKER = "\u2063";
 export const COMPOSER_PROVIDER_COMMAND_MARKER = "\u2064";
 const ISSUE_REFERENCE_TOKEN_REGEX = new RegExp(
   `(^|(?:\\s|,|\\(|\\[|\\{))#(\\d+)${COMPOSER_ISSUE_REFERENCE_MARKER}(?=$|(?:\\s|,|\\.|;|:|!|\\?|\\)|\\]|\\}))`,

@@ -1,3 +1,4 @@
+import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,7 +9,7 @@ import {
 } from "./bridgeScripts";
 
 function expectValidInjectedScript(script: string): void {
-  expect(() => new Function(script)).not.toThrow();
+  expect(() => new Script(script)).not.toThrow();
 }
 
 describe("browser bridge scripts", () => {

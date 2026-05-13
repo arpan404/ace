@@ -27,9 +27,7 @@ export function useSidebarThreadSummaryById(
   return useStore(selector);
 }
 
-export function useThreadIdsByProjectId(
-  projectId: Project["id"] | null | undefined,
-): readonly ThreadId[] {
+function useThreadIdsByProjectId(projectId: Project["id"] | null | undefined): readonly ThreadId[] {
   const selector = useMemo(() => selectThreadIdsByProjectId(projectId), [projectId]);
   return useStore(selector);
 }

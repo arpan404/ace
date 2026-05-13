@@ -2,7 +2,11 @@ import type { ProjectEntry } from "@ace/contracts";
 
 import { basenameOfPath } from "~/vscode-icons";
 
-export const MIN_WORKSPACE_REMOTE_SEARCH_QUERY_LENGTH = 2;
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const MIN_WORKSPACE_REMOTE_SEARCH_QUERY_LENGTH = 2;
 
 function scoreSubsequenceMatch(value: string, query: string): number | null {
   if (!query) return 0;
@@ -79,34 +83,39 @@ export function searchWorkspaceEntriesLocally(
     return entries;
   }
 
-  return entries
-    .map((entry) => {
-      const normalizedPath = entry.path.toLowerCase();
-      const normalizedName = basenameOfPath(entry.path).toLowerCase();
-      let score: number | null = null;
+  const pathSegmentMatcher = new RegExp(escapeRegExp(`/${normalizedQuery}`));
+  const queryMatcher = new RegExp(escapeRegExp(normalizedQuery));
 
-      if (normalizedName === normalizedQuery) score = 0;
-      else if (normalizedPath === normalizedQuery) score = 1;
-      else if (normalizedName.startsWith(normalizedQuery)) score = 2;
-      else if (normalizedPath.startsWith(normalizedQuery)) score = 3;
-      else if (normalizedPath.includes(`/${normalizedQuery}`)) score = 4;
-      else if (normalizedName.includes(normalizedQuery)) score = 5;
-      else if (normalizedPath.includes(normalizedQuery)) score = 6;
-      else {
-        const fuzzyNameScore = scoreSubsequenceMatch(normalizedName, normalizedQuery);
-        if (fuzzyNameScore !== null) {
-          score = 100 + fuzzyNameScore;
-        } else {
-          const fuzzyPathScore = scoreSubsequenceMatch(normalizedPath, normalizedQuery);
-          if (fuzzyPathScore !== null) {
-            score = 200 + fuzzyPathScore;
-          }
+  const scoredEntries: Array<{ entry: ProjectEntry; score: number }> = [];
+  for (const entry of entries) {
+    const normalizedPath = entry.path.toLowerCase();
+    const normalizedName = basenameOfPath(entry.path).toLowerCase();
+    let score: number | null = null;
+
+    if (normalizedName === normalizedQuery) score = 0;
+    else if (normalizedPath === normalizedQuery) score = 1;
+    else if (normalizedName.startsWith(normalizedQuery)) score = 2;
+    else if (normalizedPath.startsWith(normalizedQuery)) score = 3;
+    else if (pathSegmentMatcher.test(normalizedPath)) score = 4;
+    else if (queryMatcher.test(normalizedName)) score = 5;
+    else if (queryMatcher.test(normalizedPath)) score = 6;
+    else {
+      const fuzzyNameScore = scoreSubsequenceMatch(normalizedName, normalizedQuery);
+      if (fuzzyNameScore !== null) {
+        score = 100 + fuzzyNameScore;
+      } else {
+        const fuzzyPathScore = scoreSubsequenceMatch(normalizedPath, normalizedQuery);
+        if (fuzzyPathScore !== null) {
+          score = 200 + fuzzyPathScore;
         }
       }
+    }
 
-      return score === null ? null : { entry, score };
-    })
-    .filter((value): value is { entry: ProjectEntry; score: number } => value !== null)
+    if (score !== null) {
+      scoredEntries.push({ entry, score });
+    }
+  }
+  return scoredEntries
     .toSorted(
       (left, right) => left.score - right.score || left.entry.path.localeCompare(right.entry.path),
     )

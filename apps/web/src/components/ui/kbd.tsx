@@ -25,4 +25,4 @@ function KbdGroup({ className, ...props }: React.ComponentProps<"kbd">) {
   );
 }
 
-export { Kbd, KbdGroup };
+export { Kbd };

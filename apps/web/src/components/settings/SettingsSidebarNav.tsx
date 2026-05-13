@@ -27,12 +27,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SETTINGS_NAV_GROUPS, SETTINGS_NAV_ITEMS } from "./settingsNavigation";
 import type { SettingsSectionPath } from "./settingsNavigation";
 
-export {
-  type SettingsSectionPath,
-  SETTINGS_NAV_ITEMS,
-  getSettingsNavItem,
-} from "./settingsNavigation";
-
 const SETTINGS_NAV_ICON_BY_PATH = {
   "/settings/general": Settings2Icon,
   "/settings/browser": Globe2Icon,

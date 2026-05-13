@@ -109,13 +109,4 @@ function PopoverDescription({ className, ...props }: PopoverPrimitive.Descriptio
   );
 }
 
-export {
-  PopoverCreateHandle,
-  Popover,
-  PopoverTrigger,
-  PopoverPopup,
-  PopoverPopup as PopoverContent,
-  PopoverTitle,
-  PopoverDescription,
-  PopoverClose,
-};
+export { Popover, PopoverTrigger, PopoverPopup };

@@ -1,3 +1,4 @@
+/* eslint-disable react-doctor/async-parallel -- UI interaction timing assertions intentionally run sequentially in browser tests. */
 import "../../index.css";
 
 import {

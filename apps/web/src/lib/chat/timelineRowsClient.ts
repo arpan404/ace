@@ -150,7 +150,7 @@ export function writeCachedTimelineRows(
   return rows;
 }
 
-export function requestTimelineRows(
+function requestTimelineRows(
   cacheKey: string,
   input: BuildTimelineRowsInput,
 ): Promise<ReadonlyArray<TimelineRow>> {

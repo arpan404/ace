@@ -100,40 +100,44 @@ export async function fetchGitHubIssueMarkdownImages(
   thread: GitHubIssueThread,
 ): Promise<ComposerImageAttachment[]> {
   const urls = collectMarkdownImageUrlsFromThread(thread);
-  const attachments: ComposerImageAttachment[] = [];
+  const attachmentPromises = urls.map((url, index) =>
+    fetch(url, { credentials: "omit", mode: "cors" })
+      .then((response) => {
+        if (!response.ok) {
+          return null;
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        if (blob === null) {
+          return null;
+        }
+        if (!blob.type.startsWith("image/")) {
+          return null;
+        }
+        if (blob.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+          return null;
+        }
+        const ext = extensionFromMime(blob.type);
+        const file = new File([blob], `github-issue-${thread.number}-${index + 1}.${ext}`, {
+          type: blob.type,
+        });
+        const previewUrl = URL.createObjectURL(file);
+        return {
+          type: "image" as const,
+          id: randomUUID(),
+          name: file.name,
+          mimeType: file.type,
+          sizeBytes: file.size,
+          previewUrl,
+          file,
+        };
+      })
+      .catch(() => null),
+  );
 
-  for (let index = 0; index < urls.length; index += 1) {
-    const url = urls[index]!;
-    try {
-      const response = await fetch(url, { credentials: "omit", mode: "cors" });
-      if (!response.ok) {
-        continue;
-      }
-      const blob = await response.blob();
-      if (!blob.type.startsWith("image/")) {
-        continue;
-      }
-      if (blob.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
-        continue;
-      }
-      const ext = extensionFromMime(blob.type);
-      const file = new File([blob], `github-issue-${thread.number}-${index + 1}.${ext}`, {
-        type: blob.type,
-      });
-      const previewUrl = URL.createObjectURL(file);
-      attachments.push({
-        type: "image",
-        id: randomUUID(),
-        name: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
-        previewUrl,
-        file,
-      });
-    } catch {
-      continue;
-    }
-  }
-
+  const attachments = (await Promise.all(attachmentPromises)).filter(
+    (attachment): attachment is ComposerImageAttachment => attachment !== null,
+  );
   return attachments;
 }

@@ -464,13 +464,26 @@ export function deriveWorkLogEntries(
   latestTurnId?: TurnId | undefined,
 ): WorkLogEntry[] {
   const ordered = ensureActivitiesOrdered(activities);
-  const entries = ordered
-    .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
-    .filter(isRenderableWorkLogActivity)
-    .map(toDerivedWorkLogEntry);
-  return collapseDerivedWorkLogEntries(entries).map(
-    ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
-  );
+  const entries: DerivedWorkLogEntry[] = [];
+  for (const activity of ordered) {
+    if (latestTurnId && activity.turnId !== latestTurnId) {
+      continue;
+    }
+    if (!isRenderableWorkLogActivity(activity)) {
+      continue;
+    }
+    entries.push(toDerivedWorkLogEntry(activity));
+  }
+  const collapsedEntries = collapseDerivedWorkLogEntries(entries);
+  const normalizedEntries: WorkLogEntry[] = [];
+  for (const {
+    activityKind: _activityKind,
+    collapseKey: _collapseKey,
+    ...entry
+  } of collapsedEntries) {
+    normalizedEntries.push(entry);
+  }
+  return normalizedEntries;
 }
 
 export function hasToolActivityForTurn(

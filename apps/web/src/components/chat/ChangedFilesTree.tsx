@@ -30,12 +30,40 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
       ),
     [allDirectoriesExpanded, directoryPathsKey],
   );
-  const [expandedDirectories, setExpandedDirectories] = useState<Record<string, boolean>>(() =>
-    buildDirectoryExpansionState(directoryPathsKey ? directoryPathsKey.split("\u0000") : [], false),
+  const resetKey = `${allDirectoriesExpanded ? "expanded" : "collapsed"}:${directoryPathsKey}`;
+
+  return (
+    <ChangedFilesTreeContent
+      key={resetKey}
+      allDirectoryExpansionState={allDirectoryExpansionState}
+      onOpenTurnDiff={onOpenTurnDiff}
+      resolvedTheme={resolvedTheme}
+      treeNodes={treeNodes}
+      turnId={turnId}
+      {...(onLayoutChange ? { onLayoutChange } : {})}
+    />
   );
-  useEffect(() => {
-    setExpandedDirectories(allDirectoryExpansionState);
-  }, [allDirectoryExpansionState]);
+});
+
+const ChangedFilesTreeContent = memo(function ChangedFilesTreeContent(props: {
+  turnId: TurnId;
+  treeNodes: ReadonlyArray<TurnDiffTreeNode>;
+  allDirectoryExpansionState: Record<string, boolean>;
+  resolvedTheme: "light" | "dark";
+  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onLayoutChange?: () => void;
+}) {
+  const {
+    allDirectoryExpansionState,
+    onLayoutChange,
+    onOpenTurnDiff,
+    resolvedTheme,
+    treeNodes,
+    turnId,
+  } = props;
+  const [expandedDirectories, setExpandedDirectories] = useState<Record<string, boolean>>(
+    allDirectoryExpansionState,
+  );
   useEffect(() => {
     onLayoutChange?.();
   }, [expandedDirectories, onLayoutChange]);

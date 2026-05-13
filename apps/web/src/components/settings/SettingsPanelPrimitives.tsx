@@ -231,7 +231,7 @@ export function SettingsRow({
               {title}
             </h3>
             {resetAction ? (
-              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+              <span className="inline-flex size-5 shrink-0 items-center justify-center">
                 {resetAction}
               </span>
             ) : null}

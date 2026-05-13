@@ -6,8 +6,8 @@ export type ThreadWorkspaceLayoutMode = Exclude<ThreadWorkspaceMode, "chat">;
 export const THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY = "ace:workspace:mode-by-thread:v1";
 export const THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY = "ace:workspace:layout-by-thread:v1";
 
-export const ThreadWorkspaceModeSchema = Schema.Literals(["chat", "editor", "split"]);
-export const ThreadWorkspaceLayoutModeSchema = Schema.Literals(["editor", "split"]);
+const ThreadWorkspaceModeSchema = Schema.Literals(["chat", "editor", "split"]);
+const ThreadWorkspaceLayoutModeSchema = Schema.Literals(["editor", "split"]);
 export const ThreadWorkspaceModeByThreadIdSchema = Schema.Record(
   Schema.String,
   ThreadWorkspaceModeSchema,

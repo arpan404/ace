@@ -68,13 +68,21 @@ export function buildGitHubIssueContextBlock(issue: GitHubIssue): string {
   return buildGitHubIssueThreadContextBlock({ ...issue, comments: [] });
 }
 
-export function buildGitHubIssueThreadContextBlock(thread: GitHubIssueThread): string {
-  const labels = thread.labels
-    .map((label) => normalizeIssueText(label.name).trim())
-    .filter((label) => label.length > 0);
-  const assignees = thread.assignees
-    .map((assignee) => normalizeIssueText(assignee.login).trim())
-    .filter((assignee) => assignee.length > 0);
+function buildGitHubIssueThreadContextBlock(thread: GitHubIssueThread): string {
+  const labels: string[] = [];
+  for (const label of thread.labels) {
+    const normalizedLabel = normalizeIssueText(label.name).trim();
+    if (normalizedLabel.length > 0) {
+      labels.push(normalizedLabel);
+    }
+  }
+  const assignees: string[] = [];
+  for (const assignee of thread.assignees) {
+    const normalizedAssignee = normalizeIssueText(assignee.login).trim();
+    if (normalizedAssignee.length > 0) {
+      assignees.push(normalizedAssignee);
+    }
+  }
   const authorLogin = thread.author ? normalizeIssueText(thread.author.login).trim() : "";
   const normalizedBody = normalizeIssueText(thread.body ?? "").trim();
 

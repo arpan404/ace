@@ -50,9 +50,16 @@ export function asTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const EMBEDDED_WORK_LOG_PATTERNS = (["intent", "goal", "explanation", "summary"] as const).map(
+  (key) => ({
+    key,
+    pattern: new RegExp(`["']${key}["']\\s*:\\s*["']([^"']+)["']`, "i"),
+  }),
+);
+
 function extractEmbeddedWorkLogText(value: string): string | null {
-  for (const key of ["intent", "goal", "explanation", "summary"] as const) {
-    const match = new RegExp(`["']${key}["']\\s*:\\s*["']([^"']+)["']`, "i").exec(value);
+  for (const { pattern } of EMBEDDED_WORK_LOG_PATTERNS) {
+    const match = pattern.exec(value);
     const extracted = asTrimmedString(match?.[1]);
     if (extracted) {
       return extracted;
@@ -242,9 +249,13 @@ function normalizeCommandValue(value: unknown): string | null {
   if (!Array.isArray(value)) {
     return null;
   }
-  const parts = value
-    .map((entry) => asTrimmedString(entry))
-    .filter((entry): entry is string => entry !== null);
+  const parts: string[] = [];
+  for (const entry of value) {
+    const normalized = asTrimmedString(entry);
+    if (normalized !== null) {
+      parts.push(normalized);
+    }
+  }
   return parts.length > 0 ? parts.join(" ") : null;
 }
 

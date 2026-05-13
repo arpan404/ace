@@ -13,8 +13,9 @@ import {
   trackActiveThread,
   togglePinnedProject,
   togglePinnedThread,
-  type UiState,
 } from "./uiStateStore";
+
+type UiState = Parameters<typeof markThreadUnread>[0];
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {

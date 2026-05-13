@@ -254,18 +254,11 @@ const useAutocompleteFilter = AutocompletePrimitive.useFilter;
 export {
   Autocomplete,
   AutocompleteInput,
-  AutocompleteTrigger,
-  AutocompletePopup,
   AutocompleteItem,
   AutocompleteSeparator,
   AutocompleteGroup,
   AutocompleteGroupLabel,
   AutocompleteEmpty,
-  AutocompleteValue,
   AutocompleteList,
-  AutocompleteClear,
-  AutocompleteStatus,
-  AutocompleteRow,
   AutocompleteCollection,
-  useAutocompleteFilter,
 };

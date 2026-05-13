@@ -265,11 +265,11 @@ function useClientSettingsValue<T>(selector: (settings: ClientSettings) => T): T
   );
 }
 
-export function useClientSetting<K extends keyof ClientSettings>(key: K): ClientSettings[K] {
+function useClientSetting<K extends keyof ClientSettings>(key: K): ClientSettings[K] {
   return useClientSettingsValue((settings) => settings[key]);
 }
 
-export function useScopedSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
+function useScopedSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
   const clientValue = useClientSettingsValue(
     (settings) => settings[key as keyof ClientSettings] as UnifiedSettings[K] | undefined,
   );
@@ -332,7 +332,7 @@ export function useUpdateSettings() {
 
 // ── One-time migration from localStorage ─────────────────────────────
 
-export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<string, unknown>) {
+function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<string, unknown>) {
   const patch: DeepMutable<ServerSettingsPatch> = {};
 
   if (Predicate.isBoolean(legacySettings.enableAssistantStreaming)) {

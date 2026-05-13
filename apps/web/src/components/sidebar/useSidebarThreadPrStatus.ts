@@ -44,17 +44,15 @@ export function useSidebarThreadPrStatus(
       })),
     [input.projectCwdById, visibleSidebarThreads],
   );
-  const threadGitStatusCwds = useMemo(
-    () => [
-      ...new Set(
-        threadGitTargets
-          .filter((target) => target.branch !== null)
-          .map((target) => target.cwd)
-          .filter((cwd): cwd is string => cwd !== null),
-      ),
-    ],
-    [threadGitTargets],
-  );
+  const threadGitStatusCwds = useMemo(() => {
+    const cwdSet = new Set<string>();
+    for (const target of threadGitTargets) {
+      if (target.branch !== null && target.cwd !== null) {
+        cwdSet.add(target.cwd);
+      }
+    }
+    return [...cwdSet];
+  }, [threadGitTargets]);
   const threadGitStatusQueries = useQueries({
     queries: threadGitStatusCwds.map((cwd) => ({
       ...gitStatusQueryOptions(cwd),

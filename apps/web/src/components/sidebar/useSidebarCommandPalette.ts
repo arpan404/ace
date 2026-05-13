@@ -146,10 +146,13 @@ export function useSidebarCommandPalette(
       return resolveIsoTimestamp(thread.updatedAt);
     };
 
-    const remoteProjectSnapshots: CombinedSidebarSnapshotProject[] = input.remoteSidebarHosts
-      .filter((entry) => entry.status === "available")
-      .flatMap((entry) =>
-        entry.projects.map((project) => ({
+    const remoteProjectSnapshots: CombinedSidebarSnapshotProject[] = [];
+    for (const entry of input.remoteSidebarHosts) {
+      if (entry.status !== "available") {
+        continue;
+      }
+      for (const project of entry.projects) {
+        remoteProjectSnapshots.push({
           id: project.id,
           name: project.name,
           cwd: project.cwd,
@@ -159,8 +162,9 @@ export function useSidebarCommandPalette(
           defaultModelSelection: project.defaultModelSelection,
           connectionUrl: entry.connectionUrl,
           threads: project.threads,
-        })),
-      );
+        });
+      }
+    }
     const projects = [...localProjectSnapshots, ...remoteProjectSnapshots].toSorted(
       (left, right) => {
         const leftTs = resolveProjectSortTimestamp(left, input.projectSortOrder);
