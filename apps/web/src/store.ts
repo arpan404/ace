@@ -2067,9 +2067,6 @@ export const selectSidebarThreadSummariesByProjectId = (
   projectId: ProjectId | null | undefined,
 ) => {
   let previousThreadIds: readonly ThreadId[] = EMPTY_THREAD_IDS;
-  let previousSidebarThreadsById: Readonly<
-    Record<string, SidebarThreadSummary | undefined>
-  > | null = null;
   let previousResult: readonly SidebarThreadSummary[] = EMPTY_SIDEBAR_THREAD_SUMMARIES;
 
   return (state: AppState): readonly SidebarThreadSummary[] => {
@@ -2078,8 +2075,18 @@ export const selectSidebarThreadSummariesByProjectId = (
     }
     const threadIds = state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS;
     const sidebarThreadsById = state.sidebarThreadsById;
-    if (threadIds === previousThreadIds && sidebarThreadsById === previousSidebarThreadsById) {
-      return previousResult;
+    if (threadIds === previousThreadIds && threadIds.length === previousResult.length) {
+      let projectThreadsUnchanged = true;
+      for (let index = 0; index < threadIds.length; index += 1) {
+        const threadId = threadIds[index];
+        if (threadId === undefined || sidebarThreadsById[threadId] !== previousResult[index]) {
+          projectThreadsUnchanged = false;
+          break;
+        }
+      }
+      if (projectThreadsUnchanged) {
+        return previousResult;
+      }
     }
 
     let changed = threadIds.length !== previousResult.length;
@@ -2098,7 +2105,6 @@ export const selectSidebarThreadSummariesByProjectId = (
     }
 
     previousThreadIds = threadIds;
-    previousSidebarThreadsById = sidebarThreadsById;
     if (!changed && nextResult.length === previousResult.length) {
       return previousResult;
     }
