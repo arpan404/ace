@@ -310,7 +310,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     ).toBe(2);
   });
 
-  it("avoids the virtualized buffer while the active turn is in progress", async () => {
+  it("keeps historical rows virtualized while the active turn is in progress", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const timelineEntries = Array.from({ length: 24 }, (_, index) => ({
       id: `entry-${index + 1}`,
@@ -375,34 +375,41 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(activeTurnMarkup).not.toContain('data-virtualizer-buffer="true"');
+    expect(activeTurnMarkup).toContain('data-virtualizer-buffer="true"');
     expect(idleTurnMarkup).toContain('data-virtualizer-buffer="true"');
   });
 
-  it("does not render an empty virtualized buffer before the virtualizer has a mounted range", async () => {
+  it("renders the virtualized buffer whenever historical rows exist", async () => {
     const { shouldRenderTimelineVirtualizedBuffer } = await import("./MessagesTimeline");
 
     expect(
       shouldRenderTimelineVirtualizedBuffer({
-        activeTurnInProgress: false,
         virtualizedRowCount: 24,
-        virtualItemCount: 0,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRenderTimelineVirtualizedBuffer({
-        activeTurnInProgress: false,
-        virtualizedRowCount: 24,
-        virtualItemCount: 4,
       }),
     ).toBe(true);
     expect(
       shouldRenderTimelineVirtualizedBuffer({
-        activeTurnInProgress: true,
-        virtualizedRowCount: 24,
-        virtualItemCount: 4,
+        virtualizedRowCount: 0,
       }),
     ).toBe(false);
+  });
+
+  it("derives a concrete fallback virtual range when the virtualizer has not mounted items yet", async () => {
+    const { deriveFallbackTimelineVirtualItems } = await import("./MessagesTimeline");
+
+    const items = deriveFallbackTimelineVirtualItems({
+      rowCount: 100,
+      estimateSize: () => 50,
+      getItemKey: (index) => `row-${index}`,
+      overscan: 2,
+      scrollTop: 2_250,
+      viewportHeight: 500,
+    });
+
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]?.index).toBeLessThanOrEqual(43);
+    expect(items.at(-1)?.index).toBeGreaterThanOrEqual(55);
+    expect(items.every((item) => item.start >= 0 && item.end > item.start)).toBe(true);
   });
 
   it("renders inline terminal labels with the composer chip UI", async () => {

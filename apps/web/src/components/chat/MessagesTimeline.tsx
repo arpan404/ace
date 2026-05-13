@@ -117,6 +117,7 @@ const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
@@ -160,11 +161,77 @@ function canResolveTimelineRowsInWorker(): boolean {
 }
 
 export function shouldRenderTimelineVirtualizedBuffer(input: {
-  readonly activeTurnInProgress: boolean;
   readonly virtualizedRowCount: number;
-  readonly virtualItemCount: number;
 }): boolean {
-  return input.virtualizedRowCount > 0 && !input.activeTurnInProgress && input.virtualItemCount > 0;
+  return input.virtualizedRowCount > 0;
+}
+
+export function deriveFallbackTimelineVirtualItems(input: {
+  readonly rowCount: number;
+  readonly estimateSize: (index: number) => number;
+  readonly getItemKey: (index: number) => VirtualItem["key"];
+  readonly overscan: number;
+  readonly scrollTop: number;
+  readonly viewportHeight: number;
+}): VirtualItem[] {
+  if (input.rowCount <= 0) {
+    return [];
+  }
+
+  const viewportHeight = Math.max(1, input.viewportHeight);
+  const starts: number[] = [];
+  const sizes: number[] = [];
+  let totalSize = 0;
+  for (let index = 0; index < input.rowCount; index += 1) {
+    const rawSize = input.estimateSize(index);
+    const size = Number.isFinite(rawSize) && rawSize > 0 ? rawSize : 96;
+    starts.push(totalSize);
+    sizes.push(size);
+    totalSize += size;
+  }
+
+  const maxScrollTop = Math.max(totalSize - viewportHeight, 0);
+  const scrollTop = Math.min(Math.max(input.scrollTop, 0), maxScrollTop);
+  const visibleStart = Math.max(scrollTop - viewportHeight, 0);
+  const visibleEnd = Math.min(scrollTop + viewportHeight * 2, totalSize);
+
+  let startIndex = 0;
+  while (
+    startIndex < input.rowCount - 1 &&
+    (starts[startIndex] ?? 0) + (sizes[startIndex] ?? 0) < visibleStart
+  ) {
+    startIndex += 1;
+  }
+
+  let endIndex = startIndex;
+  while (endIndex < input.rowCount - 1 && (starts[endIndex] ?? 0) <= visibleEnd) {
+    endIndex += 1;
+  }
+
+  startIndex = Math.max(0, startIndex - input.overscan);
+  endIndex = Math.min(input.rowCount - 1, endIndex + input.overscan);
+
+  if (endIndex - startIndex + 1 < TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS) {
+    const missingRows = TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS - (endIndex - startIndex + 1);
+    const prependRows = Math.min(startIndex, Math.floor(missingRows / 2));
+    startIndex -= prependRows;
+    endIndex = Math.min(input.rowCount - 1, endIndex + missingRows - prependRows);
+  }
+
+  const items: VirtualItem[] = [];
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const start = starts[index] ?? 0;
+    const size = sizes[index] ?? 96;
+    items.push({
+      key: input.getItemKey(index),
+      index,
+      start,
+      end: start + size,
+      size,
+      lane: 0,
+    });
+  }
+  return items;
 }
 
 function assistantImageGenerationDimensionsFromMessageId(
@@ -535,18 +602,42 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
-  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0 && !activeTurnInProgress;
+  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
   const shouldPrewarmAssistantMarkdown =
     shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
+  const fallbackVirtualItems = useMemo(() => {
+    if (!shouldUseVirtualizedBuffer || virtualItems.length > 0) {
+      return [];
+    }
+    const scrollContainer = getScrollContainer();
+    return deriveFallbackTimelineVirtualItems({
+      rowCount: virtualizedRows.length,
+      estimateSize: estimateVirtualizedRowSize,
+      getItemKey: getVirtualRowKey,
+      overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
+      scrollTop: scrollContainer?.scrollTop ?? Number.POSITIVE_INFINITY,
+      viewportHeight: scrollContainer?.clientHeight ?? TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX,
+    });
+  }, [
+    estimateVirtualizedRowSize,
+    getScrollContainer,
+    getVirtualRowKey,
+    shouldUseVirtualizedBuffer,
+    virtualItems.length,
+    virtualizedRows.length,
+  ]);
+  const renderedVirtualItems = virtualItems.length > 0 ? virtualItems : fallbackVirtualItems;
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
-    activeTurnInProgress,
     virtualizedRowCount: virtualizedRows.length,
-    virtualItemCount: virtualItems.length,
   });
+  const virtualizedBufferHeight =
+    renderedVirtualItems.length > 0
+      ? Math.max(rowVirtualizer.getTotalSize(), renderedVirtualItems.at(-1)?.end ?? 0)
+      : rowVirtualizer.getTotalSize();
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
-    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
+    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(renderedVirtualItems, virtualizedRows)
     : [];
   const mountedVirtualizedAssistantMarkdownMessageIdKey =
     mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
@@ -1188,9 +1279,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         <div
           data-virtualizer-buffer="true"
           className="relative"
-          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          style={{ height: `${virtualizedBufferHeight}px` }}
         >
-          {virtualItems.map((virtualRow) => {
+          {renderedVirtualItems.map((virtualRow) => {
             const row = virtualizedRows[virtualRow.index];
             if (!row) {
               return null;
