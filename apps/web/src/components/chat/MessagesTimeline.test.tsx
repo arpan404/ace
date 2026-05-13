@@ -361,7 +361,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         completionDividerBeforeEntryId={null}
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:command-card": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -1346,6 +1346,60 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Running format &amp; checks");
     expect(markup).not.toContain("cat package.json");
+  });
+
+  it("renders command work entries as shell cards with status and output", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "command-card",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "command-card",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Ran command bun run check",
+              toolTitle: "Run command",
+              command: "bun run check",
+              terminalOutput: "Format issues found in above 1 files.",
+              status: "failed",
+              exitCode: 1,
+              durationMs: 191,
+              itemType: "command_execution",
+              requestKind: "command",
+              tone: "tool",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{ "work-group:command-card": true }}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Ran command for 191ms");
+    expect(markup).toContain("Shell");
+    expect(markup).toContain("bun run check");
+    expect(markup).toContain("Format issues found");
+    expect(markup).toContain("Exit code 1");
   });
 
   it("collapses completed tool-only runs until expanded", async () => {

@@ -149,9 +149,14 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? (activity.payload as Record<string, unknown>)
       : null;
   const command = extractToolCommand(payload);
+  const terminalOutput = extractTerminalOutput(payload);
   const rawChangedFiles = extractChangedFiles(payload);
+  const rawChangedFileStats = extractChangedFileStats(payload);
   const title = extractToolTitle(payload);
   const embeddedIntentText = extractEmbeddedIntentText(payload);
+  const status = extractToolStatus(payload);
+  const exitCode = extractToolExitCode(payload);
+  const durationMs = extractToolDurationMs(payload);
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
@@ -175,6 +180,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
   const changedFiles = requestKind === "file-change" ? rawChangedFiles : [];
+  const changedFileStats =
+    requestKind === "file-change"
+      ? rawChangedFileStats.filter((stat) => changedFiles.includes(stat.path))
+      : [];
   const isRuntimeDiagnostic =
     activity.kind === "runtime.error" || activity.kind === "runtime.warning";
   if (isRuntimeDiagnostic && payload) {
@@ -188,7 +197,11 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     }
     const rawDetail = payload.detail;
     if (typeof rawDetail === "string" && rawDetail.trim()) {
-      const cleaned = stripTrailingExitCode(sanitizeWorkLogText(rawDetail)).output;
+      const stripped = stripTrailingExitCode(sanitizeWorkLogText(rawDetail));
+      const cleaned = stripped.output;
+      if (stripped.exitCode !== undefined && entry.exitCode === undefined) {
+        entry.exitCode = stripped.exitCode;
+      }
       if (cleaned && cleaned !== rawMessage) {
         parts.push(cleaned);
       }
@@ -204,9 +217,13 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     }
   } else if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
     const extractedDetail = extractToolDetail(payload);
-    const detail = extractedDetail
-      ? stripTrailingExitCode(sanitizeWorkLogText(extractedDetail)).output
+    const stripped = extractedDetail
+      ? stripTrailingExitCode(sanitizeWorkLogText(extractedDetail))
       : null;
+    const detail = stripped?.output ?? null;
+    if (stripped?.exitCode !== undefined && entry.exitCode === undefined) {
+      entry.exitCode = stripped.exitCode;
+    }
     if (detail) {
       entry.detail = detail;
     }
@@ -222,11 +239,29 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (command) {
     entry.command = command;
   }
+  if (terminalOutput) {
+    entry.terminalOutput = terminalOutput;
+  }
+  if (payload?.terminalOutputTruncated === true) {
+    entry.terminalOutputTruncated = true;
+  }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
   }
+  if (changedFileStats.length > 0) {
+    entry.changedFileStats = changedFileStats;
+  }
   if (title) {
     entry.toolTitle = title;
+  }
+  if (status) {
+    entry.status = status;
+  }
+  if (exitCode !== undefined) {
+    entry.exitCode = exitCode;
+  }
+  if (durationMs !== undefined) {
+    entry.durationMs = durationMs;
   }
   if (itemType) {
     entry.itemType = itemType;
@@ -335,24 +370,267 @@ function mergeDerivedWorkLogEntries(
       ? mergeThinkingWorkLogDetail(previous.detail, next.detail)
       : (next.detail ?? previous.detail);
   const command = next.command ?? previous.command;
+  const terminalOutput = mergeTerminalOutput(previous.terminalOutput, next.terminalOutput);
+  const terminalOutputTruncated =
+    previous.terminalOutputTruncated === true || next.terminalOutputTruncated === true;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
+  const label = shouldPreservePreviousToolLabel(previous, next) ? previous.label : next.label;
   const itemType = next.itemType ?? previous.itemType;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
+  const changedFileStats = mergeChangedFileStats(previous.changedFileStats, next.changedFileStats);
+  const status = next.status ?? previous.status;
+  const exitCode = next.exitCode ?? previous.exitCode;
+  const durationMs = next.durationMs ?? previous.durationMs;
   return {
     ...previous,
     ...next,
+    label,
     createdAt: previous.createdAt,
     ...(previous.sequence !== undefined || next.sequence !== undefined
       ? { sequence: previous.sequence ?? next.sequence }
       : {}),
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
+    ...(terminalOutput ? { terminalOutput } : {}),
+    ...(terminalOutputTruncated ? { terminalOutputTruncated } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    ...(changedFileStats.length > 0 ? { changedFileStats } : {}),
     ...(toolTitle ? { toolTitle } : {}),
+    ...(status ? { status } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
     ...(collapseKey ? { collapseKey } : {}),
   };
+}
+
+function shouldPreservePreviousToolLabel(
+  previous: DerivedWorkLogEntry,
+  next: DerivedWorkLogEntry,
+): boolean {
+  if (!isToolLifecycleActivityKind(previous.activityKind)) {
+    return false;
+  }
+  const normalizedNextLabel = next.label.toLowerCase();
+  return (
+    normalizedNextLabel === "command output" ||
+    normalizedNextLabel === "file output" ||
+    normalizedNextLabel === "tool"
+  );
+}
+
+function extractToolStatus(
+  payload: Record<string, unknown> | null,
+): WorkLogEntry["status"] | undefined {
+  const status = asTrimmedString(payload?.status);
+  if (status === "inProgress" || status === "completed" || status === "failed") {
+    return status;
+  }
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const itemStatus = asTrimmedString(item?.status);
+  if (itemStatus === "inProgress" || itemStatus === "completed" || itemStatus === "failed") {
+    return itemStatus;
+  }
+  if (itemStatus === "error") {
+    return "failed";
+  }
+  return undefined;
+}
+
+function asFiniteInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : undefined;
+}
+
+function extractToolExitCode(payload: Record<string, unknown> | null): number | undefined {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const result = asRecord(item?.result) ?? asRecord(data?.result);
+  const output = asRecord(item?.output) ?? asRecord(data?.output) ?? asRecord(result?.output);
+  return (
+    asFiniteInteger(payload?.exitCode) ??
+    asFiniteInteger(data?.exitCode) ??
+    asFiniteInteger(data?.exit_code) ??
+    asFiniteInteger(item?.exitCode) ??
+    asFiniteInteger(item?.exit_code) ??
+    asFiniteInteger(result?.exitCode) ??
+    asFiniteInteger(result?.exit_code) ??
+    asFiniteInteger(output?.exitCode) ??
+    asFiniteInteger(output?.exit_code)
+  );
+}
+
+function extractToolDurationMs(payload: Record<string, unknown> | null): number | undefined {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const result = asRecord(item?.result) ?? asRecord(data?.result);
+  const duration =
+    asFiniteInteger(payload?.durationMs) ??
+    asFiniteInteger(payload?.duration_ms) ??
+    asFiniteInteger(data?.durationMs) ??
+    asFiniteInteger(data?.duration_ms) ??
+    asFiniteInteger(item?.durationMs) ??
+    asFiniteInteger(item?.duration_ms) ??
+    asFiniteInteger(result?.durationMs) ??
+    asFiniteInteger(result?.duration_ms);
+  return duration !== undefined && duration >= 0 ? duration : undefined;
+}
+
+function extractTerminalOutput(payload: Record<string, unknown> | null): string | null {
+  const direct = terminalOutputString(payload?.terminalOutput);
+  if (direct !== null) {
+    return direct;
+  }
+
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const result = asRecord(item?.result) ?? asRecord(data?.result);
+  const output = asRecord(item?.output) ?? asRecord(data?.output) ?? asRecord(result?.output);
+  for (const candidate of [
+    item?.aggregatedOutput,
+    item?.aggregated_output,
+    result?.aggregatedOutput,
+    result?.aggregated_output,
+    output?.aggregatedOutput,
+    output?.aggregated_output,
+    data?.aggregatedOutput,
+    data?.aggregated_output,
+    output?.text,
+    result?.text,
+  ]) {
+    const normalized = terminalOutputString(candidate);
+    if (normalized !== null) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function terminalOutputString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.replace(/\r\n?/g, "\n");
+  return normalized.trim().length > 0 ? normalized : null;
+}
+
+function mergeTerminalOutput(
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!previous) {
+    return next;
+  }
+  if (!next) {
+    return previous;
+  }
+  if (next.startsWith(previous)) {
+    return next;
+  }
+  if (previous.endsWith(next)) {
+    return previous;
+  }
+  return `${previous}${next}`;
+}
+
+function extractChangedFileStats(
+  payload: Record<string, unknown> | null,
+): Array<{ path: string; additions?: number; deletions?: number }> {
+  const stats: Array<{ path: string; additions?: number; deletions?: number }> = [];
+  const byPath = new Map<string, { path: string; additions?: number; deletions?: number }>();
+  collectChangedFileStats(asRecord(payload?.data), byPath, 0);
+  for (const stat of byPath.values()) {
+    stats.push(stat);
+  }
+  return stats;
+}
+
+function collectChangedFileStats(
+  value: unknown,
+  byPath: Map<string, { path: string; additions?: number; deletions?: number }>,
+  depth: number,
+) {
+  if (depth > 5 || byPath.size >= 12) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectChangedFileStats(entry, byPath, depth + 1);
+      if (byPath.size >= 12) {
+        return;
+      }
+    }
+    return;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return;
+  }
+
+  const path =
+    asTrimmedString(record.path) ??
+    asTrimmedString(record.filePath) ??
+    asTrimmedString(record.file_path) ??
+    asTrimmedString(record.relativePath) ??
+    asTrimmedString(record.absolutePath) ??
+    asTrimmedString(record.filename);
+  if (path) {
+    const additions =
+      asFiniteInteger(record.additions) ??
+      asFiniteInteger(record.added) ??
+      asFiniteInteger(record.linesAdded);
+    const deletions =
+      asFiniteInteger(record.deletions) ??
+      asFiniteInteger(record.deleted) ??
+      asFiniteInteger(record.linesDeleted);
+    if (additions !== undefined || deletions !== undefined) {
+      const existing = byPath.get(path);
+      byPath.set(path, {
+        path,
+        additions: Math.max(existing?.additions ?? 0, additions ?? 0),
+        deletions: Math.max(existing?.deletions ?? 0, deletions ?? 0),
+      });
+    }
+  }
+
+  for (const nestedKey of [
+    "item",
+    "result",
+    "input",
+    "arguments",
+    "data",
+    "rawOutput",
+    "changes",
+    "files",
+    "locations",
+    "edits",
+  ] as const) {
+    if (!(nestedKey in record)) {
+      continue;
+    }
+    collectChangedFileStats(record[nestedKey], byPath, depth + 1);
+    if (byPath.size >= 12) {
+      return;
+    }
+  }
+}
+
+function mergeChangedFileStats(
+  previous: WorkLogEntry["changedFileStats"],
+  next: WorkLogEntry["changedFileStats"],
+): Array<{ path: string; additions?: number; deletions?: number }> {
+  const byPath = new Map<string, { path: string; additions?: number; deletions?: number }>();
+  for (const stat of [...(previous ?? []), ...(next ?? [])]) {
+    const existing = byPath.get(stat.path);
+    byPath.set(stat.path, {
+      path: stat.path,
+      additions: Math.max(existing?.additions ?? 0, stat.additions ?? 0),
+      deletions: Math.max(existing?.deletions ?? 0, stat.deletions ?? 0),
+    });
+  }
+  return [...byPath.values()];
 }
 
 function mergeThinkingWorkLogDetail(

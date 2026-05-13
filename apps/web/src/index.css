@@ -850,13 +850,26 @@ label:has(> select#reasoning-effort) select {
   margin-top: 0.2rem;
 }
 
-.chat-markdown a {
+.chat-markdown a,
+.chat-markdown .chat-markdown-link-button {
   color: var(--info-foreground);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--info-foreground) 35%, transparent);
+  text-underline-offset: 2px;
 }
 
-.chat-markdown a:hover {
+.chat-markdown .chat-markdown-link-button {
+  display: inline;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.chat-markdown a:hover,
+.chat-markdown .chat-markdown-link-button:hover {
   opacity: 0.8;
 }
 

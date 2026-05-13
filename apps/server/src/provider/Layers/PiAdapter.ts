@@ -90,6 +90,8 @@ type PiToolItemKind = "command_execution" | "file_change" | "dynamic_tool_call";
 type PiToolItemState = {
   readonly itemId: RuntimeItemId;
   readonly itemType: PiToolItemKind;
+  readonly toolName?: string;
+  readonly args?: unknown;
   completed: boolean;
   lastOutput: string;
 };
@@ -533,6 +535,36 @@ function describeToolTitle(toolName: string | undefined, args: unknown): string 
   return name;
 }
 
+function buildPiToolData(input: {
+  readonly toolCallId: string;
+  readonly toolName?: string | undefined;
+  readonly args?: unknown;
+  readonly output?: string | undefined;
+  readonly result?: unknown;
+  readonly cwd?: string | undefined;
+}): Record<string, unknown> {
+  const argsRecord = asObject(input.args);
+  const command = asString(argsRecord?.command) ?? asString(argsRecord?.cmd);
+  return {
+    toolCallId: input.toolCallId,
+    ...(input.toolName ? { toolName: input.toolName } : {}),
+    ...(input.args !== undefined ? { input: input.args, arguments: input.args } : {}),
+    ...(command ? { command } : {}),
+    ...(input.cwd ? { cwd: input.cwd } : {}),
+    ...(input.output ? { output: input.output, aggregatedOutput: input.output } : {}),
+    ...(input.result !== undefined ? { result: input.result } : {}),
+    item: {
+      id: input.toolCallId,
+      ...(input.toolName ? { toolName: input.toolName, name: input.toolName } : {}),
+      ...(input.args !== undefined ? { input: input.args, arguments: input.args } : {}),
+      ...(command ? { command } : {}),
+      ...(input.cwd ? { cwd: input.cwd } : {}),
+      ...(input.output ? { output: input.output, aggregatedOutput: input.output } : {}),
+      ...(input.result !== undefined ? { result: input.result } : {}),
+    },
+  };
+}
+
 function resolveModelReference(
   metadata: PiSessionMetadata,
   slug: string,
@@ -805,9 +837,18 @@ export const PiAdapterLive = Layer.effect(
       const state: PiToolItemState = {
         itemId: RuntimeItemId.makeUnsafe(`pi-tool:${randomUUID()}`),
         itemType,
+        ...(input.toolName ? { toolName: input.toolName } : {}),
+        ...(input.args !== undefined ? { args: input.args } : {}),
         completed: false,
         lastOutput: "",
       };
+      const title = describeToolTitle(input.toolName, input.args);
+      const data = buildPiToolData({
+        toolCallId,
+        toolName: input.toolName,
+        args: input.args,
+        cwd: context.session.cwd,
+      });
       turn.toolItems.set(toolCallId, state);
       emit(
         baseEvent(context, {
@@ -819,9 +860,8 @@ export const PiAdapterLive = Layer.effect(
           payload: {
             itemType,
             status: "inProgress",
-            ...(describeToolTitle(input.toolName, input.args)
-              ? { title: describeToolTitle(input.toolName, input.args)! }
-              : {}),
+            ...(title ? { title } : {}),
+            data,
           },
         }),
       );
@@ -829,9 +869,8 @@ export const PiAdapterLive = Layer.effect(
         id: String(state.itemId),
         itemType,
         status: "inProgress",
-        ...(describeToolTitle(input.toolName, input.args)
-          ? { title: describeToolTitle(input.toolName, input.args)! }
-          : {}),
+        ...(title ? { title } : {}),
+        data,
       });
       return state;
     };
@@ -996,11 +1035,12 @@ export const PiAdapterLive = Layer.effect(
         return;
       }
 
-      for (const toolState of turn.toolItems.values()) {
+      for (const [toolCallId, toolState] of turn.toolItems.entries()) {
         if (toolState.completed) {
           continue;
         }
         toolState.completed = true;
+        const title = describeToolTitle(toolState.toolName, toolState.args);
         emit(
           baseEvent(context, {
             type: "item.completed",
@@ -1011,6 +1051,14 @@ export const PiAdapterLive = Layer.effect(
             payload: {
               itemType: toolState.itemType,
               status: input.state === "failed" ? "failed" : "completed",
+              ...(title ? { title } : {}),
+              data: buildPiToolData({
+                toolCallId,
+                toolName: toolState.toolName,
+                args: toolState.args,
+                output: toolState.lastOutput,
+                cwd: context.session.cwd,
+              }),
             },
           }),
         );
@@ -1514,6 +1562,7 @@ export const PiAdapterLive = Layer.effect(
           }
           const toolState = ensureToolItem(context, turn, toolCallId, {
             toolName: asString(event.toolName),
+            args: event.args,
             rawType: event.type,
             rawPayload: event,
           });
@@ -1527,6 +1576,7 @@ export const PiAdapterLive = Layer.effect(
           );
           if (!toolState.completed) {
             toolState.completed = true;
+            const title = describeToolTitle(toolState.toolName, toolState.args);
             emit(
               baseEvent(context, {
                 type: "item.completed",
@@ -1537,6 +1587,15 @@ export const PiAdapterLive = Layer.effect(
                 payload: {
                   itemType: toolState.itemType,
                   status: event.isError === true ? "failed" : "completed",
+                  ...(title ? { title } : {}),
+                  data: buildPiToolData({
+                    toolCallId,
+                    toolName: toolState.toolName,
+                    args: toolState.args,
+                    output: toolState.lastOutput,
+                    result: event.result,
+                    cwd: context.session.cwd,
+                  }),
                 },
               }),
             );
@@ -1544,6 +1603,15 @@ export const PiAdapterLive = Layer.effect(
               id: String(toolState.itemId),
               itemType: toolState.itemType,
               status: event.isError === true ? "failed" : "completed",
+              ...(title ? { title } : {}),
+              data: buildPiToolData({
+                toolCallId,
+                toolName: toolState.toolName,
+                args: toolState.args,
+                output: toolState.lastOutput,
+                result: event.result,
+                cwd: context.session.cwd,
+              }),
             });
           }
           return;

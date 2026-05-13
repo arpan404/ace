@@ -1422,6 +1422,88 @@ describe("ProviderRuntimeIngestion", () => {
     expect(toolActivity?.kind).toBe("tool.started");
   });
 
+  it("normalizes command lifecycle details and preserves streamed terminal output", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-normalized-start"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-normalized"),
+      itemId: asItemId("cmd-normalized"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Command execution",
+        detail: "ls -la",
+        data: {
+          item: {
+            command: "ls -la",
+            cwd: "/tmp/project",
+          },
+        },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-command-normalized-output-1"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-normalized"),
+      itemId: asItemId("cmd-normalized"),
+      payload: {
+        streamKind: "command_output",
+        delta: "total 8\n",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-command-normalized-output-2"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-normalized"),
+      itemId: asItemId("cmd-normalized"),
+      payload: {
+        streamKind: "command_output",
+        delta: "drwxr-xr-x .\n",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-command-normalized-output-2",
+      ),
+    );
+    const started = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-normalized-start",
+    );
+    expect(started?.summary).toBe("Ran command ls -la");
+    expect(started?.payload).toMatchObject({
+      itemType: "command_execution",
+      itemId: "cmd-normalized",
+      title: "Ran command ls -la",
+      command: "ls -la",
+      cwd: "/tmp/project",
+    });
+
+    const output = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-normalized-output-2",
+    );
+    expect(output?.kind).toBe("tool.updated");
+    expect(output?.payload).toMatchObject({
+      itemType: "command_execution",
+      itemId: "cmd-normalized",
+      terminalOutput: "drwxr-xr-x .\n",
+      streamKind: "command_output",
+    });
+  });
+
   it("splits assistant messages when reasoning activity interrupts the same assistant item", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

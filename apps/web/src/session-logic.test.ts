@@ -1127,7 +1127,7 @@ describe("deriveWorkLogEntries", () => {
       command: "bun run dev",
       detail: '{ "dev": "vite dev --port 3000" }',
       itemType: "command_execution",
-      toolTitle: "bash",
+      toolTitle: "Run command",
     });
   });
 
@@ -1435,7 +1435,7 @@ describe("deriveWorkLogEntries", () => {
     });
     expect(readDetail?.changedFiles).toBeUndefined();
     expect(searchTitle).toMatchObject({
-      toolTitle: "Find",
+      toolTitle: "Search",
       detail: "apps/web/src",
     });
     expect(searchTitle?.requestKind).toBeUndefined();
@@ -1505,6 +1505,59 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entry).toMatchObject({
       detail: "/tmp/app.ts",
+    });
+  });
+
+  it("normalizes rough provider read and command payloads into Codex-style metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "rough-read",
+        kind: "tool.completed",
+        summary: "Read",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Read",
+          detail:
+            "<path>/Users/me/project/AGENTS.md</path>\n<type>file</type>\n<content>\n# AGENTS.md\n</content>",
+          data: {
+            toolName: "Read",
+          },
+        },
+      }),
+      makeActivity({
+        id: "rough-command",
+        kind: "tool.completed",
+        summary: "Bash",
+        payload: {
+          itemType: "command_execution",
+          title: "Bash",
+          status: "failed",
+          command: "bun run check",
+          terminalOutput: "Format issues found in 1 file.\n",
+          exitCode: 1,
+          durationMs: 191,
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    const readEntry = entries.find((entry) => entry.id === "rough-read");
+    const commandEntry = entries.find((entry) => entry.id === "rough-command");
+
+    expect(readEntry).toMatchObject({
+      toolTitle: "Read file",
+      requestKind: "file-read",
+      detail: "/Users/me/project/AGENTS.md",
+    });
+    expect(commandEntry).toMatchObject({
+      toolTitle: "Run command",
+      requestKind: "command",
+      command: "bun run check",
+      terminalOutput: "Format issues found in 1 file.\n",
+      status: "failed",
+      exitCode: 1,
+      durationMs: 191,
     });
   });
 
@@ -1690,6 +1743,59 @@ describe("deriveWorkLogEntries", () => {
       "2026-02-23T00:00:03.000Z",
     ]);
     expect(entries.map((entry) => entry.detail)).toEqual(["README.md", "package.json"]);
+  });
+
+  it("collapses normalized command output deltas into the command row", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-start",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Ran command ls -la",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          title: "Ran command ls -la",
+          command: "ls -la",
+        },
+      }),
+      makeActivity({
+        id: "command-output-1",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: "total 8\n",
+        },
+      }),
+      makeActivity({
+        id: "command-output-2",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: "drwxr-xr-x .\n",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      label: "Ran command ls -la",
+      toolTitle: "Ran command ls -la",
+      command: "ls -la",
+      terminalOutput: "total 8\ndrwxr-xr-x .\n",
+      requestKind: "command",
+    });
   });
 
   it("keeps separate tool entries when an identical call starts after the prior one completed", () => {

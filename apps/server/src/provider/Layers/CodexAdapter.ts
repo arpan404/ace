@@ -379,6 +379,61 @@ function itemDetail(
   return undefined;
 }
 
+function codexLifecycleOutput(source: Record<string, unknown>): string | undefined {
+  const result = asObject(source.result);
+  return (
+    asString(source.output) ??
+    asString(source.aggregatedOutput) ??
+    asString(source.stdout) ??
+    asString(source.stderr) ??
+    asString(result?.output) ??
+    asString(result?.aggregatedOutput) ??
+    asString(result?.stdout) ??
+    asString(result?.stderr)
+  );
+}
+
+function codexLifecycleCwd(
+  source: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): string | undefined {
+  const input = asObject(source.input) ?? asObject(source.arguments);
+  return (
+    asString(source.cwd) ??
+    asString(payload.cwd) ??
+    asString(input?.cwd) ??
+    asString(input?.workingDirectory)
+  );
+}
+
+function normalizeCodexLifecycleData(
+  payload: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const input = asObject(source.input) ?? asObject(source.arguments);
+  const command =
+    asString(source.command) ??
+    asString(payload.command) ??
+    asString(input?.command) ??
+    asString(input?.cmd);
+  const cwd = codexLifecycleCwd(source, payload);
+  const output = codexLifecycleOutput(source);
+  return {
+    ...payload,
+    ...(input ? { input, arguments: input } : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    item: {
+      ...source,
+      ...(input ? { input, arguments: input } : {}),
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
+    },
+  };
+}
+
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
   switch (method) {
     case "item/commandExecution/requestApproval":
@@ -694,7 +749,7 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
-      ...(event.payload !== undefined ? { data: event.payload } : {}),
+      ...(payload ? { data: normalizeCodexLifecycleData(payload, source) } : {}),
     },
   };
 }

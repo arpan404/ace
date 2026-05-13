@@ -521,6 +521,51 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   return `${toolName}: ${serialized.slice(0, 397)}...`;
 }
 
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function buildClaudeToolData(input: {
+  readonly toolUseId: string;
+  readonly toolName: string;
+  readonly toolInput: Record<string, unknown>;
+  readonly result?: Record<string, unknown> | undefined;
+  readonly output?: string | undefined;
+}): Record<string, unknown> {
+  const command =
+    stringField(input.toolInput, "command") ??
+    stringField(input.toolInput, "cmd") ??
+    stringField(input.toolInput, "shellCommand");
+  const cwd =
+    stringField(input.toolInput, "cwd") ??
+    stringField(input.toolInput, "workingDirectory") ??
+    stringField(input.toolInput, "directory");
+  const output = input.output && input.output.length > 0 ? input.output : undefined;
+  return {
+    toolName: input.toolName,
+    toolUseId: input.toolUseId,
+    input: input.toolInput,
+    arguments: input.toolInput,
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(input.result ? { result: input.result } : {}),
+    item: {
+      id: input.toolUseId,
+      toolUseId: input.toolUseId,
+      name: input.toolName,
+      toolName: input.toolName,
+      input: input.toolInput,
+      arguments: input.toolInput,
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
+      ...(input.result ? { result: input.result } : {}),
+    },
+  };
+}
+
 function titleForTool(itemType: CanonicalItemType): string {
   switch (itemType) {
     case "command_execution":
@@ -1465,10 +1510,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: status === "completed" ? "completed" : "failed",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
-          data: {
+          data: buildClaudeToolData({
+            toolUseId: tool.itemId,
             toolName: tool.toolName,
-            input: tool.input,
-          },
+            toolInput: tool.input,
+          }),
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
         raw: {
@@ -1658,10 +1704,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             status: "inProgress",
             title: nextTool.title,
             ...(nextTool.detail ? { detail: nextTool.detail } : {}),
-            data: {
+            data: buildClaudeToolData({
+              toolUseId: nextTool.itemId,
               toolName: nextTool.toolName,
-              input: nextTool.input,
-            },
+              toolInput: nextTool.input,
+            }),
           },
           providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
           raw: {
@@ -1727,10 +1774,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
-          data: {
+          data: buildClaudeToolData({
+            toolUseId: tool.itemId,
             toolName: tool.toolName,
-            input: toolInput,
-          },
+            toolInput,
+          }),
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
         raw: {
@@ -1782,11 +1830,13 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const [index, tool] = toolEntry;
       const itemStatus = toolResult.isError ? "failed" : "completed";
-      const toolData = {
+      const toolData = buildClaudeToolData({
+        toolUseId: tool.itemId,
         toolName: tool.toolName,
-        input: tool.input,
+        toolInput: tool.input,
         result: toolResult.block,
-      };
+        output: toolResult.text,
+      });
 
       const updatedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
