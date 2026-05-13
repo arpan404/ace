@@ -125,6 +125,7 @@ export const ChatViewPanels = memo(function ChatViewPanels({
             <m.div
               key="browser-split-panel"
               className="flex h-full min-h-0 shrink-0 overflow-hidden"
+              data-chat-view-browser-split-panel
               initial={{ width: 0, opacity: 0, x: 18 }}
               animate={{ width: "auto", opacity: 1, x: 0 }}
               exit={{ width: 0, opacity: 0, x: 18 }}
@@ -145,6 +146,7 @@ export const ChatViewPanels = memo(function ChatViewPanels({
               </div>
               <div
                 className="relative z-0 min-h-0 shrink-0 overflow-hidden"
+                data-chat-view-browser-split-content
                 style={{
                   width: constrainedBrowserPanelWidth(browserPanel.splitWidth),
                   minWidth: constrainedBrowserPanelWidth(browserPanel.splitWidth),

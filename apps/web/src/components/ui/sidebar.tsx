@@ -499,6 +499,7 @@ function useSidebarRailInteractions({
             wrapperWidth: activeResizeState.wrapperWidth,
           }) ?? true;
         if (!accepted || Math.abs(nextWidth - activeResizeState.width) < 1) return;
+        activeResizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
         activeResizeState.sidebarContainer.style.setProperty("width", `${nextWidth}px`);
         activeResizeState.width = nextWidth;
       });

@@ -348,6 +348,23 @@ function isAbsoluteFilesystemPath(path: string): boolean {
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
+
+function setResizablePanelWidth(element: HTMLElement | null, width: number): void {
+  if (!element) {
+    return;
+  }
+  const widthPx = `${Math.round(width)}px`;
+  element.style.width = widthPx;
+  element.style.minWidth = widthPx;
+}
+
+function clearResizablePanelWidth(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.style.removeProperty("width");
+  element.style.removeProperty("min-width");
+}
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
@@ -2851,6 +2868,9 @@ function useChatViewComponent({
   const browserSplitWidthRef = useRef(browserSplitWidth);
   const browserSplitResizePointerIdRef = useRef<number | null>(null);
   const browserSplitResizeStateRef = useRef<{
+    contentElement: HTMLElement | null;
+    pendingWidth: number;
+    rafId: number | null;
     startX: number;
     startWidth: number;
   } | null>(null);
@@ -2863,16 +2883,26 @@ function useChatViewComponent({
     readonly RecentBrowserInstanceEntry<ThreadId>[]
   >([]);
   const workspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
+  const workspaceEditorSplitPanelRef = useRef<HTMLDivElement | null>(null);
   const workspaceEditorSplitResizePointerIdRef = useRef<number | null>(null);
   const workspaceEditorSplitResizeStateRef = useRef<{
+    contentElement: HTMLElement | null;
+    pendingWidth: number;
+    rafId: number | null;
     startX: number;
     startWidth: number;
   } | null>(null);
   const didResizeWorkspaceEditorSplitDuringDragRef = useRef(false);
   const lastSyncedWorkspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const rightSidePanelWidthRef = useRef(rightSidePanelWidth);
+  const rightSidePanelElementRef = useRef<HTMLDivElement | null>(null);
+  const dockedRightSidePanelHeaderRef = useRef<HTMLDivElement | null>(null);
   const rightSidePanelResizePointerIdRef = useRef<number | null>(null);
   const rightSidePanelResizeStateRef = useRef<{
+    headerElement: HTMLElement | null;
+    panelElement: HTMLElement | null;
+    pendingWidth: number;
+    rafId: number | null;
     startX: number;
     startWidth: number;
   } | null>(null);
@@ -4451,13 +4481,15 @@ function useChatViewComponent({
     (nextWidth: number) => {
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
       const clampedWidth = clampBrowserSplitWidth(nextWidth, viewportWidth);
+      browserSplitWidthRef.current = clampedWidth;
+      setBrowserSplitWidth(clampedWidth);
       if (lastSyncedBrowserSplitWidthRef.current === clampedWidth) {
         return;
       }
       lastSyncedBrowserSplitWidthRef.current = clampedWidth;
       setStoredBrowserSplitWidth(clampedWidth);
     },
-    [setStoredBrowserSplitWidth],
+    [setBrowserSplitWidth, setStoredBrowserSplitWidth],
   );
   const syncBrowserSplitWidthEvent = useEffectEvent((nextWidth: number) => {
     syncBrowserSplitWidth(nextWidth);
@@ -4470,11 +4502,18 @@ function useChatViewComponent({
       }
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
+      const contentElement = event.currentTarget
+        .closest<HTMLElement>("[data-chat-view-browser-split-panel]")
+        ?.querySelector<HTMLElement>("[data-chat-view-browser-split-content]");
       browserSplitResizePointerIdRef.current = event.pointerId;
       browserSplitResizeStateRef.current = {
+        contentElement: contentElement ?? null,
+        pendingWidth: browserSplitWidthRef.current,
+        rafId: null,
         startX: event.clientX,
         startWidth: browserSplitWidthRef.current,
       };
+      setResizablePanelWidth(contentElement ?? null, browserSplitWidthRef.current);
       didResizeBrowserSplitDuringDragRef.current = false;
     },
     [],
@@ -4527,7 +4566,20 @@ function useChatViewComponent({
           viewportWidth,
         );
         browserSplitWidthRef.current = nextWidth;
-        setBrowserSplitWidth(nextWidth);
+        resizeState.pendingWidth = nextWidth;
+        if (resizeState.rafId === null) {
+          resizeState.rafId = window.requestAnimationFrame(() => {
+            const activeResizeState = browserSplitResizeStateRef.current;
+            if (!activeResizeState) {
+              return;
+            }
+            activeResizeState.rafId = null;
+            setResizablePanelWidth(
+              activeResizeState.contentElement,
+              activeResizeState.pendingWidth,
+            );
+          });
+        }
         didResizeBrowserSplitDuringDragRef.current = true;
       }
     };
@@ -4535,13 +4587,25 @@ function useChatViewComponent({
       if (browserSplitResizePointerIdRef.current === null) {
         return;
       }
+      const resizeState = browserSplitResizeStateRef.current;
+      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      if (resizeState) {
+        setResizablePanelWidth(resizeState.contentElement, resizeState.pendingWidth);
+      }
       browserSplitResizePointerIdRef.current = null;
       browserSplitResizeStateRef.current = null;
       if (!didResizeBrowserSplitDuringDragRef.current) {
+        clearResizablePanelWidth(resizeState?.contentElement ?? null);
         return;
       }
       didResizeBrowserSplitDuringDragRef.current = false;
+      setBrowserSplitWidth(browserSplitWidthRef.current);
       syncBrowserSplitWidthEvent(browserSplitWidthRef.current);
+      window.requestAnimationFrame(() => {
+        clearResizablePanelWidth(resizeState?.contentElement ?? null);
+      });
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -4631,13 +4695,15 @@ function useChatViewComponent({
     (nextWidth: number) => {
       const viewportWidth = workspaceViewportRef.current?.clientWidth ?? window.innerWidth;
       const clampedWidth = clampWorkspaceEditorSplitWidth(nextWidth, viewportWidth);
+      workspaceEditorSplitWidthRef.current = clampedWidth;
+      setWorkspaceEditorSplitWidth(clampedWidth);
       if (lastSyncedWorkspaceEditorSplitWidthRef.current === clampedWidth) {
         return;
       }
       lastSyncedWorkspaceEditorSplitWidthRef.current = clampedWidth;
       setStoredWorkspaceEditorSplitWidth(clampedWidth);
     },
-    [setStoredWorkspaceEditorSplitWidth],
+    [setStoredWorkspaceEditorSplitWidth, setWorkspaceEditorSplitWidth],
   );
   const syncWorkspaceEditorSplitWidthEvent = useEffectEvent((nextWidth: number) => {
     syncWorkspaceEditorSplitWidth(nextWidth);
@@ -4652,9 +4718,16 @@ function useChatViewComponent({
       event.currentTarget.setPointerCapture(event.pointerId);
       workspaceEditorSplitResizePointerIdRef.current = event.pointerId;
       workspaceEditorSplitResizeStateRef.current = {
+        contentElement: workspaceEditorSplitPanelRef.current,
+        pendingWidth: workspaceEditorSplitWidthRef.current,
+        rafId: null,
         startX: event.clientX,
         startWidth: workspaceEditorSplitWidthRef.current,
       };
+      setResizablePanelWidth(
+        workspaceEditorSplitPanelRef.current,
+        workspaceEditorSplitWidthRef.current,
+      );
       didResizeWorkspaceEditorSplitDuringDragRef.current = false;
     },
     [],
@@ -4676,7 +4749,20 @@ function useChatViewComponent({
           viewportWidth,
         );
         workspaceEditorSplitWidthRef.current = nextWidth;
-        setWorkspaceEditorSplitWidth(nextWidth);
+        resizeState.pendingWidth = nextWidth;
+        if (resizeState.rafId === null) {
+          resizeState.rafId = window.requestAnimationFrame(() => {
+            const activeResizeState = workspaceEditorSplitResizeStateRef.current;
+            if (!activeResizeState) {
+              return;
+            }
+            activeResizeState.rafId = null;
+            setResizablePanelWidth(
+              activeResizeState.contentElement,
+              activeResizeState.pendingWidth,
+            );
+          });
+        }
         didResizeWorkspaceEditorSplitDuringDragRef.current = true;
       }
     };
@@ -4684,13 +4770,25 @@ function useChatViewComponent({
       if (workspaceEditorSplitResizePointerIdRef.current === null) {
         return;
       }
+      const resizeState = workspaceEditorSplitResizeStateRef.current;
+      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      if (resizeState) {
+        setResizablePanelWidth(resizeState.contentElement, resizeState.pendingWidth);
+      }
       workspaceEditorSplitResizePointerIdRef.current = null;
       workspaceEditorSplitResizeStateRef.current = null;
       if (!didResizeWorkspaceEditorSplitDuringDragRef.current) {
+        clearResizablePanelWidth(resizeState?.contentElement ?? null);
         return;
       }
       didResizeWorkspaceEditorSplitDuringDragRef.current = false;
+      setWorkspaceEditorSplitWidth(workspaceEditorSplitWidthRef.current);
       syncWorkspaceEditorSplitWidthEvent(workspaceEditorSplitWidthRef.current);
+      window.requestAnimationFrame(() => {
+        clearResizablePanelWidth(resizeState?.contentElement ?? null);
+      });
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -4867,9 +4965,15 @@ function useChatViewComponent({
       event.currentTarget.setPointerCapture(event.pointerId);
       rightSidePanelResizePointerIdRef.current = event.pointerId;
       rightSidePanelResizeStateRef.current = {
+        headerElement: dockedRightSidePanelHeaderRef.current,
+        panelElement: rightSidePanelElementRef.current,
+        pendingWidth: rightSidePanelWidthRef.current,
+        rafId: null,
         startX: event.clientX,
         startWidth: rightSidePanelWidthRef.current,
       };
+      setResizablePanelWidth(rightSidePanelElementRef.current, rightSidePanelWidthRef.current);
+      setResizablePanelWidth(dockedRightSidePanelHeaderRef.current, rightSidePanelWidthRef.current);
       didResizeRightSidePanelDuringDragRef.current = false;
     },
     [],
@@ -4926,7 +5030,18 @@ function useChatViewComponent({
           viewportWidth,
         );
         rightSidePanelWidthRef.current = nextWidth;
-        setRightSidePanelWidth(nextWidth);
+        resizeState.pendingWidth = nextWidth;
+        if (resizeState.rafId === null) {
+          resizeState.rafId = window.requestAnimationFrame(() => {
+            const activeResizeState = rightSidePanelResizeStateRef.current;
+            if (!activeResizeState) {
+              return;
+            }
+            activeResizeState.rafId = null;
+            setResizablePanelWidth(activeResizeState.panelElement, activeResizeState.pendingWidth);
+            setResizablePanelWidth(activeResizeState.headerElement, activeResizeState.pendingWidth);
+          });
+        }
         didResizeRightSidePanelDuringDragRef.current = true;
       }
     };
@@ -4934,13 +5049,28 @@ function useChatViewComponent({
       if (rightSidePanelResizePointerIdRef.current === null) {
         return;
       }
+      const resizeState = rightSidePanelResizeStateRef.current;
+      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      if (resizeState) {
+        setResizablePanelWidth(resizeState.panelElement, resizeState.pendingWidth);
+        setResizablePanelWidth(resizeState.headerElement, resizeState.pendingWidth);
+      }
       rightSidePanelResizePointerIdRef.current = null;
       rightSidePanelResizeStateRef.current = null;
       if (!didResizeRightSidePanelDuringDragRef.current) {
+        clearResizablePanelWidth(resizeState?.panelElement ?? null);
+        clearResizablePanelWidth(resizeState?.headerElement ?? null);
         return;
       }
       didResizeRightSidePanelDuringDragRef.current = false;
+      setRightSidePanelWidth(rightSidePanelWidthRef.current);
       syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
+      window.requestAnimationFrame(() => {
+        clearResizablePanelWidth(resizeState?.panelElement ?? null);
+        clearResizablePanelWidth(resizeState?.headerElement ?? null);
+      });
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -4956,22 +5086,41 @@ function useChatViewComponent({
       return;
     }
     const resetResizeInteractions = () => {
+      const browserResizeState = browserSplitResizeStateRef.current;
+      if (browserResizeState?.rafId !== null && browserResizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(browserResizeState.rafId);
+      }
+      clearResizablePanelWidth(browserResizeState?.contentElement ?? null);
       browserSplitResizePointerIdRef.current = null;
       browserSplitResizeStateRef.current = null;
       if (didResizeBrowserSplitDuringDragRef.current) {
         didResizeBrowserSplitDuringDragRef.current = false;
+        setBrowserSplitWidth(browserSplitWidthRef.current);
         syncBrowserSplitWidthEvent(browserSplitWidthRef.current);
       }
+      const workspaceResizeState = workspaceEditorSplitResizeStateRef.current;
+      if (workspaceResizeState?.rafId !== null && workspaceResizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(workspaceResizeState.rafId);
+      }
+      clearResizablePanelWidth(workspaceResizeState?.contentElement ?? null);
       workspaceEditorSplitResizePointerIdRef.current = null;
       workspaceEditorSplitResizeStateRef.current = null;
       if (didResizeWorkspaceEditorSplitDuringDragRef.current) {
         didResizeWorkspaceEditorSplitDuringDragRef.current = false;
+        setWorkspaceEditorSplitWidth(workspaceEditorSplitWidthRef.current);
         syncWorkspaceEditorSplitWidthEvent(workspaceEditorSplitWidthRef.current);
       }
+      const rightPanelResizeState = rightSidePanelResizeStateRef.current;
+      if (rightPanelResizeState?.rafId !== null && rightPanelResizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(rightPanelResizeState.rafId);
+      }
+      clearResizablePanelWidth(rightPanelResizeState?.panelElement ?? null);
+      clearResizablePanelWidth(rightPanelResizeState?.headerElement ?? null);
       rightSidePanelResizePointerIdRef.current = null;
       rightSidePanelResizeStateRef.current = null;
       if (didResizeRightSidePanelDuringDragRef.current) {
         didResizeRightSidePanelDuringDragRef.current = false;
+        setRightSidePanelWidth(rightSidePanelWidthRef.current);
         syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
       }
     };
@@ -4986,7 +5135,12 @@ function useChatViewComponent({
       window.removeEventListener("blur", resetResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [ownsGlobalSideEffects]);
+  }, [
+    ownsGlobalSideEffects,
+    setBrowserSplitWidth,
+    setRightSidePanelWidth,
+    setWorkspaceEditorSplitWidth,
+  ]);
 
   useEffect(() => {
     if (!rightSidePanelInteractive) {
@@ -8010,6 +8164,7 @@ function useChatViewComponent({
       {showDockedRightSidePanelChrome ? (
         <m.div
           key="thread-right-side-panel-top-bar"
+          ref={dockedRightSidePanelHeaderRef}
           className={cn(
             "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
@@ -8327,6 +8482,7 @@ function useChatViewComponent({
                         <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
                       </div>
                       <div
+                        ref={workspaceEditorSplitPanelRef}
                         className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
                         style={{
                           width: constrainedPanelWidth(
@@ -8381,6 +8537,7 @@ function useChatViewComponent({
             {activeRightSidePanelMode ? (
               <m.div
                 key="thread-right-side-panel"
+                ref={rightSidePanelElementRef}
                 className={cn(
                   "flex h-full min-h-0 overflow-hidden bg-background",
                   avoidNativeBrowserPanelTransforms
