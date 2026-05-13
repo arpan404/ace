@@ -379,6 +379,32 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(idleTurnMarkup).toContain('data-virtualizer-buffer="true"');
   });
 
+  it("does not render an empty virtualized buffer before the virtualizer has a mounted range", async () => {
+    const { shouldRenderTimelineVirtualizedBuffer } = await import("./MessagesTimeline");
+
+    expect(
+      shouldRenderTimelineVirtualizedBuffer({
+        activeTurnInProgress: false,
+        virtualizedRowCount: 24,
+        virtualItemCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderTimelineVirtualizedBuffer({
+        activeTurnInProgress: false,
+        virtualizedRowCount: 24,
+        virtualItemCount: 4,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderTimelineVirtualizedBuffer({
+        activeTurnInProgress: true,
+        virtualizedRowCount: 24,
+        virtualItemCount: 4,
+      }),
+    ).toBe(false);
+  });
+
   it("renders inline terminal labels with the composer chip UI", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

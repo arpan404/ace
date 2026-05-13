@@ -159,6 +159,14 @@ function canResolveTimelineRowsInWorker(): boolean {
   );
 }
 
+export function shouldRenderTimelineVirtualizedBuffer(input: {
+  readonly activeTurnInProgress: boolean;
+  readonly virtualizedRowCount: number;
+  readonly virtualItemCount: number;
+}): boolean {
+  return input.virtualizedRowCount > 0 && !input.activeTurnInProgress && input.virtualItemCount > 0;
+}
+
 function assistantImageGenerationDimensionsFromMessageId(
   message: AssistantTimelineMessage,
 ): AssistantImageGenerationPlaceholder | null {
@@ -532,6 +540,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldPrewarmAssistantMarkdown =
     shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
+  const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
+    activeTurnInProgress,
+    virtualizedRowCount: virtualizedRows.length,
+    virtualItemCount: virtualItems.length,
+  });
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
     ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
     : [];
@@ -1171,7 +1184,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
     >
-      {shouldUseVirtualizedBuffer ? (
+      {shouldRenderVirtualizedBuffer ? (
         <div
           data-virtualizer-buffer="true"
           className="relative"
