@@ -6833,22 +6833,23 @@ function useSidebarComponent() {
           <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
             {sortedRenderedPinnedItems.length > 0 ? (
               <SidebarGroup className="px-2.5 pt-5 pb-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="group/section-header mb-1.5 flex h-5 w-full cursor-pointer items-center gap-1.5 bg-transparent pl-2 pr-1.5 text-left"
-                  aria-expanded={pinnedSectionExpanded}
-                  onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
-                >
-                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
-                    Pinned
-                  </span>
-                  <ChevronRightIcon
-                    className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
-                      pinnedSectionExpanded ? "rotate-90" : ""
-                    }`}
-                  />
-                </Button>
+                <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
+                  <button
+                    type="button"
+                    className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
+                    aria-expanded={pinnedSectionExpanded}
+                    onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
+                  >
+                    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
+                      Pinned
+                    </span>
+                    <ChevronRightIcon
+                      className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                        pinnedSectionExpanded ? "rotate-90" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
                 <div
                   aria-hidden={!pinnedSectionExpanded}
                   className={cn(
