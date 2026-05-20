@@ -17,6 +17,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
   type ComponentProps,
   type CSSProperties,
   type DragEvent,
@@ -849,13 +850,13 @@ function estimateSidebarProjectListItemSize(item: SidebarProjectListItem | undef
   );
 }
 
-function getVirtualProjectRowStyle(virtualRow: VirtualItem): CSSProperties {
+function getVirtualProjectRowStyle(virtualRow: VirtualItem, scrollMargin: number): CSSProperties {
   return {
     position: "absolute",
     top: 0,
     left: 0,
     width: "100%",
-    transform: `translateY(${virtualRow.start}px)`,
+    transform: `translateY(${virtualRow.start - scrollMargin}px)`,
   };
 }
 
@@ -1851,6 +1852,8 @@ function useSidebarComponent() {
   }, []);
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
+  const sidebarProjectListRef = useRef<HTMLUListElement | null>(null);
+  const [sidebarProjectListScrollMargin, setSidebarProjectListScrollMargin] = useState(0);
   const browseRequestVersionRef = useRef(0);
   const [sidebarEditorState, dispatchSidebarEditorState] = useReducer(
     sidebarEditorStateReducer,
@@ -5107,14 +5110,69 @@ function useSidebarComponent() {
     getItemKey: (index) => sidebarProjectListItems[index]?.key ?? index,
     getScrollElement: () => sidebarContentScrollRef.current,
     overscan: 8,
+    scrollMargin: sidebarProjectListScrollMargin,
   });
   const virtualSidebarProjectRows = sidebarProjectListVirtualizer.getVirtualItems();
+
+  const measureSidebarProjectListScrollMargin = useCallback(() => {
+    const scrollElement = sidebarContentScrollRef.current;
+    const projectListElement = sidebarProjectListRef.current;
+    if (!scrollElement || !projectListElement) {
+      setSidebarProjectListScrollMargin(0);
+      return;
+    }
+    const scrollElementTop = scrollElement.getBoundingClientRect().top;
+    const projectListTop = projectListElement.getBoundingClientRect().top;
+    const nextScrollMargin = Math.max(
+      0,
+      projectListTop - scrollElementTop + scrollElement.scrollTop,
+    );
+    setSidebarProjectListScrollMargin((current) =>
+      Math.abs(current - nextScrollMargin) < 0.5 ? current : nextScrollMargin,
+    );
+  }, []);
+
+  const setSidebarProjectListElement = useCallback(
+    (element: HTMLUListElement | null) => {
+      sidebarProjectListRef.current = element;
+      measureSidebarProjectListScrollMargin();
+    },
+    [measureSidebarProjectListScrollMargin],
+  );
+
+  useEffect(() => {
+    measureSidebarProjectListScrollMargin();
+  }, [
+    boardsSectionExpanded,
+    measureSidebarProjectListScrollMargin,
+    projectsSectionExpanded,
+    savedBoards.length,
+    shouldShowProjectPathEntry,
+    visibleSavedBoardItems.length,
+  ]);
+
+  useEffect(() => {
+    const scrollElement = sidebarContentScrollRef.current;
+    const projectListElement = sidebarProjectListRef.current;
+    if (!scrollElement || !projectListElement || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const resizeObserver = new ResizeObserver(() => {
+      measureSidebarProjectListScrollMargin();
+    });
+    resizeObserver.observe(scrollElement);
+    resizeObserver.observe(projectListElement);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [measureSidebarProjectListScrollMargin]);
 
   useEffect(() => {
     sidebarProjectListVirtualizer.measure();
   }, [
     projectsSectionExpanded,
     sidebarProjectListItems,
+    sidebarProjectListScrollMargin,
     sidebarProjectListVirtualizer,
     sidebarProjectSortOrder,
     sidebarThreadSortOrder,
@@ -5721,7 +5779,7 @@ function useSidebarComponent() {
     if (!item) {
       return null;
     }
-    const virtualStyle = getVirtualProjectRowStyle(virtualRow);
+    const virtualStyle = getVirtualProjectRowStyle(virtualRow, sidebarProjectListScrollMargin);
     if (item.kind === "local") {
       if (item.sortable) {
         return (
@@ -7010,6 +7068,7 @@ function useSidebarComponent() {
                       onDragCancel={handleProjectDragCancel}
                     >
                       <SidebarMenu
+                        ref={setSidebarProjectListElement}
                         className="relative gap-0"
                         style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
                       >
@@ -7025,6 +7084,7 @@ function useSidebarComponent() {
                     </DndContext>
                   ) : (
                     <SidebarMenu
+                      ref={setSidebarProjectListElement}
                       className="relative gap-0"
                       style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
                     >
