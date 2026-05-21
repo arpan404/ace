@@ -6635,9 +6635,16 @@ function useSidebarComponent() {
               onKeyDown={handleAddProjectInputKeyDown}
             />
             {projectPickerStep === "directory" ? (
-              <Button type="button" size="sm" onClick={handleAddProject} disabled={!canAddProject}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="ml-auto shrink-0 justify-end gap-2 px-3 text-foreground/80 hover:bg-accent/60 hover:text-foreground"
+                onClick={handleAddProject}
+                disabled={!canAddProject}
+              >
                 <span>{addProjectActionLabel}</span>
-                <span className="rounded border border-primary-foreground/30 bg-primary-foreground/15 px-1.5 py-0.5 text-[9px] font-medium text-primary-foreground/90">
+                <span className="rounded border border-border/60 bg-background/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
                   Enter
                 </span>
               </Button>
@@ -6668,10 +6675,11 @@ function useSidebarComponent() {
                       <Button
                         key={environment.id}
                         type="button"
+                        variant="ghost"
                         data-project-picker-environment-index={index}
-                        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
+                        className={`flex h-auto w-full justify-start gap-3 border-border/20 border-b px-4 py-3 text-left transition-all duration-150 last:border-b-0 ${
                           index === resolvedActiveProjectBrowseIndex
-                            ? "bg-primary/15 text-foreground"
+                            ? "bg-accent/70 text-foreground"
                             : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                         }`}
                         onMouseEnter={() => {
@@ -6732,7 +6740,7 @@ function useSidebarComponent() {
                     <Button
                       type="button"
                       variant="ghost"
-                      className="flex w-full items-center gap-3 border-border/20 border-b px-4 py-2.5 text-left text-sm font-medium text-muted-foreground/70 transition-all hover:bg-accent/40 hover:text-foreground"
+                      className="flex h-auto w-full justify-start gap-3 border-border/20 border-b px-4 py-2.5 text-left text-sm font-medium text-muted-foreground/70 transition-all hover:bg-accent/40 hover:text-foreground"
                       onClick={handleBrowseParentPath}
                       disabled={isAddingProject}
                     >
@@ -6744,10 +6752,11 @@ function useSidebarComponent() {
                         <Button
                           key={entry.fullPath}
                           type="button"
+                          variant="ghost"
                           data-project-picker-index={index}
-                          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
+                          className={`flex h-auto w-full justify-start gap-3 border-border/20 border-b px-4 py-2.5 text-left transition-all duration-150 last:border-b-0 ${
                             index === resolvedActiveProjectBrowseIndex
-                              ? "bg-primary/15 text-foreground"
+                              ? "bg-accent/70 text-foreground"
                               : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                           }`}
                           onMouseEnter={() => {
