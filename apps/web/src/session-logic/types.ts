@@ -55,6 +55,10 @@ export interface WorkLogEntry {
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
+  subagentId?: string;
+  subagentType?: string;
+  subagentName?: string;
+  subagentModel?: string;
   intentText?: string;
   diagnosticKind?: "runtime-error" | "runtime-warning";
 }

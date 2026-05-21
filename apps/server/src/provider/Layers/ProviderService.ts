@@ -55,6 +55,7 @@ import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
 import { resolveProviderIntegrationCapabilities } from "../providerCapabilities.ts";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import { normalizeProviderRuntimeEvent } from "../providerRuntimeEventNormalizer.ts";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -599,38 +600,35 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       yield* Deferred.succeed(idle, undefined).pipe(Effect.orDie);
     });
 
-  const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    Effect.sync(() => {
+  const processRuntimeEvent = (adapterEvent: ProviderRuntimeEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const event = normalizeProviderRuntimeEvent(adapterEvent);
       recordRuntimeEventActivity(event);
-    }).pipe(
-      Effect.flatMap(() =>
-        Effect.gen(function* () {
-          if (event.type === "turn.completed") {
-            const completedPayload = event.payload;
-            yield* analytics.record("provider.turn.completed", {
-              provider: event.provider,
-              stopReason: completedPayload.stopReason ?? undefined,
-              totalCostUsd: completedPayload.totalCostUsd,
-              hasErrorMessage:
-                typeof completedPayload.errorMessage === "string" &&
-                completedPayload.errorMessage.length > 0,
-            });
-            return;
-          }
-          if (event.type === "turn.aborted") {
-            yield* analytics.record("provider.turn.failed", {
-              provider: event.provider,
-              failureClass: "aborted",
-              reason: event.payload.reason,
-            });
-          }
-        }),
-      ),
-      Effect.flatMap(() =>
-        isTurnIdleEvent(event) ? completeActiveTurn(event.threadId) : Effect.void,
-      ),
-      Effect.flatMap(() => publishRuntimeEvent(event)),
-    );
+
+      if (event.type === "turn.completed") {
+        const completedPayload = event.payload;
+        yield* analytics.record("provider.turn.completed", {
+          provider: event.provider,
+          stopReason: completedPayload.stopReason ?? undefined,
+          totalCostUsd: completedPayload.totalCostUsd,
+          hasErrorMessage:
+            typeof completedPayload.errorMessage === "string" &&
+            completedPayload.errorMessage.length > 0,
+        });
+      }
+      if (event.type === "turn.aborted") {
+        yield* analytics.record("provider.turn.failed", {
+          provider: event.provider,
+          failureClass: "aborted",
+          reason: event.payload.reason,
+        });
+      }
+
+      if (isTurnIdleEvent(event)) {
+        yield* completeActiveTurn(event.threadId);
+      }
+      yield* publishRuntimeEvent(event);
+    });
 
   const worker = Effect.forever(
     Queue.take(runtimeEventQueue).pipe(Effect.flatMap(processRuntimeEvent)),

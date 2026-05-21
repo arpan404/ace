@@ -4288,6 +4288,16 @@ describe("ProviderRuntimeIngestion", () => {
   it("projects Codex task lifecycle chunks into thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
+    const longCompletedSummary = [
+      "<task_result>",
+      "Here is a summary of each of the three apps found in `/Users/arpanbhandari/.ace/worktrees/t3code/ace-e825ddd9`.",
+      "",
+      "## Package 0",
+      "The server package owns provider sessions, event ingestion, persistence, and orchestration projection.",
+      "The web package owns the chat transcript, event rendering, and reconnect behavior.",
+      "The shared packages keep contracts and runtime utilities separate so provider adapters do not leak UI-specific details.",
+      "</task_result>",
+    ].join("\n");
 
     harness.emit({
       type: "task.started",
@@ -4299,6 +4309,8 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         taskId: "turn-task-1",
         taskType: "plan",
+        description:
+          "This task description is intentionally long enough that the old projection truncation would have hidden the end of the text from the expanded Task row in the timeline.",
       },
     });
 
@@ -4326,7 +4338,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         taskId: "turn-task-1",
         status: "completed",
-        summary: "<proposed_plan>\n# Plan title\n</proposed_plan>",
+        summary: longCompletedSummary,
       },
     });
     harness.emit({
@@ -4374,13 +4386,18 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(started?.kind).toBe("task.started");
     expect(started?.summary).toBe("Plan task started");
+    expect((started?.payload as { detail?: string } | undefined)?.detail).toContain(
+      "hidden the end of the text",
+    );
     expect(progress?.kind).toBe("task.progress");
     expect(progressPayload?.detail).toBe("Code reviewer is validating the desktop rollout chunks.");
     expect(progressPayload?.summary).toBe(
       "Code reviewer is validating the desktop rollout chunks.",
     );
     expect(completed?.kind).toBe("task.completed");
-    expect(completedPayload?.detail).toBe("<proposed_plan>\n# Plan title\n</proposed_plan>");
+    expect(completedPayload?.detail).toBe(longCompletedSummary);
+    expect(completedPayload?.detail).toContain("The shared packages keep contracts");
+    expect(completedPayload?.detail).not.toContain("...");
     expect(
       thread.proposedPlans.find(
         (entry: ProviderRuntimeTestProposedPlan) => entry.id === "plan:thread-1:turn:turn-task-1",
