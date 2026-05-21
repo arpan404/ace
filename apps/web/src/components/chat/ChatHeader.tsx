@@ -45,6 +45,7 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleRightSidePanel: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
+  reliabilitySlot?: ReactNode;
 }
 
 const diffCountFormatter = new Intl.NumberFormat();
@@ -120,6 +121,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleRightSidePanel,
   onWorkspaceModeChange,
+  reliabilitySlot,
 }: ChatHeaderProps) {
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
@@ -226,6 +228,7 @@ export const ChatHeader = memo(function ChatHeader({
           </>
         ) : null}
         <div className="flex shrink-0 items-center gap-1.5">
+          {reliabilitySlot}
           <Tooltip>
             <TooltipTrigger
               render={

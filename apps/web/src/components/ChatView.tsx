@@ -220,6 +220,10 @@ import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState"
 import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
+import { ConnectionHealthPill } from "./reliability/ConnectionHealthPill";
+import { ReliabilityDiagnosticsDialog } from "./reliability/ReliabilityDiagnosticsDialog";
+import { useConnectionHealth } from "~/lib/reliability/connectionHealth";
+import { deriveStuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 import {
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -1031,6 +1035,7 @@ function useChatViewComponent({
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
   const hideCompletedWorkMessages = useSetting("hideCompletedWorkMessages");
+  const reliabilityUxEnabled = useSetting("reliabilityUxEnabled");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
   const browserMaxMountedInstances = useSetting("browserMaxMountedInstances");
@@ -1947,6 +1952,24 @@ function useChatViewComponent({
   ]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
+  const connectionHealth = useConnectionHealth();
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnosticsFocus, setDiagnosticsFocus] = useState<"connection" | "provider" | "thread">(
+    "connection",
+  );
+  const [stuckTurnNow, setStuckTurnNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!reliabilityUxEnabled || !liveTurnInProgress) {
+      return;
+    }
+    const timer = window.setInterval(() => setStuckTurnNow(Date.now()), 5_000);
+    return () => window.clearInterval(timer);
+  }, [liveTurnInProgress, reliabilityUxEnabled]);
+  useEffect(() => {
+    if (!reliabilityUxEnabled) {
+      setDiagnosticsOpen(false);
+    }
+  }, [reliabilityUxEnabled]);
   const activeProject = useProjectById(activeThread?.projectId);
   const activeProjectId = activeProject?.id ?? null;
   const activeRemoteHost = useMemo(
@@ -2204,6 +2227,7 @@ function useChatViewComponent({
 
   const hasThreadStarted = threadHasStarted(activeThread);
   const {
+    activeProviderStatus,
     composerModelOptions,
     handoffTargetProviders,
     lockedProvider,
@@ -2374,6 +2398,40 @@ function useChatViewComponent({
     activeThread?.session ?? null,
     localDispatchStartedAt,
   );
+  const stuckTurnSnapshot = useMemo(
+    () =>
+      reliabilityUxEnabled && activeThread
+        ? deriveStuckTurnSnapshot({
+            latestTurn: activeLatestTurn,
+            messages: activeThread.messages,
+            activities: activeThread.activities,
+            now: stuckTurnNow,
+          })
+        : { isLikelyStuck: false, runningForMs: 0, reason: null },
+    [activeLatestTurn, activeThread, reliabilityUxEnabled, stuckTurnNow],
+  );
+  const openDiagnostics = useCallback(
+    (focus: "connection" | "provider" | "thread") => {
+      if (!reliabilityUxEnabled) {
+        return;
+      }
+      setDiagnosticsFocus(focus);
+      setDiagnosticsOpen(true);
+    },
+    [reliabilityUxEnabled],
+  );
+  const refreshProviderStatus = useCallback(() => {
+    void readNativeApi()
+      ?.server.refreshProviders()
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Provider refresh failed",
+          description:
+            error instanceof Error ? error.message : "Unable to refresh provider status.",
+        });
+      });
+  }, []);
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;
   }, [attachmentPreviewHandoffByMessageId]);
@@ -7876,6 +7934,9 @@ function useChatViewComponent({
         : {}),
       activeTurnInProgress: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
+      stuckTurnSnapshot,
+      onStopStuckTurn: onInterrupt,
+      onOpenStuckTurnDiagnostics: () => openDiagnostics("thread"),
       backgroundMarkdownPrewarm: activeForSideEffects,
       hideCompletedWorkMessages,
       liveTimers: activeForSideEffects,
@@ -7911,6 +7972,7 @@ function useChatViewComponent({
       activeThreadModelProvider,
       activeForSideEffects,
       activeWorkStartedAt,
+      stuckTurnSnapshot,
       canOpenLocalMarkdownFiles,
       completionDividerBeforeEntryId,
       completionSummary,
@@ -7927,6 +7989,7 @@ function useChatViewComponent({
       getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
+      openDiagnostics,
       onRevertAssistantMessage,
       onRevertUserMessage,
       onToggleWorkGroup,
@@ -8269,6 +8332,14 @@ function useChatViewComponent({
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
                   onWorkspaceModeChange={onWorkspaceModeChange}
+                  reliabilitySlot={
+                    reliabilityUxEnabled ? (
+                      <ConnectionHealthPill
+                        onOpenDiagnostics={() => openDiagnostics("connection")}
+                        onRefreshProviders={refreshProviderStatus}
+                      />
+                    ) : null
+                  }
                 />
               </div>
             </div>
@@ -8284,15 +8355,32 @@ function useChatViewComponent({
           modelSettings={modelSettings}
           projectModelSelection={activeProject?.defaultModelSelection}
           providers={providerStatuses}
+          recoveryActionsEnabled={reliabilityUxEnabled}
           sessionProvider={activeThread.session?.provider ?? null}
           threadModelSelection={activeThread.modelSelection}
+          {...(reliabilityUxEnabled
+            ? { onOpenDiagnostics: () => openDiagnostics("provider") }
+            : {})}
         />
 
         {/* Error banner */}
         <ThreadErrorBanner
           error={activeThread.error}
           onDismiss={() => dismissThreadError(activeThread.id)}
+          {...(reliabilityUxEnabled ? { onOpenDiagnostics: () => openDiagnostics("thread") } : {})}
         />
+        {reliabilityUxEnabled ? (
+          <ReliabilityDiagnosticsDialog
+            open={diagnosticsOpen}
+            onOpenChange={setDiagnosticsOpen}
+            connection={connectionHealth}
+            provider={activeProviderStatus}
+            thread={activeThread}
+            focus={diagnosticsFocus}
+            turnRunning={liveTurnInProgress}
+            onStopTurn={liveTurnInProgress ? onInterrupt : null}
+          />
+        ) : null}
         {/* Main content area with optional plan sidebar */}
         <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {/* Chat column */}

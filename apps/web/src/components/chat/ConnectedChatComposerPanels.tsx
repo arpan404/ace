@@ -165,6 +165,8 @@ interface ConnectedComposerProviderStatusBannerProps {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly sessionProvider: ProviderKind | null;
   readonly threadModelSelection: ModelSelection | null | undefined;
+  readonly recoveryActionsEnabled?: boolean;
+  readonly onOpenDiagnostics?: () => void;
 }
 
 export const ConnectedComposerProviderStatusBanner = memo(
@@ -191,7 +193,15 @@ export const ConnectedComposerProviderStatusBanner = memo(
       threadModelSelection: props.threadModelSelection,
     });
 
-    return <ProviderStatusBanner status={activeProviderStatus} />;
+    return (
+      <ProviderStatusBanner
+        status={activeProviderStatus}
+        {...(props.recoveryActionsEnabled !== undefined
+          ? { recoveryActionsEnabled: props.recoveryActionsEnabled }
+          : {})}
+        {...(props.onOpenDiagnostics ? { onOpenDiagnostics: props.onOpenDiagnostics } : {})}
+      />
+    );
   },
 );
 

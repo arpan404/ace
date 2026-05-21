@@ -35,6 +35,7 @@ const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>
 const rpcClientMock = {
   dispose: vi.fn(),
   subscribeConnectionState: vi.fn(() => () => undefined),
+  queueProbeNow: vi.fn(),
   terminal: {
     open: vi.fn(),
     write: vi.fn(),

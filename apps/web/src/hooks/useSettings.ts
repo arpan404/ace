@@ -78,6 +78,9 @@ export function decodeClientSettingsPatch(rawPatch: Record<string, unknown>): Cl
       case "hideCompletedWorkMessages":
         patch.hideCompletedWorkMessages = Schema.decodeUnknownSync(Schema.Boolean)(value);
         break;
+      case "reliabilityUxEnabled":
+        patch.reliabilityUxEnabled = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
       case "editorLineNumbers":
         patch.editorLineNumbers = Schema.decodeUnknownSync(EditorLineNumbers)(value);
         break;
@@ -427,6 +430,10 @@ export function buildLegacyClientSettingsMigrationPatch(
 
   if (Predicate.isBoolean(legacySettings.diffWordWrap)) {
     patch.diffWordWrap = legacySettings.diffWordWrap;
+  }
+
+  if (Predicate.isBoolean(legacySettings.reliabilityUxEnabled)) {
+    patch.reliabilityUxEnabled = legacySettings.reliabilityUxEnabled;
   }
 
   if (Schema.is(EditorLineNumbers)(legacySettings.editorLineNumbers)) {

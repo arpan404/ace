@@ -21,6 +21,10 @@ import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
+import {
+  applyTransportConnectionHealthState,
+  setConnectionHealthToastsEnabled,
+} from "../lib/reliability/connectionHealth";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { runAsyncTask } from "../lib/async";
 import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
@@ -44,7 +48,7 @@ import { useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
-import { migrateLocalSettingsToServer } from "../hooks/useSettings";
+import { migrateLocalSettingsToServer, useSetting } from "../hooks/useSettings";
 import { UiTypographyBridge } from "../components/UiTypographyBridge";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
@@ -111,10 +115,14 @@ function RootRouteView() {
 
 function MainRootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const reliabilityUxEnabled = useSetting("reliabilityUxEnabled");
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
   );
   const [wsHostEpoch, setWsHostEpoch] = useState(0);
+  useEffect(() => {
+    setConnectionHealthToastsEnabled(reliabilityUxEnabled);
+  }, [reliabilityUxEnabled]);
   const handleRemoteBootstrapSettled = useCallback(() => {
     setRemoteBootstrapSettled(true);
   }, []);
@@ -965,6 +973,7 @@ function useEventRouterLifecycle() {
         message: `Connection state changed: ${state.kind}`,
         detail: state.error,
       });
+      applyTransportConnectionHealthState(state);
       if (state.kind === "disconnected") {
         reconnectRecoveryRequested = true;
         cancelPendingDomainEventFlush();

@@ -27,7 +27,7 @@ interface WsTransportOptions {
 }
 
 export interface WsTransportConnectionState {
-  readonly kind: "disconnected" | "reconnected";
+  readonly kind: "connected" | "disconnected" | "reconnecting" | "reconnected";
   readonly error?: string;
 }
 
@@ -153,6 +153,11 @@ export class WsTransport {
     };
   }
 
+  queueProbeNow(reason = "manual"): void {
+    this.wakeSubscriptionRetries();
+    this.queueConnectionProbe(reason);
+  }
+
   private emitConnectionState(state: WsTransportConnectionState): void {
     for (const listener of this.connectionStateListeners) {
       try {
@@ -172,6 +177,7 @@ export class WsTransport {
         level: "success",
         message: "WebSocket transport connected",
       });
+      this.emitConnectionState({ kind: "connected" });
       return;
     }
     if (!this.disconnected) {
@@ -307,6 +313,9 @@ export class WsTransport {
     if (this.probeInFlight) {
       this.queuedProbe = true;
       return;
+    }
+    if (this.disconnected || this.hasConnected) {
+      this.emitConnectionState({ kind: "reconnecting" });
     }
     this.probeInFlight = true;
     void this.runConnectionProbe(reason).finally(() => {

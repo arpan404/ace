@@ -905,6 +905,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.hideCompletedWorkMessages !== DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages
         ? ["Completed work details"]
         : []),
+      ...(settings.reliabilityUxEnabled !== DEFAULT_UNIFIED_SETTINGS.reliabilityUxEnabled
+        ? ["Reliability recovery UX"]
+        : []),
       ...(settings.notifyOnAgentCompletion !== DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion
         ? ["Completion notifications"]
         : []),
@@ -968,6 +971,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableThinkingStreaming,
       settings.enableToolStreaming,
       settings.hideCompletedWorkMessages,
+      settings.reliabilityUxEnabled,
       settings.threadHydrationCacheMemoryMb,
       settings.timestampFormat,
       settings.uiFontFamily,
@@ -2140,6 +2144,34 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     updateSettings({ hideCompletedWorkMessages: Boolean(checked) })
                   }
                   aria-label="Hide completed work details"
+                />
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Reliability">
+            <SettingsRow
+              title="Recovery UX"
+              description="Show connection health, diagnostics actions, stuck-turn hints, and connection recovery toasts."
+              resetAction={
+                settings.reliabilityUxEnabled !== DEFAULT_UNIFIED_SETTINGS.reliabilityUxEnabled ? (
+                  <SettingResetButton
+                    label="reliability recovery UX"
+                    onClick={() =>
+                      updateSettings({
+                        reliabilityUxEnabled: DEFAULT_UNIFIED_SETTINGS.reliabilityUxEnabled,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.reliabilityUxEnabled}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ reliabilityUxEnabled: Boolean(checked) })
+                  }
+                  aria-label="Enable reliability recovery UX"
                 />
               }
             />

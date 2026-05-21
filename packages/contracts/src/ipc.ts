@@ -173,6 +173,7 @@ export const DESKTOP_MENU_ACTIONS = [
   "open-settings-chat",
   "open-settings-editor",
   "open-settings-browser",
+  "open-settings-devices",
   "open-settings-models",
   "open-settings-providers",
   "open-settings-advanced",

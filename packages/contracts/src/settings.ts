@@ -101,6 +101,7 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   hideCompletedWorkMessages: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  reliabilityUxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorLineNumbers: EditorLineNumbers.pipe(
     Schema.withDecodingDefault(() => DEFAULT_EDITOR_LINE_NUMBERS),
   ),

@@ -2,9 +2,12 @@ import { PROVIDER_DISPLAY_NAMES, type ServerProvider } from "@ace/contracts";
 import { memo, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
-import { CircleAlertIcon, XIcon } from "lucide-react";
+import { CircleAlertIcon, RefreshCwIcon, WrenchIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { readNativeApi } from "~/nativeApi";
+import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
 
 const DISMISSED_PROVIDER_STATUS_KEYS_STORAGE_KEY = "ace:dismissed-provider-status-keys:v1";
 const MAX_DISMISSED_PROVIDER_STATUS_KEYS = 128;
@@ -107,13 +110,18 @@ function ProviderStatusOverlay({ children }: { children: ReactNode }) {
 
 export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   status,
+  recoveryActionsEnabled = false,
+  onOpenDiagnostics,
 }: {
   status: ServerProvider | null;
+  recoveryActionsEnabled?: boolean;
+  onOpenDiagnostics?: () => void;
 }) {
   const [dismissedStatusKeys, setDismissedStatusKeys] = useState(() => {
     hydrateDismissedProviderStatusKeys();
     return new Set(dismissedProviderStatusKeys);
   });
+  const [refreshing, setRefreshing] = useState(false);
 
   const statusKey = useMemo(() => resolveProviderStatusDismissalKey(status), [status]);
 
@@ -135,6 +143,25 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       : `${providerLabel} provider has limited availability.`;
   const title = `${providerLabel} provider status`;
   const bannerStatus = status.status === "error" ? "error" : "warning";
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await readNativeApi()?.server.refreshProviders();
+      toastManager.add({
+        type: "success",
+        title: "Provider status refreshed",
+        data: { dismissAfterVisibleMs: 3_000 },
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Provider refresh failed",
+        description: error instanceof Error ? error.message : "Unable to refresh provider status.",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <ProviderStatusOverlay>
@@ -160,18 +187,38 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
           </TooltipPopup>
         </Tooltip>
         <AlertAction>
-          <button
-            type="button"
-            aria-label="Dismiss provider status"
-            className="inline-flex size-6 items-center justify-center rounded-lg text-destructive/50 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => {
-              if (statusKey !== null) {
-                setDismissedStatusKeys(dismissProviderStatus(statusKey));
-              }
-            }}
-          >
-            <XIcon className="size-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {recoveryActionsEnabled ? (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                disabled={refreshing}
+                onClick={() => void refresh()}
+              >
+                <RefreshCwIcon className={refreshing ? "size-3 animate-spin" : "size-3"} />
+                Refresh
+              </Button>
+            ) : null}
+            {recoveryActionsEnabled && onOpenDiagnostics ? (
+              <Button type="button" size="xs" variant="outline" onClick={onOpenDiagnostics}>
+                <WrenchIcon className="size-3" />
+                Details
+              </Button>
+            ) : null}
+            <button
+              type="button"
+              aria-label="Dismiss provider status"
+              className="inline-flex size-6 items-center justify-center rounded-lg text-destructive/50 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                if (statusKey !== null) {
+                  setDismissedStatusKeys(dismissProviderStatus(statusKey));
+                }
+              }}
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          </div>
         </AlertAction>
       </Alert>
     </ProviderStatusOverlay>

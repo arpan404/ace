@@ -1,15 +1,22 @@
 import { memo } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
-import { CircleAlertIcon, XIcon } from "lucide-react";
+import { CircleAlertIcon, RotateCcwIcon, WrenchIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Button } from "../ui/button";
+
+interface ThreadErrorBannerProps {
+  error: string | null;
+  onDismiss?: () => void;
+  onOpenDiagnostics?: () => void;
+  onRetryLastMessage?: () => void;
+}
 
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
   onDismiss,
-}: {
-  error: string | null;
-  onDismiss?: () => void;
-}) {
+  onOpenDiagnostics,
+  onRetryLastMessage,
+}: ThreadErrorBannerProps) {
   if (!error) return null;
   return (
     <div className="pt-3 mx-auto max-w-3xl">
@@ -27,16 +34,32 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             {error}
           </TooltipPopup>
         </Tooltip>
-        {onDismiss && (
+        {(onOpenDiagnostics || onRetryLastMessage || onDismiss) && (
           <AlertAction>
-            <button
-              type="button"
-              aria-label="Dismiss error"
-              className="inline-flex size-6 items-center justify-center rounded-lg text-destructive/50 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
-              onClick={onDismiss}
-            >
-              <XIcon className="size-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              {onRetryLastMessage ? (
+                <Button type="button" size="xs" variant="outline" onClick={onRetryLastMessage}>
+                  <RotateCcwIcon className="size-3" />
+                  Retry
+                </Button>
+              ) : null}
+              {onOpenDiagnostics ? (
+                <Button type="button" size="xs" variant="outline" onClick={onOpenDiagnostics}>
+                  <WrenchIcon className="size-3" />
+                  Details
+                </Button>
+              ) : null}
+              {onDismiss ? (
+                <button
+                  type="button"
+                  aria-label="Dismiss error"
+                  className="inline-flex size-6 items-center justify-center rounded-lg text-destructive/50 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
+                  onClick={onDismiss}
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
           </AlertAction>
         )}
       </Alert>
