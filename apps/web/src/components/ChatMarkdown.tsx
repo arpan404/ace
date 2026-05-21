@@ -493,7 +493,7 @@ function UncachedSuspenseShikiCodeBlock({
 function StreamingMarkdownText({ text }: { text: string }) {
   return (
     <div
-      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80"
+      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
       data-streaming-markdown="true"
     >
       {text}
@@ -503,7 +503,7 @@ function StreamingMarkdownText({ text }: { text: string }) {
 
 const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
   return (
-    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
       {text}
     </div>
   );
@@ -530,7 +530,7 @@ const MarkdownBody = memo(function MarkdownBody({
 
   return (
     <div
-      className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
+      className="chat-markdown w-full min-w-0 text-[13px] leading-[1.55] text-foreground/80"
       data-streaming-markdown={isStreaming ? "true" : undefined}
     >
       {isRenderProfilingEnabled() ? (
@@ -556,7 +556,7 @@ function PreviewTextPanel({
       className="max-h-96 overflow-auto p-0"
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
-      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
         {text}
       </div>
     </div>
@@ -742,7 +742,11 @@ function ChatMarkdown({
         if (!targetPath) {
           const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
           if (!browserUrl || !onOpenBrowserUrl) {
-            return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+            return (
+              <a {...props} href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            );
           }
 
           return (

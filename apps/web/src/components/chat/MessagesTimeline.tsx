@@ -1813,6 +1813,7 @@ function classifyToolSummaryEntry(
 
 function summarizeWorkGroupBreakdownParts(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  elapsedLabel: string | null,
 ): Array<{ key: string; text: string; title: string }> {
   const intentCount = entries.filter((entry) => entry.kind === "intent").length;
   const toolEntries = entries.filter(
@@ -1861,6 +1862,18 @@ function summarizeWorkGroupBreakdownParts(
   ).length;
   const eventCount = infoCount;
   const parts: Array<{ key: string; text: string; title: string }> = [];
+  const isThinkingOnly = thinkingCount > 0 && entries.length === thinkingCount;
+
+  if (isThinkingOnly && elapsedLabel) {
+    const steps = summarizeCount(thinkingCount, "reasoning step");
+    return [
+      {
+        key: "thinking",
+        text: `Thought for ${elapsedLabel}`,
+        title: steps,
+      },
+    ];
+  }
 
   if (intentCount > 0) {
     parts.push({
@@ -2209,7 +2222,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
 
         return (
-          <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
+          <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-[13px] leading-[1.55] text-foreground/90">
             {inlineNodes}
           </div>
         );
@@ -2244,7 +2257,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     return (
-      <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
+      <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-[13px] leading-[1.55] text-foreground/90">
         {inlineNodes}
       </div>
     );
@@ -2255,7 +2268,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   }
 
   return (
-    <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
+    <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-[13px] leading-[1.55] text-foreground/90">
       {buildUserMessageInlineText(
         props.text,
         "user-message-provider-command",
@@ -2312,7 +2325,6 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const groupId = workGroupId(props.row.id);
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
-  const breakdownParts = summarizeWorkGroupBreakdownParts(props.row.entries);
   const hasThinkingEntries = props.row.entries.some(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
   );
@@ -2322,6 +2334,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const hasIntentEntries = props.row.entries.some((entry) => entry.kind === "intent");
   const surfaceTone = resolveMetaGroupTone(props.row.entries);
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.entries, props.row.summaryEndAt);
+  const breakdownParts = summarizeWorkGroupBreakdownParts(props.row.entries, elapsedLabel);
   const GroupIcon = workGroupIcon(props.row.entries);
   const threadGroupTone = hasToolEntries
     ? hasThinkingEntries
@@ -2349,8 +2362,8 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
         data-tool-disclosure={hasToolEntries ? "true" : undefined}
         data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
       >
-        <GroupIcon className={cn("mt-0.5 size-4 shrink-0", metaToneTextClass(surfaceTone))} />
-        <div className="flex min-w-0 items-center gap-2 overflow-hidden text-[15px] leading-6 text-muted-foreground/70">
+        <GroupIcon className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(surfaceTone))} />
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[13px] leading-5 text-muted-foreground/70">
           {breakdownParts.map((part, index) => (
             <Fragment key={`${props.row.id}:summary:${part.key}`}>
               {index > 0 && <span className="shrink-0 text-muted-foreground/45">·</span>}
@@ -2366,7 +2379,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
             </Fragment>
           ))}
           <ChevronIcon
-            className="size-4 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
+            className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
             strokeWidth={2.2}
           />
           {elapsedLabel && (
@@ -2777,7 +2790,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendingPlaceholder() {
   return (
     <div
-      className="space-y-2 py-1 text-sm text-muted-foreground/58"
+      className="space-y-2 py-1 text-[13px] text-muted-foreground/58"
       data-assistant-markdown-pending="true"
     >
       <div className="h-3.5 w-2/3 rounded bg-muted-foreground/9" />

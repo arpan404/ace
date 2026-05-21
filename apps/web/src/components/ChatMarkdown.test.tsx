@@ -107,6 +107,21 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("chat-markdown-local-file-link");
   });
 
+  it("keeps fallback link text visible inside list items", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown
+        text={
+          "Files changed:\n\n- [ChatMarkdown.tsx](/Users/me/project/apps/web/src/components/ChatMarkdown.tsx)\n- [MessagesTimeline.tsx](/Users/me/project/apps/web/src/components/chat/MessagesTimeline.tsx)"
+        }
+        cwd={undefined}
+      />,
+    );
+
+    expect(markup).toContain("<li>");
+    expect(markup).toContain("ChatMarkdown.tsx");
+    expect(markup).toContain("MessagesTimeline.tsx");
+  });
+
   it("caps very large streaming responses to a preview window", () => {
     const fullText = Array.from({ length: 2_500 }, (_, index) => `line ${index + 1}`).join("\n");
     const streamingTextState = createChatMessageStreamingTextState(fullText);

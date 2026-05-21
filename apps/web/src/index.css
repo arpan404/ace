@@ -872,7 +872,7 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown blockquote,
 .chat-markdown pre,
 .chat-markdown table {
-  margin: 0.5rem 0;
+  margin: 0.375rem 0;
 }
 
 .chat-markdown ul {
