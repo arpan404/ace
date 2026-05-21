@@ -675,6 +675,38 @@ function extractToolResultDetail(value: unknown): string | undefined {
   return undefined;
 }
 
+function extractToolResultOutput(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  const result = recordValue(value);
+  if (!result) {
+    return undefined;
+  }
+  const direct =
+    stringValue(result.output) ??
+    stringValue(result.aggregatedOutput) ??
+    stringValue(result.stdout) ??
+    stringValue(result.stderr) ??
+    stringValue(result.detailedContent) ??
+    stringValue(result.content);
+  if (direct) {
+    return direct;
+  }
+  const contents = getObjectProperty(result, "contents");
+  if (!Array.isArray(contents)) {
+    return undefined;
+  }
+  const text = contents
+    .flatMap((entry) => {
+      const block = recordValue(entry);
+      const blockText = stringValue(getObjectProperty(block ?? {}, "text"));
+      return blockText ? [blockText] : [];
+    })
+    .join("");
+  return text.length > 0 ? text : undefined;
+}
+
 function buildToolExecutionTitle(input: {
   readonly toolName?: string;
   readonly toolTitle?: string;
@@ -714,6 +746,77 @@ function buildToolExecutionDetail(input: {
     detailParts.push(truncatePreview(errorMessage));
   }
   return detailParts.length > 0 ? detailParts.join("\n") : undefined;
+}
+
+function extractToolCommand(value: unknown): string | undefined {
+  const record = recordValue(value);
+  if (!record) {
+    return undefined;
+  }
+  return (
+    commandPreviewValue(record.command) ??
+    commandPreviewValue(record.cmd) ??
+    commandPreviewValue(record.shellCommand)
+  );
+}
+
+function extractToolCwd(value: unknown): string | undefined {
+  const record = recordValue(value);
+  if (!record) {
+    return undefined;
+  }
+  return (
+    stringValue(record.cwd) ??
+    stringValue(record.workingDirectory) ??
+    stringValue(record.directory) ??
+    stringValue(record.dirPath)
+  );
+}
+
+function buildCanonicalToolData(input: {
+  readonly providerItemId?: string | undefined;
+  readonly toolName?: string | undefined;
+  readonly arguments?: Record<string, unknown> | undefined;
+  readonly toolTitle?: string | undefined;
+  readonly intentionSummary?: string | undefined;
+  readonly mcpServerName?: string | undefined;
+  readonly mcpToolName?: string | undefined;
+  readonly output?: string | undefined;
+  readonly result?: unknown;
+  readonly error?: unknown;
+  readonly model?: string | undefined;
+  readonly extra?: Record<string, unknown> | undefined;
+}): Record<string, unknown> {
+  const command = extractToolCommand(input.arguments);
+  const cwd = extractToolCwd(input.arguments);
+  const output = input.output ?? extractToolResultOutput(input.result);
+  const item = {
+    ...(input.providerItemId ? { id: input.providerItemId, toolCallId: input.providerItemId } : {}),
+    ...(input.toolName ? { name: input.toolName, toolName: input.toolName } : {}),
+    ...(input.arguments ? { input: input.arguments, arguments: input.arguments } : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(input.result !== undefined ? { result: input.result } : {}),
+    ...(input.error !== undefined ? { error: input.error } : {}),
+  };
+  return {
+    ...input.extra,
+    ...(input.providerItemId ? { toolCallId: input.providerItemId } : {}),
+    ...(input.toolName ? { toolName: input.toolName } : {}),
+    ...(input.arguments ? { input: input.arguments, arguments: input.arguments } : {}),
+    ...(input.toolTitle ? { toolTitle: input.toolTitle } : {}),
+    ...(input.intentionSummary ? { intentionSummary: input.intentionSummary } : {}),
+    ...(input.mcpServerName ? { mcpServerName: input.mcpServerName } : {}),
+    ...(input.mcpToolName ? { mcpToolName: input.mcpToolName } : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(input.result !== undefined ? { result: input.result } : {}),
+    ...(input.error !== undefined ? { error: input.error } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    item,
+  };
 }
 
 function rememberToolRequestMetadata(context: GitHubCopilotSessionContext, data: object): void {
@@ -810,11 +913,13 @@ function getObjectProperty(value: object, key: string): unknown {
   return key in value ? (value as { readonly [property: string]: unknown })[key] : undefined;
 }
 
-function getSessionEventData(event: SessionEvent): object {
+function getSessionEventData(event: SessionEvent): Record<string, unknown> {
   if (!("data" in event)) {
     return {};
   }
-  return typeof event.data === "object" && event.data !== null ? event.data : {};
+  return typeof event.data === "object" && event.data !== null
+    ? (event.data as Record<string, unknown>)
+    : {};
 }
 
 function getSessionEventTimestamp(event: SessionEvent): string | undefined {
@@ -1429,12 +1534,13 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       ...(intentionSummary ? { intentionSummary } : {}),
     });
     const detail = buildToolExecutionDetail(toolArguments ? { arguments: toolArguments } : {});
-    const data = {
+    const data = buildCanonicalToolData({
+      providerItemId,
       toolName,
       ...(toolArguments ? { arguments: toolArguments } : {}),
       ...(toolTitle ? { toolTitle } : {}),
       ...(intentionSummary ? { intentionSummary } : {}),
-    };
+    });
 
     const toolItem: ToolItemState =
       existing ??
@@ -1909,12 +2015,17 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           ...(mcpServerName ? { mcpServerName } : {}),
           ...(mcpToolName ? { mcpToolName } : {}),
         });
-        const toolData = {
+        const toolData = buildCanonicalToolData({
+          providerItemId,
           toolName,
           ...(toolArguments ? { arguments: toolArguments } : {}),
+          ...(requestMetadata?.toolTitle ? { toolTitle: requestMetadata.toolTitle } : {}),
+          ...(requestMetadata?.intentionSummary
+            ? { intentionSummary: requestMetadata.intentionSummary }
+            : {}),
           ...(mcpServerName ? { mcpServerName } : {}),
           ...(mcpToolName ? { mcpToolName } : {}),
-        };
+        });
         const toolItem: ToolItemState =
           existing ??
           ({
@@ -1991,6 +2102,13 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         const progressMessage = stringValue(getObjectProperty(data, "progressMessage"));
         if (progressMessage) {
           toolItem.detail = progressMessage;
+          toolItem.data = buildCanonicalToolData({
+            providerItemId,
+            toolName: toolItem.toolName,
+            ...(toolArguments ? { arguments: toolArguments } : {}),
+            output: progressMessage,
+            extra: toolItem.data,
+          });
         }
         const runtimeEvent = makeBaseEvent(context, {
           type: "item.updated",
@@ -2040,6 +2158,13 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         const partialOutput = stringValue(getObjectProperty(data, "partialOutput"));
         if (partialOutput) {
           toolItem.detail = partialOutput;
+          toolItem.data = buildCanonicalToolData({
+            providerItemId,
+            toolName: toolItem.toolName,
+            ...(toolArguments ? { arguments: toolArguments } : {}),
+            output: partialOutput,
+            extra: toolItem.data,
+          });
         }
         const runtimeEvent = makeBaseEvent(context, {
           type: "item.updated",
@@ -2137,14 +2262,15 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         if (toolExecutionDetail) {
           toolItem.detail = toolExecutionDetail;
         }
-        toolItem.data = {
-          ...(requestMetadata?.toolName ? { toolName: requestMetadata.toolName } : {}),
+        toolItem.data = buildCanonicalToolData({
+          ...(providerItemId ? { providerItemId } : {}),
+          toolName: requestMetadata?.toolName ?? toolItem.toolName,
           ...(requestMetadata?.arguments ? { arguments: requestMetadata.arguments } : {}),
           ...(result !== undefined ? { result } : {}),
           ...(error !== undefined ? { error } : {}),
           ...(model ? { model } : {}),
-          ...data,
-        };
+          extra: data,
+        });
         toolItem.completed = true;
         const runtimeEvent = makeBaseEvent(context, {
           type: "item.completed",

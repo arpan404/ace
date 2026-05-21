@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import type { BrowserBridgeRequest } from "@ace/contracts";
+import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -29,6 +30,7 @@ import {
   BROWSER_HISTORY_STORAGE_KEY,
   BrowserHistorySchema,
   buildBrowserSuggestions,
+  type BrowserHistory,
   type BrowserSuggestion,
   recordBrowserHistory,
 } from "~/lib/browser/history";
@@ -42,6 +44,7 @@ import {
 import {
   BROWSER_NEW_TAB_URL,
   BrowserSessionStorageSchema,
+  type BrowserSessionStorage,
   type BrowserTabState,
   addBrowserTab,
   closeBrowserTab,
@@ -139,6 +142,178 @@ interface UseInAppBrowserStateOptions {
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
+
+interface BrowserSessionProjection {
+  readonly activeRuntime: BrowserTabRuntimeState;
+  readonly activeTab: BrowserTabState | undefined;
+  readonly activeTabId: string | null;
+  readonly activeTabIndex: number;
+  readonly activeTabIsInternal: boolean;
+  readonly activeTabIsNewTab: boolean;
+  readonly activeTabUrl: string;
+  readonly openTabs: readonly BrowserTabState[];
+  readonly tabCount: number;
+  readonly tabsById: ReadonlyMap<string, BrowserTabState>;
+}
+
+interface BrowserAddressBarState {
+  readonly addressBarSuggestions: readonly BrowserSuggestion[];
+  readonly dismissAddressBarSuggestionOverlay: () => void;
+  readonly draftUrl: string;
+  readonly isAddressBarFocused: boolean;
+  readonly selectedSuggestionIndex: number;
+  readonly setDraftUrl: (value: string) => void;
+  readonly setIsAddressBarFocused: (value: boolean) => void;
+  readonly setSelectedSuggestionIndex: (next: number | ((current: number) => number)) => void;
+  readonly showAddressBarSuggestionOverlay: () => void;
+  readonly showAddressBarSuggestions: boolean;
+  readonly syncDraftUrlFromActiveTab: (input: {
+    readonly activeTabIsInternal: boolean;
+    readonly activeTabUrl: string;
+  }) => void;
+}
+
+function useBrowserSessionProjection(
+  browserSession: BrowserSessionStorage,
+  tabRuntimeById: Readonly<Record<string, BrowserTabRuntimeState>>,
+): BrowserSessionProjection {
+  return useMemo(() => {
+    const tabs = browserSession.tabs;
+    const activeTabIndex = Math.max(
+      0,
+      tabs.findIndex((tab) => tab.id === browserSession.activeTabId),
+    );
+    const activeTab =
+      tabs.find((tab) => tab.id === browserSession.activeTabId) ?? browserSession.tabs[0];
+    const activeTabId = activeTab?.id ?? null;
+    const activeTabUrl = activeTab?.url ?? "";
+    const activeRuntime = activeTab
+      ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
+      : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
+    const tabsById = new Map<string, BrowserTabState>();
+    const openTabs: BrowserTabState[] = [];
+
+    for (const tab of tabs) {
+      tabsById.set(tab.id, tab);
+      if (!isBrowserInternalTabUrl(tab.url)) {
+        openTabs.push(tab);
+      }
+    }
+
+    return {
+      activeRuntime,
+      activeTab,
+      activeTabId,
+      activeTabIndex: activeTab ? activeTabIndex : -1,
+      activeTabIsInternal: activeTab ? isBrowserInternalTabUrl(activeTab.url) : false,
+      activeTabIsNewTab: activeTab ? isBrowserNewTabUrl(activeTab.url) : false,
+      activeTabUrl,
+      openTabs,
+      tabCount: tabs.length,
+      tabsById,
+    };
+  }, [browserSession.activeTabId, browserSession.tabs, tabRuntimeById]);
+}
+
+function useBrowserAddressBarState(input: {
+  readonly activeTabId: string | null;
+  readonly activeTabUrl: string;
+  readonly browserHistory: BrowserHistory;
+  readonly browserSearchEngine: BrowserSearchEngine;
+  readonly openTabs: readonly BrowserTabState[];
+}): BrowserAddressBarState {
+  const [draftUrl, setDraftUrl] = useState("");
+  const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
+  const [addressBarSuggestionsDismissed, setAddressBarSuggestionsDismissed] = useState(false);
+  const [selectedSuggestionState, setSelectedSuggestionState] = useState({
+    index: -1,
+    query: "",
+  });
+
+  const showAddressBarSuggestions = shouldShowBrowserAddressBarSuggestions({
+    isAddressBarFocused,
+    suggestionsDismissed: addressBarSuggestionsDismissed,
+  });
+
+  const addressBarSuggestions = useMemo(() => {
+    if (!showAddressBarSuggestions) {
+      return EMPTY_BROWSER_SUGGESTIONS;
+    }
+
+    return buildBrowserSuggestions(draftUrl, {
+      ...(input.activeTabId ? { activeTabId: input.activeTabId } : {}),
+      ...(input.activeTabUrl ? { activePageUrl: input.activeTabUrl } : {}),
+      history: input.browserHistory,
+      openTabs: input.openTabs,
+      searchEngine: input.browserSearchEngine,
+    });
+  }, [
+    draftUrl,
+    input.activeTabId,
+    input.activeTabUrl,
+    input.browserHistory,
+    input.browserSearchEngine,
+    input.openTabs,
+    showAddressBarSuggestions,
+  ]);
+
+  const selectedSuggestionIndex =
+    selectedSuggestionState.query === draftUrl &&
+    selectedSuggestionState.index < addressBarSuggestions.length
+      ? selectedSuggestionState.index
+      : -1;
+
+  const setSelectedSuggestionIndex = useCallback(
+    (next: number | ((current: number) => number)) => {
+      setSelectedSuggestionState((current) => {
+        const currentIndex =
+          current.query === draftUrl && current.index < addressBarSuggestions.length
+            ? current.index
+            : -1;
+        const nextIndex = typeof next === "function" ? next(currentIndex) : next;
+        return {
+          index: nextIndex,
+          query: draftUrl,
+        };
+      });
+    },
+    [addressBarSuggestions.length, draftUrl],
+  );
+
+  const showAddressBarSuggestionOverlay = useCallback(() => {
+    setAddressBarSuggestionsDismissed(false);
+  }, []);
+
+  const dismissAddressBarSuggestionOverlay = useCallback(() => {
+    setAddressBarSuggestionsDismissed(true);
+    setIsAddressBarFocused(false);
+    setSelectedSuggestionIndex(-1);
+  }, [setSelectedSuggestionIndex]);
+
+  const syncDraftUrlFromActiveTab = useCallback(
+    (next: { readonly activeTabIsInternal: boolean; readonly activeTabUrl: string }) => {
+      setDraftUrl(next.activeTabIsInternal ? "" : next.activeTabUrl);
+      if (!next.activeTabIsInternal) {
+        setAddressBarSuggestionsDismissed(true);
+      }
+    },
+    [],
+  );
+
+  return {
+    addressBarSuggestions,
+    dismissAddressBarSuggestionOverlay,
+    draftUrl,
+    isAddressBarFocused,
+    selectedSuggestionIndex,
+    setDraftUrl,
+    setIsAddressBarFocused,
+    setSelectedSuggestionIndex,
+    showAddressBarSuggestionOverlay,
+    showAddressBarSuggestions,
+    syncDraftUrlFromActiveTab,
+  };
+}
 
 function readStringArg(args: Record<string, unknown>, key: string): string | undefined {
   const value = args[key];
@@ -573,15 +748,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [],
     BrowserHistorySchema,
   );
-  const [draftUrl, setDraftUrl] = useState("");
   const [browserResetKey, setBrowserResetKey] = useState(0);
   const [isRepairingStorage, setIsRepairingStorage] = useState(false);
-  const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
-  const [addressBarSuggestionsDismissed, setAddressBarSuggestionsDismissed] = useState(false);
-  const [selectedSuggestionState, setSelectedSuggestionState] = useState({
-    index: -1,
-    query: "",
-  });
   const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
   const updateBrowserSession = useCallback(
     (updater: (state: typeof browserSession) => typeof browserSession) => {
@@ -596,67 +764,37 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [setBrowserSession],
   );
 
-  const activeTab =
-    browserSession.tabs.find((tab) => tab.id === browserSession.activeTabId) ??
-    browserSession.tabs[0];
-  const activeTabIsInternal = activeTab ? isBrowserInternalTabUrl(activeTab.url) : false;
-  const activeTabIsNewTab = activeTab ? isBrowserNewTabUrl(activeTab.url) : false;
-  const activeTabId = activeTab?.id ?? null;
-  const activeTabUrl = activeTab?.url ?? "";
-  const activeRuntime = activeTab
-    ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
-    : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-  const showAddressBarSuggestions = shouldShowBrowserAddressBarSuggestions({
-    isAddressBarFocused,
-    suggestionsDismissed: addressBarSuggestionsDismissed,
-  });
-  const suggestionInput = draftUrl;
-  const openTabs = useMemo(
-    () => browserSession.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url)),
-    [browserSession.tabs],
-  );
-  const addressBarSuggestions = useMemo(() => {
-    if (!showAddressBarSuggestions) {
-      return EMPTY_BROWSER_SUGGESTIONS;
-    }
-
-    return buildBrowserSuggestions(suggestionInput, {
-      ...(activeTabId ? { activeTabId } : {}),
-      ...(activeTabUrl ? { activePageUrl: activeTabUrl } : {}),
-      history: browserHistory,
-      openTabs,
-      searchEngine: browserSearchEngine,
-    });
-  }, [
+  const {
+    activeRuntime,
     activeTabId,
+    activeTab,
+    activeTabIndex,
+    activeTabIsInternal,
+    activeTabIsNewTab,
     activeTabUrl,
+    openTabs,
+    tabCount,
+    tabsById,
+  } = useBrowserSessionProjection(browserSession, tabRuntimeById);
+  const {
+    addressBarSuggestions,
+    dismissAddressBarSuggestionOverlay,
+    draftUrl,
+    isAddressBarFocused,
+    selectedSuggestionIndex,
+    setDraftUrl,
+    setIsAddressBarFocused,
+    setSelectedSuggestionIndex,
+    showAddressBarSuggestionOverlay,
+    showAddressBarSuggestions,
+    syncDraftUrlFromActiveTab,
+  } = useBrowserAddressBarState({
     browserHistory,
     browserSearchEngine,
+    activeTabId,
+    activeTabUrl,
     openTabs,
-    showAddressBarSuggestions,
-    suggestionInput,
-  ]);
-  const selectedSuggestionIndex =
-    selectedSuggestionState.query === draftUrl &&
-    selectedSuggestionState.index < addressBarSuggestions.length
-      ? selectedSuggestionState.index
-      : -1;
-  const setSelectedSuggestionIndex = useCallback(
-    (next: number | ((current: number) => number)) => {
-      setSelectedSuggestionState((current) => {
-        const currentIndex =
-          current.query === draftUrl && current.index < addressBarSuggestions.length
-            ? current.index
-            : -1;
-        const nextIndex = typeof next === "function" ? next(currentIndex) : next;
-        return {
-          index: nextIndex,
-          query: draftUrl,
-        };
-      });
-    },
-    [addressBarSuggestions.length, draftUrl],
-  );
+  });
 
   const focusAddressBar = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -664,20 +802,15 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       if (!input) {
         return;
       }
-      setAddressBarSuggestionsDismissed(false);
+      showAddressBarSuggestionOverlay();
       input.focus();
       input.select();
     });
-  }, []);
-  const showAddressBarSuggestionOverlay = useCallback(() => {
-    setAddressBarSuggestionsDismissed(false);
-  }, []);
-  const dismissAddressBarSuggestionOverlay = useCallback(() => {
-    setAddressBarSuggestionsDismissed(true);
-    setIsAddressBarFocused(false);
-    setSelectedSuggestionIndex(-1);
+  }, [showAddressBarSuggestionOverlay]);
+  const dismissAddressBarSuggestionOverlayAndBlur = useCallback(() => {
+    dismissAddressBarSuggestionOverlay();
     addressInputRef.current?.blur();
-  }, []);
+  }, [dismissAddressBarSuggestionOverlay]);
 
   const setActiveTabByIndex = useCallback(
     (index: number) => {
@@ -693,21 +826,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   const moveTabSelection = useCallback(
     (direction: -1 | 1) => {
-      if (!activeTab || browserSession.tabs.length <= 1) {
+      if (!activeTab || tabCount <= 1) {
         return;
       }
-      const currentIndex = browserSession.tabs.findIndex((tab) => tab.id === activeTab.id);
-      const nextIndex = resolveNextBrowserTabIndex(
-        currentIndex,
-        browserSession.tabs.length,
-        direction,
-      );
+      const nextIndex = resolveNextBrowserTabIndex(activeTabIndex, tabCount, direction);
       if (nextIndex === null) {
         return;
       }
       setActiveTabByIndex(nextIndex);
     },
-    [activeTab, browserSession.tabs, setActiveTabByIndex],
+    [activeTab, activeTabIndex, setActiveTabByIndex, tabCount],
   );
 
   const openNewTab = useCallback(() => {
@@ -729,13 +857,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   const closeTab = useCallback(
     (tabId: string) => {
-      if (browserSession.tabs.length <= 1 && browserSession.tabs.some((tab) => tab.id === tabId)) {
+      if (tabCount <= 1 && tabsById.has(tabId)) {
         onClose?.();
         return;
       }
       updateBrowserSession((current) => closeBrowserTab(current, tabId, BROWSER_NEW_TAB_URL));
     },
-    [browserSession.tabs, onClose, updateBrowserSession],
+    [onClose, tabCount, tabsById, updateBrowserSession],
   );
 
   const reorderTabs = useCallback(
@@ -749,12 +877,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     if (!activeTab) {
       return;
     }
-    if (browserSession.tabs.length <= 1) {
+    if (tabCount <= 1) {
       onClose?.();
       return;
     }
     closeTab(activeTab.id);
-  }, [activeTab, browserSession.tabs.length, closeTab, onClose]);
+  }, [activeTab, closeTab, onClose, tabCount]);
 
   const clearBridgeReadCache = useCallback((tabId?: string) => {
     if (!tabId) {
@@ -797,7 +925,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       const nextUrl = normalizeBrowserInput(rawUrl, browserSearchEngine);
       const shouldKeepAddressBarFocused = rawUrl.trim().length === 0;
       if (!shouldKeepAddressBarFocused) {
-        dismissAddressBarSuggestionOverlay();
+        dismissAddressBarSuggestionOverlayAndBlur();
       }
       if (!activeTab || options?.newTab) {
         clearBridgeReadCache();
@@ -819,7 +947,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       activeTabIsInternal,
       browserSearchEngine,
       clearBridgeReadCache,
-      dismissAddressBarSuggestionOverlay,
+      dismissAddressBarSuggestionOverlayAndBlur,
       focusAddressBar,
       updateBrowserSession,
     ],
@@ -831,14 +959,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         updateBrowserSession((current) =>
           setActiveBrowserTab(current, suggestion.tabId ?? current.activeTabId),
         );
-        dismissAddressBarSuggestionOverlay();
+        dismissAddressBarSuggestionOverlayAndBlur();
         return;
       }
       setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
       openUrl(suggestion.url);
-      dismissAddressBarSuggestionOverlay();
+      dismissAddressBarSuggestionOverlayAndBlur();
     },
-    [dismissAddressBarSuggestionOverlay, openUrl, updateBrowserSession],
+    [dismissAddressBarSuggestionOverlayAndBlur, openUrl, updateBrowserSession],
   );
 
   const copyBrowserAddress = useCallback(async (url: string) => {
@@ -1131,7 +1259,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       const shouldReuseActiveInitialBlankTabForUrl = (url: string) =>
         shouldReuseInitialBlankBrowserTabForBridgeNavigation({
           activeTabIsNewTab,
-          browserTabCount: browserSession.tabs.length,
+          browserTabCount: tabCount,
           forceNewTab: readBooleanArgAny(args, ["forceNewTab", "force_new_tab"]) === true,
           requestedUrlPresent: url.trim().length > 0,
         });
@@ -1169,7 +1297,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "switch_tab":
         case "activate_tab": {
           const requestedTabId = readStringArgAny(args, ["tabId", "tab_id", "id"]);
-          const requestedIndex = readBrowserBridgeTabIndexArg(args, browserSession.tabs.length);
+          const requestedIndex = readBrowserBridgeTabIndexArg(args, tabCount);
           const tab = requestedTabId
             ? browserSession.tabs.find((item) => item.id === requestedTabId)
             : requestedIndex !== null
@@ -1189,11 +1317,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           const currentIndex = browserSession.tabs.findIndex(
             (tab) => tab.id === browserSession.activeTabId,
           );
-          const nextIndex = resolveNextBrowserTabIndex(
-            currentIndex,
-            browserSession.tabs.length,
-            direction,
-          );
+          const nextIndex = resolveNextBrowserTabIndex(currentIndex, tabCount, direction);
           const tab = nextIndex === null ? null : browserSession.tabs[nextIndex];
           if (!tab) {
             throw new Error("No browser tab is available to select.");
@@ -1717,6 +1841,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       onResizeViewport,
       openUrl,
       resolveBridgeTarget,
+      tabCount,
       tabRuntimeById,
       updateBrowserSession,
     ],
@@ -1917,7 +2042,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setAddressBarSuggestionsDismissed(true);
+        dismissAddressBarSuggestionOverlay();
         setSelectedSuggestionIndex(-1);
         return;
       }
@@ -1950,8 +2075,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [
       addressBarSuggestions,
       applySuggestion,
+      dismissAddressBarSuggestionOverlay,
       selectedSuggestionIndex,
-      setAddressBarSuggestionsDismissed,
       showAddressBarSuggestions,
     ],
   );
@@ -2130,11 +2255,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       : null;
 
   useEffect(() => {
-    setDraftUrl(activeTabIsInternal ? "" : activeTabUrl);
-    if (!activeTabIsInternal) {
-      setAddressBarSuggestionsDismissed(true);
-    }
-  }, [activeTabIsInternal, activeTabUrl]);
+    syncDraftUrlFromActiveTab({ activeTabIsInternal, activeTabUrl });
+  }, [activeTabIsInternal, activeTabUrl, syncDraftUrlFromActiveTab]);
 
   useEffect(() => {
     initialAddressBarAutoFocusHandledRef.current = false;
@@ -2155,13 +2277,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     if (
       !shouldAutoFocusBrowserAddressBarOnOpen({
         activeTabIsNewTab,
-        browserTabCount: browserSession.tabs.length,
+        browserTabCount: tabCount,
       })
     ) {
       return;
     }
     focusAddressBar();
-  }, [activeTabIsNewTab, browserSession.tabs.length, focusAddressBar, open]);
+  }, [activeTabIsNewTab, focusAddressBar, open, tabCount]);
 
   useEffect(() => {
     if (!window.desktopBridge?.onBrowserShortcutAction) {

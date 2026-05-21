@@ -131,6 +131,11 @@ function markdownUrlTransform(value: string, key: string): string {
   return defaultUrlTransform(value);
 }
 
+function joinClassNames(...values: ReadonlyArray<string | undefined>): string | undefined {
+  const className = values.filter((value): value is string => Boolean(value)).join(" ");
+  return className.length > 0 ? className : undefined;
+}
+
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
   minLevel: "high",
@@ -744,7 +749,7 @@ function ChatMarkdown({
             <span className="chat-markdown-link-shell">
               <button
                 type="button"
-                className={className}
+                className={joinClassNames("chat-markdown-link-button", className)}
                 title={title}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -782,7 +787,11 @@ function ChatMarkdown({
         return (
           <button
             type="button"
-            className={className}
+            className={joinClassNames(
+              "chat-markdown-link-button",
+              "chat-markdown-local-file-link",
+              className,
+            )}
             title={title}
             onClick={(event) => {
               event.stopPropagation();

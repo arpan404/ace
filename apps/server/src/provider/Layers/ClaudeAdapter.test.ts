@@ -993,13 +993,22 @@ describe("ClaudeAdapterLive", () => {
       );
       assert.equal(toolInputUpdated?.type, "item.updated");
       if (toolInputUpdated?.type === "item.updated") {
-        assert.deepEqual(toolInputUpdated.payload.data, {
-          toolName: "Grep",
-          input: {
-            pattern: "foo",
-            path: "src",
-          },
+        const data = toolInputUpdated.payload.data as {
+          toolName?: string;
+          toolUseId?: string;
+          input?: { pattern?: string; path?: string };
+          arguments?: { pattern?: string; path?: string };
+          item?: { toolName?: string; input?: { pattern?: string; path?: string } };
+        };
+        assert.equal(data.toolName, "Grep");
+        assert.equal(data.toolUseId, "tool-grep-1");
+        assert.deepEqual(data.input, {
+          pattern: "foo",
+          path: "src",
         });
+        assert.deepEqual(data.arguments, data.input);
+        assert.equal(data.item?.toolName, "Grep");
+        assert.deepEqual(data.item?.input, data.input);
       }
 
       const toolResultUpdated = runtimeEvents.find(

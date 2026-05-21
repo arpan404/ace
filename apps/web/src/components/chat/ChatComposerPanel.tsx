@@ -388,7 +388,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
   return (
     <div
       className={cn(
-        "shrink-0 px-3 pt-1.5 sm:px-5 sm:pt-2",
+        "shrink-0 px-3 pt-0 sm:px-5 sm:pt-0",
         props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4",
       )}
     >
@@ -451,8 +451,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             className={cn(
               "rounded-xl",
               isUltrathinkFrame
-                ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/55"
-                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/55",
+                ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
+                : "border border-border/25 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/40 focus-within:shadow-sm",
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
@@ -475,7 +475,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             <div
               className={cn(
                 "relative px-3 pb-2 sm:px-4",
-                props.hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                props.hasComposerHeader ? "pt-2 sm:pt-2.5" : "pt-2 sm:pt-2.5",
               )}
             >
               {props.composerMenuOpen && !props.isComposerApprovalState ? (

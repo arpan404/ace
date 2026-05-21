@@ -3,6 +3,8 @@ import {
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
   type NativeApi,
+  type ProjectFileEventsInput,
+  type ProjectFileEvent,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
@@ -82,6 +84,10 @@ export interface WsRpcClient {
     readonly readFile: RpcUnaryMethod<typeof WS_METHODS.projectsReadFile>;
     readonly renameEntry: RpcUnaryMethod<typeof WS_METHODS.projectsRenameEntry>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
+    readonly onFileEvents: (
+      input: Pick<ProjectFileEventsInput, "cwd">,
+      listener: (event: ProjectFileEvent) => void,
+    ) => () => void;
   };
   readonly workspaceEditor: {
     readonly syncBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorSyncBuffer>;
@@ -223,6 +229,15 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.projectsRenameEntry](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+      onFileEvents: (input, listener) =>
+        transport.subscribe(
+          (client) =>
+            client[WS_METHODS.projectsFileEvents]({
+              ...streamIdentity,
+              ...input,
+            }),
+          listener,
+        ),
     },
     workspaceEditor: {
       syncBuffer: (input) =>

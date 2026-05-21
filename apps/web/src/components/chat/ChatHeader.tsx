@@ -201,7 +201,7 @@ export const ChatHeader = memo(function ChatHeader({
                 <Badge
                   variant="outline"
                   size="sm"
-                  className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/70 bg-pill/88 text-pill-foreground/65 sm:max-w-48"
+                  className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/40 bg-pill/80 text-pill-foreground/65 sm:max-w-48"
                 >
                   <span className="min-w-0 truncate">{activeProjectName}</span>
                 </Badge>
@@ -222,7 +222,7 @@ export const ChatHeader = memo(function ChatHeader({
             <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">
               {workspaceActionNodes}
             </div>
-            <div className="mx-3 h-4 w-0.5 shrink-0 rounded-full bg-border/80" aria-hidden="true" />
+            <div className="mx-3 h-4 w-px shrink-0 rounded-full bg-border/40" aria-hidden="true" />
           </>
         ) : null}
         <div className="flex shrink-0 items-center gap-1.5">

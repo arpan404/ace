@@ -1583,7 +1583,14 @@ function estimateTimelineRowHeight(
       break;
     }
     case "work":
-      height = row.workEntry.detail || row.workEntry.command ? 84 : 52;
+      height =
+        row.workEntry.requestKind === "command" || row.workEntry.command
+          ? row.workEntry.terminalOutput || row.workEntry.detail
+            ? 220
+            : 148
+          : row.workEntry.detail || row.workEntry.terminalOutput
+            ? 104
+            : 52;
       break;
     case "work-group": {
       const collapsedHeight = 64;
@@ -1645,7 +1652,7 @@ function getTimelineRowHeightCacheKey(
       ].join(":");
     }
     case "work":
-      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}`;
+      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}:${row.workEntry.terminalOutput?.length ?? 0}:${row.workEntry.terminalOutputTruncated ? 1 : 0}:${row.workEntry.status ?? ""}:${row.workEntry.exitCode ?? ""}:${row.workEntry.durationMs ?? ""}:${row.workEntry.changedFileStats?.length ?? 0}`;
     case "work-group":
       return `work-group:${row.id}:${input.expandedWorkGroups[workGroupId(row.id)] ? 1 : 0}:${row.entries.length}`;
     case "intent":
@@ -2451,7 +2458,12 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
         detailRow.workEntry.tone === "error" ||
         detailRow.workEntry.diagnosticKind !== undefined
       ) {
-        height += detailRow.workEntry.detail || detailRow.workEntry.command ? 84 : 52;
+        height +=
+          detailRow.workEntry.detail ||
+          detailRow.workEntry.command ||
+          detailRow.workEntry.terminalOutput
+            ? 104
+            : 52;
       }
       continue;
     }
@@ -2462,7 +2474,10 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
 
     for (const entry of detailRow.entries) {
       if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        height += entry.workEntry.detail || entry.workEntry.command ? 84 : 52;
+        height +=
+          entry.workEntry.detail || entry.workEntry.command || entry.workEntry.terminalOutput
+            ? 104
+            : 52;
       }
     }
   }
@@ -2479,7 +2494,9 @@ function completedWorkVisibleDiagnosticsCacheKey(
         detailRow.workEntry.tone === "error" ||
         detailRow.workEntry.diagnosticKind !== undefined
       ) {
-        parts.push(`${detailRow.id}:${detailRow.workEntry.detail?.length ?? 0}`);
+        parts.push(
+          `${detailRow.id}:${detailRow.workEntry.detail?.length ?? 0}:${detailRow.workEntry.terminalOutput?.length ?? 0}`,
+        );
       }
       continue;
     }
@@ -2490,7 +2507,9 @@ function completedWorkVisibleDiagnosticsCacheKey(
 
     for (const entry of detailRow.entries) {
       if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        parts.push(`${entry.id}:${entry.workEntry.detail?.length ?? 0}`);
+        parts.push(
+          `${entry.id}:${entry.workEntry.detail?.length ?? 0}:${entry.workEntry.terminalOutput?.length ?? 0}`,
+        );
       }
     }
   }
@@ -2626,7 +2645,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
         className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <div className="relative rounded-2xl rounded-br-lg border border-border/65 bg-chat-bubble px-3.5 py-2.5 ">
+        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3 ">
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
@@ -3097,6 +3116,98 @@ function normalizeWorkCommandText(command: string | undefined): string | null {
   return normalized;
 }
 
+function normalizeTerminalOutputText(output: string | undefined): string | null {
+  if (!output) {
+    return null;
+  }
+  const normalized = output.replace(/\r\n?/g, "\n").trimEnd();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function formatToolDuration(durationMs: number | undefined): string | null {
+  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return null;
+  }
+  if (durationMs < 1_000) {
+    return `${Math.max(1, Math.round(durationMs))}ms`;
+  }
+  if (durationMs < 10_000) {
+    return `${(durationMs / 1_000).toFixed(1)}s`;
+  }
+  return `${Math.round(durationMs / 1_000)}s`;
+}
+
+function compactCommandForHeading(command: string | undefined): string | null {
+  const normalized = normalizeWorkCommandText(command);
+  if (!normalized) {
+    return null;
+  }
+  return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
+}
+
+function commandDetailIsDuplicate(
+  command: string | undefined,
+  detail: string | undefined,
+): boolean {
+  const normalizedCommand = normalizeWorkCommandText(command);
+  const normalizedDetail = detail?.trim() || null;
+  if (!normalizedCommand || !normalizedDetail) {
+    return false;
+  }
+  const lowerDetail = normalizedDetail.toLowerCase();
+  return (
+    normalizedDetail === normalizedCommand ||
+    lowerDetail === `bash: ${normalizedCommand}`.toLowerCase() ||
+    lowerDetail === `shell: ${normalizedCommand}`.toLowerCase() ||
+    lowerDetail === `run command: ${normalizedCommand}`.toLowerCase()
+  );
+}
+
+function isCommandWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return workEntry.requestKind === "command" || workEntry.itemType === "command_execution";
+}
+
+function isFileEditWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return (
+    workEntry.requestKind === "file-change" &&
+    !isCommandWorkEntry(workEntry) &&
+    (workEntry.changedFiles?.length ?? 0) > 0
+  );
+}
+
+function commandStatusLabel(workEntry: TimelineWorkEntry): {
+  text: string;
+  className: string;
+  icon: TimelineIcon;
+} {
+  if (workEntry.exitCode !== undefined && workEntry.exitCode !== 0) {
+    return {
+      text: `Exit code ${workEntry.exitCode}`,
+      className: "text-red-300/80",
+      icon: CircleAlertIcon,
+    };
+  }
+  if (workEntry.status === "failed") {
+    return {
+      text: "Failed",
+      className: "text-red-300/80",
+      icon: CircleAlertIcon,
+    };
+  }
+  if (workEntry.status === "completed" || workEntry.exitCode === 0) {
+    return {
+      text: "Success",
+      className: "text-emerald-300/80",
+      icon: CheckIcon,
+    };
+  }
+  return {
+    text: "Running",
+    className: "text-muted-foreground/76",
+    icon: Clock3Icon,
+  };
+}
+
 function workEntryIcon(workEntry: TimelineWorkEntry): TimelineIcon {
   if (workEntry.requestKind === "command") return IconTerminal;
   if (workEntry.requestKind === "file-read") return EyeIcon;
@@ -3170,10 +3281,21 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
+  if (workEntry.tone === "tool" && isCommandWorkEntry(workEntry)) {
+    return <CommandWorkEntryRow {...props} />;
+  }
+  if (workEntry.tone === "tool" && isFileEditWorkEntry(workEntry)) {
+    return <FileEditWorkEntryRow {...props} />;
+  }
+
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
-  const detailText = workEntryDetailText(workEntry);
+  const commandIsAlreadyInHeading =
+    workEntry.command !== undefined && heading.includes(workEntry.command);
+  const detailText =
+    commandIsAlreadyInHeading && !workEntry.detail ? null : workEntryDetailText(workEntry);
+  const terminalOutputText = normalizeTerminalOutputText(workEntry.terminalOutput);
   const displayText = detailText ? `${heading} - ${detailText}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
@@ -3228,6 +3350,15 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               {detailText}
             </InlineTooltip>
           )}
+          {terminalOutputText && (
+            <InlineTooltip
+              content={terminalOutputText}
+              className="mt-1 block max-h-32 overflow-hidden whitespace-pre-wrap border-l border-border/55 pl-2 font-mono text-[10px] leading-4 text-muted-foreground/72"
+            >
+              {terminalOutputText}
+              {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
+            </InlineTooltip>
+          )}
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (
@@ -3248,6 +3379,155 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
         </div>
       )}
+    </div>
+  );
+});
+
+const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  inlineIntentText?: string | null;
+  variant?: "nested" | "standalone";
+}) {
+  const { workEntry } = props;
+  const command = normalizeWorkCommandText(workEntry.command);
+  const compactCommand = compactCommandForHeading(workEntry.command);
+  const outputText = normalizeTerminalOutputText(workEntry.terminalOutput);
+  const detailText = commandDetailIsDuplicate(workEntry.command, workEntry.detail)
+    ? null
+    : workEntry.detail?.trim() || null;
+  const status = commandStatusLabel(workEntry);
+  const StatusIcon = status.icon;
+  const durationText = formatToolDuration(workEntry.durationMs);
+  const heading =
+    workEntry.status === "inProgress" && compactCommand
+      ? `Running ${compactCommand}`
+      : durationText
+        ? `Ran command for ${durationText}`
+        : "Ran command";
+  const cardOutput = outputText ?? detailText;
+  const variant = props.variant ?? "standalone";
+  const inlineIntentText = props.inlineIntentText?.trim() || null;
+
+  return (
+    <div
+      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      data-work-entry-id={workEntry.id}
+      data-work-entry-tone={workEntry.tone}
+      data-work-entry-kind="command"
+    >
+      <div className="flex items-start gap-3">
+        <IconTerminal className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex min-w-0 items-center gap-1.5 text-[13px] leading-5 text-muted-foreground/82">
+            <InlineTooltip content={command ? `${heading}\n${command}` : heading}>
+              <span className="truncate">{heading}</span>
+            </InlineTooltip>
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/48" />
+          </div>
+          {inlineIntentText && (
+            <p
+              className="mb-2 text-[11px] leading-5 text-muted-foreground/68"
+              data-inline-intent="true"
+            >
+              <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                Intent
+              </span>
+              <span className="text-foreground/72">{inlineIntentText}</span>
+            </p>
+          )}
+          <div className="overflow-hidden rounded-lg border border-border/45 bg-muted/50 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+            <div className="border-b border-border/35 px-3 py-2 text-[11px] font-medium text-muted-foreground/70">
+              Shell
+            </div>
+            <div className="px-3 py-3 font-mono text-[11px] leading-5">
+              {command && (
+                <InlineTooltip
+                  content={command}
+                  className="block whitespace-pre-wrap text-foreground/90"
+                >
+                  <span className="mr-2 text-muted-foreground/65">$</span>
+                  {command}
+                </InlineTooltip>
+              )}
+              {cardOutput && (
+                <InlineTooltip
+                  content={cardOutput}
+                  className="mt-3 block max-h-36 overflow-hidden whitespace-pre-wrap text-muted-foreground/78"
+                >
+                  {cardOutput}
+                  {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
+                </InlineTooltip>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-border/35 px-3 py-2 text-[11px]">
+              <span className="min-w-0 truncate text-muted-foreground/45">
+                {durationText ? `Finished in ${durationText}` : "\u00a0"}
+              </span>
+              <span className={cn("inline-flex shrink-0 items-center gap-1.5", status.className)}>
+                <StatusIcon className="size-3" />
+                {status.text}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  inlineIntentText?: string | null;
+  variant?: "nested" | "standalone";
+}) {
+  const { workEntry } = props;
+  const variant = props.variant ?? "standalone";
+  const firstPath = workEntry.changedFiles?.[0] ?? workEntry.detail ?? "file";
+  const visibleName = basenameOfPath(firstPath) || firstPath;
+  const stat =
+    workEntry.changedFileStats?.find((entry) => entry.path === firstPath) ??
+    workEntry.changedFileStats?.[0];
+  const extraCount = Math.max(0, (workEntry.changedFiles?.length ?? 0) - 1);
+  const inlineIntentText = props.inlineIntentText?.trim() || null;
+
+  return (
+    <div
+      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      data-work-entry-id={workEntry.id}
+      data-work-entry-tone={workEntry.tone}
+      data-work-entry-kind="file-edit"
+    >
+      <div className="flex items-start gap-3">
+        <SquarePenIcon className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
+        <div className="min-w-0 flex-1">
+          <p className="min-w-0 text-[13px] leading-5 text-muted-foreground/78">
+            <span>Editing </span>
+            <InlineTooltip content={firstPath} className="font-medium text-sky-300/90">
+              {visibleName}
+            </InlineTooltip>
+            {extraCount > 0 && (
+              <span className="ml-1 text-muted-foreground/54">+{extraCount} more</span>
+            )}
+            {stat?.additions !== undefined && stat.additions > 0 && (
+              <span className="ml-2 font-mono text-emerald-300/90">+{stat.additions}</span>
+            )}
+            {stat?.deletions !== undefined && stat.deletions > 0 && (
+              <span className="ml-1 font-mono text-red-300/90">-{stat.deletions}</span>
+            )}
+          </p>
+          {inlineIntentText && (
+            <p
+              className="mt-1 text-[11px] leading-5 text-muted-foreground/68"
+              data-inline-intent="true"
+            >
+              <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                Intent
+              </span>
+              <span className="text-foreground/72">{inlineIntentText}</span>
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 });

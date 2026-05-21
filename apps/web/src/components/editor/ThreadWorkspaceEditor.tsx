@@ -1821,6 +1821,54 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }, new Set<string>()),
     [draftsByFilePath],
   );
+  const activeDirtyPathsRef = useRef(activeDirtyPaths);
+
+  useEffect(() => {
+    activeDirtyPathsRef.current = activeDirtyPaths;
+  }, [activeDirtyPaths]);
+
+  useEffect(() => {
+    if (!api || !props.gitCwd) {
+      return;
+    }
+    return api.projects.onFileEvents(
+      withRpcRouteConnection({ cwd: props.gitCwd }, inputProps.connectionUrl),
+      (event) => {
+        void queryClient.invalidateQueries({
+          queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
+        });
+        void queryClient.invalidateQueries({
+          predicate: (query) => {
+            const queryKey = query.queryKey;
+            return (
+              queryKey[0] === "projects" &&
+              queryKey[1] === "search-entries" &&
+              queryKey[2] === (inputProps.connectionUrl ?? null) &&
+              queryKey[3] === props.gitCwd
+            );
+          },
+        });
+
+        if (event.overflowed) {
+          return;
+        }
+        for (const relativePath of event.relativePaths) {
+          if (activeDirtyPathsRef.current.has(relativePath)) {
+            continue;
+          }
+          void queryClient.invalidateQueries({
+            queryKey: projectQueryKeys.readFile(
+              props.gitCwd,
+              relativePath,
+              inputProps.connectionUrl,
+            ),
+            exact: true,
+          });
+        }
+      },
+    );
+  }, [api, inputProps.connectionUrl, props.gitCwd, queryClient]);
+
   const gitStatusByPath = useMemo(() => {
     const files = gitStatusQuery.data?.workingTree.files ?? [];
     const statusByPath = new Map<string, GitWorkingTreeFileStatus>();

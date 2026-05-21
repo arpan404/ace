@@ -376,6 +376,10 @@ function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
+function truncateActivityText(value: string, limit: number): string {
+  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+}
+
 function hasRenderableReasoningText(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0;
 }
@@ -473,6 +477,11 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function asTrimmedString(value: unknown): string | undefined {
+  const direct = asString(value)?.trim();
+  return direct && direct.length > 0 ? direct : undefined;
+}
+
 function asFiniteNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -482,6 +491,30 @@ function asFiniteNumber(value: unknown): number | undefined {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeCommandValue(value: unknown): string | undefined {
+  const direct = asTrimmedString(value);
+  if (direct) {
+    return direct;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const parts = value
+    .map((entry) => asTrimmedString(entry))
+    .filter((entry): entry is string => entry !== undefined);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+function firstTrimmedString(...values: ReadonlyArray<unknown>): string | undefined {
+  for (const value of values) {
+    const normalized = asTrimmedString(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
 }
 
 function normalizeProviderItemType(value: unknown): string | undefined {
@@ -1042,6 +1075,212 @@ function extractReasoningDetail(event: Extract<ProviderRuntimeEvent, { type: "it
   return undefined;
 }
 
+const MAX_ACTIVITY_DETAIL_CHARS = 4_000;
+const MAX_ACTIVITY_TERMINAL_OUTPUT_CHARS = 16_000;
+
+function toolLifecycleData(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): {
+  data: Record<string, unknown> | undefined;
+  item: Record<string, unknown> | undefined;
+  input: Record<string, unknown> | undefined;
+  result: Record<string, unknown> | undefined;
+  output: Record<string, unknown> | undefined;
+} {
+  const data = asRecord(payload.data);
+  const item = asRecord(data?.item) ?? data;
+  const input =
+    asRecord(item?.input) ??
+    asRecord(data?.input) ??
+    asRecord(data?.arguments) ??
+    asRecord(data?.args) ??
+    asRecord(data?.rawInput);
+  const result = asRecord(item?.result) ?? asRecord(data?.result);
+  const output = asRecord(item?.output) ?? asRecord(data?.output) ?? asRecord(result?.output);
+  return { data, item, input, result, output };
+}
+
+function commandFromToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): string | undefined {
+  const { data, item, input, result } = toolLifecycleData(payload);
+  return (
+    normalizeCommandValue(item?.command) ??
+    normalizeCommandValue(input?.command) ??
+    normalizeCommandValue(result?.command) ??
+    normalizeCommandValue(data?.command) ??
+    normalizeCommandValue(data?.cmd) ??
+    normalizeCommandValue(data?.fullCommandText) ??
+    normalizeCommandValue(input?.cmd) ??
+    normalizeCommandValue(result?.cmd)
+  );
+}
+
+function cwdFromToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): string | undefined {
+  const { data, item, input, result } = toolLifecycleData(payload);
+  return firstTrimmedString(item?.cwd, input?.cwd, result?.cwd, data?.cwd, data?.workingDirectory);
+}
+
+function exitCodeFromToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): number | undefined {
+  const { data, item, result, output } = toolLifecycleData(payload);
+  const exitCode = asFiniteNumber(
+    item?.exitCode ??
+      item?.exit_code ??
+      result?.exitCode ??
+      result?.exit_code ??
+      output?.exitCode ??
+      output?.exit_code ??
+      data?.exitCode ??
+      data?.exit_code,
+  );
+  return exitCode === undefined ? undefined : Math.trunc(exitCode);
+}
+
+function durationMsFromToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): number | undefined {
+  const { data, item, result } = toolLifecycleData(payload);
+  const durationMs = asFiniteNumber(
+    item?.durationMs ??
+      item?.duration_ms ??
+      result?.durationMs ??
+      result?.duration_ms ??
+      data?.durationMs,
+  );
+  return durationMs === undefined || durationMs < 0 ? undefined : Math.round(durationMs);
+}
+
+function joinedOutputFromParts(stdout: unknown, stderr: unknown): string | undefined {
+  const parts = [asString(stdout), asString(stderr)]
+    .filter((entry): entry is string => entry !== undefined && entry.length > 0)
+    .map((entry) => entry.replace(/\r\n?/g, "\n").trimEnd());
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+function terminalOutputFromToolLifecyclePayload(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >["payload"],
+): string | undefined {
+  const { data, item, result, output } = toolLifecycleData(payload);
+  return firstTrimmedString(
+    item?.aggregatedOutput,
+    item?.aggregated_output,
+    result?.aggregatedOutput,
+    result?.aggregated_output,
+    output?.aggregatedOutput,
+    output?.aggregated_output,
+    data?.aggregatedOutput,
+    data?.aggregated_output,
+    joinedOutputFromParts(item?.stdout, item?.stderr),
+    joinedOutputFromParts(result?.stdout, result?.stderr),
+    joinedOutputFromParts(output?.stdout, output?.stderr),
+    joinedOutputFromParts(data?.stdout, data?.stderr),
+    output?.text,
+    result?.text,
+    data?.output,
+  );
+}
+
+function oneLineToolText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizedToolActivityTitle(input: {
+  readonly itemType: string;
+  readonly fallbackTitle?: string | undefined;
+  readonly command?: string | undefined;
+}): string | undefined {
+  if (input.itemType === "command_execution" && input.command) {
+    return truncateActivityText(`Ran command ${oneLineToolText(input.command)}`, 220);
+  }
+  if (input.fallbackTitle) {
+    return input.fallbackTitle;
+  }
+  if (input.itemType === "command_execution") {
+    return "Ran command";
+  }
+  return undefined;
+}
+
+function normalizedToolActivityPayload(
+  event: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >,
+): Record<string, unknown> {
+  const command = commandFromToolLifecyclePayload(event.payload);
+  const cwd = cwdFromToolLifecyclePayload(event.payload);
+  const exitCode = exitCodeFromToolLifecyclePayload(event.payload);
+  const durationMs = durationMsFromToolLifecyclePayload(event.payload);
+  const terminalOutput = terminalOutputFromToolLifecyclePayload(event.payload);
+  const title = normalizedToolActivityTitle({
+    itemType: event.payload.itemType,
+    fallbackTitle: event.payload.title,
+    command,
+  });
+  const detail = event.payload.detail?.trim();
+  const detailIsCommand =
+    command !== undefined &&
+    detail !== undefined &&
+    oneLineToolText(detail) === oneLineToolText(command);
+
+  return {
+    itemType: event.payload.itemType,
+    ...(event.itemId ? { itemId: event.itemId } : {}),
+    ...(title ? { title } : {}),
+    ...(event.payload.status ? { status: event.payload.status } : {}),
+    ...(detail && !detailIsCommand
+      ? { detail: truncateActivityText(detail, MAX_ACTIVITY_DETAIL_CHARS) }
+      : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(terminalOutput
+      ? {
+          terminalOutput: truncateActivityText(terminalOutput, MAX_ACTIVITY_TERMINAL_OUTPUT_CHARS),
+          terminalOutputTruncated: terminalOutput.length > MAX_ACTIVITY_TERMINAL_OUTPUT_CHARS,
+        }
+      : {}),
+    ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+  };
+}
+
+function normalizedToolOutputDeltaPayload(
+  event: Extract<ProviderRuntimeEvent, { type: "content.delta" }>,
+): Record<string, unknown> {
+  const itemType =
+    event.payload.streamKind === "file_change_output" ? "file_change" : "command_execution";
+  return {
+    itemType,
+    ...(event.itemId ? { itemId: event.itemId } : {}),
+    status: "inProgress",
+    terminalOutput: event.payload.delta,
+    streamKind: event.payload.streamKind,
+  };
+}
+
 function reasoningTaskIdFromEvent(
   event: Pick<ProviderRuntimeEvent, "eventId" | "itemId" | "turnId">,
 ) {
@@ -1397,6 +1636,29 @@ function runtimeEventToActivities(
     }
 
     case "content.delta": {
+      if (
+        event.payload.streamKind === "command_output" ||
+        event.payload.streamKind === "file_change_output"
+      ) {
+        if (!streamingSettings.enableToolStreaming || event.payload.delta.length === 0) {
+          return [];
+        }
+        const payload = normalizedToolOutputDeltaPayload(event);
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "tool",
+            kind: "tool.updated",
+            summary:
+              event.payload.streamKind === "command_output" ? "Command output" : "File output",
+            payload,
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+
       if (!streamingSettings.enableThinkingStreaming) {
         return [];
       }
@@ -1443,20 +1705,15 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const payload = normalizedToolActivityPayload(event);
       return [
         {
           id: event.eventId,
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.updated",
-          summary: event.payload.title ?? "Tool",
-          payload: {
-            itemType: event.payload.itemType,
-            ...(event.payload.title ? { title: event.payload.title } : {}),
-            ...(event.payload.status ? { status: event.payload.status } : {}),
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
-          },
+          summary: asString(payload.title) ?? event.payload.title ?? "Tool",
+          payload,
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },
@@ -1496,19 +1753,15 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const payload = normalizedToolActivityPayload(event);
       return [
         {
           id: event.eventId,
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.completed",
-          summary: event.payload.title ?? "Tool",
-          payload: {
-            itemType: event.payload.itemType,
-            ...(event.payload.title ? { title: event.payload.title } : {}),
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
-          },
+          summary: asString(payload.title) ?? event.payload.title ?? "Tool",
+          payload,
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },
@@ -1525,20 +1778,15 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const payload = normalizedToolActivityPayload(event);
       return [
         {
           id: event.eventId,
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.started",
-          summary: event.payload.title ?? "Tool",
-          payload: {
-            itemType: event.payload.itemType,
-            ...(event.payload.title ? { title: event.payload.title } : {}),
-            ...(event.payload.status ? { status: event.payload.status } : {}),
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
-          },
+          summary: asString(payload.title) ?? event.payload.title ?? "Tool",
+          payload,
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },

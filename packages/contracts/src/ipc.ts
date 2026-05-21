@@ -31,6 +31,7 @@ import type {
   ProjectCreateEntryResult,
   ProjectDeleteEntryInput,
   ProjectDeleteEntryResult,
+  ProjectFileEvent,
   ProjectReadFileInput,
   ProjectReadFileResult,
   ProjectRenameEntryInput,
@@ -350,6 +351,10 @@ export interface NativeApi {
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     renameEntry: (input: ProjectRenameEntryInput) => Promise<ProjectRenameEntryResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    onFileEvents: (
+      input: ProjectListTreeInput,
+      callback: (event: ProjectFileEvent) => void,
+    ) => () => void;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;

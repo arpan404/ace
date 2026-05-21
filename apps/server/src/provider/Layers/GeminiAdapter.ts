@@ -1173,6 +1173,84 @@ function extractToolDetail(
   return undefined;
 }
 
+function extractGeminiToolCommand(toolCall: GeminiToolCallLike): string | undefined {
+  const rawInput = asObject(toolCall.rawInput);
+  return (
+    asString(rawInput?.command) ??
+    asString(rawInput?.cmd) ??
+    asString(rawInput?.shellCommand) ??
+    (toolCall.kind === "execute" ? asString(rawInput?.text) : undefined)
+  );
+}
+
+function extractGeminiToolCwd(toolCall: GeminiToolCallLike): string | undefined {
+  const rawInput = asObject(toolCall.rawInput);
+  const rawOutput = asObject(toolCall.rawOutput);
+  return (
+    asString(rawInput?.cwd) ??
+    asString(rawInput?.workingDirectory) ??
+    asString(rawOutput?.cwd) ??
+    asString(rawOutput?.workingDirectory)
+  );
+}
+
+function extractGeminiToolOutput(toolCall: GeminiToolCallLike): string | undefined {
+  if (typeof toolCall.rawOutput === "string" && toolCall.rawOutput.length > 0) {
+    return toolCall.rawOutput;
+  }
+  const rawOutput = asObject(toolCall.rawOutput);
+  const direct =
+    asString(rawOutput?.output) ??
+    asString(rawOutput?.aggregatedOutput) ??
+    asString(rawOutput?.stdout) ??
+    asString(rawOutput?.stderr) ??
+    asString(rawOutput?.content) ??
+    asString(rawOutput?.text);
+  if (direct) {
+    return direct;
+  }
+  return toolCall.status === "completed" || toolCall.status === "failed"
+    ? extractToolDetail(toolCall.content)
+    : undefined;
+}
+
+function buildGeminiToolData(toolCall: GeminiToolCallLike): Record<string, unknown> {
+  const command = extractGeminiToolCommand(toolCall);
+  const cwd = extractGeminiToolCwd(toolCall);
+  const output = extractGeminiToolOutput(toolCall);
+  return {
+    toolCallId: toolCall.toolCallId,
+    ...(toolCall.kind ? { kind: toolCall.kind } : {}),
+    ...(toolCall.rawInput !== undefined
+      ? { input: toolCall.rawInput, rawInput: toolCall.rawInput }
+      : {}),
+    ...(toolCall.rawOutput !== undefined
+      ? { result: toolCall.rawOutput, rawOutput: toolCall.rawOutput }
+      : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(toolCall.content ? { content: toolCall.content } : {}),
+    ...(toolCall.locations ? { locations: toolCall.locations } : {}),
+    item: {
+      id: toolCall.toolCallId,
+      toolCallId: toolCall.toolCallId,
+      ...(toolCall.kind ? { kind: toolCall.kind } : {}),
+      ...(asString(toolCall.title) ? { title: asString(toolCall.title) } : {}),
+      ...(toolCall.status ? { status: toolCall.status } : {}),
+      ...(toolCall.rawInput !== undefined
+        ? { input: toolCall.rawInput, rawInput: toolCall.rawInput }
+        : {}),
+      ...(toolCall.rawOutput !== undefined
+        ? { result: toolCall.rawOutput, rawOutput: toolCall.rawOutput }
+        : {}),
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
+    },
+  };
+}
+
 export function buildGeminiPromptText(input: ProviderSendTurnInput): string {
   const text = input.input ?? "";
   if (input.interactionMode !== "plan") {
@@ -1418,14 +1496,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           ...(extractToolDetail(toolCall.content)
             ? { detail: extractToolDetail(toolCall.content) }
             : {}),
-          data: {
-            toolCallId: toolCall.toolCallId,
-            ...(toolCall.kind ? { kind: toolCall.kind } : {}),
-            ...(toolCall.content ? { content: toolCall.content } : {}),
-            ...(toolCall.locations ? { locations: toolCall.locations } : {}),
-            ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
-            ...(toolCall.rawOutput !== undefined ? { rawOutput: toolCall.rawOutput } : {}),
-          },
+          data: buildGeminiToolData(toolCall),
         },
       }),
     );
@@ -1453,14 +1524,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       ...(extractToolDetail(toolCall.content)
         ? { detail: extractToolDetail(toolCall.content) }
         : {}),
-      data: {
-        toolCallId: toolCall.toolCallId,
-        ...(toolCall.kind ? { kind: toolCall.kind } : {}),
-        ...(toolCall.content ? { content: toolCall.content } : {}),
-        ...(toolCall.locations ? { locations: toolCall.locations } : {}),
-        ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
-        ...(toolCall.rawOutput !== undefined ? { rawOutput: toolCall.rawOutput } : {}),
-      },
+      data: buildGeminiToolData(toolCall),
     } as const;
 
     if (toolCall.status === "completed" || toolCall.status === "failed") {
