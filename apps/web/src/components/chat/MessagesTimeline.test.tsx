@@ -1211,7 +1211,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
 
     const firstAssistantIndex = markup.indexOf("I inspected the workspace.");
-    const firstToolIndex = markup.indexOf("src/session-logic.ts");
+    const firstToolIndex = markup.indexOf("Read session-logic.ts");
     const followUpIndex = markup.indexOf("The timeline needed message segmentation.");
     const thinkingIndex = markup.indexOf("Segment assistant output around tool execution.");
     const secondToolIndex = markup.indexOf("apps/web/src/components/chat/MessagesTimeline.tsx");
@@ -1395,11 +1395,16 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Ran command for 191ms");
-    expect(markup).toContain("Shell");
+    expect(markup).toContain("Ran bun run check");
+    expect(markup).toContain('data-work-entry-kind="command"');
+    expect(markup).toContain('data-work-entry-nested="true"');
+    expect(markup).toContain('data-command-output-disclosure="true"');
+    expect(markup).toContain('data-command-output-open="false"');
+    expect(markup).toContain("tabler-icon-terminal");
+    expect(markup).toContain("size-3.5");
     expect(markup).toContain("bun run check");
-    expect(markup).toContain("Format issues found");
-    expect(markup).toContain("Exit code 1");
+    expect(markup).not.toContain('data-command-output-panel="true"');
+    expect(markup).not.toContain("Format issues found");
   });
 
   it("collapses completed tool-only runs until expanded", async () => {
@@ -1491,7 +1496,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-tool-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).toContain('data-meta-disclosure-elapsed="9s"');
-    expect(markup).toContain("Edited 1 file, explored 2 files, ran 1 command, used 6 other tools");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain("Read 2 files");
+    expect(markup).toContain("Edited 1 file");
+    expect(markup).toContain("Used 6 tools");
     expect(markup).not.toContain("rounded-xl border border-border/45 bg-background/70");
     expect(markup).not.toContain('data-work-entry-id="work-tool-1"');
     expect(markup).not.toContain('data-work-entry-id="work-tool-10"');
@@ -1600,10 +1608,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Explored 1 file");
+    expect(markup).toContain("Read 1 file");
     expect(markup).not.toContain("README.md");
     expect(markup).toContain("bun lint");
-    expect(markup.indexOf("Explored 1 file")).toBeLessThan(markup.indexOf("bun lint"));
+    expect(markup.indexOf("Read 1 file")).toBeLessThan(markup.indexOf("bun lint"));
   });
 
   it("summarizes mixed tool groups by activity type", async () => {
@@ -1684,10 +1692,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Edited 2 files, explored 1 file, 1 search, ran 1 command");
-    expect(markup).not.toContain("Used 4 tools");
-    expect(markup).toContain("ran 1 command");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain("Read 1 file");
     expect(markup).toContain("Edited 2 files");
+    expect(markup).toContain("Searched once");
+    expect(markup).not.toContain("Edited 2 files, explored 1 file, 1 search, ran 1 command");
+    expect(markup).not.toContain("ran 1 command");
     expect(markup).not.toContain("searched 1 search");
     expect(markup).not.toContain("4 tool calls");
   });
@@ -1738,7 +1748,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
     expect(markup).not.toContain("line-clamp-4");
     expect(markup).toContain("whitespace-pre-wrap");
-    expect(markup).toContain("text-[11px] leading-5 text-foreground/72");
+    expect(markup).toContain("text-[13px] leading-6 text-foreground/76");
     expect(markup).not.toContain("font-mono text-[10px] leading-4 text-muted-foreground/65");
   });
 
@@ -2043,7 +2053,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("bg-amber-500/[0.035]");
     expect(markup).not.toContain("rounded-xl border border-border/45 bg-background/70");
     expect(markup).toContain('data-thinking-disclosure="true"');
+    expect(markup).toContain('data-meta-disclosure-body="true"');
     expect(markup).toContain('data-work-entry-tone="thinking"');
+    expect(markup).toContain('data-work-entry-nested="true"');
+    expect(markup).toContain("lucide-brain");
+    expect(markup).toContain("size-3.5");
+    expect(markup).toContain("text-foreground/76");
     expect(markup).toContain("Tracing the ordering boundary before patching the renderer.");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
   });
@@ -2844,8 +2859,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).not.toContain('data-intent-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure="true"');
-    expect(markup).toContain("Worked through plan");
-    expect(markup).toContain("Reasoned through 1 step");
+    expect(markup).toContain("Plan");
+    expect(markup).toContain("Thinking");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
     expect(markup).not.toContain("Logged 1 event");
     expect(markup).not.toContain("0 tool calls");
@@ -2896,8 +2911,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Worked through plan");
-    expect(markup).toContain("Logged 1 event");
+    expect(markup).toContain("Plan");
+    expect(markup).not.toContain("Logged 1 event");
   });
 
   it("keeps repeated completed intent bursts with tool calls in chronological order", async () => {
@@ -3386,6 +3401,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-inline-intent="true"');
     expect(markup).toContain("Inspecting the provider transcript before responding");
     expect(markup).toContain("Getting started for");
+    expect(markup).toContain('data-working-activity-indicator="true"');
     expect(markup).not.toContain("Thought");
   });
 
@@ -3459,6 +3475,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       );
 
       expect(markup).toContain("Working for 1m");
+      expect(markup).toContain('data-working-activity-indicator="true"');
       expect(markup).not.toContain("Working for 30s");
       expect(markup).not.toContain('data-response-summary="true"');
     } finally {
@@ -3526,6 +3543,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       expect(markup).toContain("Working for 1m");
       expect(markup).toContain("Pursuing goal for 1m");
       expect(markup).toContain('data-goal-working-timer="true"');
+      expect(markup.match(/data-working-activity-indicator="true"/g)?.length).toBe(1);
+      expect(markup).toContain("lucide-target");
       expect(markup).not.toContain("Working for 30s");
     } finally {
       vi.useRealTimers();

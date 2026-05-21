@@ -157,6 +157,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const status = extractToolStatus(payload);
   const exitCode = extractToolExitCode(payload);
   const durationMs = extractToolDurationMs(payload);
+  const subagent = extractSubagentMetadata(payload);
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
@@ -268,6 +269,18 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (requestKind) {
     entry.requestKind = requestKind;
+  }
+  if (subagent.id) {
+    entry.subagentId = subagent.id;
+  }
+  if (subagent.type) {
+    entry.subagentType = subagent.type;
+  }
+  if (subagent.name) {
+    entry.subagentName = subagent.name;
+  }
+  if (subagent.model) {
+    entry.subagentModel = subagent.model;
   }
   if (embeddedIntentText && entry.tone === "tool") {
     entry.intentText = embeddedIntentText;
@@ -381,6 +394,10 @@ function mergeDerivedWorkLogEntries(
   const status = next.status ?? previous.status;
   const exitCode = next.exitCode ?? previous.exitCode;
   const durationMs = next.durationMs ?? previous.durationMs;
+  const subagentId = next.subagentId ?? previous.subagentId;
+  const subagentType = next.subagentType ?? previous.subagentType;
+  const subagentName = next.subagentName ?? previous.subagentName;
+  const subagentModel = next.subagentModel ?? previous.subagentModel;
   return {
     ...previous,
     ...next,
@@ -401,7 +418,58 @@ function mergeDerivedWorkLogEntries(
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
+    ...(subagentId ? { subagentId } : {}),
+    ...(subagentType ? { subagentType } : {}),
+    ...(subagentName ? { subagentName } : {}),
+    ...(subagentModel ? { subagentModel } : {}),
     ...(collapseKey ? { collapseKey } : {}),
+  };
+}
+
+function extractSubagentMetadata(payload: Record<string, unknown> | null): {
+  id?: string | undefined;
+  type?: string | undefined;
+  name?: string | undefined;
+  model?: string | undefined;
+} {
+  const data = asRecord(payload?.data);
+  const ace = asRecord(data?.ace);
+  const aceSubagent = asRecord(ace?.subagent);
+  const subagent = asRecord(data?.subagent) ?? aceSubagent;
+  const input = asRecord(data?.input);
+  const args = asRecord(data?.arguments);
+  const item = asRecord(data?.item);
+  const result = asRecord(data?.result);
+  return {
+    id:
+      asTrimmedString(subagent?.id) ??
+      asTrimmedString(data?.agentId) ??
+      asTrimmedString(data?.agent_id) ??
+      asTrimmedString(result?.agentId) ??
+      asTrimmedString(result?.agent_id) ??
+      undefined,
+    type:
+      asTrimmedString(subagent?.type) ??
+      asTrimmedString(data?.subagentType) ??
+      asTrimmedString(data?.subagent_type) ??
+      asTrimmedString(input?.subagentType) ??
+      asTrimmedString(input?.subagent_type) ??
+      asTrimmedString(args?.subagentType) ??
+      asTrimmedString(args?.subagent_type) ??
+      undefined,
+    name:
+      asTrimmedString(subagent?.name) ??
+      asTrimmedString(data?.agentName) ??
+      asTrimmedString(data?.agent_name) ??
+      asTrimmedString(item?.agentName) ??
+      asTrimmedString(item?.agent_name) ??
+      undefined,
+    model:
+      asTrimmedString(subagent?.model) ??
+      asTrimmedString(data?.model) ??
+      asTrimmedString(input?.model) ??
+      asTrimmedString(args?.model) ??
+      undefined,
   };
 }
 

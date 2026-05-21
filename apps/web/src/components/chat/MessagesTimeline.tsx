@@ -139,6 +139,12 @@ function InlineTooltip(props: {
   align?: "start" | "center" | "end";
   className?: string;
 }) {
+  if (
+    typeof props.content === "string" &&
+    (props.content.length > 240 || props.content.split("\n").length > 4)
+  ) {
+    return <span className={props.className}>{props.children}</span>;
+  }
   return (
     <Tooltip>
       <TooltipTrigger render={<span className={props.className} />}>
@@ -1150,28 +1156,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
         {row.kind === "working" && (
           <div className="min-w-0 py-1">
-            <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
-              <span className="inline-flex items-center gap-1">
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
-                    liveTimers ? "animate-pulse" : null,
-                  )}
-                />
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
-                    liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
-                  )}
-                />
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
-                    liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
-                  )}
-                />
-              </span>
-              <span>
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground/72">
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <WorkingActivityIndicator />
                 {row.createdAt ? (
                   <WorkingTimer
                     createdAt={row.createdAt}
@@ -1184,27 +1171,27 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   "Working..."
                 )}
               </span>
-              {row.activity === "goal" && (
-                <span
-                  className="inline-flex items-center gap-1.5 text-emerald-600/80 dark:text-emerald-400/80"
-                  data-goal-working-timer="true"
-                >
-                  <span className="text-muted-foreground/38">·</span>
-                  {row.goalStartedAt ? (
-                    <WorkingTimer
-                      createdAt={row.goalStartedAt}
-                      label="Pursuing goal for"
-                      live={liveTimers}
-                    />
-                  ) : (
-                    "Pursuing goal..."
-                  )}
-                </span>
-              )}
             </div>
+            {row.activity === "goal" && (
+              <div
+                className="mt-1 flex items-center gap-2 pl-6 text-[11px] leading-5 text-emerald-600/72 dark:text-emerald-400/72"
+                data-goal-working-timer="true"
+              >
+                <TargetIcon className="size-3 shrink-0 text-emerald-600/58 dark:text-emerald-400/58" />
+                {row.goalStartedAt ? (
+                  <WorkingTimer
+                    createdAt={row.goalStartedAt}
+                    label="Pursuing goal for"
+                    live={liveTimers}
+                  />
+                ) : (
+                  "Pursuing goal..."
+                )}
+              </div>
+            )}
             {row.intentText && (
               <p
-                className="mt-1 pl-5 text-[11px] leading-5 text-muted-foreground/66"
+                className="mt-1 pl-6 text-[11px] leading-5 text-muted-foreground/66"
                 data-inline-intent="true"
               >
                 <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
@@ -1450,6 +1437,28 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+const WorkingActivityIndicator = memo(function WorkingActivityIndicator({
+  tone = "default",
+}: {
+  tone?: "default" | "goal";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "working-activity-indicator",
+        tone === "goal" && "working-activity-indicator-goal",
+      )}
+      data-working-activity-indicator="true"
+    >
+      <span className="working-activity-indicator-bar" />
+      <span className="working-activity-indicator-bar" />
+      <span className="working-activity-indicator-bar" />
+      <span className="working-activity-indicator-bar" />
+    </span>
+  );
+});
+
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
@@ -1509,6 +1518,13 @@ function getUserMessageTextForHeightEstimate(userPromptText: string): string {
     return displayedUserMessage.contexts.map((context) => context.header).join(" ");
   }
   return userPromptText;
+}
+
+function estimateWorkEntryRowHeight(workEntry: TimelineWorkEntry): number {
+  if (workEntry.requestKind === "command" || workEntry.command) {
+    return workEntry.terminalOutput || workEntry.detail ? 96 : 42;
+  }
+  return workEntry.detail || workEntry.terminalOutput ? 82 : 42;
 }
 
 function estimateTimelineRowHeight(
@@ -1583,19 +1599,19 @@ function estimateTimelineRowHeight(
       break;
     }
     case "work":
-      height =
-        row.workEntry.requestKind === "command" || row.workEntry.command
-          ? row.workEntry.terminalOutput || row.workEntry.detail
-            ? 220
-            : 148
-          : row.workEntry.detail || row.workEntry.terminalOutput
-            ? 104
-            : 52;
+      height = estimateWorkEntryRowHeight(row.workEntry);
       break;
     case "work-group": {
-      const collapsedHeight = 64;
+      const collapsedHeight = 52;
       const isExpanded = input.expandedWorkGroups[workGroupId(row.id)] ?? false;
-      height = isExpanded ? collapsedHeight + row.entries.length * 52 : collapsedHeight;
+      height = isExpanded
+        ? collapsedHeight +
+          row.entries.reduce(
+            (total, entry) =>
+              total + (entry.kind === "work" ? estimateWorkEntryRowHeight(entry.workEntry) : 58),
+            0,
+          )
+        : collapsedHeight;
       break;
     }
     case "intent":
@@ -1744,6 +1760,18 @@ function summarizeCount(count: number, singular: string, plural = `${singular}s`
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function summarizeMultiplier(count: number, label: string): string {
+  return count === 1 ? label : `${label} x${count}`;
+}
+
+function compactDisplayText(value: string, maxLength = 72): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
 function classifyToolSummaryEntry(
   workEntry: TimelineWorkEntry,
 ): "command" | "file-read" | "file-change" | "web-search" | "image-view" | "generic-tool" {
@@ -1833,53 +1861,47 @@ function summarizeWorkGroupBreakdownParts(
   ).length;
   const eventCount = infoCount;
   const parts: Array<{ key: string; text: string; title: string }> = [];
-  const activityParts: string[] = [];
-
-  if (toolSummaryCounts.fileChange > 0) {
-    activityParts.push(`edited ${summarizeCount(toolSummaryCounts.fileChange, "file")}`);
-  }
-  if (toolSummaryCounts.fileRead > 0) {
-    activityParts.push(`explored ${summarizeCount(toolSummaryCounts.fileRead, "file")}`);
-  }
-  if (toolSummaryCounts.webSearch > 0) {
-    activityParts.push(summarizeCount(toolSummaryCounts.webSearch, "search", "searches"));
-  }
-  if (toolSummaryCounts.command > 0) {
-    activityParts.push(`ran ${summarizeCount(toolSummaryCounts.command, "command")}`);
-  }
-  if (toolSummaryCounts.imageView > 0) {
-    activityParts.push(`viewed ${summarizeCount(toolSummaryCounts.imageView, "image")}`);
-  }
-  if (toolSummaryCounts.genericTool > 0) {
-    const genericToolLabel = summarizeCount(toolSummaryCounts.genericTool, "tool");
-    activityParts.push(
-      activityParts.length > 0
-        ? `used ${toolSummaryCounts.genericTool} other ${
-            toolSummaryCounts.genericTool === 1 ? "tool" : "tools"
-          }`
-        : `used ${genericToolLabel}`,
-    );
-  }
 
   if (intentCount > 0) {
     parts.push({
       key: "intent",
-      text: intentCount === 1 ? "Worked through plan" : `Worked through ${intentCount} plans`,
+      text: summarizeMultiplier(intentCount, "Plan"),
       title: summarizeCount(intentCount, "intent"),
     });
   }
   if (toolCount > 0) {
+    const toolParts: string[] = [];
+    if (toolSummaryCounts.command > 0) {
+      toolParts.push(`Ran ${summarizeCount(toolSummaryCounts.command, "command")}`);
+    }
+    if (toolSummaryCounts.fileRead > 0) {
+      toolParts.push(`Read ${summarizeCount(toolSummaryCounts.fileRead, "file")}`);
+    }
+    if (toolSummaryCounts.fileChange > 0) {
+      toolParts.push(`Edited ${summarizeCount(toolSummaryCounts.fileChange, "file")}`);
+    }
+    if (toolSummaryCounts.webSearch > 0) {
+      toolParts.push(
+        toolSummaryCounts.webSearch === 1
+          ? "Searched once"
+          : `Searched ${toolSummaryCounts.webSearch} times`,
+      );
+    }
+    if (toolSummaryCounts.imageView > 0) {
+      toolParts.push(`Viewed ${summarizeCount(toolSummaryCounts.imageView, "image")}`);
+    }
+    if (toolSummaryCounts.genericTool > 0) {
+      toolParts.push(`Used ${summarizeCount(toolSummaryCounts.genericTool, "tool")}`);
+    }
     const summaryText =
-      activityParts.length > 0
-        ? capitalizePhrase(activityParts.join(", "))
-        : `Used ${summarizeCount(toolCount, "tool")}`;
+      toolParts.length > 0 ? toolParts.join(" · ") : `Used ${summarizeCount(toolCount, "tool")}`;
     parts.push({ key: "tools", text: summaryText, title: summaryText });
   }
   if (thinkingCount > 0) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
     parts.push({
       key: "thinking",
-      text: `Reasoned through ${thinkingCount === 1 ? "1 step" : `${thinkingCount} steps`}`,
+      text: summarizeMultiplier(thinkingCount, "Thinking"),
       title: steps,
     });
   }
@@ -1887,9 +1909,9 @@ function summarizeWorkGroupBreakdownParts(
     const issues = summarizeCount(errorCount, "issue", "issues");
     parts.push({ key: "errors", text: `Hit ${issues}`, title: issues });
   }
-  if (eventCount > 0) {
+  if (eventCount > 0 && parts.length === 0) {
     const events = summarizeCount(eventCount, "event");
-    parts.push({ key: "events", text: `Logged ${events}`, title: events });
+    parts.push({ key: "events", text: capitalizePhrase(events), title: events });
   }
 
   if (parts.length > 0) {
@@ -1898,6 +1920,36 @@ function summarizeWorkGroupBreakdownParts(
 
   const entriesLabel = summarizeCount(entries.length, "log entry", "log entries");
   return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
+}
+
+function workGroupIcon(entries: ReadonlyArray<TimelineMetaGroupEntry>): TimelineIcon {
+  const workEntries = entries.filter(
+    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> => entry.kind === "work",
+  );
+  if (workEntries.length === 0) {
+    return TargetIcon;
+  }
+  if (workEntries.some((entry) => entry.workEntry.tone === "error")) {
+    return CircleAlertIcon;
+  }
+  const toolEntries = workEntries.filter((entry) => entry.workEntry.tone === "tool");
+  if (toolEntries.length > 0) {
+    const classifications = new Set(
+      toolEntries.map((entry) => classifyToolSummaryEntry(entry.workEntry)),
+    );
+    if (classifications.size === 1) {
+      const [classification] = classifications;
+      if (classification === "command") return IconTerminal;
+      if (classification === "file-change") return SquarePenIcon;
+      if (classification === "file-read" || classification === "image-view") return EyeIcon;
+      if (classification === "web-search") return GlobeIcon;
+    }
+    return WrenchIcon;
+  }
+  if (workEntries.some((entry) => entry.workEntry.tone === "thinking")) {
+    return BrainIcon;
+  }
+  return CheckIcon;
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -2270,6 +2322,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const hasIntentEntries = props.row.entries.some((entry) => entry.kind === "intent");
   const surfaceTone = resolveMetaGroupTone(props.row.entries);
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.entries, props.row.summaryEndAt);
+  const GroupIcon = workGroupIcon(props.row.entries);
   const threadGroupTone = hasToolEntries
     ? hasThinkingEntries
       ? "mixed"
@@ -2286,8 +2339,9 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
     <div className="min-w-0 py-0.5" data-thread-group={threadGroupTone}>
       <button
         type="button"
-        className="group/disclosure flex w-full items-center rounded-md border-0 bg-transparent px-0 py-1 text-left outline-none transition-colors duration-100 hover:bg-transparent focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+        className="group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0"
         onClick={() => props.onToggleWorkGroup(groupId)}
+        aria-expanded={isExpanded}
         data-meta-disclosure="true"
         data-meta-disclosure-open={String(isExpanded)}
         data-thinking-disclosure={hasThinkingEntries ? "true" : undefined}
@@ -2295,46 +2349,39 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
         data-tool-disclosure={hasToolEntries ? "true" : undefined}
         data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 text-foreground/60 transition-[color,opacity] duration-100 group-hover/disclosure:text-foreground/88 group-focus-visible/disclosure:text-foreground/88">
+        <GroupIcon className={cn("mt-0.5 size-4 shrink-0", metaToneTextClass(surfaceTone))} />
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden text-[15px] leading-6 text-muted-foreground/70">
+          {breakdownParts.map((part, index) => (
+            <Fragment key={`${props.row.id}:summary:${part.key}`}>
+              {index > 0 && <span className="shrink-0 text-muted-foreground/45">·</span>}
+              <InlineTooltip
+                content={part.title}
+                className={cn(
+                  "min-w-0 truncate transition-colors duration-100 group-hover/disclosure:text-foreground/92 group-focus-visible/disclosure:text-foreground/92",
+                  isExpanded ? "text-foreground/92" : "text-muted-foreground/70",
+                )}
+              >
+                {part.text}
+              </InlineTooltip>
+            </Fragment>
+          ))}
           <ChevronIcon
-            strokeWidth={2.5}
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground/48 transition-[transform,color,opacity] duration-150 group-hover/disclosure:text-muted-foreground/78 group-hover/disclosure:opacity-100",
-              metaToneTextClass(surfaceTone),
-            )}
+            className="size-4 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
+            strokeWidth={2.2}
           />
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/62">
-              {breakdownParts.map((part, index) => (
-                <Fragment key={`${props.row.id}:summary:${part.key}`}>
-                  {index > 0 && (
-                    <span className="shrink-0 text-muted-foreground/46 group-hover/disclosure:text-muted-foreground/68">
-                      ·
-                    </span>
-                  )}
-                  <InlineTooltip
-                    content={part.title}
-                    className="min-w-0 truncate font-medium text-muted-foreground/74 transition-colors duration-100 group-hover/disclosure:text-foreground/86 group-focus-visible/disclosure:text-foreground/86"
-                  >
-                    {part.text}
-                  </InlineTooltip>
-                </Fragment>
-              ))}
-            </div>
-          </div>
           {elapsedLabel && (
-            <div
-              className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/46 opacity-0 transition-[color,opacity] duration-100 group-hover/disclosure:text-muted-foreground/72 group-hover/disclosure:opacity-100 group-focus-visible/disclosure:opacity-100"
+            <span
+              className="sr-only"
               data-meta-disclosure-elapsed={elapsedLabel}
-            >
-              <Clock3Icon className="size-3.5 shrink-0" strokeWidth={2.4} />
-              <span>{elapsedLabel}</span>
-            </div>
+            >{`Elapsed ${elapsedLabel}`}</span>
           )}
         </div>
       </button>
       {isExpanded && (
-        <div className="mt-2 space-y-2 border-border/35 border-l pl-4">
+        <div
+          className="mt-2 space-y-2 border-l border-border/45 pl-5"
+          data-meta-disclosure-body="true"
+        >
           {props.row.entries.map((entry) =>
             entry.kind === "work" ? (
               <SimpleWorkEntryRow
@@ -3137,12 +3184,27 @@ function formatToolDuration(durationMs: number | undefined): string | null {
   return `${Math.round(durationMs / 1_000)}s`;
 }
 
-function compactCommandForHeading(command: string | undefined): string | null {
-  const normalized = normalizeWorkCommandText(command);
-  if (!normalized) {
+function commandTextFromWorkEntry(workEntry: TimelineWorkEntry): string | null {
+  const explicitCommand = normalizeWorkCommandText(workEntry.command);
+  if (explicitCommand) {
+    return explicitCommand;
+  }
+  if (!isCommandWorkEntry(workEntry)) {
     return null;
   }
-  return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
+  const detail = normalizeWorkCommandText(workEntry.detail);
+  if (!detail) {
+    return null;
+  }
+  const stripped = detail.replace(/^(?:bash|shell|run command)\s*:\s*/iu, "").trim();
+  return stripped.length > 0 ? stripped : detail;
+}
+
+function compactCommandText(command: string | null): string | null {
+  if (!command) {
+    return null;
+  }
+  return command.length > 72 ? `${command.slice(0, 69)}...` : command;
 }
 
 function commandDetailIsDuplicate(
@@ -3164,7 +3226,14 @@ function commandDetailIsDuplicate(
 }
 
 function isCommandWorkEntry(workEntry: TimelineWorkEntry): boolean {
-  return workEntry.requestKind === "command" || workEntry.itemType === "command_execution";
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.toLowerCase();
+  return (
+    workEntry.requestKind === "command" ||
+    workEntry.itemType === "command_execution" ||
+    textHint.includes("run command") ||
+    textHint.includes("ran command") ||
+    textHint.includes("execute command")
+  );
 }
 
 function isFileEditWorkEntry(workEntry: TimelineWorkEntry): boolean {
@@ -3173,6 +3242,115 @@ function isFileEditWorkEntry(workEntry: TimelineWorkEntry): boolean {
     !isCommandWorkEntry(workEntry) &&
     (workEntry.changedFiles?.length ?? 0) > 0
   );
+}
+
+function isFileReadWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.toLowerCase();
+  return (
+    workEntry.requestKind === "file-read" ||
+    textHint.includes("read file") ||
+    textHint.includes("open file") ||
+    textHint.includes("inspect file")
+  );
+}
+
+function isSearchWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.toLowerCase();
+  return (
+    workEntry.itemType === "web_search" || /\b(find|search|grep|ripgrep|glob)\b/.test(textHint)
+  );
+}
+
+function cleanProviderPayloadText(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed
+    .replace(/<\/?(?:path|type|content|task_result|task)[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isRawProviderPayloadText(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+  return /<\/?[a-z_][^>]*>/iu.test(value) || /^\s*[{[]/u.test(value);
+}
+
+function extractReadablePath(workEntry: TimelineWorkEntry): string | null {
+  const changedPath = workEntry.changedFiles?.[0];
+  if (changedPath) {
+    return changedPath;
+  }
+  const raw = workEntry.detail ?? workEntry.label;
+  const pathMatch =
+    raw.match(/<path>(?<path>[^<]+)<\/path>/u) ??
+    raw.match(/(?:^|\s)(?<path>(?:~|\/|\.{1,2}\/)[^\s<>"']+)/u);
+  const pathValue = pathMatch?.groups?.path?.trim();
+  if (pathValue && pathValue.length > 0) {
+    return pathValue;
+  }
+  const cleaned = cleanProviderPayloadText(workEntry.detail);
+  if (cleaned && !/\s/u.test(cleaned) && cleaned.length <= 160) {
+    return cleaned;
+  }
+  return null;
+}
+
+function extractSearchQuery(workEntry: TimelineWorkEntry): string | null {
+  const raw = cleanProviderPayloadText(workEntry.detail) ?? workEntry.toolTitle ?? workEntry.label;
+  const quoted = raw.match(/["'`](?<query>[^"'`]{2,})["'`]/u)?.groups?.query?.trim();
+  if (quoted) {
+    return quoted;
+  }
+  const query = raw
+    .replace(/\b(?:find|search|grep|ripgrep|glob|rg)\b/giu, "")
+    .replace(/--?[a-z][\w-]*(?:=\S+)?/giu, "")
+    .trim();
+  return query.length > 0 ? compactDisplayText(query, 56) : null;
+}
+
+function formatSubagentLabel(value: string | undefined): string | null {
+  const normalized = value?.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized
+    .split(" ")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function nonCommandWorkEntryHeading(workEntry: TimelineWorkEntry): string {
+  if (workEntry.tone === "error") {
+    if (workEntry.diagnosticKind === "runtime-error") {
+      return "Runtime error";
+    }
+    return "Error";
+  }
+  if (workEntry.tone === "thinking") {
+    return "Thinking";
+  }
+  if (workEntry.itemType === "collab_agent_tool_call") {
+    const label =
+      formatSubagentLabel(workEntry.subagentName) ?? formatSubagentLabel(workEntry.subagentType);
+    return label ? `Subagent ${label}` : "Subagent task";
+  }
+  if (workEntry.itemType === "image_view") {
+    const path = extractReadablePath(workEntry);
+    return path ? `Viewed ${basenameOfPath(path) || path}` : "Viewed image";
+  }
+  if (isFileReadWorkEntry(workEntry)) {
+    const path = extractReadablePath(workEntry);
+    return path ? `Read ${basenameOfPath(path) || path}` : "Read file";
+  }
+  if (isSearchWorkEntry(workEntry)) {
+    const query = extractSearchQuery(workEntry);
+    return query ? `Searched "${query}"` : "Searched";
+  }
+  return toolWorkEntryHeading(workEntry);
 }
 
 function commandStatusLabel(workEntry: TimelineWorkEntry): {
@@ -3206,6 +3384,14 @@ function commandStatusLabel(workEntry: TimelineWorkEntry): {
     className: "text-muted-foreground/76",
     icon: Clock3Icon,
   };
+}
+
+function commandWorkEntryPlainText(workEntry: TimelineWorkEntry): string {
+  const command = compactCommandText(commandTextFromWorkEntry(workEntry));
+  if (workEntry.status === "inProgress") {
+    return command ? `Running ${command}` : "Running command";
+  }
+  return command ? `Ran ${command}` : "Ran command";
 }
 
 function workEntryIcon(workEntry: TimelineWorkEntry): TimelineIcon {
@@ -3290,7 +3476,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
 
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
-  const heading = toolWorkEntryHeading(workEntry);
+  const heading = nonCommandWorkEntryHeading(workEntry);
   const commandIsAlreadyInHeading =
     workEntry.command !== undefined && heading.includes(workEntry.command);
   const detailText =
@@ -3301,30 +3487,76 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
   const inlineIntentText = props.inlineIntentText?.trim() || null;
   const variant = props.variant ?? "standalone";
+  const isNested = variant === "nested";
   const tone = resolveWorkEntryTone(workEntry.tone);
+  const showDetailInline =
+    workEntry.tone !== "thinking" &&
+    workEntry.tone !== "error" &&
+    !isFileReadWorkEntry(workEntry) &&
+    !isSearchWorkEntry(workEntry) &&
+    workEntry.itemType !== "image_view" &&
+    Boolean(detailText) &&
+    !terminalOutputText &&
+    !isRawProviderPayloadText(detailText);
+  const hasExpandableDetail =
+    workEntry.tone !== "thinking" &&
+    !showDetailInline &&
+    Boolean(detailText || terminalOutputText || hasChangedFiles);
+  const [isDetailOpen, setIsDetailOpen] = useState(
+    workEntry.tone === "error" || workEntry.diagnosticKind !== undefined,
+  );
+  const DetailChevronIcon = isDetailOpen ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <div
-      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      className={cn("min-w-0", isNested && "pl-3")}
       data-work-entry-id={workEntry.id}
       data-work-entry-tone={workEntry.tone}
+      data-work-entry-nested={isNested ? "true" : undefined}
     >
-      <div className="flex items-start gap-3 transition-[opacity,translate] duration-200">
+      <div
+        className={cn(
+          "flex items-start transition-[opacity,translate] duration-200",
+          isNested ? "gap-2.5" : "gap-3",
+        )}
+      >
         <EntryIcon
-          className={cn("mt-1 size-3 shrink-0", iconConfig.className, metaToneTextClass(tone))}
+          className={cn(
+            "mt-1 shrink-0",
+            isNested ? "size-3.5" : "size-4",
+            iconConfig.className,
+            metaToneTextClass(tone),
+          )}
         />
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-0.5 flex min-w-0 items-center gap-2">
-            <p
+            <button
+              type="button"
               className={cn(
-                "min-w-0 flex-1 truncate text-[12px] leading-5 text-muted-foreground/78",
+                "group/work-detail flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
+                isNested ? "text-[14px]" : "text-[15px]",
                 workEntry.tone === "thinking" && "tracking-[0.01em]",
+                !hasExpandableDetail && "cursor-default hover:text-muted-foreground/70",
               )}
+              onClick={() => {
+                if (hasExpandableDetail) {
+                  setIsDetailOpen((current) => !current);
+                }
+              }}
+              aria-expanded={hasExpandableDetail ? isDetailOpen : undefined}
+              data-work-detail-disclosure={hasExpandableDetail ? "true" : undefined}
+              data-work-detail-open={hasExpandableDetail ? String(isDetailOpen) : undefined}
             >
               <InlineTooltip content={displayText} className="min-w-0 truncate">
                 {heading}
               </InlineTooltip>
-            </p>
+              {hasExpandableDetail && (
+                <DetailChevronIcon
+                  className="size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-100 group-hover/work-detail:text-foreground/82 group-focus-visible/work-detail:text-foreground/82"
+                  strokeWidth={2.2}
+                />
+              )}
+            </button>
           </div>
           {inlineIntentText && (
             <p
@@ -3337,31 +3569,86 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               <span className="text-foreground/72">{inlineIntentText}</span>
             </p>
           )}
-          {detailText && (
+          {detailText && workEntry.tone === "thinking" && (
             <InlineTooltip
               content={detailText}
               className={cn(
                 "wrap-break-word block whitespace-pre-wrap",
-                workEntry.tone === "thinking"
-                  ? "text-[11px] leading-5 text-foreground/72"
+                workEntry.tone === "thinking" && isNested
+                  ? "mt-0.5 text-[13px] leading-6 text-foreground/76"
+                  : workEntry.tone === "thinking"
+                    ? "text-[11px] leading-5 text-foreground/72"
+                    : isNested
+                      ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
+                      : "font-mono text-[10px] leading-5 text-muted-foreground/65",
+              )}
+            >
+              {detailText}
+            </InlineTooltip>
+          )}
+          {showDetailInline && detailText && (
+            <InlineTooltip
+              content={detailText}
+              className={cn(
+                "wrap-break-word block whitespace-pre-wrap",
+                isNested
+                  ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
                   : "font-mono text-[10px] leading-5 text-muted-foreground/65",
               )}
             >
               {detailText}
             </InlineTooltip>
           )}
-          {terminalOutputText && (
-            <InlineTooltip
-              content={terminalOutputText}
-              className="mt-1 block max-h-32 overflow-hidden whitespace-pre-wrap border-l border-border/55 pl-2 font-mono text-[10px] leading-4 text-muted-foreground/72"
+          {isDetailOpen && hasExpandableDetail && (
+            <div
+              className="mt-1.5 max-w-full rounded-md bg-muted/35 px-3 py-2"
+              data-work-detail-panel="true"
             >
-              {terminalOutputText}
-              {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
-            </InlineTooltip>
+              {detailText && (
+                <InlineTooltip
+                  content={detailText}
+                  className={cn(
+                    "wrap-break-word block whitespace-pre-wrap",
+                    workEntry.tone === "error"
+                      ? "text-[12px] leading-5 text-red-200/88"
+                      : "font-mono text-[11px] leading-5 text-muted-foreground/72",
+                  )}
+                >
+                  {detailText}
+                </InlineTooltip>
+              )}
+              {terminalOutputText && (
+                <InlineTooltip
+                  content={terminalOutputText}
+                  className="mt-1 block whitespace-pre-wrap border-l border-border/55 pl-2 font-mono text-[11px] leading-4 text-muted-foreground/72"
+                >
+                  {terminalOutputText}
+                  {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
+                </InlineTooltip>
+              )}
+              {hasChangedFiles && (
+                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                  {workEntry.changedFiles?.slice(0, 6).map((filePath) => (
+                    <InlineTooltip
+                      key={`${workEntry.id}:${filePath}`}
+                      content={filePath}
+                      className="font-mono text-[10px] text-muted-foreground/75"
+                    >
+                      {filePath}
+                    </InlineTooltip>
+                  ))}
+                  {(workEntry.changedFiles?.length ?? 0) > 6 && (
+                    <span className="px-1 text-[10px] text-muted-foreground/55">
+                      +{(workEntry.changedFiles?.length ?? 0) - 6}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
-      {hasChangedFiles && !previewIsChangedFiles && (
+      {hasChangedFiles && !previewIsChangedFiles && !hasExpandableDetail && (
         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 pl-5.5">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
             <InlineTooltip
@@ -3389,44 +3676,75 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
   variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
-  const command = normalizeWorkCommandText(workEntry.command);
-  const compactCommand = compactCommandForHeading(workEntry.command);
+  const command = commandTextFromWorkEntry(workEntry);
   const outputText = normalizeTerminalOutputText(workEntry.terminalOutput);
   const detailText = commandDetailIsDuplicate(workEntry.command, workEntry.detail)
     ? null
-    : workEntry.detail?.trim() || null;
+    : command && workEntry.detail?.trim() === command
+      ? null
+      : workEntry.detail?.trim() || null;
   const status = commandStatusLabel(workEntry);
-  const StatusIcon = status.icon;
   const durationText = formatToolDuration(workEntry.durationMs);
-  const heading =
-    workEntry.status === "inProgress" && compactCommand
-      ? `Running ${compactCommand}`
-      : durationText
-        ? `Ran command for ${durationText}`
-        : "Ran command";
-  const cardOutput = outputText ?? detailText;
+  const heading = commandWorkEntryPlainText(workEntry);
+  const detailOutput = outputText ?? detailText;
   const variant = props.variant ?? "standalone";
+  const isNested = variant === "nested";
   const inlineIntentText = props.inlineIntentText?.trim() || null;
+  const hasExpandableOutput = Boolean(command || detailOutput);
+  const [isOutputOpen, setIsOutputOpen] = useState(false);
+  const OutputChevronIcon = isOutputOpen ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <div
-      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      className={cn("min-w-0", isNested && "pl-3")}
       data-work-entry-id={workEntry.id}
       data-work-entry-tone={workEntry.tone}
       data-work-entry-kind="command"
+      data-work-entry-nested={isNested ? "true" : undefined}
     >
-      <div className="flex items-start gap-3">
-        <IconTerminal className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
+      <div className={cn("flex items-start", isNested ? "gap-2.5" : "gap-3")}>
+        <IconTerminal
+          className={cn("mt-1 shrink-0 text-muted-foreground/62", isNested ? "size-3.5" : "size-4")}
+        />
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex min-w-0 items-center gap-1.5 text-[13px] leading-5 text-muted-foreground/82">
-            <InlineTooltip content={command ? `${heading}\n${command}` : heading}>
-              <span className="truncate">{heading}</span>
+          <button
+            type="button"
+            className={cn(
+              "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-6 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
+              isNested ? "text-[14px]" : "text-[15px]",
+              !hasExpandableOutput && "cursor-default hover:text-muted-foreground/70",
+            )}
+            onClick={() => {
+              if (hasExpandableOutput) {
+                setIsOutputOpen((current) => !current);
+              }
+            }}
+            aria-expanded={hasExpandableOutput ? isOutputOpen : undefined}
+            data-command-output-disclosure={hasExpandableOutput ? "true" : undefined}
+            data-command-output-open={hasExpandableOutput ? String(isOutputOpen) : undefined}
+          >
+            <InlineTooltip
+              content={[
+                command ?? heading,
+                durationText ? `Finished in ${durationText}` : null,
+                status.text !== "Running" ? status.text : null,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+              className="min-w-0 truncate"
+            >
+              {heading}
             </InlineTooltip>
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/48" />
-          </div>
+            {hasExpandableOutput && (
+              <OutputChevronIcon
+                className="size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-100 group-hover/command:text-foreground/82 group-focus-visible/command:text-foreground/82"
+                strokeWidth={2.2}
+              />
+            )}
+          </button>
           {inlineIntentText && (
             <p
-              className="mb-2 text-[11px] leading-5 text-muted-foreground/68"
+              className="mt-1 text-[11px] leading-5 text-muted-foreground/68"
               data-inline-intent="true"
             >
               <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
@@ -3435,40 +3753,36 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
               <span className="text-foreground/72">{inlineIntentText}</span>
             </p>
           )}
-          <div className="overflow-hidden rounded-lg border border-border/45 bg-muted/50 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-            <div className="border-b border-border/35 px-3 py-2 text-[11px] font-medium text-muted-foreground/70">
-              Shell
-            </div>
-            <div className="px-3 py-3 font-mono text-[11px] leading-5">
-              {command && (
-                <InlineTooltip
-                  content={command}
-                  className="block whitespace-pre-wrap text-foreground/90"
-                >
-                  <span className="mr-2 text-muted-foreground/65">$</span>
-                  {command}
-                </InlineTooltip>
+          {isOutputOpen && hasExpandableOutput && (
+            <div
+              className={cn(
+                "mt-2 max-w-full rounded-md bg-muted/45 px-3 py-2.5",
+                isNested && "-ml-6",
               )}
-              {cardOutput && (
+              data-command-output-panel="true"
+            >
+              <div className="mb-2 text-[11px] leading-none text-muted-foreground/72">Shell</div>
+              {command && (
+                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap font-mono text-[13px] leading-5 text-foreground/92">
+                  {`$ ${command}`}
+                </pre>
+              )}
+              {detailOutput && (
                 <InlineTooltip
-                  content={cardOutput}
-                  className="mt-3 block max-h-36 overflow-hidden whitespace-pre-wrap text-muted-foreground/78"
+                  content={detailOutput}
+                  className="block whitespace-pre-wrap font-mono text-[12px] leading-5 text-muted-foreground/82"
                 >
-                  {cardOutput}
+                  {detailOutput}
                   {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
                 </InlineTooltip>
               )}
+              {status.text !== "Running" && (
+                <div className={cn("mt-2 text-right text-[12px] leading-5", status.className)}>
+                  {status.text}
+                </div>
+              )}
             </div>
-            <div className="flex items-center justify-between gap-3 border-t border-border/35 px-3 py-2 text-[11px]">
-              <span className="min-w-0 truncate text-muted-foreground/45">
-                {durationText ? `Finished in ${durationText}` : "\u00a0"}
-              </span>
-              <span className={cn("inline-flex shrink-0 items-center gap-1.5", status.className)}>
-                <StatusIcon className="size-3" />
-                {status.text}
-              </span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -3482,6 +3796,7 @@ const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
 }) {
   const { workEntry } = props;
   const variant = props.variant ?? "standalone";
+  const isNested = variant === "nested";
   const firstPath = workEntry.changedFiles?.[0] ?? workEntry.detail ?? "file";
   const visibleName = basenameOfPath(firstPath) || firstPath;
   const stat =
@@ -3492,15 +3807,23 @@ const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
 
   return (
     <div
-      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      className={cn("min-w-0", isNested && "pl-3")}
       data-work-entry-id={workEntry.id}
       data-work-entry-tone={workEntry.tone}
       data-work-entry-kind="file-edit"
+      data-work-entry-nested={isNested ? "true" : undefined}
     >
-      <div className="flex items-start gap-3">
-        <SquarePenIcon className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
+      <div className={cn("flex items-start", isNested ? "gap-2.5" : "gap-3")}>
+        <SquarePenIcon
+          className={cn("mt-1 shrink-0 text-muted-foreground/62", isNested ? "size-3.5" : "size-4")}
+        />
         <div className="min-w-0 flex-1">
-          <p className="min-w-0 text-[13px] leading-5 text-muted-foreground/78">
+          <p
+            className={cn(
+              "min-w-0 leading-5 text-muted-foreground/82",
+              isNested ? "text-[14px]" : "text-[13px]",
+            )}
+          >
             <span>Editing </span>
             <InlineTooltip content={firstPath} className="font-medium text-sky-300/90">
               {visibleName}
