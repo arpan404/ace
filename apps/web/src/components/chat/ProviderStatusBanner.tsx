@@ -4,9 +4,17 @@ import { createPortal } from "react-dom";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { CircleAlertIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { cn } from "~/lib/utils";
 
 const DISMISSED_PROVIDER_STATUS_KEYS_STORAGE_KEY = "ace:dismissed-provider-status-keys:v1";
 const MAX_DISMISSED_PROVIDER_STATUS_KEYS = 128;
+const PROVIDER_STATUS_BANNER_SURFACE =
+  "shadow-[0_16px_48px_color-mix(in_srgb,var(--background)_76%,transparent)]";
+const PROVIDER_STATUS_BANNER_SURFACE_BY_STATUS = {
+  error:
+    "border-destructive/45 bg-[color-mix(in_srgb,var(--background)_94%,var(--destructive)_6%)]",
+  warning: "border-warning/45 bg-[color-mix(in_srgb,var(--background)_94%,var(--warning)_6%)]",
+} as const;
 
 let dismissedProviderStatusKeysHydrated = false;
 const dismissedProviderStatusKeys = new Set<string>();
@@ -126,10 +134,17 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       ? `${providerLabel} provider is unavailable.`
       : `${providerLabel} provider has limited availability.`;
   const title = `${providerLabel} provider status`;
+  const bannerStatus = status.status === "error" ? "error" : "warning";
 
   return (
     <ProviderStatusOverlay>
-      <Alert variant={status.status === "error" ? "error" : "warning"}>
+      <Alert
+        className={cn(
+          PROVIDER_STATUS_BANNER_SURFACE,
+          PROVIDER_STATUS_BANNER_SURFACE_BY_STATUS[bannerStatus],
+        )}
+        variant={bannerStatus}
+      >
         <CircleAlertIcon />
         <AlertTitle>{title}</AlertTitle>
         <Tooltip>

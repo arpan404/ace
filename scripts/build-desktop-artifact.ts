@@ -458,6 +458,14 @@ function resolveDesktopRuntimeDependencies(
 }
 
 const DEFAULT_DESKTOP_UPDATE_REPOSITORY = "arpan404/ace";
+const MAC_SIGN_IGNORE_RESOURCE_PATTERNS = [
+  "\\.asar$",
+  "\\.bin$",
+  "\\.dat$",
+  "\\.icns$",
+  "\\.nib$",
+  "\\.pak$",
+];
 
 function resolveGitHubPublishConfig():
   | {
@@ -526,10 +534,15 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
+    const timestamp = process.env.ACE_DESKTOP_MAC_TIMESTAMP?.trim();
+    const notarize = process.env.ACE_DESKTOP_MAC_NOTARIZE?.trim();
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
+      signIgnore: MAC_SIGN_IGNORE_RESOURCE_PATTERNS,
+      ...(timestamp ? { timestamp } : {}),
+      ...(notarize === "false" ? { notarize: false } : {}),
     };
   }
 
