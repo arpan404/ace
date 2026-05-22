@@ -1,3 +1,5 @@
+import type { OrchestrationEvent } from "@ace/contracts";
+
 export type AgentAttentionNotificationKind = "approval" | "user-input" | "completion";
 
 export type ApprovalNotificationRequestKind =
@@ -51,6 +53,42 @@ const APPROVAL_FALLBACK_LABEL_BY_KIND: Record<ApprovalNotificationRequestKind, s
   "file-change": "file change",
   permission: "permission",
 };
+const ATTENTION_ACTIVITY_KINDS = new Set([
+  "approval.requested",
+  "approval.resolved",
+  "provider.approval.respond.failed",
+  "user-input.requested",
+  "user-input.resolved",
+  "provider.user-input.respond.failed",
+]);
+
+export function shouldRefreshAgentAttentionForOrchestrationEvent(
+  event: OrchestrationEvent,
+): boolean {
+  switch (event.type) {
+    case "thread.activity-appended":
+      return ATTENTION_ACTIVITY_KINDS.has(event.payload.activity.kind);
+    case "thread.turn-start-requested":
+    case "thread.turn-interrupt-requested":
+    case "thread.session-stop-requested":
+    case "thread.session-set":
+    case "thread.turn-diff-completed":
+    case "thread.reverted":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function shouldForwardDesktopNotificationOrchestrationEvent(
+  event: OrchestrationEvent,
+): boolean {
+  return (
+    event.type === "thread.deleted" ||
+    event.type === "thread.archived" ||
+    shouldRefreshAgentAttentionForOrchestrationEvent(event)
+  );
+}
 
 export function normalizeNotificationText(text: string): string {
   return text

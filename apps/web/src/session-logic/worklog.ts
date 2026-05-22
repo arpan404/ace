@@ -39,6 +39,7 @@ const TOOL_ACTIVITY_KINDS = new Set<OrchestrationThreadActivity["kind"]>([
   "tool.updated",
   "tool.completed",
 ]);
+const MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS = 16_000;
 
 function shouldHideWorkLogActivityForVisibility(
   activity: OrchestrationThreadActivity,
@@ -383,9 +384,11 @@ function mergeDerivedWorkLogEntries(
       ? mergeThinkingWorkLogDetail(previous.detail, next.detail)
       : (next.detail ?? previous.detail);
   const command = next.command ?? previous.command;
-  const terminalOutput = mergeTerminalOutput(previous.terminalOutput, next.terminalOutput);
-  const terminalOutputTruncated =
-    previous.terminalOutputTruncated === true || next.terminalOutputTruncated === true;
+  const terminalOutputResult = mergeTerminalOutput(
+    previous.terminalOutput,
+    next.terminalOutput,
+    previous.terminalOutputTruncated === true || next.terminalOutputTruncated === true,
+  );
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const label = shouldPreservePreviousToolLabel(previous, next) ? previous.label : next.label;
   const itemType = next.itemType ?? previous.itemType;
@@ -408,8 +411,10 @@ function mergeDerivedWorkLogEntries(
       : {}),
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
-    ...(terminalOutput ? { terminalOutput } : {}),
-    ...(terminalOutputTruncated ? { terminalOutputTruncated } : {}),
+    ...(terminalOutputResult.terminalOutput
+      ? { terminalOutput: terminalOutputResult.terminalOutput }
+      : {}),
+    ...(terminalOutputResult.terminalOutputTruncated ? { terminalOutputTruncated: true } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(changedFileStats.length > 0 ? { changedFileStats } : {}),
     ...(toolTitle ? { toolTitle } : {}),
@@ -586,20 +591,42 @@ function terminalOutputString(value: unknown): string | null {
 function mergeTerminalOutput(
   previous: string | undefined,
   next: string | undefined,
-): string | undefined {
+  alreadyTruncated: boolean,
+): { terminalOutput: string | undefined; terminalOutputTruncated: boolean } {
   if (!previous) {
-    return next;
+    return truncateWorkLogTerminalOutput(next, alreadyTruncated);
   }
   if (!next) {
-    return previous;
+    return { terminalOutput: previous, terminalOutputTruncated: alreadyTruncated };
   }
+  if (alreadyTruncated && previous.length >= MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS) {
+    return { terminalOutput: previous, terminalOutputTruncated: true };
+  }
+  let merged: string;
   if (next.startsWith(previous)) {
-    return next;
+    merged = next;
+  } else if (previous.endsWith(next)) {
+    merged = previous;
+  } else {
+    merged = `${previous}${next}`;
   }
-  if (previous.endsWith(next)) {
-    return previous;
+  return truncateWorkLogTerminalOutput(merged, alreadyTruncated);
+}
+
+function truncateWorkLogTerminalOutput(
+  output: string | undefined,
+  alreadyTruncated: boolean,
+): { terminalOutput: string | undefined; terminalOutputTruncated: boolean } {
+  if (!output) {
+    return { terminalOutput: undefined, terminalOutputTruncated: alreadyTruncated };
   }
-  return `${previous}${next}`;
+  if (output.length <= MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS) {
+    return { terminalOutput: output, terminalOutputTruncated: alreadyTruncated };
+  }
+  return {
+    terminalOutput: `${output.slice(0, MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS - 3)}...`,
+    terminalOutputTruncated: true,
+  };
 }
 
 function extractChangedFileStats(

@@ -1277,6 +1277,40 @@ function updateThreadState(
   };
 }
 
+function appendThreadActivities(
+  thread: Thread,
+  activities: ReadonlyArray<Thread["activities"][number]>,
+): Thread["activities"] {
+  let nextActivities = thread.activities;
+  for (const activity of activities) {
+    const shouldRetainActivity =
+      thread.historyLoaded !== false || shouldRetainLeanThreadActivity(activity);
+    if (!shouldRetainActivity) {
+      continue;
+    }
+    nextActivities = appendCompactedThreadActivity(nextActivities, activity, {
+      maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+    });
+  }
+  return nextActivities;
+}
+
+function applyThreadActivityBatch(
+  state: AppState,
+  threadId: ThreadId,
+  activities: ReadonlyArray<Thread["activities"][number]>,
+  updatedAt: string,
+): AppState {
+  if (activities.length === 0) {
+    return state;
+  }
+  return updateThreadState(state, threadId, (thread) => ({
+    ...thread,
+    activities: appendThreadActivities(thread, activities),
+    updatedAt,
+  }));
+}
+
 function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState | null {
   switch (event.type) {
     case "project.created": {
@@ -1806,20 +1840,12 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.activity-appended": {
-      return updateThreadState(state, event.payload.threadId, (thread) => {
-        const shouldRetainActivity =
-          thread.historyLoaded !== false || shouldRetainLeanThreadActivity(event.payload.activity);
-        const activities = !shouldRetainActivity
-          ? thread.activities
-          : appendCompactedThreadActivity(thread.activities, event.payload.activity, {
-              maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
-            });
-        return {
-          ...thread,
-          activities,
-          updatedAt: event.occurredAt,
-        };
-      });
+      return applyThreadActivityBatch(
+        state,
+        event.payload.threadId,
+        [event.payload.activity],
+        event.occurredAt,
+      );
     }
 
     case "thread.approval-response-requested":
@@ -2040,7 +2066,39 @@ export function applyOrchestrationEvents(
   if (events.length === 0) {
     return state;
   }
-  return events.reduce((nextState, event) => applyOrchestrationEvent(nextState, event), state);
+
+  let nextState = state;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event) {
+      continue;
+    }
+    if (event.type !== "thread.activity-appended") {
+      nextState = applyOrchestrationEvent(nextState, event);
+      continue;
+    }
+
+    const threadId = event.payload.threadId;
+    const activities = [event.payload.activity];
+    let updatedAt = event.occurredAt;
+    let nextIndex = index + 1;
+    while (nextIndex < events.length) {
+      const nextEvent = events[nextIndex];
+      if (
+        nextEvent?.type !== "thread.activity-appended" ||
+        nextEvent.payload.threadId !== threadId
+      ) {
+        break;
+      }
+      activities.push(nextEvent.payload.activity);
+      updatedAt = nextEvent.occurredAt;
+      nextIndex += 1;
+    }
+
+    nextState = applyThreadActivityBatch(nextState, threadId, activities, updatedAt);
+    index = nextIndex - 1;
+  }
+  return nextState;
 }
 
 export const selectProjectById =

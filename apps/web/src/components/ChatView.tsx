@@ -1012,8 +1012,8 @@ function useChatViewComponent({
   threadId,
   visibleBoardThreadIds = EMPTY_VISIBLE_BOARD_THREAD_IDS,
 }: ChatViewProps) {
-  const activeForSideEffects = true;
-  const ownsGlobalSideEffects = !splitPane || activeInBoard;
+  const activeForSideEffects = !splitPane || activeInBoard;
+  const ownsGlobalSideEffects = activeForSideEffects;
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const dismissStoreThreadError = useStore((store) => store.dismissThreadError);

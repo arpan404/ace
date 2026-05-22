@@ -1798,6 +1798,56 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("caps collapsed command output so large live logs do not dominate rendering", () => {
+    const largeChunk = "x".repeat(20_000);
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-start",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Ran command build",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          title: "Ran command build",
+          command: "build",
+        },
+      }),
+      makeActivity({
+        id: "command-output-1",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: largeChunk,
+        },
+      }),
+      makeActivity({
+        id: "command-output-2",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: "after-cap",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.terminalOutput).toHaveLength(16_000);
+    expect(entries[0]?.terminalOutput?.endsWith("...")).toBe(true);
+    expect(entries[0]?.terminalOutputTruncated).toBe(true);
+  });
+
   it("keeps separate tool entries when an identical call starts after the prior one completed", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

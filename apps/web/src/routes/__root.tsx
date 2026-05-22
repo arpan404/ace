@@ -67,6 +67,7 @@ import { parseHostConnectionQrPayload, resolveLocalDeviceWsUrl } from "../lib/re
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
+import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
 
 const DetachedThreadWorkspaceEditor = lazy(
   () => import("../components/editor/ThreadWorkspaceEditor"),
@@ -988,7 +989,11 @@ function useEventRouterLifecycle() {
       void recoverFromReplay("transport-reconnected");
     });
     const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent((event) => {
-      if (typeof window !== "undefined" && window.desktopBridge?.sendOrchestrationEvent) {
+      if (
+        typeof window !== "undefined" &&
+        window.desktopBridge?.sendOrchestrationEvent &&
+        shouldForwardDesktopNotificationOrchestrationEvent(event)
+      ) {
         window.desktopBridge.sendOrchestrationEvent(event);
       }
       const action = recovery.classifyDomainEvent(event.sequence);

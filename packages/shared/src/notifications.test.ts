@@ -1,3 +1,11 @@
+import {
+  EventId,
+  MessageId,
+  ProjectId,
+  ThreadId,
+  TurnId,
+  type OrchestrationEvent,
+} from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,8 +14,33 @@ import {
   buildCompletionNotificationBody,
   buildUserInputNotificationBody,
   normalizeNotificationText,
+  shouldForwardDesktopNotificationOrchestrationEvent,
   truncateNotificationText,
 } from "./notifications";
+
+function makeEvent<T extends OrchestrationEvent["type"]>(
+  type: T,
+  payload: Extract<OrchestrationEvent, { type: T }>["payload"],
+): Extract<OrchestrationEvent, { type: T }> {
+  return {
+    sequence: 1,
+    eventId: EventId.makeUnsafe("event-1"),
+    aggregateKind: "thread",
+    aggregateId:
+      "threadId" in payload
+        ? payload.threadId
+        : "projectId" in payload
+          ? payload.projectId
+          : ProjectId.makeUnsafe("project-1"),
+    occurredAt: "2026-04-07T00:00:00.000Z",
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    type,
+    payload,
+  } as Extract<OrchestrationEvent, { type: T }>;
+}
 
 describe("notification copy helpers", () => {
   it("builds thread-first attention titles", () => {
@@ -65,5 +98,68 @@ describe("notification copy helpers", () => {
     expect(buildCompletionNotificationBody({ assistantPreview: "" })).toBe(
       "The agent finished working.",
     );
+  });
+
+  it("filters orchestration events before desktop notification IPC", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+
+    expect(
+      shouldForwardDesktopNotificationOrchestrationEvent(
+        makeEvent("thread.message-sent", {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-1"),
+          role: "assistant",
+          text: "stream",
+          turnId,
+          streaming: true,
+          createdAt: "2026-04-07T00:00:00.000Z",
+          updatedAt: "2026-04-07T00:00:00.000Z",
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldForwardDesktopNotificationOrchestrationEvent(
+        makeEvent("thread.activity-appended", {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-tool-output"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {},
+            turnId,
+            createdAt: "2026-04-07T00:00:00.000Z",
+          },
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldForwardDesktopNotificationOrchestrationEvent(
+        makeEvent("thread.activity-appended", {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-approval"),
+            tone: "info",
+            kind: "approval.requested",
+            summary: "Approval requested",
+            payload: { requestId: "approval-1", requestKind: "command" },
+            turnId,
+            createdAt: "2026-04-07T00:00:00.000Z",
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      shouldForwardDesktopNotificationOrchestrationEvent(
+        makeEvent("thread.deleted", {
+          threadId,
+          deletedAt: "2026-04-07T00:00:00.000Z",
+        }),
+      ),
+    ).toBe(true);
   });
 });
