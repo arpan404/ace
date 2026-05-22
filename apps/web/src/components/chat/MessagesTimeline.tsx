@@ -1764,6 +1764,11 @@ function formatCompletedWorkTimer(startIso: string, endIso: string): string | nu
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+function formatSecondsAsWords(seconds: number): string {
+  const roundedSeconds = Math.max(1, Math.ceil(seconds));
+  return `${roundedSeconds} ${roundedSeconds === 1 ? "second" : "seconds"}`;
+}
+
 function summarizeCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -1783,6 +1788,7 @@ function compactDisplayText(value: string, maxLength = 72): string {
 function summarizeWorkGroupBreakdownParts(
   summary: TimelineWorkGroupSummaryProjection,
   elapsedLabel: string | null,
+  thinkingOnlyDurationSeconds: number | null,
 ): Array<{ key: string; text: string; title: string }> {
   const {
     entryCount,
@@ -1797,12 +1803,23 @@ function summarizeWorkGroupBreakdownParts(
   const parts: Array<{ key: string; text: string; title: string }> = [];
   const isThinkingOnly = thinkingCount > 0 && entryCount === thinkingCount;
 
-  if (isThinkingOnly && elapsedLabel) {
+  if (isThinkingOnly && thinkingOnlyDurationSeconds !== null) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
+    const times = summarizeCount(thinkingCount, "time");
     return [
       {
         key: "thinking",
-        text: `Thought for ${elapsedLabel}`,
+        text: `Thought ${times} for ${formatSecondsAsWords(thinkingOnlyDurationSeconds)}`,
+        title: steps,
+      },
+    ];
+  } else if (isThinkingOnly && elapsedLabel) {
+    const steps = summarizeCount(thinkingCount, "reasoning step");
+    const times = summarizeCount(thinkingCount, "time");
+    return [
+      {
+        key: "thinking",
+        text: `Thought ${times} for ${elapsedLabel}`,
         title: steps,
       },
     ];
@@ -1866,6 +1883,36 @@ function summarizeWorkGroupBreakdownParts(
 
   const entriesLabel = summarizeCount(entryCount, "log entry", "log entries");
   return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
+}
+
+function summarizeThinkingOnlyDurationSeconds(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  summaryEndAt: string | null,
+): number | null {
+  const thinkingEntries = entries.filter(
+    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
+      entry.kind === "work" && entry.workEntry.tone === "thinking",
+  );
+  if (thinkingEntries.length === 0 || thinkingEntries.length !== entries.length) {
+    return null;
+  }
+
+  let totalSeconds = 0;
+  for (let index = 0; index < thinkingEntries.length; index += 1) {
+    const current = thinkingEntries[index];
+    if (!current) {
+      continue;
+    }
+    const startMs = Date.parse(current.createdAt);
+    const nextCreatedAt = thinkingEntries[index + 1]?.createdAt ?? summaryEndAt;
+    const endMs = nextCreatedAt ? Date.parse(nextCreatedAt) : Number.NaN;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      continue;
+    }
+    totalSeconds += Math.ceil((endMs - startMs) / 1_000);
+  }
+
+  return Math.max(1, totalSeconds);
 }
 
 function workGroupIcon(iconKey: TimelineWorkGroupIconKey): TimelineIcon {
@@ -2242,7 +2289,15 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
   const { summary } = props.row;
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
-  const breakdownParts = summarizeWorkGroupBreakdownParts(summary, elapsedLabel);
+  const thinkingOnlyDurationSeconds = summarizeThinkingOnlyDurationSeconds(
+    props.row.entries,
+    props.row.summaryEndAt,
+  );
+  const breakdownParts = summarizeWorkGroupBreakdownParts(
+    summary,
+    elapsedLabel,
+    thinkingOnlyDurationSeconds,
+  );
   const GroupIcon = workGroupIcon(summary.iconKey);
 
   return (
@@ -3349,7 +3404,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               type="button"
               className={cn(
                 "group/work-detail flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-                isNested ? "text-[14px]" : "text-[15px]",
+                isNested ? "text-[12px]" : "text-[15px]",
                 workEntry.tone === "thinking" && "tracking-[0.01em]",
                 !hasExpandableDetail && "cursor-default hover:text-muted-foreground/70",
               )}
@@ -3390,7 +3445,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               className={cn(
                 "wrap-break-word block whitespace-pre-wrap",
                 workEntry.tone === "thinking" && isNested
-                  ? "mt-0.5 text-[13px] leading-6 text-foreground/76"
+                  ? "mt-0.5 text-[11px] leading-5 text-foreground/76"
                   : workEntry.tone === "thinking"
                     ? "text-[11px] leading-5 text-foreground/72"
                     : isNested
@@ -3526,7 +3581,7 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
             type="button"
             className={cn(
               "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-6 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-              isNested ? "text-[14px]" : "text-[15px]",
+              isNested ? "text-[12px]" : "text-[15px]",
               !hasExpandableOutput && "cursor-default hover:text-muted-foreground/70",
             )}
             onClick={() => {
@@ -3578,14 +3633,14 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
             >
               <div className="mb-2 text-[11px] leading-none text-muted-foreground/72">Shell</div>
               {command && (
-                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap font-mono text-[13px] leading-5 text-foreground/92">
+                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-foreground/92">
                   {`$ ${command}`}
                 </pre>
               )}
               {detailOutput && (
                 <InlineTooltip
                   content={detailOutput}
-                  className="block whitespace-pre-wrap font-mono text-[12px] leading-5 text-muted-foreground/82"
+                  className="block whitespace-pre-wrap font-mono text-[11px] leading-5 text-muted-foreground/82"
                 >
                   {detailOutput}
                   {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
@@ -3636,7 +3691,7 @@ const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
           <p
             className={cn(
               "min-w-0 leading-5 text-muted-foreground/82",
-              isNested ? "text-[14px]" : "text-[13px]",
+              isNested ? "text-[12px]" : "text-[13px]",
             )}
           >
             <span>Editing </span>
