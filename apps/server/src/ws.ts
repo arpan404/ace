@@ -60,7 +60,7 @@ import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
-import { upgradeProviderCli } from "./provider/providerCliUpgrade";
+import { upgradeProviderCli, withProviderCliUpdateStatuses } from "./provider/providerCliUpgrade";
 import { withProviderExtensionSlashCommands } from "./provider/providerExtensionSlashCommands";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -575,9 +575,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
-      [WS_METHODS.serverRefreshProviders]: (_input) =>
+      [WS_METHODS.serverRefreshProviders]: (input) =>
         providerRegistry.refresh().pipe(
           Effect.flatMap(withCurrentProviderCommands),
+          Effect.flatMap((providers) =>
+            input.checkCliUpdates === true
+              ? withProviderCliUpdateStatuses(providers)
+              : Effect.succeed(providers),
+          ),
           Effect.map((providers) => ({ providers })),
         ),
       [WS_METHODS.serverUpgradeProviderCli]: (input) =>
@@ -590,7 +595,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           });
           const providers = yield* providerRegistry
             .refresh(input.provider)
-            .pipe(Effect.flatMap(withCurrentProviderCommands));
+            .pipe(
+              Effect.flatMap(withCurrentProviderCommands),
+              Effect.flatMap(withProviderCliUpdateStatuses),
+            );
           return { providers };
         }),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,

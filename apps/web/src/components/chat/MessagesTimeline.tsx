@@ -118,6 +118,7 @@ const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = true;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
@@ -521,7 +522,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
-      [turnId]: !(current[turnId] ?? false),
+      [turnId]: !(current[turnId] ?? DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED),
     }));
   }, []);
 
@@ -1146,7 +1147,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   <div className="mt-2.5 max-w-3xl">
                     <AssistantMessageTurnDiffSummary
                       allDirectoriesExpanded={
-                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false
+                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ??
+                        DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED
                       }
                       onOpenTurnDiff={onOpenTurnDiff}
                       canRevert={canRevertTurnDiffSummary}
@@ -2932,6 +2934,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           <SquarePenIcon className="size-4" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
+          <span className="sr-only">Changed files ({checkpointFiles.length})</span>
           <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] leading-5 font-medium text-foreground/92">
             <span>Edited {changedFileCountLabel}</span>
             {hasNonZeroStat(summaryStat) && (

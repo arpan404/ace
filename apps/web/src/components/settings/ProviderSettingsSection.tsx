@@ -1,4 +1,5 @@
 import {
+  DownloadIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
@@ -836,7 +837,7 @@ function useProviderSettingsSectionComponent({
                   className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
                   disabled={isRefreshingProviders}
                   onClick={() => void refreshProviders()}
-                  aria-label="Refresh provider status"
+                  aria-label="Check CLI status"
                 >
                   {isRefreshingProviders ? (
                     <LoaderIcon className="size-3.5 animate-spin" />
@@ -846,8 +847,35 @@ function useProviderSettingsSectionComponent({
                 </Button>
               }
             />
-            <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+            <TooltipPopup side="top">Check CLI status</TooltipPopup>
           </Tooltip>
+          {providerCard.canUpgradeCli ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
+                    disabled={isUpgrading || isRefreshingProviders}
+                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
+                    aria-label={`Update ${providerDisplayName} CLI`}
+                  >
+                    {isUpgrading ? (
+                      <LoaderIcon className="size-3.5 animate-spin" />
+                    ) : (
+                      <DownloadIcon className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="top">
+                {isUpgrading
+                  ? `Updating ${providerDisplayName} CLI`
+                  : `Update ${providerDisplayName} CLI`}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
       }
     >
@@ -991,36 +1019,6 @@ function useProviderSettingsSectionComponent({
                     aria-label={`Remove ${selectedInstance.label}`}
                   >
                     <XIcon className="size-3.5" />
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                  disabled={isRefreshingProviders || isUpgrading}
-                  onClick={() => void refreshProviders()}
-                >
-                  {isRefreshingProviders ? (
-                    <LoaderIcon className="size-3 animate-spin" />
-                  ) : (
-                    <RefreshCwIcon className="size-3" />
-                  )}
-                  {isRefreshingProviders ? "Checking" : "Check CLI"}
-                </Button>
-                {providerCard.canUpgradeCli ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                    disabled={isUpgrading || isRefreshingProviders}
-                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
-                  >
-                    {isUpgrading ? (
-                      <LoaderIcon className="size-3 animate-spin" />
-                    ) : (
-                      <RefreshCwIcon className="size-3" />
-                    )}
-                    {isUpgrading ? "Updating" : "Update CLI"}
                   </Button>
                 ) : null}
                 <Switch
@@ -1284,20 +1282,29 @@ function useProviderSettingsSectionComponent({
                             </div>
                           </div>
                           {runtime.upgradeable ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                              disabled={upgradingRuntime}
-                              onClick={() => upgradeProviderCli(providerCard.provider, runtime.id)}
-                            >
-                              {upgradingRuntime ? (
-                                <LoaderIcon className="size-3 animate-spin" />
-                              ) : (
-                                <RefreshCwIcon className="size-3" />
-                              )}
-                              Update
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground"
+                                    disabled={upgradingRuntime}
+                                    onClick={() =>
+                                      upgradeProviderCli(providerCard.provider, runtime.id)
+                                    }
+                                    aria-label={`Update ${runtime.label}`}
+                                  >
+                                    {upgradingRuntime ? (
+                                      <LoaderIcon className="size-3 animate-spin" />
+                                    ) : (
+                                      <DownloadIcon className="size-3" />
+                                    )}
+                                  </Button>
+                                }
+                              />
+                              <TooltipPopup side="top">Update {runtime.label}</TooltipPopup>
+                            </Tooltip>
                           ) : null}
                         </div>
                       );

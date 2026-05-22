@@ -2224,10 +2224,11 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
+    expect(markup).toContain("Edited 2 files");
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf("Changed files (2)"),
+      markup.indexOf("Edited 2 files"),
     );
-    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
+    expect(markup.indexOf("Edited 2 files")).toBeLessThan(
       markup.indexOf("Thanks, now fix the spacing below it."),
     );
   });
@@ -2312,16 +2313,18 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
-    expect(markup).toContain("Expand all");
-    expect(markup).not.toContain("Collapse all");
+    expect(markup).toContain("Edited 2 files");
+    expect(markup).toContain("Collapse all");
+    expect(markup).not.toContain("Expand all");
+    expect(markup).toContain('aria-label="Copy message"');
     expect(markup.indexOf("bun lint")).toBeLessThan(
       markup.indexOf("Updated the timeline rendering."),
     );
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf('data-response-summary="true"'),
+      markup.indexOf("Edited 2 files"),
     );
-    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
-      markup.indexOf("Changed files (2)"),
+    expect(markup.indexOf("Edited 2 files")).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
     );
   });
 
@@ -2392,8 +2395,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('aria-label="Revert changes"');
     expect(markup).not.toContain(">Revert</button>");
     expect(markup).toContain("View diff");
-    expect(markup).toContain('aria-label="Expand all"');
-    expect(markup).not.toContain("<span>Expand all</span>");
+    expect(markup).toContain('aria-label="Collapse all"');
+    expect(markup).not.toContain("<span>Collapse all</span>");
   });
 
   it("hides the changed-files expand action when there are no directories", async () => {
@@ -3199,7 +3202,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-response-summary="true"');
     expect(markup).toContain('data-response-summary-time="');
     expect(markup).toContain('data-response-summary-elapsed="3s"');
-    expect(markup).toContain("mt-2 flex min-h-4 flex-wrap");
+    expect(markup).toContain("mt-2 flex min-h-5 flex-wrap");
     expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
   });
 

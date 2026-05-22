@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 
-import type { ProviderKind } from "@ace/contracts";
+import type { ProviderKind, ServerProvider, ServerProviderUpdateStatus } from "@ace/contracts";
 import { ServerProviderCliUpgradeError } from "@ace/contracts";
 import { terminateChildProcess } from "@ace/shared/processTermination";
 import { Effect } from "effect";
 
+import { compareCliVersions } from "./cliVersionRequirement";
+
 const CLI_UPGRADE_TIMEOUT_MS = 5 * 60_000;
+const CLI_VERSION_CHECK_TIMEOUT_MS = 15_000;
 const OUTPUT_LIMIT = 4_000;
 
 type PackageManager = "bun" | "npm" | "pnpm" | "yarn";
@@ -106,6 +109,15 @@ const UPGRADE_DEFINITIONS: ReadonlyArray<UpgradeDefinition> = [
   },
 ] as const;
 
+function findUpgradeDefinition(
+  provider: ProviderKind,
+  runtimeId: string,
+): UpgradeDefinition | undefined {
+  return UPGRADE_DEFINITIONS.find(
+    (candidate) => candidate.provider === provider && candidate.runtimeId === runtimeId,
+  );
+}
+
 function truncateOutput(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length <= OUTPUT_LIMIT) {
@@ -165,6 +177,97 @@ function isNpmBinExistsConflict(result: { readonly stdout: string; readonly stde
   return /\bEEXIST\b/iu.test(output) && /(?:file exists|already exists)/iu.test(output);
 }
 
+function parseNpmLatestVersionOutput(output: string): string | null {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return typeof parsed === "string" && parsed.trim().length > 0 ? parsed.trim() : null;
+  } catch {
+    return trimmed
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .at(-1) ?? null;
+  }
+}
+
+export function resolveProviderCliUpdateStatus(input: {
+  readonly version: string | null;
+  readonly latestVersion: string | null;
+}): ServerProviderUpdateStatus {
+  if (!input.version || !input.latestVersion) {
+    return "unknown";
+  }
+  return compareCliVersions(input.latestVersion, input.version) > 0
+    ? "update-available"
+    : "up-to-date";
+}
+
+const checkLatestPackageVersion = Effect.fn("checkLatestPackageVersion")(function* (
+  packageName: string,
+) {
+  const result = yield* Effect.tryPromise({
+    try: () =>
+      runCommand("npm", ["view", packageName, "version", "--json"], CLI_VERSION_CHECK_TIMEOUT_MS),
+    catch: (cause) => cause,
+  }).pipe(Effect.orElseSucceed(() => null));
+  if (!result || result.code !== 0) {
+    return null;
+  }
+  return parseNpmLatestVersionOutput(result.stdout);
+});
+
+const withProviderCliUpdateStatus = Effect.fn("withProviderCliUpdateStatus")(function* (
+  provider: ServerProvider,
+) {
+  const defaultDefinition = findUpgradeDefinition(provider.provider, provider.provider);
+  const latestVersion =
+    provider.installed && defaultDefinition?.kind === "package"
+      ? yield* checkLatestPackageVersion(defaultDefinition.packageName)
+      : null;
+  const updateStatus = resolveProviderCliUpdateStatus({
+    version: provider.version,
+    latestVersion,
+  });
+  const runtimes = yield* Effect.all(
+    (provider.runtimes ?? []).map((runtime) =>
+      Effect.gen(function* () {
+        const runtimeDefinition = findUpgradeDefinition(provider.provider, runtime.id);
+        const runtimeLatestVersion =
+          runtime.installed && runtimeDefinition?.kind === "package"
+            ? yield* checkLatestPackageVersion(runtimeDefinition.packageName)
+            : null;
+        return {
+          ...runtime,
+          latestVersion: runtimeLatestVersion,
+          updateStatus: resolveProviderCliUpdateStatus({
+            version: runtime.version,
+            latestVersion: runtimeLatestVersion,
+          }),
+        };
+      }),
+    ),
+    { concurrency: 3 },
+  );
+
+  return {
+    ...provider,
+    latestVersion,
+    updateStatus,
+    ...(provider.runtimes ? { runtimes } : {}),
+  };
+});
+
+export const withProviderCliUpdateStatuses = Effect.fn("withProviderCliUpdateStatuses")(function* (
+  providers: ReadonlyArray<ServerProvider>,
+) {
+  return yield* Effect.all(providers.map(withProviderCliUpdateStatus), { concurrency: 3 });
+});
+
 function shellCommandForPathLookup(binaryPath: string): {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
@@ -215,9 +318,7 @@ export function buildProviderCliUpgradePlan(input: {
   readonly binaryPath?: string;
   readonly resolvedBinaryPath: string | null;
 }): CliUpgradePlan {
-  const upgradeDefinition = UPGRADE_DEFINITIONS.find(
-    (candidate) => candidate.provider === input.provider && candidate.runtimeId === input.runtimeId,
-  );
+  const upgradeDefinition = findUpgradeDefinition(input.provider, input.runtimeId);
   if (!upgradeDefinition) {
     throw new ServerProviderCliUpgradeError({
       message: "One-click upgrade is not supported for this provider.",

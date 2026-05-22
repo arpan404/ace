@@ -124,6 +124,7 @@ import {
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
+  ServerRefreshProvidersInput,
   ServerProviderUpdatedPayload,
   ServerProviderCliUpgradeError,
   ServerRuntimeProfile,
@@ -248,7 +249,7 @@ export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
-  payload: Schema.Struct({}),
+  payload: ServerRefreshProvidersInput,
   success: ServerProviderUpdatedPayload,
 });
 
