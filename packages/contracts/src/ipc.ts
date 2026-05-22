@@ -415,7 +415,9 @@ export interface NativeApi {
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
-    refreshProviders: (input?: ServerRefreshProvidersInput) => Promise<ServerProviderUpdatedPayload>;
+    refreshProviders: (
+      input?: ServerRefreshProvidersInput,
+    ) => Promise<ServerProviderUpdatedPayload>;
     upgradeProviderCli: (
       input: ServerUpgradeProviderCliInput,
     ) => Promise<ServerProviderUpdatedPayload>;

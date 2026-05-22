@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildProviderCliUpgradePlan } from "./providerCliUpgrade";
+import { buildProviderCliUpgradePlan, resolveProviderCliUpdateStatus } from "./providerCliUpgrade";
 
 describe("providerCliUpgrade", () => {
   it("uses bun when the resolved provider binary is installed in the bun global bin dir", () => {
@@ -98,5 +98,28 @@ describe("providerCliUpgrade", () => {
       command: "/Users/example/.bun/bin/bun",
       args: ["add", "-g", "@mariozechner/pi-coding-agent@latest"],
     });
+  });
+
+  it("resolves CLI update availability from installed and latest versions", () => {
+    expect(
+      resolveProviderCliUpdateStatus({
+        version: "1.2.3",
+        latestVersion: "1.2.4",
+      }),
+    ).toBe("update-available");
+
+    expect(
+      resolveProviderCliUpdateStatus({
+        version: "1.2.4",
+        latestVersion: "1.2.4",
+      }),
+    ).toBe("up-to-date");
+
+    expect(
+      resolveProviderCliUpdateStatus({
+        version: null,
+        latestVersion: "1.2.4",
+      }),
+    ).toBe("unknown");
   });
 });

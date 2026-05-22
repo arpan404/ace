@@ -187,11 +187,13 @@ function parseNpmLatestVersionOutput(output: string): string | null {
     const parsed = JSON.parse(trimmed) as unknown;
     return typeof parsed === "string" && parsed.trim().length > 0 ? parsed.trim() : null;
   } catch {
-    return trimmed
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .at(-1) ?? null;
+    return (
+      trimmed
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .toReversed()
+        .find((line) => line.length > 0) ?? null
+    );
   }
 }
 
@@ -213,7 +215,11 @@ const checkLatestPackageVersion = Effect.fn("checkLatestPackageVersion")(functio
   const result = yield* Effect.tryPromise({
     try: () =>
       runCommand("npm", ["view", packageName, "version", "--json"], CLI_VERSION_CHECK_TIMEOUT_MS),
-    catch: (cause) => cause,
+    catch: (cause) =>
+      new ServerProviderCliUpgradeError({
+        message: `Unable to check latest CLI version for ${packageName}.`,
+        cause,
+      }),
   }).pipe(Effect.orElseSucceed(() => null));
   if (!result || result.code !== 0) {
     return null;

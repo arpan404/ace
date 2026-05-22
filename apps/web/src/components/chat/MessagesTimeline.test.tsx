@@ -3204,6 +3204,9 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-response-summary-elapsed="3s"');
     expect(markup).toContain("mt-2 flex min-h-5 flex-wrap");
     expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
+    expect(markup).toContain('data-assistant-turn-actions="true"');
+    expect(markup).toContain("ml-auto flex items-center gap-1 opacity-0");
+    expect(markup).toContain('aria-label="Copy message"');
   });
 
   it("shows the latest assistant time metadata without hover when no later user reply exists", async () => {
@@ -3250,6 +3253,54 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-response-summary="true"');
     expect(markup).toContain('data-response-summary-elapsed="3s"');
     expect(markup).toContain("opacity-100");
+    expect(markup).not.toContain('aria-label="Fork conversation"');
+  });
+
+  it("shows a fork action when the provider supports conversation forking", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-with-fork-action",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-with-fork-action"),
+              role: "assistant",
+              text: "Latest assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        providerCommands={[{ name: "fork", kind: "provider" }]}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Fork conversation"');
+    expect(markup).toContain("Fork conversation");
   });
 
   it("shows hover metadata only on the last assistant message within a turn", async () => {

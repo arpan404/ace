@@ -1082,7 +1082,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     refreshingRef.current = true;
     setIsRefreshingProviders(true);
     void ensureNativeApi()
-      .server.refreshProviders()
+      .server.refreshProviders({ checkCliUpdates: true })
+      .then(applyProvidersUpdated)
       .catch((error: unknown) => {
         console.warn("Failed to refresh providers", error);
       })
@@ -1437,6 +1438,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       runtimes: liveProvider?.runtimes,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
+      latestVersionLabel: getProviderVersionLabel(liveProvider?.latestVersion),
+      updateStatus: liveProvider?.updateStatus,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
     };
   });

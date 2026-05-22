@@ -49,6 +49,7 @@ import {
   ChevronRightIcon,
   Clock3Icon,
   EyeIcon,
+  GitForkIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -401,6 +402,8 @@ interface MessagesTimelineProps {
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
+  onForkConversation?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   enableGoalWorkingState?: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -442,6 +445,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenFilePath = null,
   enableLocalFileLinks = true,
   providerCommands = [],
+  onForkConversation = null,
+  isForkConversationDisabled = false,
   enableGoalWorkingState = false,
   resolvedTheme,
   timestampFormat,
@@ -449,6 +454,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const userMessageProviderCommandLookup = useMemo(
     () => buildUserMessageProviderCommandLookup(providerCommands),
+    [providerCommands],
+  );
+  const supportsForkConversation = useMemo(
+    () => hasProviderSlashCommand(providerCommands, "fork"),
     [providerCommands],
   );
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
@@ -1140,6 +1149,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   enableLocalFileLinks={enableLocalFileLinks}
+                  onForkConversation={supportsForkConversation ? onForkConversation : null}
+                  isForkConversationDisabled={isForkConversationDisabled}
                   renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
                 />
@@ -1166,6 +1177,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     />
                     <AssistantTurnFooter
                       copyText={assistantCopyText}
+                      onForkConversation={supportsForkConversation ? onForkConversation : null}
+                      isForkConversationDisabled={isForkConversationDisabled}
                       persistVisible={shouldPersistAssistantFooter}
                       timing={assistantTiming}
                     />
@@ -2036,6 +2049,19 @@ function buildUserMessageProviderCommandLookup(
   return lookup;
 }
 
+function hasProviderSlashCommand(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+  commandName: string,
+): boolean {
+  const normalizedTarget = normalizeProviderSlashCommandName(commandName);
+  if (!normalizedTarget) {
+    return false;
+  }
+  return commands.some(
+    (command) => normalizeProviderSlashCommandName(command.name) === normalizedTarget,
+  );
+}
+
 function splitTrailingMentionPunctuation(token: string): {
   token: string;
   trailingText: string;
@@ -2749,6 +2775,8 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
+  onForkConversation?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   renderMarkdown: boolean;
   timestampFormat: TimestampFormat;
 }) {
@@ -2835,7 +2863,13 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         <AssistantMarkdownPendingPlaceholder />
       )}
       {!props.suppressFooter && (
-        <AssistantTurnFooter copyText={copyText} persistVisible={persistVisible} timing={timing} />
+        <AssistantTurnFooter
+          copyText={copyText}
+          onForkConversation={props.onForkConversation ?? null}
+          isForkConversationDisabled={props.isForkConversationDisabled ?? false}
+          persistVisible={persistVisible}
+          timing={timing}
+        />
       )}
     </div>
   );
@@ -2865,27 +2899,29 @@ function resolveAssistantTurnTiming(input: {
 
 const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
   copyText: string | null;
+  onForkConversation?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   persistVisible: boolean;
   timing: { completedAtLabel: string; elapsedLabel: string } | null;
 }) {
-  if (!props.copyText && !props.timing) {
+  const hasActions = Boolean(props.copyText || props.onForkConversation);
+  if (!props.timing && !hasActions) {
     return null;
   }
 
   return (
     <div
-      className={cn(
-        "mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 transition-opacity duration-150",
-        props.persistVisible
-          ? "opacity-100"
-          : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-      )}
+      className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1"
       data-assistant-turn-footer="true"
     >
-      {props.copyText && <MessageCopyButton text={props.copyText} />}
       {props.timing && (
         <span
-          className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52"
+          className={cn(
+            "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
+            props.persistVisible
+              ? "opacity-100"
+              : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+          )}
           data-response-summary="true"
           data-response-summary-time={props.timing.completedAtLabel}
           data-response-summary-elapsed={props.timing.elapsedLabel}
@@ -2896,7 +2932,59 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
           <span>{props.timing.elapsedLabel}</span>
         </span>
       )}
+      {hasActions && (
+        <div
+          className={cn(
+            "ml-auto flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+            !props.timing && "w-full justify-end",
+          )}
+          data-assistant-turn-actions="true"
+        >
+          {props.onForkConversation && (
+            <AssistantForkButton
+              disabled={props.isForkConversationDisabled ?? false}
+              onClick={props.onForkConversation}
+            />
+          )}
+          {props.copyText && (
+            <MessageCopyButton
+              text={props.copyText}
+              className="bg-background/45 hover:bg-background/78"
+            />
+          )}
+        </div>
+      )}
     </div>
+  );
+});
+
+const AssistantForkButton = memo(function AssistantForkButton(props: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const tooltipLabel = props.disabled
+    ? "Finish the current turn before forking"
+    : "Fork conversation";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            className="border-border/40 bg-background/45 transition-all duration-200 hover:border-border/60 hover:bg-background/78"
+            disabled={props.disabled}
+            onClick={props.onClick}
+            aria-label="Fork conversation"
+          />
+        }
+      >
+        <GitForkIcon className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{tooltipLabel}</TooltipPopup>
+    </Tooltip>
   );
 });
 
