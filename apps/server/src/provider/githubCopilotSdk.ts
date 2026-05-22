@@ -148,7 +148,7 @@ export async function createGitHubCopilotClient(
   config?: GitHubCopilotClientConfig,
   loadSdk?: GitHubCopilotSdkLoader,
 ): Promise<GitHubCopilotClientLike> {
-  const sdk = await (loadSdk?.() ?? import("@github/copilot-sdk"));
+  const sdk = await loadGitHubCopilotSdk(loadSdk);
   const sdkDefault =
     typeof (sdk as { default?: unknown }).default === "object" &&
     (sdk as { default?: unknown }).default !== null
@@ -196,6 +196,10 @@ export async function createGitHubCopilotClient(
   throw new Error(
     `Timed out starting GitHub Copilot client after ${String(startTimeoutMs)}ms.${shutdownDetail}`,
   );
+}
+
+export async function loadGitHubCopilotSdk(loadSdk?: GitHubCopilotSdkLoader) {
+  return loadSdk?.() ?? import("@github/copilot-sdk");
 }
 
 function toError(cause: unknown, fallback: string): Error {
