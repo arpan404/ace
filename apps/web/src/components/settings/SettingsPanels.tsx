@@ -526,7 +526,15 @@ const PROVIDER_STATUS_STYLES = {
   },
 } as const;
 
-const ONE_CLICK_UPGRADE_PROVIDERS = new Set<ProviderKind>(["codex", "gemini"]);
+const ONE_CLICK_UPGRADE_PROVIDERS = new Set<ProviderKind>([
+  "codex",
+  "claudeAgent",
+  "githubCopilot",
+  "cursor",
+  "pi",
+  "gemini",
+  "opencode",
+]);
 
 function AboutVersionTitle() {
   return (
@@ -1092,8 +1100,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
         PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
       const toastId = toastManager.add({
         type: "loading",
-        title: `Upgrading ${providerLabel}`,
-        description: "Installing the latest CLI version.",
+        title: `Updating ${providerLabel}`,
+        description: "Updating to the latest CLI version.",
       });
       void ensureNativeApi()
         .server.upgradeProviderCli({ provider, runtimeId })
@@ -1101,15 +1109,15 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           applyProvidersUpdated(payload);
           toastManager.update(toastId, {
             type: "success",
-            title: `${providerLabel} upgraded`,
+            title: `${providerLabel} updated`,
             description: "Provider status was refreshed.",
           });
         })
         .catch((error: unknown) => {
           toastManager.update(toastId, {
             type: "error",
-            title: `Unable to upgrade ${providerLabel}`,
-            description: getErrorMessage(error, "CLI upgrade failed."),
+            title: `Unable to update ${providerLabel}`,
+            description: getErrorMessage(error, "CLI update failed."),
           });
         })
         .finally(() => {
@@ -1418,9 +1426,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       title: providerSettings.title,
       binaryPlaceholder: providerSettings.binaryPlaceholder,
       binaryDescription: providerSettings.binaryDescription,
-      canUpgradeCli:
-        liveProvider?.versionStatus === "upgrade-required" &&
-        ONE_CLICK_UPGRADE_PROVIDERS.has(providerSettings.provider),
+      canUpgradeCli: ONE_CLICK_UPGRADE_PROVIDERS.has(providerSettings.provider),
       homePathKey: providerSettings.homePathKey,
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,

@@ -993,12 +993,26 @@ function useProviderSettingsSectionComponent({
                     <XIcon className="size-3.5" />
                   </Button>
                 ) : null}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
+                  disabled={isRefreshingProviders || isUpgrading}
+                  onClick={() => void refreshProviders()}
+                >
+                  {isRefreshingProviders ? (
+                    <LoaderIcon className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCwIcon className="size-3" />
+                  )}
+                  {isRefreshingProviders ? "Checking" : "Check CLI"}
+                </Button>
                 {providerCard.canUpgradeCli ? (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                    disabled={isUpgrading}
+                    disabled={isUpgrading || isRefreshingProviders}
                     onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
                   >
                     {isUpgrading ? (
@@ -1006,7 +1020,7 @@ function useProviderSettingsSectionComponent({
                     ) : (
                       <RefreshCwIcon className="size-3" />
                     )}
-                    {isUpgrading ? "Upgrading" : "Upgrade CLI"}
+                    {isUpgrading ? "Updating" : "Update CLI"}
                   </Button>
                 ) : null}
                 <Switch
@@ -1282,7 +1296,7 @@ function useProviderSettingsSectionComponent({
                               ) : (
                                 <RefreshCwIcon className="size-3" />
                               )}
-                              Upgrade
+                              Update
                             </Button>
                           ) : null}
                         </div>

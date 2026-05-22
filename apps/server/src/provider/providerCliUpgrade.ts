@@ -11,14 +11,24 @@ const OUTPUT_LIMIT = 4_000;
 
 type PackageManager = "bun" | "npm" | "pnpm" | "yarn";
 
-interface UpgradePackage {
-  readonly provider: ProviderKind;
-  readonly runtimeId: string;
-  readonly label: string;
-  readonly packageName: string;
-}
+type UpgradeDefinition =
+  | {
+      readonly kind: "package";
+      readonly provider: ProviderKind;
+      readonly runtimeId: string;
+      readonly label: string;
+      readonly packageName: string;
+    }
+  | {
+      readonly kind: "self";
+      readonly provider: ProviderKind;
+      readonly runtimeId: string;
+      readonly label: string;
+      readonly args: ReadonlyArray<string>;
+    };
 
-export interface CliUpgradePlan {
+interface PackageCliUpgradePlan {
+  readonly kind: "package";
   readonly provider: ProviderKind;
   readonly runtimeId: string;
   readonly label: string;
@@ -27,24 +37,66 @@ export interface CliUpgradePlan {
   readonly args: ReadonlyArray<string>;
 }
 
-const UPGRADE_PACKAGES: ReadonlyArray<UpgradePackage> = [
+interface SelfCliUpgradePlan {
+  readonly kind: "self";
+  readonly provider: ProviderKind;
+  readonly runtimeId: string;
+  readonly label: string;
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+}
+
+export type CliUpgradePlan = PackageCliUpgradePlan | SelfCliUpgradePlan;
+
+const UPGRADE_DEFINITIONS: ReadonlyArray<UpgradeDefinition> = [
   {
+    kind: "package",
     provider: "codex",
     runtimeId: "codex",
     label: "Codex",
     packageName: "@openai/codex",
   },
   {
+    kind: "package",
+    provider: "claudeAgent",
+    runtimeId: "claudeAgent",
+    label: "Claude",
+    packageName: "@anthropic-ai/claude-code",
+  },
+  {
+    kind: "package",
+    provider: "githubCopilot",
+    runtimeId: "githubCopilot",
+    label: "GitHub Copilot",
+    packageName: "@github/copilot",
+  },
+  {
+    kind: "self",
+    provider: "cursor",
+    runtimeId: "cursor",
+    label: "Cursor Agent",
+    args: ["update"],
+  },
+  {
+    kind: "package",
+    provider: "pi",
+    runtimeId: "pi",
+    label: "Pi",
+    packageName: "@mariozechner/pi-coding-agent",
+  },
+  {
+    kind: "package",
     provider: "gemini",
     runtimeId: "gemini",
     label: "Gemini",
     packageName: "@google/gemini-cli",
   },
   {
-    provider: "pi",
-    runtimeId: "pi",
-    label: "Pi",
-    packageName: "@mariozechner/pi-coding-agent",
+    kind: "self",
+    provider: "opencode",
+    runtimeId: "opencode",
+    label: "OpenCode",
+    args: ["upgrade"],
   },
 ] as const;
 
@@ -145,25 +197,38 @@ function runCommand(command: string, args: ReadonlyArray<string>, timeoutMs: num
 export function buildProviderCliUpgradePlan(input: {
   readonly provider: ProviderKind;
   readonly runtimeId: string;
+  readonly binaryPath?: string;
   readonly resolvedBinaryPath: string | null;
 }): CliUpgradePlan {
-  const upgradePackage = UPGRADE_PACKAGES.find(
+  const upgradeDefinition = UPGRADE_DEFINITIONS.find(
     (candidate) => candidate.provider === input.provider && candidate.runtimeId === input.runtimeId,
   );
-  if (!upgradePackage) {
+  if (!upgradeDefinition) {
     throw new ServerProviderCliUpgradeError({
       message: "One-click upgrade is not supported for this provider.",
     });
   }
 
+  if (upgradeDefinition.kind === "self") {
+    return {
+      kind: "self",
+      provider: upgradeDefinition.provider,
+      runtimeId: upgradeDefinition.runtimeId,
+      label: upgradeDefinition.label,
+      command: input.resolvedBinaryPath ?? input.binaryPath ?? upgradeDefinition.runtimeId,
+      args: upgradeDefinition.args,
+    };
+  }
+
   const packageManager = detectPackageManager(input.resolvedBinaryPath);
   return {
-    provider: upgradePackage.provider,
-    runtimeId: upgradePackage.runtimeId,
-    label: upgradePackage.label,
+    kind: "package",
+    provider: upgradeDefinition.provider,
+    runtimeId: upgradeDefinition.runtimeId,
+    label: upgradeDefinition.label,
     packageManager,
     command: resolvePackageManagerCommand(packageManager, input.resolvedBinaryPath),
-    args: upgradeArgs(packageManager, upgradePackage.packageName),
+    args: upgradeArgs(packageManager, upgradeDefinition.packageName),
   };
 }
 
@@ -203,13 +268,17 @@ export const upgradeProviderCli = Effect.fn("upgradeProviderCli")(function* (inp
   const plan = buildProviderCliUpgradePlan({
     provider: input.provider,
     runtimeId: input.runtimeId,
+    binaryPath: input.binaryPath,
     resolvedBinaryPath,
   });
   const result = yield* Effect.tryPromise({
     try: () => runCommand(plan.command, plan.args, CLI_UPGRADE_TIMEOUT_MS),
     catch: (cause) =>
       new ServerProviderCliUpgradeError({
-        message: `Unable to start ${plan.label} CLI upgrade with ${plan.packageManager}.`,
+        message:
+          plan.kind === "package"
+            ? `Unable to start ${plan.label} CLI upgrade with ${plan.packageManager}.`
+            : `Unable to start ${plan.label} CLI self-update.`,
         cause,
       }),
   });

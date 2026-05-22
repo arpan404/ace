@@ -341,37 +341,29 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const getProviderBinaryPath = (provider: ProviderKind, runtimeId: string) =>
       serverSettings.getSettings.pipe(
         Effect.flatMap((settings) => {
+          if (runtimeId !== provider) {
+            return Effect.fail(
+              new ServerProviderCliUpgradeError({
+                message: `Unknown ${provider} runtime '${runtimeId}'.`,
+              }),
+            );
+          }
+
           switch (provider) {
             case "codex":
-              return runtimeId === "codex"
-                ? Effect.succeed(settings.providers.codex.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
+              return Effect.succeed(settings.providers.codex.binaryPath);
+            case "claudeAgent":
+              return Effect.succeed(settings.providers.claudeAgent.binaryPath);
+            case "githubCopilot":
+              return Effect.succeed(settings.providers.githubCopilot.binaryPath);
+            case "cursor":
+              return Effect.succeed(settings.providers.cursor.binaryPath);
             case "pi":
-              return runtimeId === "pi"
-                ? Effect.succeed(settings.providers.pi.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
+              return Effect.succeed(settings.providers.pi.binaryPath);
             case "gemini":
-              return runtimeId === "gemini"
-                ? Effect.succeed(settings.providers.gemini.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
-            default:
-              return Effect.fail(
-                new ServerProviderCliUpgradeError({
-                  message: "One-click upgrade is not supported for this provider.",
-                }),
-              );
+              return Effect.succeed(settings.providers.gemini.binaryPath);
+            case "opencode":
+              return Effect.succeed(settings.providers.opencode.binaryPath);
           }
         }),
         Effect.mapError(
