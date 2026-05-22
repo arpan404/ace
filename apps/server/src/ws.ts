@@ -60,7 +60,7 @@ import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
-import { upgradeProviderCli } from "./provider/providerCliUpgrade";
+import { upgradeProviderCli, withProviderCliUpdateStatuses } from "./provider/providerCliUpgrade";
 import { withProviderExtensionSlashCommands } from "./provider/providerExtensionSlashCommands";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -341,37 +341,29 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const getProviderBinaryPath = (provider: ProviderKind, runtimeId: string) =>
       serverSettings.getSettings.pipe(
         Effect.flatMap((settings) => {
+          if (runtimeId !== provider) {
+            return Effect.fail(
+              new ServerProviderCliUpgradeError({
+                message: `Unknown ${provider} runtime '${runtimeId}'.`,
+              }),
+            );
+          }
+
           switch (provider) {
             case "codex":
-              return runtimeId === "codex"
-                ? Effect.succeed(settings.providers.codex.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
+              return Effect.succeed(settings.providers.codex.binaryPath);
+            case "claudeAgent":
+              return Effect.succeed(settings.providers.claudeAgent.binaryPath);
+            case "githubCopilot":
+              return Effect.succeed(settings.providers.githubCopilot.binaryPath);
+            case "cursor":
+              return Effect.succeed(settings.providers.cursor.binaryPath);
             case "pi":
-              return runtimeId === "pi"
-                ? Effect.succeed(settings.providers.pi.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
+              return Effect.succeed(settings.providers.pi.binaryPath);
             case "gemini":
-              return runtimeId === "gemini"
-                ? Effect.succeed(settings.providers.gemini.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
-            default:
-              return Effect.fail(
-                new ServerProviderCliUpgradeError({
-                  message: "One-click upgrade is not supported for this provider.",
-                }),
-              );
+              return Effect.succeed(settings.providers.gemini.binaryPath);
+            case "opencode":
+              return Effect.succeed(settings.providers.opencode.binaryPath);
           }
         }),
         Effect.mapError(
@@ -583,9 +575,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
-      [WS_METHODS.serverRefreshProviders]: (_input) =>
+      [WS_METHODS.serverRefreshProviders]: (input) =>
         providerRegistry.refresh().pipe(
           Effect.flatMap(withCurrentProviderCommands),
+          Effect.flatMap((providers) =>
+            input.checkCliUpdates === true
+              ? withProviderCliUpdateStatuses(providers)
+              : Effect.succeed(providers),
+          ),
           Effect.map((providers) => ({ providers })),
         ),
       [WS_METHODS.serverUpgradeProviderCli]: (input) =>
@@ -598,7 +595,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           });
           const providers = yield* providerRegistry
             .refresh(input.provider)
-            .pipe(Effect.flatMap(withCurrentProviderCommands));
+            .pipe(
+              Effect.flatMap(withCurrentProviderCommands),
+              Effect.flatMap(withProviderCliUpdateStatuses),
+            );
           return { providers };
         }),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,

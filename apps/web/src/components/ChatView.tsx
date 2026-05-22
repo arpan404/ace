@@ -6782,6 +6782,32 @@ function useChatViewComponent({
     ],
   );
 
+  const onForkConversation = useEffectEvent(async () => {
+    if (!activeThread) {
+      return;
+    }
+
+    const forkCommand = parseProviderComposerSlashCommand("/fork", composerProviderCommands);
+    if (!forkCommand) {
+      return;
+    }
+
+    if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
+      setThreadError(activeThread.id, "Finish the current turn before forking the conversation.");
+      return;
+    }
+
+    setThreadError(activeThread.id, null);
+    await dispatchComposerMessage({
+      prompt: forkCommand.promptText,
+      images: [],
+      terminalContexts: [],
+      modelSelection: selectedModelSelection,
+      runtimeMode,
+      interactionMode,
+    });
+  });
+
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
@@ -7960,6 +7986,8 @@ function useChatViewComponent({
       onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
       enableLocalFileLinks: canOpenLocalMarkdownFiles,
       providerCommands: composerProviderCommands,
+      onForkConversation,
+      isForkConversationDisabled: isWorking,
       enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
       resolvedTheme,
       timestampFormat,

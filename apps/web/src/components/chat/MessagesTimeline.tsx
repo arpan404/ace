@@ -49,6 +49,7 @@ import {
   ChevronRightIcon,
   Clock3Icon,
   EyeIcon,
+  GitForkIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -118,6 +119,7 @@ const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = true;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
@@ -400,6 +402,8 @@ interface MessagesTimelineProps {
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
+  onForkConversation?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   enableGoalWorkingState?: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -441,6 +445,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenFilePath = null,
   enableLocalFileLinks = true,
   providerCommands = [],
+  onForkConversation = null,
+  isForkConversationDisabled = false,
   enableGoalWorkingState = false,
   resolvedTheme,
   timestampFormat,
@@ -448,6 +454,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const userMessageProviderCommandLookup = useMemo(
     () => buildUserMessageProviderCommandLookup(providerCommands),
+    [providerCommands],
+  );
+  const supportsForkConversation = useMemo(
+    () => hasProviderSlashCommand(providerCommands, "fork"),
     [providerCommands],
   );
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
@@ -521,7 +531,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
-      [turnId]: !(current[turnId] ?? false),
+      [turnId]: !(current[turnId] ?? DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED),
     }));
   }, []);
 
@@ -1103,6 +1113,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const canRevertTurnDiffSummary =
               onRevertAssistantMessage !== undefined &&
               revertTurnCountByAssistantMessageId.has(row.message.id);
+            const renderedAssistantText = getChatMessageRenderableText(row.message);
+            const assistantCopyText =
+              renderedAssistantText.trim().length > 0 ? renderedAssistantText : null;
+            const assistantTiming = resolveAssistantTurnTiming({
+              completedAt: row.message.completedAt ?? null,
+              durationStart: row.durationStart,
+              isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
+              showCompletedTiming: row.showAssistantTiming ?? false,
+              timestampFormat,
+            });
+            const shouldPersistAssistantFooter = Boolean(
+              row.completionSummary || row.showAssistantSummaryByDefault,
+            );
             const shouldRenderAssistantMarkdown =
               !shouldPrioritizeAssistantMarkdown ||
               row.message.streaming ||
@@ -1119,20 +1142,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   liveTimers={liveTimers}
                   showCompletedTiming={row.showAssistantTiming ?? false}
                   showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
+                  suppressFooter={shouldShowTurnSummary}
                   markdownCwd={markdownCwd}
                   message={row.message}
                   onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   enableLocalFileLinks={enableLocalFileLinks}
+                  onForkConversation={supportsForkConversation ? onForkConversation : null}
+                  isForkConversationDisabled={isForkConversationDisabled}
                   renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
                 />
                 {shouldShowTurnSummary && (
-                  <div className="mt-2.5 border-l border-border/35 py-1 pl-3">
+                  <div className="mt-2.5 max-w-3xl">
                     <AssistantMessageTurnDiffSummary
                       allDirectoriesExpanded={
-                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false
+                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ??
+                        DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED
                       }
                       onOpenTurnDiff={onOpenTurnDiff}
                       canRevert={canRevertTurnDiffSummary}
@@ -1147,6 +1174,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       revertActionTitle={revertActionTitle}
                       resolvedTheme={resolvedTheme}
                       turnSummary={turnSummary}
+                    />
+                    <AssistantTurnFooter
+                      copyText={assistantCopyText}
+                      onForkConversation={supportsForkConversation ? onForkConversation : null}
+                      isForkConversationDisabled={isForkConversationDisabled}
+                      persistVisible={shouldPersistAssistantFooter}
+                      timing={assistantTiming}
                     />
                   </div>
                 )}
@@ -2015,6 +2049,19 @@ function buildUserMessageProviderCommandLookup(
   return lookup;
 }
 
+function hasProviderSlashCommand(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+  commandName: string,
+): boolean {
+  const normalizedTarget = normalizeProviderSlashCommandName(commandName);
+  if (!normalizedTarget) {
+    return false;
+  }
+  return commands.some(
+    (command) => normalizeProviderSlashCommandName(command.name) === normalizedTarget,
+  );
+}
+
 function splitTrailingMentionPunctuation(token: string): {
   token: string;
   trailingText: string;
@@ -2721,12 +2768,15 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   liveTimers: boolean;
   showCompletedTiming?: boolean;
   showAssistantSummaryByDefault?: boolean;
+  suppressFooter?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
+  onForkConversation?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   renderMarkdown: boolean;
   timestampFormat: TimestampFormat;
 }) {
@@ -2738,6 +2788,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
     props.message,
   );
   const renderedMessageText = getChatMessageRenderableText(props.message);
+  const copyText = renderedMessageText.trim().length > 0 ? renderedMessageText : null;
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
@@ -2746,15 +2797,13 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         : assistantImages.length > 0
           ? ""
           : "(empty response)";
-  const completedAt = props.message.completedAt ?? null;
-  const elapsedLabel =
-    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? formatCompletedWorkTimer(props.durationStart, completedAt)
-      : null;
-  const completedAtLabel =
-    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? formatTimestamp(completedAt, props.timestampFormat)
-      : null;
+  const timing = resolveAssistantTurnTiming({
+    completedAt: props.message.completedAt ?? null,
+    durationStart: props.durationStart,
+    isAssistantTurnTerminal: props.isAssistantTurnTerminal ?? false,
+    showCompletedTiming: props.showCompletedTiming ?? false,
+    timestampFormat: props.timestampFormat,
+  });
   const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);
 
   return (
@@ -2813,27 +2862,129 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       ) : (
         <AssistantMarkdownPendingPlaceholder />
       )}
-      {completedAtLabel && elapsedLabel && (
-        <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
-              persistVisible
-                ? "opacity-100"
-                : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-            )}
-            data-response-summary="true"
-            data-response-summary-time={completedAtLabel}
-            data-response-summary-elapsed={elapsedLabel}
-          >
-            <Clock3Icon className="size-3 shrink-0" />
-            <span>{completedAtLabel}</span>
-            <span className="text-muted-foreground/34">·</span>
-            <span>{elapsedLabel}</span>
-          </span>
+      {!props.suppressFooter && (
+        <AssistantTurnFooter
+          copyText={copyText}
+          onForkConversation={props.onForkConversation ?? null}
+          isForkConversationDisabled={props.isForkConversationDisabled ?? false}
+          persistVisible={persistVisible}
+          timing={timing}
+        />
+      )}
+    </div>
+  );
+});
+
+function resolveAssistantTurnTiming(input: {
+  completedAt: string | null;
+  durationStart: string;
+  isAssistantTurnTerminal: boolean;
+  showCompletedTiming: boolean;
+  timestampFormat: TimestampFormat;
+}): { completedAtLabel: string; elapsedLabel: string } | null {
+  if (!input.showCompletedTiming || !input.isAssistantTurnTerminal || !input.completedAt) {
+    return null;
+  }
+
+  const elapsedLabel = formatCompletedWorkTimer(input.durationStart, input.completedAt);
+  if (!elapsedLabel) {
+    return null;
+  }
+
+  return {
+    completedAtLabel: formatTimestamp(input.completedAt, input.timestampFormat),
+    elapsedLabel,
+  };
+}
+
+const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
+  copyText: string | null;
+  onForkConversation?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
+  persistVisible: boolean;
+  timing: { completedAtLabel: string; elapsedLabel: string } | null;
+}) {
+  const hasActions = Boolean(props.copyText || props.onForkConversation);
+  if (!props.timing && !hasActions) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1"
+      data-assistant-turn-footer="true"
+    >
+      {props.timing && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
+            props.persistVisible
+              ? "opacity-100"
+              : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+          )}
+          data-response-summary="true"
+          data-response-summary-time={props.timing.completedAtLabel}
+          data-response-summary-elapsed={props.timing.elapsedLabel}
+        >
+          <Clock3Icon className="size-3 shrink-0" />
+          <span>{props.timing.completedAtLabel}</span>
+          <span className="text-muted-foreground/34">·</span>
+          <span>{props.timing.elapsedLabel}</span>
+        </span>
+      )}
+      {hasActions && (
+        <div
+          className={cn(
+            "ml-auto flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+            !props.timing && "w-full justify-end",
+          )}
+          data-assistant-turn-actions="true"
+        >
+          {props.onForkConversation && (
+            <AssistantForkButton
+              disabled={props.isForkConversationDisabled ?? false}
+              onClick={props.onForkConversation}
+            />
+          )}
+          {props.copyText && (
+            <MessageCopyButton
+              text={props.copyText}
+              className="bg-background/45 hover:bg-background/78"
+            />
+          )}
         </div>
       )}
     </div>
+  );
+});
+
+const AssistantForkButton = memo(function AssistantForkButton(props: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const tooltipLabel = props.disabled
+    ? "Finish the current turn before forking"
+    : "Fork conversation";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            className="border-border/40 bg-background/45 transition-all duration-200 hover:border-border/60 hover:bg-background/78"
+            disabled={props.disabled}
+            onClick={props.onClick}
+            aria-label="Fork conversation"
+          />
+        }
+      >
+        <GitForkIcon className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{tooltipLabel}</TooltipPopup>
+    </Tooltip>
   );
 });
 
@@ -2851,7 +3002,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 }) {
   const checkpointFiles = props.turnSummary.files;
   const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-  const changedFileCountLabel = String(checkpointFiles.length);
+  const changedFileCountLabel = summarizeCount(checkpointFiles.length, "file");
   const hasExpandableDirectories = checkpointFiles.some(
     (file) =>
       file.path
@@ -2862,26 +3013,32 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
   const hasRightActions = (props.canRevert && props.onRevert) || hasExpandableDirectories;
 
   return (
-    <div className="min-w-0" data-turn-diff-summary="true">
-      <div className="mb-1 flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <p className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/58">
-            <span>Changed files ({changedFileCountLabel})</span>
+    <div
+      className="min-w-0 overflow-hidden rounded-lg border border-border/45 bg-muted/16 shadow-[0_1px_0_rgba(255,255,255,0.035)_inset]"
+      data-turn-diff-summary="true"
+    >
+      <div className="flex min-w-0 items-start gap-3 border-border/45 border-b px-3 py-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/55 text-foreground/80">
+          <SquarePenIcon className="size-4" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="sr-only">Changed files ({checkpointFiles.length})</span>
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] leading-5 font-medium text-foreground/92">
+            <span>Edited {changedFileCountLabel}</span>
             {hasNonZeroStat(summaryStat) && (
-              <>
-                <span className="text-muted-foreground/28">•</span>
+              <span className="font-mono text-[13px] tabular-nums">
                 <DiffStatLabel
                   additions={summaryStat.additions}
                   deletions={summaryStat.deletions}
                 />
-              </>
+              </span>
             )}
           </p>
           <Button
             type="button"
             size="xs"
-            variant="ghost"
-            className="h-5 rounded-md px-1.5 text-[10px] text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground"
+            variant="link"
+            className="mt-1 h-auto p-0 text-[11px] font-normal text-muted-foreground/70 hover:text-foreground"
             onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
           >
             View diff
@@ -2897,7 +3054,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       type="button"
                       size="icon-xs"
                       variant="ghost"
-                      className="rounded-md text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                      className="rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={props.onRevert}
                       aria-label={props.revertActionTitle}
@@ -2920,7 +3077,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       size="icon-xs"
                       variant="ghost"
                       data-scroll-anchor-ignore
-                      className="rounded-md text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                      className="rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground"
                       onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
                       aria-label={props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
                     />
@@ -2942,14 +3099,16 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           </div>
         )}
       </div>
-      <ChangedFilesTree
-        key={`changed-files-tree:${props.turnSummary.turnId}`}
-        turnId={props.turnSummary.turnId}
-        files={checkpointFiles}
-        allDirectoriesExpanded={props.allDirectoriesExpanded}
-        resolvedTheme={props.resolvedTheme}
-        onOpenTurnDiff={props.onOpenTurnDiff}
-      />
+      <div className="px-2 py-1.5">
+        <ChangedFilesTree
+          key={`changed-files-tree:${props.turnSummary.turnId}`}
+          turnId={props.turnSummary.turnId}
+          files={checkpointFiles}
+          allDirectoriesExpanded={props.allDirectoriesExpanded}
+          resolvedTheme={props.resolvedTheme}
+          onOpenTurnDiff={props.onOpenTurnDiff}
+        />
+      </div>
     </div>
   );
 });

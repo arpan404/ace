@@ -38,6 +38,13 @@ export type ServerProviderState = typeof ServerProviderState.Type;
 export const ServerProviderVersionStatus = Schema.Literals(["unknown", "ok", "upgrade-required"]);
 export type ServerProviderVersionStatus = typeof ServerProviderVersionStatus.Type;
 
+export const ServerProviderUpdateStatus = Schema.Literals([
+  "unknown",
+  "up-to-date",
+  "update-available",
+]);
+export type ServerProviderUpdateStatus = typeof ServerProviderUpdateStatus.Type;
+
 export const ServerProviderAuthStatus = Schema.Literals([
   "authenticated",
   "unauthenticated",
@@ -58,6 +65,8 @@ export const ServerProviderRuntime = Schema.Struct({
   binaryPath: TrimmedNonEmptyString,
   installed: Schema.Boolean,
   version: Schema.NullOr(TrimmedNonEmptyString),
+  latestVersion: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  updateStatus: Schema.optional(ServerProviderUpdateStatus),
   packageName: Schema.optional(TrimmedNonEmptyString),
   upgradeable: Schema.Boolean,
 });
@@ -82,6 +91,8 @@ export const ServerProvider = Schema.Struct({
   version: Schema.NullOr(TrimmedNonEmptyString),
   minimumVersion: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   versionStatus: Schema.optional(ServerProviderVersionStatus),
+  latestVersion: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  updateStatus: Schema.optional(ServerProviderUpdateStatus),
   status: ServerProviderState,
   auth: ServerProviderAuth,
   checkedAt: IsoDateTime,
@@ -228,6 +239,11 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerRefreshProvidersInput = Schema.Struct({
+  checkCliUpdates: Schema.optional(Schema.Boolean),
+});
+export type ServerRefreshProvidersInput = typeof ServerRefreshProvidersInput.Type;
 
 export const ServerUpgradeProviderCliInput = Schema.Struct({
   provider: ProviderKind,

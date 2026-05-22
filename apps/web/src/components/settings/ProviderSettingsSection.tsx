@@ -1,4 +1,5 @@
 import {
+  DownloadIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
@@ -58,6 +59,7 @@ import {
   ProviderLastChecked,
   SettingsSection,
   SettingResetButton,
+  getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
 
 interface ProviderStatusStyle {
@@ -116,6 +118,8 @@ export interface ProviderCard {
   runtimes?: ReadonlyArray<ServerProviderRuntime> | undefined;
   statusStyle: ProviderStatusStyle;
   summary: ProviderSummary;
+  latestVersionLabel: string | null;
+  updateStatus: ServerProvider["updateStatus"];
   versionLabel: string | null;
 }
 
@@ -382,6 +386,19 @@ function resolveProviderCardSnapshot(
         candidate.providerInstanceId === normalizedInstanceId,
     )
   );
+}
+
+function getCliUpdateStatusLabel(
+  updateStatus: ServerProvider["updateStatus"],
+  latestVersionLabel: string | null,
+): string | null {
+  if (updateStatus === "up-to-date") {
+    return "Up to date";
+  }
+  if (updateStatus === "update-available") {
+    return latestVersionLabel ? `Version ${latestVersionLabel} available` : "Update available";
+  }
+  return null;
 }
 
 function useProviderSettingsSectionComponent({
@@ -692,6 +709,17 @@ function useProviderSettingsSectionComponent({
     providerCard,
     selectedProviderEntry.instanceId,
   );
+  const selectedVersionLabel =
+    getProviderVersionLabel(selectedSnapshot?.version) ?? providerCard.versionLabel;
+  const selectedLatestVersionLabel =
+    getProviderVersionLabel(selectedSnapshot?.latestVersion) ?? providerCard.latestVersionLabel;
+  const selectedUpdateStatus = selectedSnapshot?.updateStatus ?? providerCard.updateStatus;
+  const selectedUpdateStatusLabel = getCliUpdateStatusLabel(
+    selectedUpdateStatus,
+    selectedLatestVersionLabel,
+  );
+  const canUpdateSelectedCli =
+    providerCard.canUpgradeCli && selectedUpdateStatus === "update-available";
   const selectedCustomModels = selectedInstance?.customModels ?? draftConfig.customModels;
   const selectedEntryConfig = (selectedInstance ?? draftConfig) as Record<string, unknown>;
   const selectedPathLabel = instancePathLabel(providerCard.provider);
@@ -845,7 +873,7 @@ function useProviderSettingsSectionComponent({
                   className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
                   disabled={isRefreshingProviders}
                   onClick={() => void refreshProviders()}
-                  aria-label="Refresh provider status"
+                  aria-label="Check CLI status"
                 >
                   {isRefreshingProviders ? (
                     <LoaderIcon className="size-3.5 animate-spin" />
@@ -855,8 +883,35 @@ function useProviderSettingsSectionComponent({
                 </Button>
               }
             />
-            <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+            <TooltipPopup side="top">Check CLI status</TooltipPopup>
           </Tooltip>
+          {canUpdateSelectedCli ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
+                    disabled={isUpgrading || isRefreshingProviders}
+                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
+                    aria-label={`Update ${providerDisplayName} CLI`}
+                  >
+                    {isUpgrading ? (
+                      <LoaderIcon className="size-3.5 animate-spin" />
+                    ) : (
+                      <DownloadIcon className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="top">
+                {isUpgrading
+                  ? `Updating ${providerDisplayName} CLI`
+                  : `Update ${providerDisplayName} CLI`}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
       }
     >
@@ -954,10 +1009,22 @@ function useProviderSettingsSectionComponent({
                         {selectedProviderEntry.accountLabel}
                       </span>
                     ) : null}
-                    {providerCard.versionLabel ? (
+                    {selectedVersionLabel ? (
                       <code className="rounded border border-border/40 bg-background/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                        {providerCard.versionLabel}
+                        {selectedVersionLabel}
                       </code>
+                    ) : null}
+                    {selectedUpdateStatusLabel ? (
+                      <span
+                        className={cn(
+                          "rounded border px-1.5 py-0.5 text-[11px] font-medium",
+                          selectedUpdateStatus === "update-available"
+                            ? "border-warning/35 bg-warning/10 text-warning-foreground"
+                            : "border-border/40 bg-background/45 text-muted-foreground",
+                        )}
+                      >
+                        {selectedUpdateStatusLabel}
+                      </span>
                     ) : null}
                     {isDraftDefaultDirty ? (
                       <SettingResetButton
@@ -1000,22 +1067,6 @@ function useProviderSettingsSectionComponent({
                     aria-label={`Remove ${selectedInstance.label}`}
                   >
                     <XIcon className="size-3.5" />
-                  </Button>
-                ) : null}
-                {providerCard.canUpgradeCli ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                    disabled={isUpgrading}
-                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
-                  >
-                    {isUpgrading ? (
-                      <LoaderIcon className="size-3 animate-spin" />
-                    ) : (
-                      <RefreshCwIcon className="size-3" />
-                    )}
-                    {isUpgrading ? "Upgrading" : "Upgrade CLI"}
                   </Button>
                 ) : null}
                 <Switch
@@ -1258,6 +1309,15 @@ function useProviderSettingsSectionComponent({
                         providerCard.provider,
                         runtime.id,
                       );
+                      const runtimeLatestVersionLabel = getProviderVersionLabel(
+                        runtime.latestVersion,
+                      );
+                      const runtimeUpdateStatusLabel = getCliUpdateStatusLabel(
+                        runtime.updateStatus,
+                        runtimeLatestVersionLabel,
+                      );
+                      const canUpdateRuntime =
+                        runtime.upgradeable && runtime.updateStatus === "update-available";
                       return (
                         <div
                           key={`${providerCard.provider}:${runtime.id}`}
@@ -1273,26 +1333,47 @@ function useProviderSettingsSectionComponent({
                                   {runtime.version}
                                 </code>
                               ) : null}
+                              {runtimeUpdateStatusLabel ? (
+                                <span
+                                  className={cn(
+                                    "text-[11px] font-medium",
+                                    runtime.updateStatus === "update-available"
+                                      ? "text-warning-foreground"
+                                      : "text-muted-foreground/60",
+                                  )}
+                                >
+                                  {runtimeUpdateStatusLabel}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="truncate text-[11px] text-muted-foreground/60">
                               {runtime.binaryPath}
                             </div>
                           </div>
-                          {runtime.upgradeable ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                              disabled={upgradingRuntime}
-                              onClick={() => upgradeProviderCli(providerCard.provider, runtime.id)}
-                            >
-                              {upgradingRuntime ? (
-                                <LoaderIcon className="size-3 animate-spin" />
-                              ) : (
-                                <RefreshCwIcon className="size-3" />
-                              )}
-                              Upgrade
-                            </Button>
+                          {canUpdateRuntime ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground"
+                                    disabled={upgradingRuntime}
+                                    onClick={() =>
+                                      upgradeProviderCli(providerCard.provider, runtime.id)
+                                    }
+                                    aria-label={`Update ${runtime.label}`}
+                                  >
+                                    {upgradingRuntime ? (
+                                      <LoaderIcon className="size-3 animate-spin" />
+                                    ) : (
+                                      <DownloadIcon className="size-3" />
+                                    )}
+                                  </Button>
+                                }
+                              />
+                              <TooltipPopup side="top">Update {runtime.label}</TooltipPopup>
+                            </Tooltip>
                           ) : null}
                         </div>
                       );
