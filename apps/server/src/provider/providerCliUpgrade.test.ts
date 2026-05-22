@@ -47,8 +47,14 @@ describe("providerCliUpgrade", () => {
         provider: "githubCopilot",
         runtimeId: "githubCopilot",
         resolvedBinaryPath: "/usr/local/bin/copilot",
-      }).args,
-    ).toEqual(["install", "-g", "@github/copilot@latest"]);
+      }),
+    ).toMatchObject({
+      args: ["install", "-g", "@github/copilot@latest"],
+      fallback: {
+        reason: "npm-bin-eexist",
+        args: ["install", "-g", "--force", "@github/copilot@latest"],
+      },
+    });
   });
 
   it("builds self-update plans for Cursor and OpenCode", () => {

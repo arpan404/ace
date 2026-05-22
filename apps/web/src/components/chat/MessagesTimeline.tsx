@@ -1103,6 +1103,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const canRevertTurnDiffSummary =
               onRevertAssistantMessage !== undefined &&
               revertTurnCountByAssistantMessageId.has(row.message.id);
+            const renderedAssistantText = getChatMessageRenderableText(row.message);
+            const assistantCopyText =
+              renderedAssistantText.trim().length > 0 ? renderedAssistantText : null;
+            const assistantTiming = resolveAssistantTurnTiming({
+              completedAt: row.message.completedAt ?? null,
+              durationStart: row.durationStart,
+              isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
+              showCompletedTiming: row.showAssistantTiming ?? false,
+              timestampFormat,
+            });
+            const shouldPersistAssistantFooter = Boolean(
+              row.completionSummary || row.showAssistantSummaryByDefault,
+            );
             const shouldRenderAssistantMarkdown =
               !shouldPrioritizeAssistantMarkdown ||
               row.message.streaming ||
@@ -1119,6 +1132,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   liveTimers={liveTimers}
                   showCompletedTiming={row.showAssistantTiming ?? false}
                   showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
+                  suppressFooter={shouldShowTurnSummary}
                   markdownCwd={markdownCwd}
                   message={row.message}
                   onImageExpand={onImageExpand}
@@ -1129,7 +1143,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   timestampFormat={timestampFormat}
                 />
                 {shouldShowTurnSummary && (
-                  <div className="mt-2.5 border-l border-border/35 py-1 pl-3">
+                  <div className="mt-2.5 max-w-3xl">
                     <AssistantMessageTurnDiffSummary
                       allDirectoriesExpanded={
                         allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false
@@ -1147,6 +1161,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       revertActionTitle={revertActionTitle}
                       resolvedTheme={resolvedTheme}
                       turnSummary={turnSummary}
+                    />
+                    <AssistantTurnFooter
+                      copyText={assistantCopyText}
+                      persistVisible={shouldPersistAssistantFooter}
+                      timing={assistantTiming}
                     />
                   </div>
                 )}
@@ -2721,6 +2740,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   liveTimers: boolean;
   showCompletedTiming?: boolean;
   showAssistantSummaryByDefault?: boolean;
+  suppressFooter?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -2738,6 +2758,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
     props.message,
   );
   const renderedMessageText = getChatMessageRenderableText(props.message);
+  const copyText = renderedMessageText.trim().length > 0 ? renderedMessageText : null;
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
@@ -2746,15 +2767,13 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         : assistantImages.length > 0
           ? ""
           : "(empty response)";
-  const completedAt = props.message.completedAt ?? null;
-  const elapsedLabel =
-    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? formatCompletedWorkTimer(props.durationStart, completedAt)
-      : null;
-  const completedAtLabel =
-    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? formatTimestamp(completedAt, props.timestampFormat)
-      : null;
+  const timing = resolveAssistantTurnTiming({
+    completedAt: props.message.completedAt ?? null,
+    durationStart: props.durationStart,
+    isAssistantTurnTerminal: props.isAssistantTurnTerminal ?? false,
+    showCompletedTiming: props.showCompletedTiming ?? false,
+    timestampFormat: props.timestampFormat,
+  });
   const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);
 
   return (
@@ -2813,25 +2832,67 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       ) : (
         <AssistantMarkdownPendingPlaceholder />
       )}
-      {completedAtLabel && elapsedLabel && (
-        <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
-              persistVisible
-                ? "opacity-100"
-                : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-            )}
-            data-response-summary="true"
-            data-response-summary-time={completedAtLabel}
-            data-response-summary-elapsed={elapsedLabel}
-          >
-            <Clock3Icon className="size-3 shrink-0" />
-            <span>{completedAtLabel}</span>
-            <span className="text-muted-foreground/34">·</span>
-            <span>{elapsedLabel}</span>
-          </span>
-        </div>
+      {!props.suppressFooter && (
+        <AssistantTurnFooter copyText={copyText} persistVisible={persistVisible} timing={timing} />
+      )}
+    </div>
+  );
+});
+
+function resolveAssistantTurnTiming(input: {
+  completedAt: string | null;
+  durationStart: string;
+  isAssistantTurnTerminal: boolean;
+  showCompletedTiming: boolean;
+  timestampFormat: TimestampFormat;
+}): { completedAtLabel: string; elapsedLabel: string } | null {
+  if (!input.showCompletedTiming || !input.isAssistantTurnTerminal || !input.completedAt) {
+    return null;
+  }
+
+  const elapsedLabel = formatCompletedWorkTimer(input.durationStart, input.completedAt);
+  if (!elapsedLabel) {
+    return null;
+  }
+
+  return {
+    completedAtLabel: formatTimestamp(input.completedAt, input.timestampFormat),
+    elapsedLabel,
+  };
+}
+
+const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
+  copyText: string | null;
+  persistVisible: boolean;
+  timing: { completedAtLabel: string; elapsedLabel: string } | null;
+}) {
+  if (!props.copyText && !props.timing) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 transition-opacity duration-150",
+        props.persistVisible
+          ? "opacity-100"
+          : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+      )}
+      data-assistant-turn-footer="true"
+    >
+      {props.copyText && <MessageCopyButton text={props.copyText} />}
+      {props.timing && (
+        <span
+          className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52"
+          data-response-summary="true"
+          data-response-summary-time={props.timing.completedAtLabel}
+          data-response-summary-elapsed={props.timing.elapsedLabel}
+        >
+          <Clock3Icon className="size-3 shrink-0" />
+          <span>{props.timing.completedAtLabel}</span>
+          <span className="text-muted-foreground/34">·</span>
+          <span>{props.timing.elapsedLabel}</span>
+        </span>
       )}
     </div>
   );
@@ -2851,7 +2912,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 }) {
   const checkpointFiles = props.turnSummary.files;
   const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-  const changedFileCountLabel = String(checkpointFiles.length);
+  const changedFileCountLabel = summarizeCount(checkpointFiles.length, "file");
   const hasExpandableDirectories = checkpointFiles.some(
     (file) =>
       file.path
@@ -2862,26 +2923,31 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
   const hasRightActions = (props.canRevert && props.onRevert) || hasExpandableDirectories;
 
   return (
-    <div className="min-w-0" data-turn-diff-summary="true">
-      <div className="mb-1 flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <p className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/58">
-            <span>Changed files ({changedFileCountLabel})</span>
+    <div
+      className="min-w-0 overflow-hidden rounded-lg border border-border/45 bg-muted/16 shadow-[0_1px_0_rgba(255,255,255,0.035)_inset]"
+      data-turn-diff-summary="true"
+    >
+      <div className="flex min-w-0 items-start gap-3 border-border/45 border-b px-3 py-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/55 text-foreground/80">
+          <SquarePenIcon className="size-4" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] leading-5 font-medium text-foreground/92">
+            <span>Edited {changedFileCountLabel}</span>
             {hasNonZeroStat(summaryStat) && (
-              <>
-                <span className="text-muted-foreground/28">•</span>
+              <span className="font-mono text-[13px] tabular-nums">
                 <DiffStatLabel
                   additions={summaryStat.additions}
                   deletions={summaryStat.deletions}
                 />
-              </>
+              </span>
             )}
           </p>
           <Button
             type="button"
             size="xs"
-            variant="ghost"
-            className="h-5 rounded-md px-1.5 text-[10px] text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground"
+            variant="link"
+            className="mt-1 h-auto p-0 text-[11px] font-normal text-muted-foreground/70 hover:text-foreground"
             onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
           >
             View diff
@@ -2897,7 +2963,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       type="button"
                       size="icon-xs"
                       variant="ghost"
-                      className="rounded-md text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                      className="rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={props.onRevert}
                       aria-label={props.revertActionTitle}
@@ -2920,7 +2986,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       size="icon-xs"
                       variant="ghost"
                       data-scroll-anchor-ignore
-                      className="rounded-md text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                      className="rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground"
                       onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
                       aria-label={props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
                     />
@@ -2942,14 +3008,16 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           </div>
         )}
       </div>
-      <ChangedFilesTree
-        key={`changed-files-tree:${props.turnSummary.turnId}`}
-        turnId={props.turnSummary.turnId}
-        files={checkpointFiles}
-        allDirectoriesExpanded={props.allDirectoriesExpanded}
-        resolvedTheme={props.resolvedTheme}
-        onOpenTurnDiff={props.onOpenTurnDiff}
-      />
+      <div className="px-2 py-1.5">
+        <ChangedFilesTree
+          key={`changed-files-tree:${props.turnSummary.turnId}`}
+          turnId={props.turnSummary.turnId}
+          files={checkpointFiles}
+          allDirectoriesExpanded={props.allDirectoriesExpanded}
+          resolvedTheme={props.resolvedTheme}
+          onOpenTurnDiff={props.onOpenTurnDiff}
+        />
+      </div>
     </div>
   );
 });

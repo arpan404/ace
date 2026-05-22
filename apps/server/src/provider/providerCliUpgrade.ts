@@ -18,6 +18,7 @@ type UpgradeDefinition =
       readonly runtimeId: string;
       readonly label: string;
       readonly packageName: string;
+      readonly retryNpmForceOnBinConflict?: boolean;
     }
   | {
       readonly kind: "self";
@@ -35,6 +36,10 @@ interface PackageCliUpgradePlan {
   readonly packageManager: PackageManager;
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  readonly fallback?: {
+    readonly reason: "npm-bin-eexist";
+    readonly args: ReadonlyArray<string>;
+  };
 }
 
 interface SelfCliUpgradePlan {
@@ -69,6 +74,7 @@ const UPGRADE_DEFINITIONS: ReadonlyArray<UpgradeDefinition> = [
     runtimeId: "githubCopilot",
     label: "GitHub Copilot",
     packageName: "@github/copilot",
+    retryNpmForceOnBinConflict: true,
   },
   {
     kind: "self",
@@ -136,7 +142,11 @@ function resolvePackageManagerCommand(
   return packageManager;
 }
 
-function upgradeArgs(packageManager: PackageManager, packageName: string): ReadonlyArray<string> {
+function upgradeArgs(
+  packageManager: PackageManager,
+  packageName: string,
+  options?: { readonly force?: boolean },
+): ReadonlyArray<string> {
   const packageSpec = `${packageName}@latest`;
   switch (packageManager) {
     case "bun":
@@ -146,8 +156,13 @@ function upgradeArgs(packageManager: PackageManager, packageName: string): Reado
     case "yarn":
       return ["global", "add", packageSpec];
     case "npm":
-      return ["install", "-g", packageSpec];
+      return ["install", "-g", ...(options?.force ? ["--force"] : []), packageSpec];
   }
+}
+
+function isNpmBinExistsConflict(result: { readonly stdout: string; readonly stderr: string }) {
+  const output = `${result.stderr}\n${result.stdout}`;
+  return /\bEEXIST\b/iu.test(output) && /(?:file exists|already exists)/iu.test(output);
 }
 
 function shellCommandForPathLookup(binaryPath: string): {
@@ -221,6 +236,14 @@ export function buildProviderCliUpgradePlan(input: {
   }
 
   const packageManager = detectPackageManager(input.resolvedBinaryPath);
+  const fallback =
+    packageManager === "npm" && upgradeDefinition.retryNpmForceOnBinConflict === true
+      ? {
+          reason: "npm-bin-eexist" as const,
+          args: upgradeArgs(packageManager, upgradeDefinition.packageName, { force: true }),
+        }
+      : undefined;
+
   return {
     kind: "package",
     provider: upgradeDefinition.provider,
@@ -229,6 +252,7 @@ export function buildProviderCliUpgradePlan(input: {
     packageManager,
     command: resolvePackageManagerCommand(packageManager, input.resolvedBinaryPath),
     args: upgradeArgs(packageManager, upgradeDefinition.packageName),
+    ...(fallback ? { fallback } : {}),
   };
 }
 
@@ -271,17 +295,30 @@ export const upgradeProviderCli = Effect.fn("upgradeProviderCli")(function* (inp
     binaryPath: input.binaryPath,
     resolvedBinaryPath,
   });
-  const result = yield* Effect.tryPromise({
-    try: () => runCommand(plan.command, plan.args, CLI_UPGRADE_TIMEOUT_MS),
-    catch: (cause) =>
-      new ServerProviderCliUpgradeError({
-        message:
-          plan.kind === "package"
-            ? `Unable to start ${plan.label} CLI upgrade with ${plan.packageManager}.`
-            : `Unable to start ${plan.label} CLI self-update.`,
-        cause,
-      }),
-  });
+  const runUpgradePlanCommand = (args: ReadonlyArray<string>) =>
+    Effect.tryPromise({
+      try: () => runCommand(plan.command, args, CLI_UPGRADE_TIMEOUT_MS),
+      catch: (cause) =>
+        new ServerProviderCliUpgradeError({
+          message:
+            plan.kind === "package"
+              ? `Unable to start ${plan.label} CLI upgrade with ${plan.packageManager}.`
+              : `Unable to start ${plan.label} CLI self-update.`,
+          cause,
+        }),
+    });
+
+  let args = plan.args;
+  let result = yield* runUpgradePlanCommand(args);
+  if (
+    result.code !== 0 &&
+    plan.kind === "package" &&
+    plan.fallback?.reason === "npm-bin-eexist" &&
+    isNpmBinExistsConflict(result)
+  ) {
+    args = plan.fallback.args;
+    result = yield* runUpgradePlanCommand(args);
+  }
 
   if (result.code !== 0) {
     const detail = truncateOutput(result.stderr || result.stdout);
@@ -295,6 +332,6 @@ export const upgradeProviderCli = Effect.fn("upgradeProviderCli")(function* (inp
   return {
     provider: plan.provider,
     runtimeId: plan.runtimeId,
-    command: [plan.command, ...plan.args].join(" "),
+    command: [plan.command, ...args].join(" "),
   };
 });
