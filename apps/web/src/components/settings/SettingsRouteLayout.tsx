@@ -1,5 +1,5 @@
 import { RotateCcwIcon } from "lucide-react";
-import { Outlet, useLocation } from "@tanstack/react-router";
+import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { AppPageTopBar } from "../AppPageTopBar";
@@ -10,6 +10,7 @@ import { getSettingsNavItem } from "./settingsNavigation";
 import { useSettingsRestore } from "./useSettingsRestore";
 
 export function SettingsRouteLayout() {
+  const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const [restoreSignal, setRestoreSignal] = useState(0);
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(() =>
@@ -22,7 +23,7 @@ export function SettingsRouteLayout() {
       if (event.defaultPrevented) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        window.history.back();
+        void navigate({ to: "/", replace: true });
       }
     };
 
@@ -30,7 +31,7 @@ export function SettingsRouteLayout() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, []);
+  }, [navigate]);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">

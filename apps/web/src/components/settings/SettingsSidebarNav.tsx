@@ -71,7 +71,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                               )}
-                              onClick={() => void navigate({ to: item.to, replace: true })}
+                              onClick={() => void navigate({ to: item.to })}
                             >
                               <Icon className="size-4 shrink-0" strokeWidth={2.05} />
                               <span className="min-w-0 flex-1 truncate">{item.label}</span>
@@ -97,7 +97,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             <SidebarMenuButton
               size="sm"
               className="h-8 gap-2 rounded-lg px-2.5 text-[13px] font-medium text-sidebar-foreground/70 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
-              onClick={() => window.history.back()}
+              onClick={() => void navigate({ to: "/", replace: true })}
             >
               <ArrowLeftIcon className="size-4" strokeWidth={2.15} />
               <span>Back to chat</span>
