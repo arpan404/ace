@@ -3,7 +3,7 @@ import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-
 import { useEffect, useState } from "react";
 
 import { AppPageTopBar } from "../components/AppPageTopBar";
-import { useSettingsRestore } from "../components/settings/SettingsPanels";
+import { useSettingsRestore } from "../components/settings/useSettingsRestore";
 import { getSettingsNavItem } from "../components/settings/settingsNavigation";
 import { HEADER_PILL_CONTROL_CLASS_NAME, TopBarCluster } from "../components/thread/TopBarCluster";
 import { Button } from "../components/ui/button";
