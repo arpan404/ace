@@ -440,6 +440,8 @@ function useTerminalViewportComponent({
     let resizeFrame: number | null = null;
     let lastObservedSize: `${number}x${number}` | null = null;
     let pendingNativeWindowResizeFit = false;
+    let pendingTerminalOutput = "";
+    let pendingTerminalOutputFrame: number | null = null;
 
     const fitToViewport = () => {
       pendingNativeWindowResizeFit = false;
@@ -481,6 +483,23 @@ function useTerminalViewportComponent({
       resizeFrame = window.requestAnimationFrame(() => {
         resizeFrame = null;
         fitToViewport();
+      });
+    };
+
+    const flushPendingTerminalOutput = () => {
+      if (pendingTerminalOutput.length === 0) return;
+
+      const output = pendingTerminalOutput;
+      pendingTerminalOutput = "";
+      terminalRef.current?.write(output);
+    };
+
+    const schedulePendingTerminalOutputFlush = () => {
+      if (pendingTerminalOutputFrame !== null) return;
+
+      pendingTerminalOutputFrame = window.requestAnimationFrame(() => {
+        pendingTerminalOutputFrame = null;
+        flushPendingTerminalOutput();
       });
     };
 
@@ -772,10 +791,13 @@ function useTerminalViewportComponent({
       if (!activeTerminal) return;
 
       if (event.type === "output") {
-        activeTerminal.write(event.data);
+        pendingTerminalOutput += event.data;
+        schedulePendingTerminalOutputFlush();
         clearSelectionAction();
         return;
       }
+
+      flushPendingTerminalOutput();
 
       if (event.type === "started" || event.type === "restarted") {
         hasHandledExitRef.current = false;
@@ -862,6 +884,11 @@ function useTerminalViewportComponent({
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
       }
+      if (pendingTerminalOutputFrame !== null) {
+        window.cancelAnimationFrame(pendingTerminalOutputFrame);
+        pendingTerminalOutputFrame = null;
+      }
+      flushPendingTerminalOutput();
       resizeObserver?.disconnect();
       window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
       window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);

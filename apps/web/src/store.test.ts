@@ -1394,6 +1394,66 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
+  it("preserves activity semantics when consecutive same-thread activity events are batched", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+    const events = [
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId: thread.id,
+          activity: {
+            id: EventId.makeUnsafe("tool-started"),
+            tone: "tool",
+            kind: "tool.started",
+            summary: "Ran command",
+            payload: { itemId: "command-1" },
+            turnId: TurnId.makeUnsafe("turn-1"),
+            sequence: 10,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        },
+        {
+          sequence: 10,
+          occurredAt: "2026-02-27T00:00:01.000Z",
+        },
+      ),
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId: thread.id,
+          activity: {
+            id: EventId.makeUnsafe("tool-output"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              terminalOutput: "done\n",
+              streamKind: "command_output",
+            },
+            turnId: TurnId.makeUnsafe("turn-1"),
+            sequence: 11,
+            createdAt: "2026-02-27T00:00:02.000Z",
+          },
+        },
+        {
+          sequence: 11,
+          occurredAt: "2026-02-27T00:00:02.000Z",
+        },
+      ),
+    ];
+
+    const batched = applyOrchestrationEvents(state, events);
+    const sequential = events.reduce(
+      (nextState, event) => applyOrchestrationEvent(nextState, event),
+      state,
+    );
+
+    expect(batched.threads[0]?.activities).toEqual(sequential.threads[0]?.activities);
+    expect(batched.threads[0]?.updatedAt).toBe("2026-02-27T00:00:02.000Z");
+  });
+
   it("applies replay batches in sequence and updates session state", () => {
     const thread = makeThread({
       latestTurn: {

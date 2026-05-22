@@ -159,4 +159,73 @@ describe("orchestrationUiEvents", () => {
       ),
     ).toBe("animation-frame");
   });
+
+  it("coalesces consecutive streamed tool output activity chunks", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const events = [
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-output-1"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              streamKind: "command_output",
+              terminalOutput: "total 8\n",
+            },
+            turnId,
+            sequence: 10,
+            createdAt: "2026-04-07T00:00:00.000Z",
+          },
+        },
+        { sequence: 10 },
+      ),
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-output-2"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              streamKind: "command_output",
+              terminalOutput: "drwxr-xr-x .\n",
+            },
+            turnId,
+            sequence: 11,
+            createdAt: "2026-04-07T00:00:01.000Z",
+          },
+        },
+        { sequence: 11 },
+      ),
+    ];
+
+    const coalesced = coalesceOrchestrationUiEvents(events);
+    const [event] = coalesced;
+
+    expect(coalesced).toHaveLength(1);
+    expect(event?.type).toBe("thread.activity-appended");
+    if (event?.type !== "thread.activity-appended") {
+      throw new Error("Expected activity event");
+    }
+    expect(event.sequence).toBe(11);
+    expect(event.payload.activity).toMatchObject({
+      id: EventId.makeUnsafe("activity-output-2"),
+      createdAt: "2026-04-07T00:00:00.000Z",
+      sequence: 10,
+      payload: {
+        itemId: "command-1",
+        streamKind: "command_output",
+        terminalOutput: "total 8\ndrwxr-xr-x .\n",
+      },
+    });
+  });
 });

@@ -91,13 +91,17 @@ import {
   shouldWorkerizeTimelineRows,
   type AssistantTimelineMessage,
   type BuildTimelineRowsInput,
+  type TimelineCompletedWorkDiagnosticRow,
   type SystemTimelineMessage,
   type TimelineCompletedWorkDetailRow,
+  type TimelineMetaTone,
   type TimelineMetaGroupEntry,
   type TimelineMessage,
   type TimelineProposedPlan,
   type TimelineRow,
   type TimelineWorkEntry,
+  type TimelineWorkGroupIconKey,
+  type TimelineWorkGroupSummaryProjection,
   type TimelineWorkLogRow,
   type UserTimelineMessage,
 } from "~/lib/chat/timelineRows";
@@ -1580,7 +1584,7 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "completed-work-summary":
-      height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.detailRows);
+      height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.visibleDiagnosticRows);
       break;
     case "message": {
       const message = row.message;
@@ -1675,7 +1679,7 @@ function getTimelineRowHeightCacheKey(
   const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
   switch (row.kind) {
     case "completed-work-summary":
-      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenMessageCount}:${completedWorkVisibleDiagnosticsCacheKey(row.detailRows)}`;
+      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenThinkingCount}:${row.hiddenMessageCount}:${row.visibleDiagnosticCacheKey}`;
     case "message": {
       const assistantRenderHint =
         row.message.role === "assistant"
@@ -1713,36 +1717,12 @@ function getTimelineRowHeightCacheKey(
   }
 }
 
-type TimelineMetaTone = "neutral" | "intent" | "thinking" | "tool" | "error" | "success";
-
 function resolveWorkEntryTone(tone: TimelineWorkEntry["tone"]): TimelineMetaTone {
   if (tone === "thinking") return "thinking";
   if (tone === "tool") return "tool";
   if (tone === "error") return "error";
   if (tone === "info") return "success";
   return "neutral";
-}
-
-function resolveMetaGroupTone(entries: ReadonlyArray<TimelineMetaGroupEntry>): TimelineMetaTone {
-  const hasThinking = entries.some(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
-  );
-  const hasTool = entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "tool");
-  const hasIntent = entries.some((entry) => entry.kind === "intent");
-
-  if (entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "error")) {
-    return "error";
-  }
-  if (hasThinking && !hasTool) {
-    return "thinking";
-  }
-  if (hasTool) {
-    return "tool";
-  }
-  if (hasIntent) {
-    return "intent";
-  }
-  return "success";
 }
 
 function metaToneTextClass(tone: TimelineMetaTone): string {
@@ -1755,15 +1735,10 @@ function metaToneTextClass(tone: TimelineMetaTone): string {
 }
 
 function summarizeWorkGroupElapsedLabel(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  createdAt: string,
   summaryEndAt: string | null,
 ): string | null {
-  const firstEntry = entries[0];
-  const duration =
-    firstEntry && summaryEndAt
-      ? formatCompletedWorkTimer(firstEntry.createdAt, summaryEndAt)
-      : null;
-  return duration;
+  return summaryEndAt ? formatCompletedWorkTimer(createdAt, summaryEndAt) : null;
 }
 
 function formatCompletedWorkTimer(startIso: string, endIso: string): string | null {
@@ -1805,97 +1780,22 @@ function compactDisplayText(value: string, maxLength = 72): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
-function classifyToolSummaryEntry(
-  workEntry: TimelineWorkEntry,
-): "command" | "file-read" | "file-change" | "web-search" | "image-view" | "generic-tool" {
-  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.trim().toLowerCase();
-  if (
-    workEntry.requestKind === "command" ||
-    workEntry.itemType === "command_execution" ||
-    textHint.includes("run command") ||
-    textHint.includes("execute command")
-  ) {
-    return "command";
-  }
-  if (
-    workEntry.requestKind === "file-read" ||
-    textHint.includes("read file") ||
-    textHint.includes("open file") ||
-    textHint.includes("inspect file")
-  ) {
-    return "file-read";
-  }
-  if (workEntry.itemType === "web_search" || /\b(find|search|grep|ripgrep|glob)\b/.test(textHint)) {
-    return "web-search";
-  }
-  if (
-    workEntry.requestKind === "file-change" ||
-    workEntry.itemType === "file_change" ||
-    (workEntry.changedFiles?.length ?? 0) > 0 ||
-    textHint.includes("edit file") ||
-    textHint.includes("write file") ||
-    textHint.includes("apply patch")
-  ) {
-    return "file-change";
-  }
-  if (workEntry.itemType === "image_view") {
-    return "image-view";
-  }
-  return "generic-tool";
-}
-
 function summarizeWorkGroupBreakdownParts(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  summary: TimelineWorkGroupSummaryProjection,
   elapsedLabel: string | null,
 ): Array<{ key: string; text: string; title: string }> {
-  const intentCount = entries.filter((entry) => entry.kind === "intent").length;
-  const toolEntries = entries.filter(
-    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
-      entry.kind === "work" && entry.workEntry.tone === "tool",
-  );
-  const toolCount = toolEntries.length;
-  const toolSummaryCounts = {
-    command: 0,
-    fileRead: 0,
-    fileChange: 0,
-    webSearch: 0,
-    imageView: 0,
-    genericTool: 0,
-  };
-  for (const entry of toolEntries) {
-    switch (classifyToolSummaryEntry(entry.workEntry)) {
-      case "command":
-        toolSummaryCounts.command += 1;
-        break;
-      case "file-read":
-        toolSummaryCounts.fileRead += 1;
-        break;
-      case "file-change":
-        toolSummaryCounts.fileChange += Math.max(1, entry.workEntry.changedFiles?.length ?? 0);
-        break;
-      case "web-search":
-        toolSummaryCounts.webSearch += 1;
-        break;
-      case "image-view":
-        toolSummaryCounts.imageView += 1;
-        break;
-      case "generic-tool":
-        toolSummaryCounts.genericTool += 1;
-        break;
-    }
-  }
-  const thinkingCount = entries.filter(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
-  ).length;
-  const errorCount = entries.filter(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "error",
-  ).length;
-  const infoCount = entries.filter(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
-  ).length;
+  const {
+    entryCount,
+    intentCount,
+    toolCount,
+    thinkingCount,
+    errorCount,
+    infoCount,
+    toolSummaryCounts,
+  } = summary;
   const eventCount = infoCount;
   const parts: Array<{ key: string; text: string; title: string }> = [];
-  const isThinkingOnly = thinkingCount > 0 && entries.length === thinkingCount;
+  const isThinkingOnly = thinkingCount > 0 && entryCount === thinkingCount;
 
   if (isThinkingOnly && elapsedLabel) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
@@ -1964,38 +1864,20 @@ function summarizeWorkGroupBreakdownParts(
     return parts;
   }
 
-  const entriesLabel = summarizeCount(entries.length, "log entry", "log entries");
+  const entriesLabel = summarizeCount(entryCount, "log entry", "log entries");
   return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
 }
 
-function workGroupIcon(entries: ReadonlyArray<TimelineMetaGroupEntry>): TimelineIcon {
-  const workEntries = entries.filter(
-    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> => entry.kind === "work",
-  );
-  if (workEntries.length === 0) {
-    return TargetIcon;
-  }
-  if (workEntries.some((entry) => entry.workEntry.tone === "error")) {
-    return CircleAlertIcon;
-  }
-  const toolEntries = workEntries.filter((entry) => entry.workEntry.tone === "tool");
-  if (toolEntries.length > 0) {
-    const classifications = new Set(
-      toolEntries.map((entry) => classifyToolSummaryEntry(entry.workEntry)),
-    );
-    if (classifications.size === 1) {
-      const [classification] = classifications;
-      if (classification === "command") return IconTerminal;
-      if (classification === "file-change") return SquarePenIcon;
-      if (classification === "file-read" || classification === "image-view") return EyeIcon;
-      if (classification === "web-search") return GlobeIcon;
-    }
-    return WrenchIcon;
-  }
-  if (workEntries.some((entry) => entry.workEntry.tone === "thinking")) {
-    return BrainIcon;
-  }
-  return CheckIcon;
+function workGroupIcon(iconKey: TimelineWorkGroupIconKey): TimelineIcon {
+  if (iconKey === "target") return TargetIcon;
+  if (iconKey === "alert") return CircleAlertIcon;
+  if (iconKey === "terminal") return IconTerminal;
+  if (iconKey === "file-change") return SquarePenIcon;
+  if (iconKey === "eye") return EyeIcon;
+  if (iconKey === "web-search") return GlobeIcon;
+  if (iconKey === "brain") return BrainIcon;
+  if (iconKey === "check") return CheckIcon;
+  return WrenchIcon;
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -2358,31 +2240,13 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const groupId = workGroupId(props.row.id);
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
-  const hasThinkingEntries = props.row.entries.some(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
-  );
-  const hasToolEntries = props.row.entries.some(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
-  );
-  const hasIntentEntries = props.row.entries.some((entry) => entry.kind === "intent");
-  const surfaceTone = resolveMetaGroupTone(props.row.entries);
-  const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.entries, props.row.summaryEndAt);
-  const breakdownParts = summarizeWorkGroupBreakdownParts(props.row.entries, elapsedLabel);
-  const GroupIcon = workGroupIcon(props.row.entries);
-  const threadGroupTone = hasToolEntries
-    ? hasThinkingEntries
-      ? "mixed"
-      : "tool"
-    : hasThinkingEntries
-      ? "thinking"
-      : hasIntentEntries
-        ? "intent"
-        : surfaceTone === "error"
-          ? "error"
-          : "info";
+  const { summary } = props.row;
+  const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
+  const breakdownParts = summarizeWorkGroupBreakdownParts(summary, elapsedLabel);
+  const GroupIcon = workGroupIcon(summary.iconKey);
 
   return (
-    <div className="min-w-0 py-0.5" data-thread-group={threadGroupTone}>
+    <div className="min-w-0 py-0.5" data-thread-group={summary.threadGroupTone}>
       <button
         type="button"
         className="group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0"
@@ -2390,12 +2254,14 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
         aria-expanded={isExpanded}
         data-meta-disclosure="true"
         data-meta-disclosure-open={String(isExpanded)}
-        data-thinking-disclosure={hasThinkingEntries ? "true" : undefined}
-        data-thinking-disclosure-open={hasThinkingEntries ? String(isExpanded) : undefined}
-        data-tool-disclosure={hasToolEntries ? "true" : undefined}
-        data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
+        data-thinking-disclosure={summary.hasThinkingEntries ? "true" : undefined}
+        data-thinking-disclosure-open={summary.hasThinkingEntries ? String(isExpanded) : undefined}
+        data-tool-disclosure={summary.hasToolEntries ? "true" : undefined}
+        data-tool-disclosure-open={summary.hasToolEntries ? String(isExpanded) : undefined}
       >
-        <GroupIcon className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(surfaceTone))} />
+        <GroupIcon
+          className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(summary.surfaceTone))}
+        />
         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[13px] leading-5 text-muted-foreground/70">
           {breakdownParts.map((part, index) => (
             <Fragment key={`${props.row.id}:summary:${part.key}`}>
@@ -2498,115 +2364,19 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
   );
 });
 
-function isVisibleCompletedWorkDiagnosticEntry(
-  entry: TimelineMetaGroupEntry,
-): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> {
-  return (
-    entry.kind === "work" &&
-    (entry.workEntry.tone === "error" || entry.workEntry.diagnosticKind !== undefined)
-  );
-}
-
-function collectVisibleCompletedWorkDiagnosticRows(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
-): TimelineWorkLogRow[] {
-  const diagnosticRows: TimelineWorkLogRow[] = [];
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        diagnosticRows.push(detailRow);
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (!isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        continue;
-      }
-      diagnosticRows.push({
-        kind: "work",
-        id: entry.id,
-        createdAt: entry.createdAt,
-        workEntry: entry.workEntry,
-      });
-    }
-  }
-  return diagnosticRows;
-}
-
 function estimateVisibleCompletedWorkDiagnosticRowsHeight(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
+  diagnosticRows: ReadonlyArray<TimelineCompletedWorkDiagnosticRow>,
 ): number {
   let height = 0;
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        height +=
-          detailRow.workEntry.detail ||
-          detailRow.workEntry.command ||
-          detailRow.workEntry.terminalOutput
-            ? 104
-            : 52;
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        height +=
-          entry.workEntry.detail || entry.workEntry.command || entry.workEntry.terminalOutput
-            ? 104
-            : 52;
-      }
-    }
+  for (const diagnosticRow of diagnosticRows) {
+    height +=
+      diagnosticRow.workEntry.detail ||
+      diagnosticRow.workEntry.command ||
+      diagnosticRow.workEntry.terminalOutput
+        ? 104
+        : 52;
   }
   return height;
-}
-
-function completedWorkVisibleDiagnosticsCacheKey(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
-): string {
-  const parts: string[] = [];
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        parts.push(
-          `${detailRow.id}:${detailRow.workEntry.detail?.length ?? 0}:${detailRow.workEntry.terminalOutput?.length ?? 0}`,
-        );
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        parts.push(
-          `${entry.id}:${entry.workEntry.detail?.length ?? 0}:${entry.workEntry.terminalOutput?.length ?? 0}`,
-        );
-      }
-    }
-  }
-  return parts.length === 0 ? "none" : parts.join(",");
 }
 
 const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimelineRow(props: {
@@ -2622,10 +2392,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
   timestampFormat: TimestampFormat;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const visibleDiagnosticRows = useMemo(
-    () => collectVisibleCompletedWorkDiagnosticRows(props.row.detailRows),
-    [props.row.detailRows],
-  );
+  const visibleDiagnosticRows = props.row.visibleDiagnosticRows;
   const elapsedLabel = formatCompletedWorkTimer(props.row.startedAt, props.row.endedAt);
   if (!elapsedLabel) {
     return null;
@@ -2657,6 +2424,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           className="group/completed-work flex min-w-0 items-start gap-2.5 border-0 bg-transparent p-0 text-left outline-none transition-colors focus-visible:text-foreground/86"
           data-completed-work-summary-elapsed={elapsedLabel}
           data-completed-work-summary-tool-calls={props.row.toolCallCount}
+          data-completed-work-summary-thinking={props.row.hiddenThinkingCount}
           data-completed-work-summary-hidden-messages={props.row.hiddenMessageCount}
           data-completed-work-summary-open={String(isOpen)}
           aria-expanded={isOpen}
@@ -2670,6 +2438,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           className="group/completed-work flex min-w-0 items-start gap-2.5"
           data-completed-work-summary-elapsed={elapsedLabel}
           data-completed-work-summary-tool-calls={props.row.toolCallCount}
+          data-completed-work-summary-thinking={props.row.hiddenThinkingCount}
           data-completed-work-summary-hidden-messages={props.row.hiddenMessageCount}
         >
           {summaryContent}
