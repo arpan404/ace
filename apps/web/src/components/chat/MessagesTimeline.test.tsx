@@ -1400,6 +1400,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-work-entry-nested="true"');
     expect(markup).toContain('data-command-output-disclosure="true"');
     expect(markup).toContain('data-command-output-open="false"');
+    expect(markup).toContain("text-[12px]");
     expect(markup).toContain("tabler-icon-terminal");
     expect(markup).toContain("size-3.5");
     expect(markup).toContain("bun run check");
@@ -1748,7 +1749,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
     expect(markup).not.toContain("line-clamp-4");
     expect(markup).toContain("whitespace-pre-wrap");
-    expect(markup).toContain("text-[13px] leading-6 text-foreground/76");
+    expect(markup).toContain("text-[11px] leading-5 text-foreground/76");
     expect(markup).not.toContain("font-mono text-[10px] leading-4 text-muted-foreground/65");
   });
 
@@ -1807,7 +1808,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure-elapsed="2s"');
-    expect(markup).toContain("Thought for 2s");
+    expect(markup).toContain("Thought 2 times for 2 seconds");
+    expect(markup).not.toContain("Thought for 2s");
     expect(markup).not.toContain(">Thinking<");
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed"');
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed-2"');
@@ -2063,7 +2065,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("text-foreground/76");
     expect(markup).toContain("Tracing the ordering boundary before patching the renderer.");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
-    expect(markup).toContain("Thought for 1s");
+    expect(markup).toContain("Thought 1 time for 1 second");
   });
 
   it("keeps assistant follow-ups beneath the preceding work row in order", async () => {
