@@ -5,6 +5,7 @@ import { ChevronRightIcon } from "lucide-react";
 import * as React from "react";
 
 import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
+import { FLOATING_LAYER_CLASS_NAME } from "./layers";
 import { cn } from "~/lib/utils";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
@@ -71,7 +72,7 @@ function MenuPopup({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-50"
+        className={FLOATING_LAYER_CLASS_NAME}
         data-slot="menu-positioner"
         side={side}
         sideOffset={sideOffset}
