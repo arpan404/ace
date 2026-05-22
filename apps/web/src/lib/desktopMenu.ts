@@ -7,6 +7,7 @@ const SETTINGS_ROUTE_BY_MENU_ACTION = {
   "open-settings-chat": "/settings/chat",
   "open-settings-editor": "/settings/editor",
   "open-settings-browser": "/settings/browser",
+  "open-settings-devices": "/settings/devices",
   "open-settings-models": "/settings/providers",
   "open-settings-providers": "/settings/providers",
   "open-settings-advanced": "/settings/advanced",

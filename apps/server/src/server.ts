@@ -157,6 +157,10 @@ const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointStoreLive),
 );
 
+const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
+  Layer.provide(ProviderSessionRuntimeRepositoryLive),
+);
+
 const ProviderLayerLive = Layer.unwrap(
   withStartupTiming(
     "providers",
@@ -176,9 +180,6 @@ const ProviderLayerLive = Layer.unwrap(
         makeEventNdjsonLogger(providerEventLogPath, {
           stream: "canonical",
         }),
-      );
-      const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
-        Layer.provide(ProviderSessionRuntimeRepositoryLive),
       );
       yield* logStartupEvent({
         phase: "providers",
@@ -205,7 +206,7 @@ const ProviderLayerLive = Layer.unwrap(
         Layer.provide(PiAdapterLive),
         Layer.provide(GeminiAdapterLive),
         Layer.provide(OpenCodeAdapterLive),
-        Layer.provideMerge(providerSessionDirectoryLayer),
+        Layer.provideMerge(ProviderSessionDirectoryLayerLive),
       );
       yield* logStartupEvent({
         phase: "providers",
@@ -215,7 +216,7 @@ const ProviderLayerLive = Layer.unwrap(
         canonicalEventLogger ? { canonicalEventLogger } : undefined,
       ).pipe(
         Layer.provide(adapterRegistryLayer),
-        Layer.provide(providerSessionDirectoryLayer),
+        Layer.provide(ProviderSessionDirectoryLayerLive),
         Layer.provide(ProjectionThreadMessageRepositoryLive),
       );
     }),
@@ -257,6 +258,7 @@ const WorkspaceLayerLive = Layer.mergeAll(
 );
 
 const RuntimeServicesLive = Layer.empty.pipe(
+  Layer.provideMerge(ProviderSessionDirectoryLayerLive),
   Layer.provideMerge(ServerRuntimeStartupLive),
   Layer.provideMerge(RelayHostManagerLive),
   Layer.provideMerge(ReactorLayerLive),

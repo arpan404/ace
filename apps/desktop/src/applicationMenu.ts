@@ -69,39 +69,67 @@ export function buildApplicationMenuTemplate({
 
   template.push(
     {
-      label: "Thread",
+      label: "Chat",
       submenu: [
         menuActionItem({ action: "new-thread", label: "New Thread" }),
         menuActionItem({ action: "new-local-thread", label: "New Local Thread" }),
         { type: "separator" },
         menuActionItem({ action: "toggle-plan-mode", label: "Toggle Plan Mode" }),
+        { type: "separator" },
+        menuActionItem({ action: "open-settings-chat", label: "Chat Settings" }),
+        menuActionItem({
+          action: "open-settings-archived",
+          label: "Archived Threads",
+        }),
       ],
     },
     {
-      label: "Workspace",
+      label: "Agents",
+      submenu: [
+        menuActionItem({ action: "open-settings-providers", label: "Providers & Auth" }),
+        menuActionItem({ action: "open-settings-models", label: "Models" }),
+        menuActionItem({ action: "open-settings-chat", label: "Agent Behavior" }),
+        menuActionItem({ action: "open-settings-advanced", label: "Advanced Agent Settings" }),
+      ],
+    },
+    {
+      label: "Projects",
       submenu: [
         menuActionItem({ action: "open-settings", label: "General Settings" }),
-        menuActionItem({ action: "open-settings-chat", label: "Chat Settings" }),
-        menuActionItem({ action: "open-settings-editor", label: "Editor Settings" }),
-        menuActionItem({ action: "open-settings-browser", label: "Browser Settings" }),
-        { type: "separator" },
-        menuActionItem({ action: "open-settings-models", label: "Models" }),
-        menuActionItem({ action: "open-settings-providers", label: "Providers" }),
-        menuActionItem({ action: "open-settings-advanced", label: "Advanced" }),
+        menuActionItem({ action: "open-settings-editor", label: "Editor & Diff Settings" }),
         menuActionItem({
           action: "open-settings-archived",
           label: "Archived Projects & Threads",
         }),
       ],
     },
+    {
+      label: "Connections",
+      submenu: [
+        menuActionItem({ action: "open-settings-devices", label: "Devices & Remote Hosts" }),
+        menuActionItem({ action: "open-settings-browser", label: "Browser Settings" }),
+        menuActionItem({ action: "open-settings-about", label: "Diagnostics & Version" }),
+        { type: "separator" },
+        {
+          label: "Check for Updates...",
+          click: () => onCheckForUpdates(),
+        },
+      ],
+    },
     { role: "editMenu" },
     {
-      label: "View",
+      label: "Tools",
       submenu: [
         menuActionItem({ action: "toggle-terminal", label: "Toggle Terminal" }),
         menuActionItem({ action: "open-browser-tab", label: "Open Browser Tab" }),
         menuActionItem({ action: "open-review-tab", label: "Open Review Tab" }),
         { type: "separator" },
+        menuActionItem({ action: "open-settings-advanced", label: "Advanced Settings" }),
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
         { role: "reload" },
         { role: "forceReload" },
         { role: "toggleDevTools" },
@@ -131,7 +159,7 @@ export function buildApplicationMenuTemplate({
     {
       role: "help",
       submenu: [
-        menuActionItem({ action: "open-settings-about", label: "Version & CLI Status" }),
+        menuActionItem({ action: "open-settings-about", label: "Diagnostics & Version" }),
         {
           label: "Check for Updates...",
           click: () => onCheckForUpdates(),

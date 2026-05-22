@@ -13,10 +13,12 @@ describe("decodeClientSettingsPatch", () => {
       decodeClientSettingsPatch({
         commentSubmissionMode: "accumulate",
         confirmThreadDelete: false,
+        reliabilityUxEnabled: true,
       }),
     ).toEqual({
       commentSubmissionMode: "accumulate",
       confirmThreadDelete: false,
+      reliabilityUxEnabled: true,
     });
   });
 });

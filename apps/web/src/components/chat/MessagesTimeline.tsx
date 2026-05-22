@@ -107,6 +107,7 @@ import {
   readCachedTimelineRows,
   writeCachedTimelineRows,
 } from "~/lib/chat/timelineRowsClient";
+import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
@@ -369,6 +370,9 @@ interface MessagesTimelineProps {
   continueWithGitHubIssuesDisabledReason?: string;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  stuckTurnSnapshot?: StuckTurnSnapshot;
+  onStopStuckTurn?: (() => void) | null;
+  onOpenStuckTurnDiagnostics?: (() => void) | null;
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
@@ -407,6 +411,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   continueWithGitHubIssuesDisabledReason,
   activeTurnInProgress,
   activeTurnStartedAt,
+  stuckTurnSnapshot,
+  onStopStuckTurn = null,
+  onOpenStuckTurnDiagnostics = null,
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   hideCompletedWorkMessages = false,
@@ -1200,6 +1207,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 <span className="text-foreground/72">{row.intentText}</span>
               </p>
             )}
+            {stuckTurnSnapshot?.isLikelyStuck ? (
+              <div
+                className="mt-2 ml-6 flex max-w-xl flex-wrap items-center gap-2 rounded-md border border-warning/35 bg-warning/6 px-2.5 py-1.5 text-[11px] text-warning"
+                data-stuck-turn-hint="true"
+              >
+                <span className="min-w-0 flex-1">
+                  Still running for{" "}
+                  {formatElapsedSeconds(Math.floor(stuckTurnSnapshot.runningForMs / 1000))}
+                </span>
+                {onStopStuckTurn ? (
+                  <Button type="button" variant="outline" size="xs" onClick={onStopStuckTurn}>
+                    Stop
+                  </Button>
+                ) : null}
+                {onOpenStuckTurnDiagnostics ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={onOpenStuckTurnDiagnostics}
+                  >
+                    Details
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

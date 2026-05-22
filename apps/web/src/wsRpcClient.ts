@@ -43,6 +43,7 @@ interface RpcTransportLike {
   readonly onConnectionStateChange: (
     listener: (state: WsTransportConnectionState) => void,
   ) => () => void;
+  readonly queueProbeNow?: (reason?: string) => void;
   readonly request: <TSuccess>(
     execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
   ) => Promise<TSuccess>;
@@ -61,6 +62,7 @@ export interface WsRpcClient {
   readonly subscribeConnectionState: (
     listener: (state: WsTransportConnectionState) => void,
   ) => () => void;
+  readonly queueProbeNow: (reason?: string) => void;
   readonly terminal: {
     readonly open: RpcUnaryMethod<typeof WS_METHODS.terminalOpen>;
     readonly write: RpcUnaryMethod<typeof WS_METHODS.terminalWrite>;
@@ -189,6 +191,7 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
   return {
     dispose: () => transport.dispose(),
     subscribeConnectionState: (listener) => transport.onConnectionStateChange(listener),
+    queueProbeNow: (reason) => transport.queueProbeNow?.(reason),
     terminal: {
       open: (input) => transport.request((client) => client[WS_METHODS.terminalOpen](input)),
       write: (input) => transport.request((client) => client[WS_METHODS.terminalWrite](input)),
