@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect";
 
-import { approveAll } from "@github/copilot-sdk";
+import type { PermissionHandler } from "@github/copilot-sdk";
 import {
   type ChatAttachment,
   type GitHubCopilotModelSelection,
@@ -16,6 +16,7 @@ import {
   normalizeGitHubCopilotModelOptionsForModel,
   stopGitHubCopilotClient,
 } from "../../provider/githubCopilotSdk.ts";
+import { loadGitHubCopilotSdkModule } from "../../provider/providerSdkRuntime.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import {
@@ -38,6 +39,7 @@ import {
 } from "../Utils.ts";
 
 const GITHUB_COPILOT_TIMEOUT_MS = 180_000;
+const approveAllPermissionRequests: PermissionHandler = () => ({ kind: "approve-once" });
 
 function extractJsonText(raw: string): string {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -128,9 +130,11 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
 
     return yield* Effect.tryPromise(async () => {
       const trimmedCliUrl = settings.cliUrl.trim();
+      const loadSdk = () => loadGitHubCopilotSdkModule(serverConfig.stateDir);
       const client = await createGitHubCopilotClient(
         settings.binaryPath,
         trimmedCliUrl.length > 0 ? { cliUrl: trimmedCliUrl } : undefined,
+        loadSdk,
       );
       try {
         const availableModels = await client.listModels();
@@ -143,7 +147,7 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
           ...(normalizedModelOptions?.reasoningEffort
             ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
             : {}),
-          onPermissionRequest: approveAll,
+          onPermissionRequest: approveAllPermissionRequests,
           workingDirectory: cwd,
           availableTools: [],
         };

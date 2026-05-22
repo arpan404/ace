@@ -70,6 +70,10 @@ export const ChatSettingsPanelRoute = createLazySettingsPanel(() =>
   import("./SettingsPanels").then((module) => ({ default: module.ChatSettingsPanel })),
 );
 
+export const DevicesSettingsPanelRoute = createLazySettingsPanel(() =>
+  import("./DevicesSettingsPanel").then((module) => ({ default: module.DevicesSettingsPanel })),
+);
+
 export const EditorSettingsPanelRoute = createLazySettingsPanel(() =>
   import("./SettingsPanels").then((module) => ({ default: module.EditorSettingsPanel })),
 );

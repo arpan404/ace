@@ -12,8 +12,11 @@ export default defineConfig({
   outDir: "dist",
   sourcemap,
   clean: true,
-  noExternal: (id) => id.startsWith("@ace/"),
-  inlineOnly: false,
+  deps: {
+    alwaysBundle: (id) => id.startsWith("@ace/"),
+    neverBundle: ["@github/copilot-sdk"],
+    onlyBundle: false,
+  },
   banner: {
     js: "#!/usr/bin/env node\n",
   },
