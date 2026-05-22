@@ -109,6 +109,10 @@ Prerequisites:
 - macOS host for DMG/ZIP packaging.
 - Docker Desktop with `linux/amd64` support.
 - `gh` authenticated with `repo` scope.
+- `.env.local` at the repo root with macOS signing/notarization values:
+  - `ACE_DESKTOP_SIGNED=true`
+  - `CSC_LINK` and `CSC_KEY_PASSWORD`, or `CSC_NAME` for an installed Developer ID identity
+  - `APPLE_API_KEY` as a local path to the `.p8` file, plus `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`
 - A clean working tree, except ignored/generated release output.
 - The release tag must point at `HEAD`, or pass `--create-tag` to create it.
 
@@ -136,25 +140,28 @@ bun run release:desktop:local -- --tag v0.2.0 --allow-dirty
 
 What the script does:
 
-1. Verifies the tag points at `HEAD` or creates it with `--create-tag`.
-2. Runs `bun fmt`, `bun lint`, and `bun typecheck` unless `--skip-gates` is passed.
-3. Runs `bun run build:desktop` unless `--skip-build` is passed.
-4. Builds:
+1. Loads `.env.local` without printing secret values.
+2. Verifies the tag points at `HEAD` or creates it with `--create-tag`.
+3. Runs `bun fmt`, `bun lint`, and `bun typecheck` unless `--skip-gates` is passed.
+4. Runs `bun run build:desktop` unless `--skip-build` is passed.
+5. Requires macOS signing/notarization env before mac packaging.
+6. Builds:
    - macOS `arm64` DMG and ZIP on the host.
    - macOS `x64` DMG and ZIP on the host.
    - Linux `x64` AppImage in Docker.
    - Linux `arm64` AppImage in Docker.
    - Windows `x64` NSIS installer in Docker with Wine, Wine32, and NSIS.
    - Windows `arm64` NSIS installer in Docker with Wine, Wine32, and NSIS.
-5. Collects release assets into `release-local/publish`.
-6. Merges per-arch macOS updater manifests into one `latest-mac.yml`.
-7. Keeps Linux updater metadata split by channel file (`latest-linux.yml` for `x64`, `latest-linux-arm64.yml` for `arm64`) and merges Windows updater metadata into one `latest.yml`.
-8. Prints SHA-256 checksums for every publish asset.
-9. With `--publish`, pushes the tag, creates the GitHub Release if missing, or updates the existing release in place for the same tag, uploads assets, and generates release notes in this shape:
-   - `What's Changed`
-   - PR title, author, and PR link
-   - direct release-prep commits
-   - full changelog link
+7. Collects release assets into `release-local/publish`.
+8. Merges per-arch macOS updater manifests into one `latest-mac.yml`.
+9. Keeps Linux updater metadata split by channel file (`latest-linux.yml` for `x64`, `latest-linux-arm64.yml` for `arm64`) and merges Windows updater metadata into one `latest.yml`.
+10. Prints SHA-256 checksums for every publish asset.
+11. With `--publish`, pushes the tag, creates the GitHub Release if missing, or updates the existing release in place for the same tag, uploads assets, and generates release notes in this shape:
+
+- `What's Changed`
+- PR title, author, and PR link
+- direct release-prep commits
+- full changelog link
 
 The script handles git worktrees by mounting the common `.git` directory into Docker at its original absolute path. This is required because worktree `.git` files point outside the checked-out worktree, and Docker otherwise cannot resolve the tag/commit metadata used by the desktop build.
 
@@ -166,8 +173,7 @@ Local Windows Docker details:
 
 Local release caveats:
 
-- macOS artifacts built without Apple signing secrets are ad-hoc or unsigned and are not notarized.
-- Unsigned macOS artifacts are not suitable for production auto-update.
+- macOS artifacts must be signed and notarized. The local release script fails before mac packaging if required values are missing.
 - Windows artifacts built without Azure Trusted Signing credentials are not authenticode-signed.
 - Docker builds use named volumes for platform-specific `node_modules`; remove those volumes if dependency state needs a completely fresh rebuild.
 

@@ -7,7 +7,7 @@ cd "$repo_root"
 tag=""
 previous_tag=""
 output_dir="release-local"
-repo="${ACE_DESKTOP_UPDATE_REPOSITORY:-}"
+repo=""
 publish=0
 skip_gates=0
 skip_build=0
@@ -104,8 +104,91 @@ if [[ "$output_dir" = /* || "$output_dir" = "." || "$output_dir" = ".." || "$out
   exit 1
 fi
 
+trim_env_value() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+load_local_env() {
+  local env_file="$repo_root/.env.local"
+  if [[ ! -f "$env_file" ]]; then
+    return
+  fi
+
+  local line trimmed key value loaded
+  loaded=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    trimmed="$(trim_env_value "$line")"
+    if [[ -z "$trimmed" || "${trimmed:0:1}" = "#" ]]; then
+      continue
+    fi
+    if [[ "$trimmed" == export[[:space:]]* ]]; then
+      trimmed="$(trim_env_value "${trimmed#export}")"
+    fi
+    if [[ ! "$trimmed" =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+      printf 'Unsupported .env.local entry. Expected KEY=value syntax.\n' >&2
+      exit 1
+    fi
+
+    key="${BASH_REMATCH[1]}"
+    value="$(trim_env_value "${BASH_REMATCH[2]}")"
+    if [[ "${#value}" -ge 2 && "${value:0:1}" = '"' && "${value: -1}" = '"' ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "${#value}" -ge 2 && "${value:0:1}" = "'" && "${value: -1}" = "'" ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    export "$key=$value"
+    loaded=$((loaded + 1))
+  done <"$env_file"
+
+  printf '\n==> Loaded %s (%s variables)\n' "$env_file" "$loaded"
+}
+
+is_truthy() {
+  case "${1:-}" in
+    1 | true | TRUE | True | yes | YES | Yes | on | ON | On)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+require_macos_signing_env() {
+  if ! is_truthy "${ACE_DESKTOP_SIGNED:-}"; then
+    printf 'macOS signing is required for local desktop releases. Set ACE_DESKTOP_SIGNED=true in .env.local.\n' >&2
+    exit 1
+  fi
+
+  local missing=()
+  if [[ -z "${CSC_LINK:-}" && -z "${CSC_NAME:-}" ]]; then
+    missing+=("CSC_LINK or CSC_NAME")
+  fi
+  if [[ -n "${CSC_LINK:-}" && -z "${CSC_KEY_PASSWORD:-}" ]]; then
+    missing+=("CSC_KEY_PASSWORD")
+  fi
+  for name in APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+    if [[ -z "${!name:-}" ]]; then
+      missing+=("$name")
+    fi
+  done
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    printf 'Missing macOS signing/notarization values in .env.local or the process environment: %s\n' "${missing[*]}" >&2
+    exit 1
+  fi
+}
+
+load_local_env
+
 version="${tag#v}"
 publish_dir="$output_dir/publish"
+repo="${repo:-${ACE_DESKTOP_UPDATE_REPOSITORY:-}}"
 linux_image="${ACE_DESKTOP_LINUX_DOCKER_IMAGE:-ace-desktop-linux-builder:local}"
 windows_image="${ACE_DESKTOP_WINDOWS_DOCKER_IMAGE:-ace-desktop-windows-builder:local}"
 
@@ -202,6 +285,7 @@ build_shared_artifacts() {
 }
 
 build_macos() {
+  require_macos_signing_env
   run bun run dist:desktop:artifact -- \
     --platform mac \
     --target dmg \
@@ -209,6 +293,7 @@ build_macos() {
     --build-version "$version" \
     --output-dir "$output_dir/macos-arm64" \
     --skip-build \
+    --signed \
     --verbose
   run bun run dist:desktop:artifact -- \
     --platform mac \
@@ -217,6 +302,7 @@ build_macos() {
     --build-version "$version" \
     --output-dir "$output_dir/macos-x64" \
     --skip-build \
+    --signed \
     --verbose
 }
 
