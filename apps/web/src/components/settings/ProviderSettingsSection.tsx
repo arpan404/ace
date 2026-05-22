@@ -10,12 +10,11 @@ import {
 import { useEffect, useMemo, useReducer } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
-import {
-  PROVIDER_DISPLAY_NAMES,
-  type ProviderKind,
-  type ServerProvider,
-  type ServerProviderModel,
-  type ServerProviderRuntime,
+import type {
+  ProviderKind,
+  ServerProvider,
+  ServerProviderModel,
+  ServerProviderRuntime,
 } from "@ace/contracts";
 import { type UnifiedSettings, DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import { formatProviderModelDisplayName, normalizeModelSlug } from "@ace/shared/model";
@@ -89,6 +88,16 @@ const PROVIDER_LOGO_BY_PROVIDER: Record<ProviderKind, Icon> = {
   pi: PiIcon,
   gemini: Gemini,
   opencode: OpenCodeIcon,
+};
+
+const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
+  codex: "Codex",
+  claudeAgent: "Claude",
+  githubCopilot: "Copilot",
+  cursor: "Cursor",
+  pi: "Pi",
+  gemini: "Gemini",
+  opencode: "OpenCode",
 };
 
 export interface ProviderCard {

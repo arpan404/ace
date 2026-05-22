@@ -82,10 +82,6 @@ export default defineConfig({
             return "markdown";
           }
 
-          if (id.includes("/src/components/settings/") || id.includes("/src/routes/settings.")) {
-            return "settings";
-          }
-
           return undefined;
         },
       },

@@ -10,13 +10,13 @@ import {
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import {
-  type DesktopCliInstallState,
-  type ProviderKind,
-  type ServerInstallLspToolInput,
-  type ServerLspToolInstaller,
-  type ServerLspToolStatus,
-  type ServerLspToolsStatus,
+import type {
+  DesktopCliInstallState,
+  ProviderKind,
+  ServerInstallLspToolInput,
+  ServerLspToolInstaller,
+  ServerLspToolStatus,
+  ServerLspToolsStatus,
   ThreadId,
 } from "@ace/contracts";
 import {
@@ -32,7 +32,7 @@ import {
   type UiMonoFontFamily,
 } from "@ace/contracts/settings";
 import { buildProviderModelSelection, formatProviderModelDisplayName } from "@ace/shared/model";
-import { Equal } from "effect";
+import * as Equal from "effect/Equal";
 import { APP_VERSION } from "../../branding";
 import {
   DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL,
