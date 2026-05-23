@@ -265,7 +265,7 @@ it.effect("decodes thread.created handoff metadata when present", () =>
   }),
 );
 
-it.effect("decodes thread.created fork metadata when present", () =>
+it.effect("decodes thread.created chat fork metadata when present", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadCreatedPayload({
       threadId: "thread-2",
@@ -279,18 +279,18 @@ it.effect("decodes thread.created fork metadata when present", () =>
       interactionMode: "default",
       branch: null,
       worktreePath: null,
-      handoff: {
+      fork: {
         sourceThreadId: "thread-1",
-        fromProvider: "codex",
-        toProvider: "codex",
-        mode: "fork",
         createdAt: "2026-01-01T00:00:00.000Z",
       },
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
 
-    assert.strictEqual(parsed.handoff?.mode, "fork");
+    assert.deepStrictEqual(parsed.fork, {
+      sourceThreadId: "thread-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
   }),
 );
 

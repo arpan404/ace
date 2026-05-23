@@ -34,6 +34,7 @@ import {
   ProjectScript,
   SourceProposedPlanReference,
   ThreadHandoff,
+  ThreadFork,
 } from "./readModel";
 import { CheckpointRef } from "../baseSchemas";
 
@@ -80,6 +81,7 @@ export const ThreadCreateCommand = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
   createdAt: IsoDateTime,
 });
 

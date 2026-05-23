@@ -3204,9 +3204,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-response-summary-elapsed="3s"');
     expect(markup).toContain("mt-2 flex min-h-5 flex-wrap");
     expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
-    expect(markup).toContain('data-assistant-turn-actions="true"');
-    expect(markup).toContain("flex items-center gap-1 opacity-0");
+    expect(markup).toContain('data-assistant-turn-copy-action="true"');
     expect(markup).toContain('aria-label="Copy message"');
+    expect(markup).toContain('data-variant="ghost"');
+    expect(markup.indexOf('data-assistant-turn-copy-action="true"')).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
   });
 
   it("shows the latest assistant time metadata without hover when no later user reply exists", async () => {
@@ -3300,12 +3303,13 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('aria-label="Fork conversation"');
     expect(markup).toContain("Fork conversation");
-    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
-      markup.indexOf('aria-label="Copy message"'),
-    );
     expect(markup.indexOf('aria-label="Copy message"')).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
       markup.indexOf('aria-label="Fork conversation"'),
     );
+    expect(markup).toContain('data-variant="ghost"');
   });
 
   it("does not require a provider slash command to render the fork action", async () => {

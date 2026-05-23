@@ -1402,6 +1402,82 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
+  it("starts forked chat threads with native fork source and exact chat replay", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-source-fork-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-source-fork-1"),
+          role: "user",
+          text: "source thread context",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-fork"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        projectId: asProjectId("project-1"),
+        title: "Forked Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        fork: {
+          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-fork-1"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        message: {
+          messageId: asMessageId("user-message-fork-1"),
+          role: "user",
+          text: "continue in fork",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    const startInput = harness.startSession.mock.calls[0]?.[1] as
+      | {
+          forkSource?: { threadId: ThreadId };
+          replayTurns?: Array<{ prompt: string }>;
+        }
+      | undefined;
+    expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.replayTurns?.[0]?.prompt).toContain("source thread context");
+    expect(startInput?.replayTurns?.[0]?.prompt).not.toContain("Best-effort handoff");
+  });
+
   it("surfaces overlapping turn starts without re-entering the provider adapter", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

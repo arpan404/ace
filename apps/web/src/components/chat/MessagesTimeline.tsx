@@ -49,9 +49,9 @@ import {
   ChevronRightIcon,
   Clock3Icon,
   EyeIcon,
-  GitForkIcon,
   GlobeIcon,
   HammerIcon,
+  SplitIcon,
   type LucideIcon,
   PlugIcon,
   SquarePenIcon,
@@ -2893,11 +2893,24 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
     return null;
   }
 
+  const hoverOnlyClass =
+    "opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100";
+
   return (
     <div
       className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1"
       data-assistant-turn-footer="true"
     >
+      {props.copyText && (
+        <div className="flex items-center" data-assistant-turn-copy-action="true">
+          <MessageCopyButton
+            text={props.copyText}
+            size="icon-xs"
+            variant="ghost"
+            className="text-muted-foreground/68 hover:bg-muted/45 hover:text-foreground"
+          />
+        </div>
+      )}
       {props.timing && (
         <span
           className={cn(
@@ -2916,26 +2929,19 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
           <span>{props.timing.elapsedLabel}</span>
         </span>
       )}
-      {hasActions && (
+      {props.onForkConversation && (
         <div
           className={cn(
-            "flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-            !props.timing && "ml-auto",
+            "flex items-center",
+            hoverOnlyClass,
+            !props.timing && !props.copyText && "ml-auto",
           )}
           data-assistant-turn-actions="true"
         >
-          {props.copyText && (
-            <MessageCopyButton
-              text={props.copyText}
-              className="bg-background/45 hover:bg-background/78"
-            />
-          )}
-          {props.onForkConversation && (
-            <AssistantForkButton
-              disabled={props.isForkConversationDisabled ?? false}
-              onClick={props.onForkConversation}
-            />
-          )}
+          <AssistantForkButton
+            disabled={props.isForkConversationDisabled ?? false}
+            onClick={props.onForkConversation}
+          />
         </div>
       )}
     </div>
@@ -2956,16 +2962,16 @@ const AssistantForkButton = memo(function AssistantForkButton(props: {
         render={
           <Button
             type="button"
-            size="xs"
-            variant="outline"
-            className="border-border/40 bg-background/45 transition-all duration-200 hover:border-border/60 hover:bg-background/78"
+            size="icon-xs"
+            variant="ghost"
+            className="text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground"
             disabled={props.disabled}
             onClick={props.onClick}
             aria-label="Fork conversation"
           />
         }
       >
-        <GitForkIcon className="size-3" />
+        <SplitIcon className="size-3 rotate-90" />
       </TooltipTrigger>
       <TooltipPopup side="top">{tooltipLabel}</TooltipPopup>
     </Tooltip>

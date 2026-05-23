@@ -23,6 +23,7 @@ interface ChatViewProviderSelectionInput {
   readonly draft: ComposerModelDraftState;
   readonly hasThreadStarted: boolean;
   readonly isServerThread: boolean;
+  readonly lockProvider?: boolean;
   readonly modelSettings: Pick<UnifiedSettings, "providers">;
   readonly projectModelSelection: ModelSelection | null | undefined;
   readonly providers: ReadonlyArray<ServerProvider>;
@@ -59,9 +60,10 @@ export function deriveChatViewProviderSelectionState(
 ): ChatViewProviderSelectionState {
   const threadProvider =
     input.threadModelSelection?.provider ?? input.projectModelSelection?.provider ?? null;
-  const lockedProvider: ProviderKind | null = input.hasThreadStarted
-    ? (input.sessionProvider ?? threadProvider ?? input.draft?.activeProvider ?? null)
-    : null;
+  const lockedProvider: ProviderKind | null =
+    input.hasThreadStarted || input.lockProvider === true
+      ? (input.sessionProvider ?? threadProvider ?? input.draft?.activeProvider ?? null)
+      : null;
   const unlockedSelectedProvider = resolveSelectableProvider(
     input.providers,
     input.draft?.activeProvider ?? threadProvider ?? "codex",
@@ -162,6 +164,7 @@ export function useChatViewProviderSelectionState(
     draft,
     hasThreadStarted,
     isServerThread,
+    lockProvider,
     modelSettings,
     projectModelSelection,
     providers,
@@ -175,6 +178,7 @@ export function useChatViewProviderSelectionState(
         draft,
         hasThreadStarted,
         isServerThread,
+        lockProvider,
         modelSettings,
         projectModelSelection,
         providers,
@@ -185,6 +189,7 @@ export function useChatViewProviderSelectionState(
       draft,
       hasThreadStarted,
       isServerThread,
+      lockProvider,
       modelSettings,
       projectModelSelection,
       providers,

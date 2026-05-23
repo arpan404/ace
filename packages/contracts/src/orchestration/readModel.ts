@@ -142,6 +142,12 @@ export const ThreadHandoff = Schema.Struct({
 });
 export type ThreadHandoff = typeof ThreadHandoff.Type;
 
+export const ThreadFork = Schema.Struct({
+  sourceThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadFork = typeof ThreadFork.Type;
+
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -251,6 +257,7 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

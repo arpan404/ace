@@ -349,7 +349,48 @@ function resolveHandoffLineage(input: {
   };
 }
 
-function collectHandoffReplayMessages(
+function resolveForkLineage(input: {
+  readonly sourceThreadId: ThreadId;
+  readonly threads: ReadonlyArray<OrchestrationThread>;
+}): {
+  readonly threads: ReadonlyArray<OrchestrationThread>;
+  readonly missingThreadId: ThreadId | null;
+  readonly hasCycle: boolean;
+} {
+  const threadsById = new Map(input.threads.map((thread) => [thread.id, thread] as const));
+  const lineageNewestFirst: OrchestrationThread[] = [];
+  const visited = new Set<string>();
+  let currentThreadId: ThreadId | null = input.sourceThreadId;
+
+  while (currentThreadId !== null) {
+    const thread = threadsById.get(currentThreadId);
+    if (!thread) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: currentThreadId,
+        hasCycle: false,
+      };
+    }
+    if (visited.has(thread.id)) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: null,
+        hasCycle: true,
+      };
+    }
+    visited.add(thread.id);
+    lineageNewestFirst.push(thread);
+    currentThreadId = thread.fork?.sourceThreadId ?? null;
+  }
+
+  return {
+    threads: lineageNewestFirst.toReversed(),
+    missingThreadId: null,
+    hasCycle: false,
+  };
+}
+
+function collectThreadReplayMessages(
   sourceThreads: ReadonlyArray<OrchestrationThread>,
 ): ReadonlyArray<{
   readonly role: "user" | "assistant" | "system";
@@ -1443,17 +1484,47 @@ const make = Effect.gen(function* () {
         });
         return;
       }
-      const handoffReplayMessages = collectHandoffReplayMessages(lineage.threads);
+      const handoffReplayMessages = collectThreadReplayMessages(lineage.threads);
       const handoffReplayTurns = sourceMessagesToHandoffReplayTurns(
         handoffReplayMessages,
         thread.handoff.mode,
       );
       replayTurns = [...handoffReplayTurns, ...threadReplayTurns];
     }
-    const forkSourceThreadId =
-      thread.handoff?.mode === "fork" && thread.handoff.fromProvider === thread.handoff.toProvider
-        ? thread.handoff.sourceThreadId
-        : undefined;
+    if (thread.fork) {
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const lineage = resolveForkLineage({
+        sourceThreadId: thread.fork.sourceThreadId,
+        threads: readModel.threads,
+      });
+      if (lineage.hasCycle) {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          detail: "Detected a cycle in fork lineage. The fork chain cannot be replayed.",
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      if (lineage.missingThreadId !== null) {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          detail: `Fork source thread '${lineage.missingThreadId}' is unavailable, so fork context could not be replayed.`,
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      const forkReplayTurns = sourceMessagesToReplayTurns(
+        collectThreadReplayMessages(lineage.threads),
+      );
+      replayTurns = [...forkReplayTurns, ...replayTurns];
+    }
+    const forkSourceThreadId = thread.fork?.sourceThreadId;
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,

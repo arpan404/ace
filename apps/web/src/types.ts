@@ -19,6 +19,7 @@ import type {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadHandoff,
+  ThreadFork,
 } from "@ace/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -165,6 +166,7 @@ export interface Thread {
   branch: string | null;
   worktreePath: string | null;
   handoff?: ThreadHandoff;
+  fork?: ThreadFork;
   historyLoaded?: boolean;
   latestProposedPlanSummary: ProposedPlanSummary | null;
   queuedComposerMessages: QueuedComposerMessage[];
@@ -186,6 +188,7 @@ export interface SidebarThreadSummary {
   branch: string | null;
   worktreePath: string | null;
   handoff?: ThreadHandoff;
+  fork?: ThreadFork;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

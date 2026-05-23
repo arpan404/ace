@@ -2241,6 +2241,7 @@ function useChatViewComponent({
     draft: composerShellDraft,
     hasThreadStarted,
     isServerThread,
+    lockProvider: Boolean(activeThread?.fork),
     modelSettings,
     projectModelSelection: activeProject?.defaultModelSelection,
     providers: providerStatuses,
@@ -6826,11 +6827,8 @@ function useChatViewComponent({
         interactionMode,
         branch: activeThread.branch,
         worktreePath: activeThread.worktreePath,
-        handoff: {
+        fork: {
           sourceThreadId: activeThread.id,
-          fromProvider: resolveHandoffSourceProvider(activeThread),
-          toProvider: modelSelection.provider,
-          mode: "fork",
           createdAt,
         },
         createdAt,
@@ -8443,6 +8441,7 @@ function useChatViewComponent({
           threadId={threadId}
           hasThreadStarted={threadHasStarted(activeThread)}
           isServerThread={isServerThread}
+          lockProvider={Boolean(activeThread.fork)}
           modelSettings={modelSettings}
           projectModelSelection={activeProject?.defaultModelSelection}
           providers={providerStatuses}

@@ -42,6 +42,7 @@ import {
   ProjectIcon,
   ProjectScript,
   ThreadHandoff,
+  ThreadFork,
 } from "./readModel";
 
 export const OrchestrationEventType = Schema.Literals([
@@ -117,6 +118,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
