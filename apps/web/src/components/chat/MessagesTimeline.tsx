@@ -284,7 +284,7 @@ function imageGenerationFrameStyle(dimensions: AssistantImageGenerationPlacehold
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
-interface AssistantMarkdownAnalysisPrewarmJob {
+export interface AssistantMarkdownAnalysisPrewarmJob {
   readonly cacheKey: string;
   readonly input: MarkdownRenderAnalysisInput;
 }
@@ -710,58 +710,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!shouldPrewarmAssistantMarkdown) {
       return [];
     }
-
-    const jobsByMessageId = new Map<string, AssistantMarkdownAnalysisPrewarmJob>();
-    for (const row of rows) {
-      if (!isCompletedAssistantMessageRow(row)) {
-        continue;
-      }
-      const messageText = getChatMessageRenderableText(row.message);
-      const input: MarkdownRenderAnalysisInput = {
-        text: messageText,
-        isStreaming: Boolean(row.message.streaming),
-        renderPlainText: false,
-        ...(row.message.streamingTextState
-          ? {
-              streamingTextState: {
-                totalLineCount: row.message.streamingTextState.totalLineCount,
-                truncatedCharCount: row.message.streamingTextState.truncatedCharCount,
-                truncatedLineCount: row.message.streamingTextState.truncatedLineCount,
-              },
-            }
-          : {}),
-      };
-      if (!shouldWorkerizeMarkdownRenderAnalysis(input)) {
-        continue;
-      }
-      jobsByMessageId.set(String(row.message.id), {
-        cacheKey: buildMarkdownRenderAnalysisCacheKey(
-          input,
-          buildAssistantMarkdownAnalysisStableKey(row.message, messageText),
-        ),
-        input,
-      });
-    }
-
-    const jobs: AssistantMarkdownAnalysisPrewarmJob[] = [];
-    const seenCacheKeys = new Set<string>();
-    for (const messageId of immediateAssistantMarkdownMessageIds) {
-      const job = jobsByMessageId.get(messageId);
-      if (!job || seenCacheKeys.has(job.cacheKey)) {
-        continue;
-      }
-      seenCacheKeys.add(job.cacheKey);
-      jobs.push(job);
-    }
-    for (const messageId of pendingAssistantMarkdownMessageIds) {
-      const job = jobsByMessageId.get(messageId);
-      if (!job || seenCacheKeys.has(job.cacheKey)) {
-        continue;
-      }
-      seenCacheKeys.add(job.cacheKey);
-      jobs.push(job);
-    }
-    return jobs;
+    return buildAssistantMarkdownAnalysisPrewarmJobs({
+      rows,
+      immediateMessageIds: immediateAssistantMarkdownMessageIds,
+      pendingMessageIds: pendingAssistantMarkdownMessageIds,
+    });
   }, [
     immediateAssistantMarkdownMessageIds,
     pendingAssistantMarkdownMessageIds,
@@ -1357,6 +1310,79 @@ function buildAssistantMarkdownAnalysisStableKey(
   messageText: string,
 ): string {
   return `${message.id}:${message.streaming ? "streaming" : (message.completedAt ?? "complete")}:${messageText.length}`;
+}
+
+export function buildAssistantMarkdownAnalysisPrewarmJobs(input: {
+  rows: ReadonlyArray<TimelineRow>;
+  immediateMessageIds: ReadonlyArray<string>;
+  pendingMessageIds: ReadonlyArray<string>;
+}): AssistantMarkdownAnalysisPrewarmJob[] {
+  const requestedMessageIds = [...input.immediateMessageIds, ...input.pendingMessageIds];
+  if (requestedMessageIds.length === 0) {
+    return [];
+  }
+
+  const requestedMessageIdSet = new Set(requestedMessageIds);
+  const rowsByMessageId = new Map<string, AssistantTimelineMessage>();
+  for (const row of input.rows) {
+    if (!isCompletedAssistantMessageRow(row)) {
+      continue;
+    }
+    const messageId = String(row.message.id);
+    if (!requestedMessageIdSet.has(messageId)) {
+      continue;
+    }
+    rowsByMessageId.set(messageId, row.message);
+  }
+
+  const jobs: AssistantMarkdownAnalysisPrewarmJob[] = [];
+  const seenMessageIds = new Set<string>();
+  const seenCacheKeys = new Set<string>();
+  for (const messageId of requestedMessageIds) {
+    if (seenMessageIds.has(messageId)) {
+      continue;
+    }
+    seenMessageIds.add(messageId);
+
+    const message = rowsByMessageId.get(messageId);
+    if (!message) {
+      continue;
+    }
+
+    const messageText = getChatMessageRenderableText(message);
+    const jobInput: MarkdownRenderAnalysisInput = {
+      text: messageText,
+      isStreaming: Boolean(message.streaming),
+      renderPlainText: false,
+      ...(message.streamingTextState
+        ? {
+            streamingTextState: {
+              totalLineCount: message.streamingTextState.totalLineCount,
+              truncatedCharCount: message.streamingTextState.truncatedCharCount,
+              truncatedLineCount: message.streamingTextState.truncatedLineCount,
+            },
+          }
+        : {}),
+    };
+    if (!shouldWorkerizeMarkdownRenderAnalysis(jobInput)) {
+      continue;
+    }
+
+    const cacheKey = buildMarkdownRenderAnalysisCacheKey(
+      jobInput,
+      buildAssistantMarkdownAnalysisStableKey(message, messageText),
+    );
+    if (seenCacheKeys.has(cacheKey)) {
+      continue;
+    }
+    seenCacheKeys.add(cacheKey);
+    jobs.push({
+      cacheKey,
+      input: jobInput,
+    });
+  }
+
+  return jobs;
 }
 
 function deriveImmediateAssistantMarkdownMessageIds(
