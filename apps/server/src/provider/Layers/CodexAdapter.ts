@@ -1756,24 +1756,47 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           : {}),
       };
 
-      const session = yield* Effect.tryPromise({
-        try: () => manager.startSession(managerInput),
-        catch: (cause) =>
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId: input.threadId,
-            detail: toMessage(cause, "Failed to start Codex adapter session."),
-            cause,
-          }),
-      }).pipe(
+      const startManagerSession = (startInput: CodexAppServerStartSessionInput) =>
+        Effect.tryPromise({
+          try: () => manager.startSession(startInput),
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId: input.threadId,
+              detail: toMessage(cause, "Failed to start Codex adapter session."),
+              cause,
+            }),
+        });
+      let nativeForkSucceeded = false;
+      const session = yield* (
+        input.forkSource?.resumeCursor !== undefined
+          ? startManagerSession({
+              ...managerInput,
+              forkSource: input.forkSource,
+            }).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  nativeForkSucceeded = true;
+                }),
+              ),
+              Effect.catch((error) =>
+                Effect.logWarning("codex native fork failed; falling back to transcript replay", {
+                  threadId: input.threadId,
+                  sourceThreadId: input.forkSource?.threadId,
+                  detail: error.message,
+                }).pipe(Effect.flatMap(() => startManagerSession(managerInput))),
+              ),
+            )
+          : startManagerSession(managerInput)
+      ).pipe(
         Effect.tapError(() =>
           Effect.sync(() => extensionCommandsByThreadId.delete(input.threadId)),
         ),
       );
       const replayTurns = cloneReplayTurns(input.replayTurns);
       replayBootstrapByThreadId.set(input.threadId, {
-        replayTurns,
-        pendingBootstrapReset: replayTurns.length > 0,
+        replayTurns: nativeForkSucceeded ? [] : replayTurns,
+        pendingBootstrapReset: !nativeForkSucceeded && replayTurns.length > 0,
       });
       return {
         ...session,

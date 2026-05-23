@@ -66,6 +66,9 @@ function formatProviderLabel(provider: ProviderKind): string {
 function formatHandoffMarkerText(handoff: ThreadHandoff): string {
   const fromLabel = formatProviderLabel(handoff.fromProvider);
   const toLabel = formatProviderLabel(handoff.toProvider);
+  if (handoff.mode === "fork") {
+    return `Forked from ${fromLabel}`;
+  }
   return `Handoff from ${fromLabel} to ${toLabel}`;
 }
 
@@ -82,6 +85,9 @@ function formatHandoffMarkerTextForTimeline(input: {
   }
   const fromLabel = formatProviderLabel(resolveThreadHandoffProvider(input.sourceThread));
   const toLabel = formatProviderLabel(input.handoff.toProvider);
+  if (input.handoff.mode === "fork") {
+    return `Forked from ${fromLabel}`;
+  }
   return `Handoff from ${fromLabel} to ${toLabel}`;
 }
 
@@ -94,7 +100,7 @@ function buildHandoffMarkerMessage(
   sourceThread?: Pick<Thread, "handoff" | "modelSelection"> | null | undefined,
 ): ChatMessage {
   const messageId = MessageId.makeUnsafe(
-    `${HANDOFF_MESSAGE_PREFIX}:${handoff.createdAt}:${handoff.sourceThreadId}:${handoff.toProvider}`,
+    `${HANDOFF_MESSAGE_PREFIX}:${handoff.mode}:${handoff.createdAt}:${handoff.sourceThreadId}:${handoff.toProvider}`,
   );
   return {
     id: messageId,

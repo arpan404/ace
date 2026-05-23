@@ -824,6 +824,27 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         persistedBinding.resumeCursor !== undefined
           ? persistedBinding.resumeCursor
           : undefined;
+      const forkSourceBinding =
+        input.forkSource !== undefined
+          ? Option.getOrUndefined(yield* directory.getBinding(input.forkSource.threadId))
+          : undefined;
+      const forkSourceResumeCursor =
+        input.forkSource !== undefined &&
+        forkSourceBinding?.provider === input.provider &&
+        forkSourceBinding.resumeCursor !== null &&
+        forkSourceBinding.resumeCursor !== undefined
+          ? forkSourceBinding.resumeCursor
+          : input.forkSource?.resumeCursor;
+      const forkSource =
+        input.forkSource !== undefined &&
+        (forkSourceBinding === undefined || forkSourceBinding.provider === input.provider)
+          ? {
+              threadId: input.forkSource.threadId,
+              ...(forkSourceResumeCursor !== undefined
+                ? { resumeCursor: forkSourceResumeCursor }
+                : {}),
+            }
+          : undefined;
       const effectiveResumeCursor = input.resumeCursor ?? persistedResumeCursor;
       const replayTurns =
         explicitReplayTurns ??
@@ -841,6 +862,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const session = yield* adapter.startSession({
         ...input,
         ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
+        ...(forkSource !== undefined ? { forkSource } : {}),
         ...(explicitReplayTurns !== undefined || replayTurns.length > 0 ? { replayTurns } : {}),
       });
 

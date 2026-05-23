@@ -114,6 +114,27 @@ describe("ProviderSessionStartInput", () => {
     ]);
   });
 
+  it("accepts a provider-neutral fork source", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-fork-target",
+      provider: "codex",
+      runtimeMode: "full-access",
+      forkSource: {
+        threadId: "thread-fork-source",
+        resumeCursor: {
+          threadId: "codex-provider-thread",
+        },
+      },
+    });
+
+    expect(parsed.forkSource).toEqual({
+      threadId: "thread-fork-source",
+      resumeCursor: {
+        threadId: "codex-provider-thread",
+      },
+    });
+  });
+
   it("accepts pi thought-level model options", () => {
     const parsed = decodeProviderSessionStartInput({
       threadId: "thread-pi-1",

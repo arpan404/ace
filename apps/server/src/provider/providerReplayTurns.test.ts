@@ -87,4 +87,10 @@ describe("providerReplayTurns", () => {
     expect(sourceMessagesToHandoffReplayTurns([], "transcript")).toEqual([]);
     expect(sourceMessagesToHandoffReplayTurns([], "compact")).toEqual([]);
   });
+
+  it("uses exact replay turns for fork fallback", () => {
+    expect(sourceMessagesToHandoffReplayTurns(sourceMessages, "fork")).toEqual(
+      sourceMessagesToReplayTurns(sourceMessages),
+    );
+  });
 });

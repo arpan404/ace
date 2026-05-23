@@ -148,6 +148,10 @@ export interface CodexAppServerStartSessionInput {
   readonly model?: string;
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
+  readonly forkSource?: {
+    readonly threadId: ThreadId;
+    readonly resumeCursor?: unknown;
+  };
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly launchEnv?: Readonly<Record<string, string>>;
@@ -921,24 +925,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         persistExtendedHistory: true,
       };
       const resumeThreadId = readResumeThreadId(input);
+      const forkSourceThreadId = readForkSourceThreadId(input);
       this.emitLifecycleEvent(
         context,
         "session/threadOpenRequested",
-        resumeThreadId
-          ? `Attempting to resume thread ${resumeThreadId}.`
-          : "Starting a new Codex thread.",
+        forkSourceThreadId
+          ? `Forking thread ${forkSourceThreadId}.`
+          : resumeThreadId
+            ? `Attempting to resume thread ${resumeThreadId}.`
+            : "Starting a new Codex thread.",
       );
       await Effect.logInfo("codex app-server opening thread", {
         threadId,
         requestedRuntimeMode: input.runtimeMode,
         requestedModel: normalizedModel ?? null,
         requestedCwd: resolvedCwd,
+        forkSourceThreadId: forkSourceThreadId ?? null,
         resumeThreadId: resumeThreadId ?? null,
       }).pipe(this.runPromise);
 
-      let threadOpenMethod: "thread/start" | "thread/resume" = "thread/start";
+      let threadOpenMethod: "thread/start" | "thread/resume" | "thread/fork" = "thread/start";
       let threadOpenResponse: unknown;
-      if (resumeThreadId) {
+      if (forkSourceThreadId) {
+        threadOpenMethod = "thread/fork";
+        threadOpenResponse = await this.sendRequest(context, "thread/fork", {
+          ...sessionOverrides,
+          threadId: forkSourceThreadId,
+        });
+      } else if (resumeThreadId) {
         try {
           threadOpenMethod = "thread/resume";
           threadOpenResponse = await this.sendRequest(context, "thread/resume", {
@@ -1006,6 +1020,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         threadId,
         threadOpenMethod,
         requestedResumeThreadId: resumeThreadId ?? null,
+        forkSourceThreadId: forkSourceThreadId ?? null,
         resolvedThreadId: providerThreadId,
         requestedRuntimeMode: input.runtimeMode,
       }).pipe(this.runPromise);
@@ -2238,6 +2253,12 @@ function readResumeThreadId(input: {
   readonly runtimeMode?: RuntimeMode;
 }): string | undefined {
   return readResumeCursorThreadId(input.resumeCursor);
+}
+
+function readForkSourceThreadId(input: {
+  readonly forkSource?: { readonly resumeCursor?: unknown };
+}): string | undefined {
+  return readResumeCursorThreadId(input.forkSource?.resumeCursor);
 }
 
 function toTurnId(value: string | undefined): TurnId | undefined {

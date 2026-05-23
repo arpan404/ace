@@ -3205,7 +3205,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("mt-2 flex min-h-5 flex-wrap");
     expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
     expect(markup).toContain('data-assistant-turn-actions="true"');
-    expect(markup).toContain("ml-auto flex items-center gap-1 opacity-0");
+    expect(markup).toContain("flex items-center gap-1 opacity-0");
     expect(markup).toContain('aria-label="Copy message"');
   });
 
@@ -3291,7 +3291,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
-        providerCommands={[{ name: "fork", kind: "provider" }]}
         onForkConversation={() => {}}
         resolvedTheme="light"
         timestampFormat="24-hour"
@@ -3301,6 +3300,58 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('aria-label="Fork conversation"');
     expect(markup).toContain("Fork conversation");
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf('aria-label="Copy message"'),
+    );
+    expect(markup.indexOf('aria-label="Copy message"')).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
+  });
+
+  it("does not require a provider slash command to render the fork action", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-with-agnostic-fork-action",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-with-agnostic-fork-action"),
+              role: "assistant",
+              text: "Latest assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        providerCommands={[]}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Fork conversation"');
   });
 
   it("shows hover metadata only on the last assistant message within a turn", async () => {

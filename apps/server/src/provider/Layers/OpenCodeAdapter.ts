@@ -2002,9 +2002,26 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           };
 
           const resumeSessionId = readOpenCodeResumeSessionId(input.resumeCursor);
+          const forkSourceSessionId = readOpenCodeResumeSessionId(input.forkSource?.resumeCursor);
           let opencodeSessionId: string;
           let resumedExistingSession = false;
-          if (resumeSessionId) {
+          let nativeForkSucceeded = false;
+          if (forkSourceSessionId) {
+            try {
+              const forked = await client.session.fork({
+                sessionID: forkSourceSessionId,
+                directory: cwd,
+              });
+              if (forked.error || !forked.data) {
+                opencodeSessionId = await createSession();
+              } else {
+                opencodeSessionId = forked.data.id;
+                nativeForkSucceeded = true;
+              }
+            } catch {
+              opencodeSessionId = await createSession();
+            }
+          } else if (resumeSessionId) {
             const resumed = await client.session.get({
               sessionID: resumeSessionId,
               directory: cwd,
@@ -2078,7 +2095,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             defaultModels,
             modelCatalog: body,
             turns: [],
-            replayTurns: cloneReplayTurns(input.replayTurns),
+            replayTurns: nativeForkSucceeded ? [] : cloneReplayTurns(input.replayTurns),
             totalProcessedTokens: 0,
             sequenceTieBreakersByTimestampMs: new Map(),
             nextFallbackSessionSequence: 0,
@@ -2093,7 +2110,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             sseAbort: null,
             idleStopTimer: null,
             lastActivityAtMs: Date.now(),
-            pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0 && !resumedExistingSession,
+            pendingBootstrapReset:
+              (input.replayTurns?.length ?? 0) > 0 &&
+              !resumedExistingSession &&
+              !nativeForkSucceeded,
             stopped: false,
           };
           sessions.set(input.threadId, ctx);

@@ -229,6 +229,7 @@ type GeminiToolCallLike = {
 type GeminiSessionMetadata = {
   readonly authMethods: ReadonlyArray<GeminiAuthMethod>;
   readonly loadSession: boolean;
+  readonly forkSession: boolean;
   availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
   currentModeId?: string;
@@ -809,6 +810,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   return {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
+    forkSession: asObject(asObject(agentCapabilities?.sessionCapabilities)?.fork) !== undefined,
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
     availableModels: [],
@@ -2337,9 +2339,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
   ): Promise<{
     readonly sessionId: string;
     readonly metadata: GeminiSessionMetadata;
-    readonly method: "session/load" | "session/new";
+    readonly method: "session/fork" | "session/load" | "session/new";
   }> => {
     const resumeSessionId = readGeminiResumeCursor(input.resumeCursor);
+    const forkSourceSessionId = readGeminiResumeCursor(input.forkSource?.resumeCursor);
+    const canForkSession = forkSourceSessionId !== undefined && metadata.forkSession;
     const canLoadSession = resumeSessionId !== undefined && metadata.loadSession;
     const newSessionParams = {
       cwd,
@@ -2347,7 +2351,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const execute = async (
-      method: "session/load" | "session/new",
+      method: "session/fork" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<never>;
@@ -2358,7 +2362,9 @@ const makeGeminiAdapter = Effect.gen(function* () {
         timeoutMs: ACP_CONTROL_TIMEOUT_MS,
       });
       const resultRecord = asObject(result);
-      const sessionId = asString(resultRecord?.sessionId) ?? resumeSessionId;
+      const sessionId =
+        asString(resultRecord?.sessionId) ??
+        (method === "session/load" ? resumeSessionId : undefined);
       if (!sessionId) {
         throw new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -2374,7 +2380,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const executeWithAuthRetry = async (
-      method: "session/load" | "session/new",
+      method: "session/fork" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<never>;
@@ -2391,6 +2397,20 @@ const makeGeminiAdapter = Effect.gen(function* () {
         return await execute(method, params);
       }
     };
+
+    if (canForkSession) {
+      try {
+        return await executeWithAuthRetry("session/fork", {
+          ...newSessionParams,
+          sessionId: forkSourceSessionId,
+        });
+      } catch (cause) {
+        if (!isMissingGeminiSessionError(cause)) {
+          throw cause;
+        }
+        return await executeWithAuthRetry("session/new", newSessionParams);
+      }
+    }
 
     if (canLoadSession) {
       try {

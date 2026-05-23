@@ -298,6 +298,9 @@ export function sourceMessagesToHandoffReplayTurns(
   if (replayTurns.length === 0) {
     return [];
   }
+  if (mode === "fork") {
+    return replayTurns;
+  }
   const handoffInstructionTurn = buildHandoffInstructionTurn(mode);
   return [handoffInstructionTurn, ...bestHandoffReplayTurns(replayTurns)];
 }

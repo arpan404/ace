@@ -456,10 +456,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => buildUserMessageProviderCommandLookup(providerCommands),
     [providerCommands],
   );
-  const supportsForkConversation = useMemo(
-    () => hasProviderSlashCommand(providerCommands, "fork"),
-    [providerCommands],
-  );
+  const supportsForkConversation = Boolean(onForkConversation);
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
       timelineEntries,
@@ -2049,19 +2046,6 @@ function buildUserMessageProviderCommandLookup(
   return lookup;
 }
 
-function hasProviderSlashCommand(
-  commands: ReadonlyArray<ProviderSlashCommand>,
-  commandName: string,
-): boolean {
-  const normalizedTarget = normalizeProviderSlashCommandName(commandName);
-  if (!normalizedTarget) {
-    return false;
-  }
-  return commands.some(
-    (command) => normalizeProviderSlashCommandName(command.name) === normalizedTarget,
-  );
-}
-
 function splitTrailingMentionPunctuation(token: string): {
   token: string;
   trailingText: string;
@@ -2935,21 +2919,21 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
       {hasActions && (
         <div
           className={cn(
-            "ml-auto flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-            !props.timing && "w-full justify-end",
+            "flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+            !props.timing && "ml-auto",
           )}
           data-assistant-turn-actions="true"
         >
-          {props.onForkConversation && (
-            <AssistantForkButton
-              disabled={props.isForkConversationDisabled ?? false}
-              onClick={props.onForkConversation}
-            />
-          )}
           {props.copyText && (
             <MessageCopyButton
               text={props.copyText}
               className="bg-background/45 hover:bg-background/78"
+            />
+          )}
+          {props.onForkConversation && (
+            <AssistantForkButton
+              disabled={props.isForkConversationDisabled ?? false}
+              onClick={props.onForkConversation}
             />
           )}
         </div>

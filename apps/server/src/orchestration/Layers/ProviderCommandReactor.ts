@@ -994,6 +994,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly preferFreshSession?: boolean;
+      readonly forkSourceThreadId?: ThreadId;
       readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     },
   ) {
@@ -1038,6 +1039,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly forkSourceThreadId?: ThreadId;
       readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     }) =>
       providerService.startSession(threadId, {
@@ -1047,6 +1049,9 @@ const make = Effect.gen(function* () {
         ...(threadTitle ? { threadTitle } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.forkSourceThreadId !== undefined
+          ? { forkSource: { threadId: input.forkSourceThreadId } }
+          : {}),
         ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
         runtimeMode: desiredRuntimeMode,
         interactionMode: desiredInteractionMode,
@@ -1154,7 +1159,14 @@ const make = Effect.gen(function* () {
     }
 
     const startedSession = yield* startProviderSession(
-      options?.replayTurns !== undefined ? { replayTurns: options.replayTurns } : undefined,
+      options?.replayTurns !== undefined || options?.forkSourceThreadId !== undefined
+        ? {
+            ...(options.forkSourceThreadId !== undefined
+              ? { forkSourceThreadId: options.forkSourceThreadId }
+              : {}),
+            ...(options.replayTurns !== undefined ? { replayTurns: options.replayTurns } : {}),
+          }
+        : undefined,
     );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
@@ -1166,6 +1178,7 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
+    readonly forkSourceThreadId?: ThreadId;
     readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     readonly createdAt: string;
   }) {
@@ -1175,6 +1188,9 @@ const make = Effect.gen(function* () {
     }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(input.forkSourceThreadId !== undefined
+        ? { forkSourceThreadId: input.forkSourceThreadId }
+        : {}),
       ...(input.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
     });
     if (input.modelSelection !== undefined) {
@@ -1434,6 +1450,10 @@ const make = Effect.gen(function* () {
       );
       replayTurns = [...handoffReplayTurns, ...threadReplayTurns];
     }
+    const forkSourceThreadId =
+      thread.handoff?.mode === "fork" && thread.handoff.fromProvider === thread.handoff.toProvider
+        ? thread.handoff.sourceThreadId
+        : undefined;
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
@@ -1443,6 +1463,7 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
+      ...(forkSourceThreadId !== undefined ? { forkSourceThreadId } : {}),
       replayTurns,
       createdAt: event.payload.createdAt,
     }).pipe(

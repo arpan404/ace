@@ -3875,8 +3875,8 @@ function useChatViewComponent({
         images: mergedQueuedImages,
         terminalContexts: mergedQueuedTerminalContexts,
         modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
+        runtimeMode: activeThread.runtimeMode,
+        interactionMode: activeThread.interactionMode,
       };
       const targetThreadId = await ensureQueuedComposerThread({
         titleSeed: promptForQueueBase || pendingCommentsForQueue[0]?.body || "Pending comments",
@@ -6783,29 +6783,89 @@ function useChatViewComponent({
   );
 
   const onForkConversation = useEffectEvent(async () => {
-    if (!activeThread) {
+    const api = readNativeApi();
+    if (!api || !activeThread || !activeProject || !isServerThread) {
+      return;
+    }
+    if (activeThread.messages.length === 0) {
+      toastManager.add({
+        type: "error",
+        title: "Send a message before forking.",
+      });
+      return;
+    }
+    if (
+      handoffInFlight ||
+      liveTurnInProgress ||
+      isSendBusy ||
+      isConnecting ||
+      sendInFlightRef.current
+    ) {
+      toastManager.add({
+        type: "error",
+        title: "Wait for the current turn to finish.",
+      });
       return;
     }
 
-    const forkCommand = parseProviderComposerSlashCommand("/fork", composerProviderCommands);
-    if (!forkCommand) {
-      return;
-    }
+    const createdAt = new Date().toISOString();
+    const nextThreadId = newThreadId();
+    const modelSelection = activeThread.modelSelection;
+    const nextThreadTitle = truncate(`${activeThread.title} fork`);
 
-    if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
-      setThreadError(activeThread.id, "Finish the current turn before forking the conversation.");
-      return;
-    }
+    setHandoffInFlight(true);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.create",
+        commandId: newCommandId(),
+        threadId: nextThreadId,
+        projectId: activeProject.id,
+        title: nextThreadTitle,
+        modelSelection,
+        runtimeMode,
+        interactionMode,
+        branch: activeThread.branch,
+        worktreePath: activeThread.worktreePath,
+        handoff: {
+          sourceThreadId: activeThread.id,
+          fromProvider: resolveHandoffSourceProvider(activeThread),
+          toProvider: modelSelection.provider,
+          mode: "fork",
+          createdAt,
+        },
+        createdAt,
+      });
 
-    setThreadError(activeThread.id, null);
-    await dispatchComposerMessage({
-      prompt: forkCommand.promptText,
-      images: [],
-      terminalContexts: [],
-      modelSelection: selectedModelSelection,
-      runtimeMode,
-      interactionMode,
-    });
+      setComposerDraftModelSelection(nextThreadId, modelSelection);
+      setStickyComposerModelSelection(modelSelection);
+
+      try {
+        const readModelThread = await hydrateThreadFromCache(nextThreadId, {
+          expectedUpdatedAt: null,
+        });
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        console.error("Failed to hydrate new fork thread", error);
+      }
+
+      await navigate({
+        to: "/$threadId",
+        params: { threadId: nextThreadId },
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not create fork thread",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An error occurred while creating the fork thread.",
+      });
+    } finally {
+      setHandoffInFlight(false);
+    }
   });
 
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
@@ -7942,6 +8002,7 @@ function useChatViewComponent({
   const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
   const activeThreadProvider = activeThread?.session?.provider;
   const activeThreadModelProvider = activeThread?.modelSelection.provider;
+  const canForkActiveThread = isServerThread && activeThreadMessagesLength > 0;
   const messagesTimelineProps = useMemo(
     () => ({
       hasMessages:
@@ -7986,8 +8047,8 @@ function useChatViewComponent({
       onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
       enableLocalFileLinks: canOpenLocalMarkdownFiles,
       providerCommands: composerProviderCommands,
-      onForkConversation,
-      isForkConversationDisabled: isWorking,
+      onForkConversation: canForkActiveThread ? onForkConversation : null,
+      isForkConversationDisabled: isWorking || handoffInFlight,
       enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
       resolvedTheme,
       timestampFormat,
@@ -7998,6 +8059,7 @@ function useChatViewComponent({
       activeThreadMessagesLength,
       activeThreadProvider,
       activeThreadModelProvider,
+      canForkActiveThread,
       activeForSideEffects,
       activeWorkStartedAt,
       stuckTurnSnapshot,
@@ -8010,6 +8072,7 @@ function useChatViewComponent({
       isGitRepo,
       isHandoffThread,
       hideCompletedWorkMessages,
+      handoffInFlight,
       isRevertingCheckpoint,
       isThreadHistoryLoading,
       isWorking,

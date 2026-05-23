@@ -387,6 +387,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               transcriptAuthority: "provider",
               historyAuthority: "provider-session",
               sessionResumeMode: "native",
+              sessionForkMode: "native",
             },
             runtimeMode: "approval-required",
             activeTurnId: asTurnId("turn-1"),
