@@ -1160,6 +1160,142 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[1]).toBe(thread2);
   });
 
+  it("does not replace sidebar summaries for sub-second streaming churn", () => {
+    const threadId = ThreadId.makeUnsafe("thread-streaming-sidebar");
+    const messageId = MessageId.makeUnsafe("message-streaming-sidebar");
+    const turnId = TurnId.makeUnsafe("turn-streaming-sidebar");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "hel",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:00.100Z",
+          updatedAt: "2026-02-27T00:00:00.100Z",
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.100Z",
+        },
+      ),
+    );
+    const sidebarAfterFirstChunk = first.sidebarThreadsById;
+
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "lo",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:00.500Z",
+          updatedAt: "2026-02-27T00:00:00.500Z",
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.500Z",
+        },
+      ),
+    );
+
+    expect(second.threads[0]?.updatedAt).toBe("2026-02-27T00:00:00.500Z");
+    expect(second.sidebarThreadsById).toBe(sidebarAfterFirstChunk);
+
+    const completed = applyOrchestrationEvent(
+      second,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "hello",
+          turnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:00.700Z",
+          updatedAt: "2026-02-27T00:00:00.700Z",
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.700Z",
+        },
+      ),
+    );
+
+    expect(completed.sidebarThreadsById).not.toBe(sidebarAfterFirstChunk);
+    expect(completed.sidebarThreadsById[threadId]?.latestTurn?.state).toBe("completed");
+  });
+
+  it("does not replace sidebar summaries for sub-second tool activity churn", () => {
+    const threadId = ThreadId.makeUnsafe("thread-activity-sidebar");
+    const turnId = TurnId.makeUnsafe("turn-activity-sidebar");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-output-1"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              streamKind: "command_output",
+              terminalOutput: "hello",
+            },
+            turnId,
+            createdAt: "2026-02-27T00:00:00.100Z",
+          },
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.100Z",
+        },
+      ),
+    );
+    const sidebarAfterFirstActivity = first.sidebarThreadsById;
+
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-output-2"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              streamKind: "command_output",
+              terminalOutput: " world",
+            },
+            turnId,
+            createdAt: "2026-02-27T00:00:00.500Z",
+          },
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.500Z",
+        },
+      ),
+    );
+
+    expect(second.threads[0]?.updatedAt).toBe("2026-02-27T00:00:00.500Z");
+    expect(second.sidebarThreadsById).toBe(sidebarAfterFirstActivity);
+  });
+
   it("preserves streamed assistant content when completion carries only trailing text", () => {
     const threadId = ThreadId.makeUnsafe("thread-streamed-completion");
     const messageId = MessageId.makeUnsafe("message-streamed-completion");
