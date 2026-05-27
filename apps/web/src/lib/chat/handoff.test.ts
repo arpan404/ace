@@ -119,7 +119,7 @@ describe("handoff timeline", () => {
     ]);
   });
 
-  it("shows the source conversation before a forked chat", () => {
+  it("shows the source conversation before a forked chat without a provider handoff marker", () => {
     const source = thread({
       id: "thread-source",
       provider: "codex",
@@ -149,14 +149,10 @@ describe("handoff timeline", () => {
       }),
     });
 
-    expect(timeline.messages.map((message) => message.text)).toEqual([
-      "source work",
-      "Forked from Codex",
-      "fork work",
-    ]);
+    expect(timeline.messages.map((message) => message.text)).toEqual(["source work", "fork work"]);
   });
 
-  it("keeps upstream handoff history when forking a handoff thread", () => {
+  it("keeps upstream handoff history without marking chat forks as handoffs", () => {
     const copilot = thread({
       id: "thread-github-copilot",
       provider: "githubCopilot",
@@ -204,7 +200,6 @@ describe("handoff timeline", () => {
       "copilot work",
       "Handoff from Copilot to Pi",
       "pi work",
-      "Forked from Pi",
       "fork work",
     ]);
   });

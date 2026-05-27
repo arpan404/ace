@@ -23,6 +23,26 @@ vi.mock("../ChatMarkdown", () => ({
   ),
 }));
 
+vi.mock("./MessageCopyButton", () => ({
+  MessageCopyButton: ({
+    text,
+    size,
+    variant,
+  }: {
+    text: string;
+    size?: string;
+    variant?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label="Copy message"
+      {...(size === "icon-xs" ? { "data-copy-text": text } : {})}
+      data-size={size}
+      data-variant={variant}
+    />
+  ),
+}));
+
 function matchMedia() {
   return {
     matches: false,
@@ -2224,11 +2244,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
-    expect(markup).toContain("Edited 2 files");
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf("Edited 2 files"),
+      markup.indexOf("Changed files (2)"),
     );
-    expect(markup.indexOf("Edited 2 files")).toBeLessThan(
+    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
       markup.indexOf("Thanks, now fix the spacing below it."),
     );
   });
@@ -2313,7 +2332,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
-    expect(markup).toContain("Edited 2 files");
     expect(markup).toContain("Collapse all");
     expect(markup).not.toContain("Expand all");
     expect(markup).toContain('aria-label="Copy message"');
@@ -2321,9 +2339,9 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       markup.indexOf("Updated the timeline rendering."),
     );
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf("Edited 2 files"),
+      markup.indexOf("Changed files (2)"),
     );
-    expect(markup.indexOf("Edited 2 files")).toBeLessThan(
+    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
       markup.indexOf('data-response-summary="true"'),
     );
   });
@@ -3146,7 +3164,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("•");
   });
 
-  it("keeps previous assistant time metadata hidden until hover after a later user reply", async () => {
+  it("shows previous assistant time metadata after a later user reply", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -3203,13 +3221,13 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-response-summary-time="');
     expect(markup).toContain('data-response-summary-elapsed="3s"');
     expect(markup).toContain("mt-2 flex min-h-5 flex-wrap");
-    expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
+    expect(markup).not.toContain("opacity-0 group-hover/timeline:opacity-100");
     expect(markup).toContain('data-assistant-turn-copy-action="true"');
     expect(markup).toContain('aria-label="Copy message"');
-    expect(markup).toContain('data-variant="ghost"');
     expect(markup.indexOf('data-assistant-turn-copy-action="true"')).toBeLessThan(
       markup.indexOf('data-response-summary="true"'),
     );
+    expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
   it("shows the latest assistant time metadata without hover when no later user reply exists", async () => {
@@ -3255,7 +3273,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-response-summary="true"');
     expect(markup).toContain('data-response-summary-elapsed="3s"');
-    expect(markup).toContain("opacity-100");
+    expect(markup).not.toContain("opacity-0 group-hover/timeline:opacity-100");
+    expect(markup).toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).toContain('aria-label="Copy message"');
+    expect(markup.indexOf('data-assistant-turn-copy-action="true"')).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
     expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
@@ -3303,6 +3326,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('aria-label="Fork conversation"');
     expect(markup).toContain("Fork conversation");
+    expect(markup).toContain("opacity-0 transition-opacity");
+    expect(markup).toContain("group-hover/timeline:opacity-100");
     expect(markup.indexOf('aria-label="Copy message"')).toBeLessThan(
       markup.indexOf('data-response-summary="true"'),
     );
@@ -3429,6 +3454,220 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
     expect(markup).toContain('data-response-summary-elapsed="4s"');
+    expect(markup.match(/data-assistant-turn-copy-action="true"/g) ?? []).toHaveLength(1);
+    expect(markup).toContain('data-copy-text="First response chunk.\n\nFinal response chunk."');
+  });
+
+  it("copies only the visible terminal assistant message when completed work is hidden", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-hidden-work-copy");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        hideCompletedWorkMessages
+        timelineEntries={[
+          {
+            id: "user-hidden-work-copy",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-hidden-work-copy"),
+              role: "user",
+              text: "Do the thing.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-hidden-work-copy-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-hidden-work-copy-1"),
+              role: "assistant",
+              turnId,
+              text: "Hidden earlier assistant chunk.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-hidden-work-copy-2",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-hidden-work-copy-2"),
+              role: "assistant",
+              turnId,
+              text: "Visible final assistant chunk.",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain("Hidden earlier assistant chunk.");
+    expect(markup).toContain("Visible final assistant chunk.");
+    expect(markup).toContain('data-copy-text="Visible final assistant chunk."');
+  });
+
+  it("shows fork only on the latest assistant turn while copy remains on each terminal turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const firstTurnId = TurnId.makeUnsafe("turn-copy-fork-first");
+    const secondTurnId = TurnId.makeUnsafe("turn-copy-fork-second");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-copy-fork-first",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-copy-fork-first"),
+              role: "assistant",
+              turnId: firstTurnId,
+              text: "First terminal turn.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-copy-fork-second",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-copy-fork-second"),
+              role: "assistant",
+              turnId: secondTurnId,
+              text: "Second terminal turn.",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup.match(/data-assistant-turn-copy-action="true"/g) ?? []).toHaveLength(2);
+    expect(markup.match(/aria-label="Fork conversation"/g) ?? []).toHaveLength(1);
+    expect(markup.indexOf("Second terminal turn.")).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
+  });
+
+  it("renders assistant footer after trailing work rows for the turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-footer-after-work");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-before-trailing-work",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-before-trailing-work"),
+              role: "assistant",
+              turnId,
+              text: "Assistant text before work.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "work-after-assistant",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            entry: {
+              id: "work-after-assistant",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              label: "Run command",
+              toolTitle: "Run command",
+              tone: "tool",
+              requestKind: "command",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Assistant text before work.");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain('data-assistant-turn-footer="true"');
+    expect(markup.indexOf("Assistant text before work.")).toBeLessThan(
+      markup.indexOf("Ran 1 command"),
+    );
+    expect(markup.indexOf("Ran 1 command")).toBeLessThan(
+      markup.indexOf('data-assistant-turn-footer="true"'),
+    );
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
   });
 
   it("does not render an assistant header for assistant messages", async () => {
