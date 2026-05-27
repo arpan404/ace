@@ -202,6 +202,8 @@ describe("decider handoff", () => {
               provider: "cursor",
               model: "cursor-model",
             },
+            runtimeMode: "full-access",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
             createdAt: "2026-05-06T10:02:00.000Z",
           },
         }),

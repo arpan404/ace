@@ -160,7 +160,7 @@ interface ConnectedComposerProviderStatusBannerProps {
   readonly threadId: ThreadId;
   readonly hasThreadStarted: boolean;
   readonly isServerThread: boolean;
-  readonly lockProvider?: boolean;
+  readonly lockProvider?: boolean | undefined;
   readonly modelSettings: Pick<UnifiedSettings, "providers">;
   readonly projectModelSelection: ModelSelection | null | undefined;
   readonly providers: ReadonlyArray<ServerProvider>;

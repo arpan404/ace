@@ -173,6 +173,10 @@ function resolveThreadProvider(thread: OrchestrationThread): ProviderKind {
   return thread.modelSelection.provider;
 }
 
+function resolveThreadLineageSourceThreadId(thread: OrchestrationThread): ThreadId | null {
+  return thread.handoff?.sourceThreadId ?? thread.fork?.sourceThreadId ?? null;
+}
+
 function threadCanDispatchQueuedMessage(
   thread: OrchestrationThread,
   options?: { readonly allowInterruptedDispatch?: boolean },
@@ -339,7 +343,7 @@ function resolveHandoffLineage(input: {
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {
@@ -380,7 +384,7 @@ function resolveForkLineage(input: {
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.fork?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {

@@ -16,6 +16,7 @@ import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { useHostConnectionStore } from "../hostConnectionStore";
+import { resolveThreadLineageSourceThreadId } from "../lib/chat/handoff";
 
 function clearThreadHydrationRetry(
   retryTimeoutRef: { current: ReturnType<typeof setTimeout> | null },
@@ -202,20 +203,22 @@ function ChatThreadRouteView() {
     [],
   );
 
-  const handoffSourceThreadId = serverThread?.handoff?.sourceThreadId;
-  const handoffSourceThread = useStore((store) =>
-    handoffSourceThreadId ? getThreadById(store.threads, handoffSourceThreadId) : undefined,
+  const lineageSourceThreadId = serverThread
+    ? resolveThreadLineageSourceThreadId(serverThread)
+    : null;
+  const lineageSourceThread = useStore((store) =>
+    lineageSourceThreadId ? getThreadById(store.threads, lineageSourceThreadId) : undefined,
   );
   useEffect(() => {
-    if (!bootstrapComplete || !handoffSourceThreadId) {
+    if (!bootstrapComplete || !lineageSourceThreadId) {
       return;
     }
-    const sourceThread = handoffSourceThread;
+    const sourceThread = lineageSourceThread;
     if (sourceThread && sourceThread.historyLoaded !== false) {
       return;
     }
     if (sourceThread?.updatedAt) {
-      const cached = readCachedHydratedThread(handoffSourceThreadId, sourceThread.updatedAt);
+      const cached = readCachedHydratedThread(lineageSourceThreadId, sourceThread.updatedAt);
       if (cached) {
         startTransition(() => {
           hydrateThreadFromReadModel(cached);
@@ -226,7 +229,7 @@ function ChatThreadRouteView() {
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(handoffSourceThreadId, {
+        const readModelThread = await hydrateThreadFromCache(lineageSourceThreadId, {
           expectedUpdatedAt: sourceThread?.updatedAt ?? null,
         });
         if (canceled) {
@@ -236,13 +239,13 @@ function ChatThreadRouteView() {
           hydrateThreadFromReadModel(readModelThread);
         });
       } catch (error) {
-        console.error("Failed to hydrate handoff source thread", error);
+        console.error("Failed to hydrate conversation source thread", error);
       }
     })();
     return () => {
       canceled = true;
     };
-  }, [bootstrapComplete, handoffSourceThread, handoffSourceThreadId, hydrateThreadFromReadModel]);
+  }, [bootstrapComplete, lineageSourceThread, lineageSourceThreadId, hydrateThreadFromReadModel]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;

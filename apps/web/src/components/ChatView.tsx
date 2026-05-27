@@ -284,6 +284,7 @@ import {
   type HandoffLineageResult,
   resolveHandoffLineage,
   resolveHandoffSourceProvider,
+  resolveThreadLineageSourceThreadId,
 } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -714,7 +715,7 @@ function resolveHandoffLineageFromIndex(
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {
@@ -1524,15 +1525,14 @@ function useChatViewComponent({
   );
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const activeThreadLineageSourceThreadId =
+    isServerThread && activeThread ? resolveThreadLineageSourceThreadId(activeThread) : null;
   const handoffLineageSelector = useMemo(
-    () =>
-      createHandoffLineageSelector(
-        isServerThread ? (activeThread?.handoff?.sourceThreadId ?? null) : null,
-      ),
-    [activeThread?.handoff?.sourceThreadId, isServerThread],
+    () => createHandoffLineageSelector(activeThreadLineageSourceThreadId),
+    [activeThreadLineageSourceThreadId],
   );
   const handoffLineage = useStore(handoffLineageSelector);
-  const handoffSourceThreadIds = useMemo(
+  const lineageSourceThreadIds = useMemo(
     () => handoffLineage?.threads.map((thread) => thread.id) ?? [],
     [handoffLineage],
   );
@@ -1662,14 +1662,14 @@ function useChatViewComponent({
         activeThreadId,
         sourceProposedPlanThreadId,
         previousThreadId: recentThreadHistoryKeepId,
-        handoffSourceThreadIds,
+        lineageSourceThreadIds,
         additionalThreadIds: visibleBoardThreadIds,
       }),
     [
       activeThreadId,
       recentThreadHistoryKeepId,
       sourceProposedPlanThreadId,
-      handoffSourceThreadIds,
+      lineageSourceThreadIds,
       visibleBoardThreadIds,
     ],
   );
@@ -1679,10 +1679,10 @@ function useChatViewComponent({
         activeThreadId,
         sourceProposedPlanThreadId,
         previousThreadId: null,
-        handoffSourceThreadIds,
+        lineageSourceThreadIds,
         additionalThreadIds: visibleBoardThreadIds,
       }),
-    [activeThreadId, sourceProposedPlanThreadId, handoffSourceThreadIds, visibleBoardThreadIds],
+    [activeThreadId, sourceProposedPlanThreadId, lineageSourceThreadIds, visibleBoardThreadIds],
   );
   const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
@@ -1690,10 +1690,10 @@ function useChatViewComponent({
         activeThreadId,
         sourceProposedPlanThreadId: null,
         previousThreadId: null,
-        handoffSourceThreadIds,
+        lineageSourceThreadIds,
         additionalThreadIds: visibleBoardThreadIds,
       }),
-    [activeThreadId, handoffSourceThreadIds, visibleBoardThreadIds],
+    [activeThreadId, lineageSourceThreadIds, visibleBoardThreadIds],
   );
 
   // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
@@ -1882,16 +1882,16 @@ function useChatViewComponent({
   }, [activeThread?.id, hydrateThreadFromReadModel, sourcePlanThread, sourceProposedPlanThreadId]);
 
   useEffect(() => {
-    if (!activeThread?.handoff || !isServerThread || handoffHasCycle) {
+    if (!activeThreadLineageSourceThreadId || !isServerThread || handoffHasCycle) {
       return;
     }
 
-    if (handoffSourceThreadIds.length === 0 && handoffMissingThreadId === null) {
+    if (lineageSourceThreadIds.length === 0 && handoffMissingThreadId === null) {
       return;
     }
 
     let canceled = false;
-    const pendingThreadIds = new Set(handoffSourceThreadIds);
+    const pendingThreadIds = new Set(lineageSourceThreadIds);
     if (handoffMissingThreadId) {
       pendingThreadIds.add(handoffMissingThreadId);
     }
@@ -1943,10 +1943,10 @@ function useChatViewComponent({
       canceled = true;
     };
   }, [
-    activeThread?.handoff,
+    activeThreadLineageSourceThreadId,
     handoffHasCycle,
     handoffMissingThreadId,
-    handoffSourceThreadIds,
+    lineageSourceThreadIds,
     hydrateThreadFromReadModel,
     isServerThread,
   ]);
@@ -7993,8 +7993,9 @@ function useChatViewComponent({
     },
   );
 
-  const isHandoffThread =
-    serverThread?.handoff !== undefined || activeThread?.handoff !== undefined;
+  const isLineageThread = Boolean(
+    serverThread?.handoff ?? serverThread?.fork ?? activeThread?.handoff ?? activeThread?.fork,
+  );
   const activeThreadHistoryLoaded = activeThread?.historyLoaded;
   const activeThreadIdValue = activeThread?.id ?? "";
   const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
@@ -8006,7 +8007,7 @@ function useChatViewComponent({
       hasMessages:
         timelineEntries.length > 0 ||
         (isThreadHistoryLoading && activeThreadMessagesLength > 0) ||
-        isHandoffThread,
+        isLineageThread,
       isWorking,
       onStartConversationFromMessage: scheduleComposerFocus,
       onContinueWithGitHubIssues: openGitHubIssueDialog,
@@ -8068,7 +8069,7 @@ function useChatViewComponent({
       codingGitCwd,
       composerProviderCommands,
       isGitRepo,
-      isHandoffThread,
+      isLineageThread,
       hideCompletedWorkMessages,
       handoffInFlight,
       isRevertingCheckpoint,

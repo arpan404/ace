@@ -2,6 +2,7 @@ import {
   MessageId,
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
+  type ThreadFork,
   type ThreadHandoff,
   type ThreadId,
 } from "@ace/contracts";
@@ -19,6 +20,12 @@ export type HandoffLineageResult = {
   readonly missingThreadId: ThreadId | null;
   readonly hasCycle: boolean;
 };
+
+export function resolveThreadLineageSourceThreadId(
+  thread: Pick<Thread, "fork" | "handoff">,
+): ThreadId | null {
+  return thread.handoff?.sourceThreadId ?? thread.fork?.sourceThreadId ?? null;
+}
 
 export function resolveHandoffLineage(input: {
   readonly sourceThreadId: ThreadId;
@@ -47,7 +54,7 @@ export function resolveHandoffLineage(input: {
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {
@@ -111,6 +118,25 @@ function buildHandoffMarkerMessage(
   };
 }
 
+function buildForkMarkerMessage(
+  fork: ThreadFork,
+  sourceThread?: Pick<Thread, "handoff" | "modelSelection"> | null | undefined,
+): ChatMessage {
+  const messageId = MessageId.makeUnsafe(
+    `${HANDOFF_MESSAGE_PREFIX}:chat-fork:${fork.createdAt}:${fork.sourceThreadId}`,
+  );
+  const fromLabel = sourceThread
+    ? formatProviderLabel(resolveThreadHandoffProvider(sourceThread))
+    : "source chat";
+  return {
+    id: messageId,
+    role: "system",
+    text: `Forked from ${fromLabel}`,
+    createdAt: fork.createdAt,
+    streaming: false,
+  };
+}
+
 export type HandoffTimelineResult = {
   readonly messages: ReadonlyArray<ChatMessage>;
   readonly proposedPlans: ReadonlyArray<ProposedPlan>;
@@ -154,6 +180,8 @@ export function buildHandoffTimeline(input: {
     const firstThread = orderedThreads[0];
     if (firstThread?.handoff) {
       messages.push(buildHandoffMarkerMessage(firstThread.handoff));
+    } else if (firstThread?.fork) {
+      messages.push(buildForkMarkerMessage(firstThread.fork));
     }
   }
   for (let index = 0; index < orderedThreads.length; index += 1) {
@@ -189,6 +217,8 @@ export function buildHandoffTimeline(input: {
     const nextThread = orderedThreads[index + 1];
     if (nextThread?.handoff) {
       messages.push(buildHandoffMarkerMessage(nextThread.handoff, thread));
+    } else if (nextThread?.fork) {
+      messages.push(buildForkMarkerMessage(nextThread.fork, thread));
     }
   }
 
