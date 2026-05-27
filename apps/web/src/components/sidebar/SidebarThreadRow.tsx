@@ -14,6 +14,7 @@ import {
   GitPullRequestIcon,
   LoaderCircleIcon,
   SparklesIcon,
+  SplitIcon,
   TextCursorInput,
   TriangleAlert,
 } from "lucide-react";
@@ -156,6 +157,24 @@ function worktreeStatusIndicator(thread: { branch: string | null; worktreePath: 
   return {
     label: thread.branch ? `Worktree: ${thread.branch}` : "Worktree",
   } satisfies WorktreeStatusIndicator;
+}
+
+function ForkedThreadIndicator() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            aria-label="Forked chat"
+            className="inline-flex shrink-0 items-center justify-center text-sidebar-foreground/45"
+          >
+            <SplitIcon className="size-3 rotate-90" strokeWidth={2.15} />
+          </span>
+        }
+      />
+      <TooltipPopup side="top">Forked chat</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 export interface SidebarThreadRowProps {
@@ -336,6 +355,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           {canPin && props.isPinned && showPinnedIndicator && (
             <IconPinFilled className="size-3 shrink-0 text-sidebar-accent-foreground" />
           )}
+          {thread.fork && <ForkedThreadIndicator />}
           {props.renamingThreadId === thread.id ? (
             <input
               ref={(element) => {

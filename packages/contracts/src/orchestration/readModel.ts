@@ -130,7 +130,7 @@ export const SourceProposedPlanReference = Schema.Struct({
 });
 export type SourceProposedPlanReference = typeof SourceProposedPlanReference.Type;
 
-export const ThreadHandoffMode = Schema.Literals(["best", "transcript", "compact"]);
+export const ThreadHandoffMode = Schema.Literals(["best", "transcript", "compact", "fork"]);
 export type ThreadHandoffMode = typeof ThreadHandoffMode.Type;
 
 export const ThreadHandoff = Schema.Struct({
@@ -141,6 +141,12 @@ export const ThreadHandoff = Schema.Struct({
   createdAt: IsoDateTime,
 });
 export type ThreadHandoff = typeof ThreadHandoff.Type;
+
+export const ThreadFork = Schema.Struct({
+  sourceThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadFork = typeof ThreadFork.Type;
 
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
@@ -251,6 +257,7 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

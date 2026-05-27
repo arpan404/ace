@@ -61,6 +61,16 @@ export interface GitHubCopilotSessionClient {
 }
 
 export interface GitHubCopilotClientLike {
+  readonly rpc?:
+    | {
+        readonly sessions?: {
+          readonly fork?: (params: {
+            readonly sessionId: string;
+            readonly toEventId?: string;
+          }) => Promise<{ readonly sessionId: string }>;
+        };
+      }
+    | undefined;
   getStatus(): Promise<GetStatusResponse>;
   getAuthStatus(): Promise<GetAuthStatusResponse>;
   listModels(): Promise<ReadonlyArray<ModelInfo>>;

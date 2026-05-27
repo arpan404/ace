@@ -480,6 +480,16 @@ function handoffsEqual(left: Thread["handoff"], right: Thread["handoff"]): boole
   );
 }
 
+function forksEqual(left: Thread["fork"], right: Thread["fork"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return left.sourceThreadId === right.sourceThreadId && left.createdAt === right.createdAt;
+}
+
 function queuedSteerRequestsEqual(
   left: Thread["queuedSteerRequest"],
   right: Thread["queuedSteerRequest"],
@@ -588,6 +598,7 @@ function threadsRenderEquivalent(left: Thread, right: Thread): boolean {
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     handoffsEqual(left.handoff, right.handoff) &&
+    forksEqual(left.fork, right.fork) &&
     left.historyLoaded === right.historyLoaded &&
     queuedComposerMessagesEqual(left.queuedComposerMessages, right.queuedComposerMessages) &&
     queuedSteerRequestsEqual(left.queuedSteerRequest, right.queuedSteerRequest) &&
@@ -631,6 +642,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+    ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
     historyLoaded: resolveThreadHistoryLoaded(thread.id, options),
     queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
     queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
@@ -758,6 +770,7 @@ function buildSidebarThreadSummary(
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+    ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -786,6 +799,13 @@ function sidebarThreadSummariesEqual(
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.handoff?.sourceThreadId === right.handoff?.sourceThreadId &&
+    left.handoff?.fromProvider === right.handoff?.fromProvider &&
+    left.handoff?.toProvider === right.handoff?.toProvider &&
+    left.handoff?.mode === right.handoff?.mode &&
+    left.handoff?.createdAt === right.handoff?.createdAt &&
+    left.fork?.sourceThreadId === right.fork?.sourceThreadId &&
+    left.fork?.createdAt === right.fork?.createdAt &&
     handoffsEqual(left.handoff, right.handoff) &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
@@ -1402,6 +1422,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
         ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
+        ...(event.payload.fork !== undefined ? { fork: event.payload.fork } : {}),
         queuedComposerMessages: [],
         queuedSteerRequest: null,
         latestTurn: null,

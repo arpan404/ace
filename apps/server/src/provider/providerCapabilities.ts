@@ -14,6 +14,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "provider",
     historyAuthority: "provider-session",
     sessionResumeMode: "native",
+    sessionForkMode: "native",
   },
   claudeAgent: {
     sessionModelSwitch: "in-session",
@@ -26,6 +27,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "provider",
     historyAuthority: "provider-session",
     sessionResumeMode: "native",
+    sessionForkMode: "native",
   },
   gemini: {
     sessionModelSwitch: "in-session",
@@ -38,6 +40,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "project-local",
     sessionResumeMode: "local-replay",
+    sessionForkMode: "local-replay",
   },
   cursor: {
     sessionModelSwitch: "restart-session",
@@ -50,6 +53,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "project-local",
     sessionResumeMode: "local-replay",
+    sessionForkMode: "native",
   },
   pi: {
     sessionModelSwitch: "in-session",
@@ -62,6 +66,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "local-server-session",
     sessionResumeMode: "local-replay",
+    sessionForkMode: "local-replay",
   },
   githubCopilot: {
     sessionModelSwitch: "restart-session",
@@ -74,6 +79,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "local-server-session",
     sessionResumeMode: "local-replay",
+    sessionForkMode: "native",
   },
   opencode: {
     sessionModelSwitch: "in-session",
@@ -86,6 +92,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "local-server-session",
     sessionResumeMode: "local-replay",
+    sessionForkMode: "native",
   },
 };
 

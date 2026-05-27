@@ -32,6 +32,7 @@ export type CursorInitializeState = {
   readonly protocolVersion?: number;
   readonly agentCapabilities: {
     readonly loadSession: boolean;
+    readonly forkSession: boolean;
     readonly promptCapabilities: CursorPromptCapabilities;
   };
   readonly authMethods: ReadonlyArray<CursorAuthMethod>;
@@ -99,6 +100,7 @@ export const EMPTY_CURSOR_PROMPT_CAPABILITIES: CursorPromptCapabilities = {
 export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
   agentCapabilities: {
     loadSession: false,
+    forkSession: false,
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
   },
   authMethods: [],
@@ -177,6 +179,7 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       : {}),
     agentCapabilities: {
       loadSession: agentCapabilities?.loadSession === true,
+      forkSession: asObject(asObject(agentCapabilities?.sessionCapabilities)?.fork) !== undefined,
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
     authMethods: parseCursorAuthMethods(record?.authMethods),

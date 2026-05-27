@@ -1967,6 +1967,10 @@ export const CursorAdapterLive = Layer.effect(
               }
 
               const resumeSessionId = readResumeSessionId(input.resumeCursor);
+              const forkSourceSessionId = readResumeSessionId(input.forkSource?.resumeCursor);
+              const canForkSession =
+                forkSourceSessionId !== undefined &&
+                context.metadata.initialize.agentCapabilities.forkSession;
               const canLoadSession =
                 resumeSessionId !== undefined &&
                 context.metadata.initialize.agentCapabilities.loadSession;
@@ -1974,12 +1978,44 @@ export const CursorAdapterLive = Layer.effect(
                 cwd: input.cwd ?? serverConfig.cwd,
                 mcpServers: [],
               };
-              let sessionMethod: "session/load" | "session/new" = canLoadSession
-                ? "session/load"
-                : "session/new";
+              let sessionMethod: "session/fork" | "session/load" | "session/new" = canForkSession
+                ? "session/fork"
+                : canLoadSession
+                  ? "session/load"
+                  : "session/new";
               let sessionResult: Record<string, unknown> | undefined;
 
-              if (canLoadSession) {
+              if (canForkSession) {
+                try {
+                  sessionResult = asObject(
+                    await client.request(
+                      "session/fork",
+                      {
+                        ...newSessionParams,
+                        sessionId: forkSourceSessionId,
+                      },
+                      { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                    ),
+                  );
+                } catch (cause) {
+                  await runPromise(
+                    Effect.logWarning(
+                      "cursor native fork failed; falling back to transcript replay",
+                      {
+                        threadId: input.threadId,
+                        sourceThreadId: input.forkSource?.threadId,
+                        cause: describeCursorAdapterCause(cause),
+                      },
+                    ),
+                  );
+                  sessionMethod = "session/new";
+                  sessionResult = asObject(
+                    await client.request("session/new", newSessionParams, {
+                      timeoutMs: ACP_CONTROL_TIMEOUT_MS,
+                    }),
+                  );
+                }
+              } else if (canLoadSession) {
                 try {
                   sessionResult = asObject(
                     await client.request(

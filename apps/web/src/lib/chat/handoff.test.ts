@@ -20,6 +20,7 @@ function thread(input: {
   text: string;
   createdAt: string;
   handoff?: Thread["handoff"];
+  fork?: Thread["fork"];
 }): Thread {
   return {
     id: ThreadId.makeUnsafe(input.id),
@@ -51,6 +52,7 @@ function thread(input: {
     branch: null,
     worktreePath: null,
     ...(input.handoff ? { handoff: input.handoff } : {}),
+    ...(input.fork ? { fork: input.fork } : {}),
     historyLoaded: true,
     latestProposedPlanSummary: null,
     queuedComposerMessages: [],
@@ -114,6 +116,91 @@ describe("handoff timeline", () => {
       "pi work",
       "Handoff from Pi to Cursor",
       "cursor work",
+    ]);
+  });
+
+  it("shows the source conversation before a forked chat without a provider handoff marker", () => {
+    const source = thread({
+      id: "thread-source",
+      provider: "codex",
+      title: "Source",
+      text: "source work",
+      createdAt: now,
+    });
+    const forked = thread({
+      id: "thread-fork",
+      provider: "codex",
+      title: "Fork",
+      text: "fork work",
+      createdAt: "2026-05-06T10:01:00.000Z",
+      fork: {
+        sourceThreadId: source.id,
+        createdAt: "2026-05-06T10:01:00.000Z",
+      },
+    });
+
+    const timeline = buildHandoffTimeline({
+      activeThread: forked,
+      activeThreadMessages: forked.messages,
+      activeThreadWorkEntries: [],
+      handoffLineage: resolveHandoffLineage({
+        sourceThreadId: forked.fork!.sourceThreadId,
+        threads: [source, forked],
+      }),
+    });
+
+    expect(timeline.messages.map((message) => message.text)).toEqual(["source work", "fork work"]);
+  });
+
+  it("keeps upstream handoff history without marking chat forks as handoffs", () => {
+    const copilot = thread({
+      id: "thread-github-copilot",
+      provider: "githubCopilot",
+      title: "Copilot",
+      text: "copilot work",
+      createdAt: now,
+    });
+    const pi = thread({
+      id: "thread-pi",
+      provider: "pi",
+      title: "Pi",
+      text: "pi work",
+      createdAt: "2026-05-06T10:01:00.000Z",
+      handoff: {
+        sourceThreadId: copilot.id,
+        fromProvider: "githubCopilot",
+        toProvider: "pi",
+        mode: "best",
+        createdAt: "2026-05-06T10:01:00.000Z",
+      },
+    });
+    const forked = thread({
+      id: "thread-pi-fork",
+      provider: "pi",
+      title: "Pi fork",
+      text: "fork work",
+      createdAt: "2026-05-06T10:02:00.000Z",
+      fork: {
+        sourceThreadId: pi.id,
+        createdAt: "2026-05-06T10:02:00.000Z",
+      },
+    });
+
+    const timeline = buildHandoffTimeline({
+      activeThread: forked,
+      activeThreadMessages: forked.messages,
+      activeThreadWorkEntries: [],
+      handoffLineage: resolveHandoffLineage({
+        sourceThreadId: forked.fork!.sourceThreadId,
+        threads: [copilot, pi, forked],
+      }),
+    });
+
+    expect(timeline.messages.map((message) => message.text)).toEqual([
+      "copilot work",
+      "Handoff from Copilot to Pi",
+      "pi work",
+      "fork work",
     ]);
   });
 });

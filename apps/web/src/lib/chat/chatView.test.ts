@@ -290,7 +290,7 @@ describe("deriveHydratedThreadHistoryKeepIds", () => {
         activeThreadId,
         sourceProposedPlanThreadId: sourceThreadId,
         previousThreadId: sourceThreadId,
-        handoffSourceThreadIds: [lineageThreadId, sourceThreadId],
+        lineageSourceThreadIds: [lineageThreadId, sourceThreadId],
         additionalThreadIds: [boardThreadId, activeThreadId],
       }),
     ).toEqual([activeThreadId, sourceThreadId, lineageThreadId, boardThreadId]);
@@ -299,7 +299,7 @@ describe("deriveHydratedThreadHistoryKeepIds", () => {
         activeThreadId: null,
         sourceProposedPlanThreadId: sourceThreadId,
         previousThreadId: activeThreadId,
-        handoffSourceThreadIds: [lineageThreadId],
+        lineageSourceThreadIds: [lineageThreadId],
         additionalThreadIds: [boardThreadId],
       }),
     ).toEqual([]);

@@ -2633,7 +2633,32 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           streaming: true,
         };
         const resumedFromCursor = typeof input.resumeCursor === "string";
-        sdkSession = resumedFromCursor
+        const forkSourceSessionId =
+          typeof input.forkSource?.resumeCursor === "string"
+            ? input.forkSource.resumeCursor
+            : undefined;
+        let nativeForkSucceeded = false;
+        if (forkSourceSessionId !== undefined && sdkClient.rpc?.sessions?.fork !== undefined) {
+          try {
+            const forkedSession = await sdkClient.rpc.sessions.fork({
+              sessionId: forkSourceSessionId,
+            });
+            sdkSession = await sdkClient.resumeSession(forkedSession.sessionId, sessionConfig);
+            nativeForkSucceeded = true;
+          } catch (cause) {
+            await runPromise(
+              Effect.logWarning(
+                "GitHub Copilot native fork failed; falling back to transcript replay",
+                {
+                  threadId: input.threadId,
+                  sourceThreadId: input.forkSource?.threadId,
+                  cause: cause instanceof Error ? cause.message : String(cause),
+                },
+              ),
+            );
+          }
+        }
+        sdkSession ??= resumedFromCursor
           ? await sdkClient
               .resumeSession(input.resumeCursor, sessionConfig)
               .catch(async (cause) => {
@@ -2644,7 +2669,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
               })
           : await sdkClient.createSession(sessionConfig);
         await syncGitHubCopilotSessionMode(sdkSession, input.interactionMode);
-        const replayTurns = cloneReplayTurns(input.replayTurns);
+        const replayTurns = nativeForkSucceeded ? [] : cloneReplayTurns(input.replayTurns);
         const resumedExistingSession =
           resumedFromCursor && sdkSession.sessionId === input.resumeCursor;
 

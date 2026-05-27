@@ -160,6 +160,7 @@ interface ConnectedComposerProviderStatusBannerProps {
   readonly threadId: ThreadId;
   readonly hasThreadStarted: boolean;
   readonly isServerThread: boolean;
+  readonly lockProvider?: boolean | undefined;
   readonly modelSettings: Pick<UnifiedSettings, "providers">;
   readonly projectModelSelection: ModelSelection | null | undefined;
   readonly providers: ReadonlyArray<ServerProvider>;
@@ -186,6 +187,7 @@ export const ConnectedComposerProviderStatusBanner = memo(
       draft: draftSelection,
       hasThreadStarted: props.hasThreadStarted,
       isServerThread: props.isServerThread,
+      lockProvider: props.lockProvider,
       modelSettings: props.modelSettings,
       projectModelSelection: props.projectModelSelection,
       providers: props.providers,

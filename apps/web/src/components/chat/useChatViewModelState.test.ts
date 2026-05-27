@@ -1,4 +1,4 @@
-import { type ModelSelection, type ServerProvider } from "@ace/contracts";
+import { type ModelSelection, type ProviderKind, type ServerProvider } from "@ace/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import { describe, expect, it } from "vitest";
 
@@ -12,13 +12,32 @@ function modelSelection(model: string, providerInstanceId?: string): ModelSelect
   };
 }
 
+function providerModelSelection(provider: ProviderKind, model: string): ModelSelection {
+  return {
+    provider,
+    model,
+  };
+}
+
 function codexProvider(input: {
   instanceId?: string;
   instanceLabel?: string;
   model: string;
 }): ServerProvider {
-  return {
+  return providerStatus({
     provider: "codex",
+    ...input,
+  });
+}
+
+function providerStatus(input: {
+  instanceId?: string;
+  instanceLabel?: string;
+  model: string;
+  provider: ProviderKind;
+}): ServerProvider {
+  return {
+    provider: input.provider,
     ...(input.instanceId
       ? {
           providerInstanceId: input.instanceId,
@@ -76,5 +95,31 @@ describe("deriveChatViewProviderSelectionState", () => {
 
     expect(state.selectedModelSelection).toEqual(modelSelection("default-model"));
     expect(state.selectedProviderModels.map((model) => model.slug)).toEqual(["default-model"]);
+  });
+
+  it("locks the provider for forked threads before the first message", () => {
+    const state = deriveChatViewProviderSelectionState({
+      draft: {
+        activeProvider: "claudeAgent",
+        modelSelectionByProvider: {
+          claudeAgent: providerModelSelection("claudeAgent", "claude-sonnet"),
+        },
+      },
+      hasThreadStarted: false,
+      isServerThread: true,
+      lockProvider: true,
+      modelSettings: DEFAULT_UNIFIED_SETTINGS,
+      projectModelSelection: null,
+      providers: [
+        codexProvider({ model: "gpt-5" }),
+        providerStatus({ provider: "claudeAgent", model: "claude-sonnet" }),
+      ],
+      sessionProvider: null,
+      threadModelSelection: modelSelection("gpt-5"),
+    });
+
+    expect(state.lockedProvider).toBe("codex");
+    expect(state.selectedProvider).toBe("codex");
+    expect(state.selectedModelSelection.provider).toBe("codex");
   });
 });

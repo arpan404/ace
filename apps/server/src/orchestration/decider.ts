@@ -52,6 +52,13 @@ function resolveHandoffSourceProvider(thread: OrchestrationThread) {
   return thread.handoff?.toProvider ?? thread.modelSelection.provider;
 }
 
+function forkProviderChangeDetail(
+  currentProvider: OrchestrationThread["modelSelection"]["provider"],
+  nextProvider: OrchestrationThread["modelSelection"]["provider"],
+) {
+  return `Forked thread provider cannot change from '${currentProvider}' to '${nextProvider}'.`;
+}
+
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
   readModel,
@@ -162,6 +169,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: command.handoff.sourceThreadId,
           })
         : null;
+      const forkSourceThread = command.fork
+        ? yield* requireThread({
+            readModel,
+            command,
+            threadId: command.fork.sourceThreadId,
+          })
+        : null;
+      if (command.handoff && command.fork) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Thread create cannot be both a handoff and a fork.",
+        });
+      }
       if (command.handoff && handoffSourceThread) {
         if (command.handoff.sourceThreadId === command.threadId) {
           return yield* new OrchestrationCommandInvariantError({
@@ -189,6 +209,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           });
         }
       }
+      if (command.fork && forkSourceThread) {
+        if (command.fork.sourceThreadId === command.threadId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Fork source thread cannot match the destination thread.",
+          });
+        }
+        if (forkSourceThread.projectId !== command.projectId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Fork source thread '${command.fork.sourceThreadId}' belongs to a different project.`,
+          });
+        }
+        const expectedForkProvider = resolveHandoffSourceProvider(forkSourceThread);
+        if (expectedForkProvider !== command.modelSelection.provider) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Fork provider '${command.modelSelection.provider}' does not match source thread provider '${expectedForkProvider}'.`,
+          });
+        }
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -207,6 +248,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           branch: command.branch,
           worktreePath: command.worktreePath,
           ...(command.handoff !== undefined ? { handoff: command.handoff } : {}),
+          ...(command.fork !== undefined ? { fork: command.fork } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -281,11 +323,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.meta.update": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        thread.fork &&
+        command.modelSelection &&
+        command.modelSelection.provider !== thread.modelSelection.provider
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: forkProviderChangeDetail(
+            thread.modelSelection.provider,
+            command.modelSelection.provider,
+          ),
+        });
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -667,6 +722,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
+        });
+      }
+      if (
+        targetThread.fork &&
+        command.modelSelection &&
+        command.modelSelection.provider !== targetThread.modelSelection.provider
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: forkProviderChangeDetail(
+            targetThread.modelSelection.provider,
+            command.modelSelection.provider,
+          ),
         });
       }
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
