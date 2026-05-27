@@ -11,7 +11,7 @@ function WorkingIndicatorDemoRouteView() {
             aria-hidden="true"
             className={cn("working-activity-indicator")}
             data-working-activity-indicator="true"
-            style={{ fontSize: "3rem" }}
+            style={{ fontSize: "2.1rem" }}
           >
             <span className="working-activity-indicator-dot" />
             <span className="working-activity-indicator-dot" />
