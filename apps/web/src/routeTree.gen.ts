@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WorkingIndicatorDemoRouteImport } from './routes/working-indicator-demo'
 import { Route as TerminalsRouteImport } from './routes/terminals'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ChatRouteImport } from './routes/_chat'
@@ -26,11 +25,6 @@ import { Route as SettingsAdvancedRouteImport } from './routes/settings.advanced
 import { Route as SettingsAboutRouteImport } from './routes/settings.about'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
 
-const WorkingIndicatorDemoRoute = WorkingIndicatorDemoRouteImport.update({
-  id: '/working-indicator-demo',
-  path: '/working-indicator-demo',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TerminalsRoute = TerminalsRouteImport.update({
   id: '/terminals',
   path: '/terminals',
@@ -110,7 +104,6 @@ export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/terminals': typeof TerminalsRoute
-  '/working-indicator-demo': typeof WorkingIndicatorDemoRoute
   '/$threadId': typeof ChatThreadIdRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
@@ -126,7 +119,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
   '/terminals': typeof TerminalsRoute
-  '/working-indicator-demo': typeof WorkingIndicatorDemoRoute
   '/$threadId': typeof ChatThreadIdRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
@@ -145,7 +137,6 @@ export interface FileRoutesById {
   '/_chat': typeof ChatRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/terminals': typeof TerminalsRoute
-  '/working-indicator-demo': typeof WorkingIndicatorDemoRoute
   '/_chat/$threadId': typeof ChatThreadIdRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
@@ -165,7 +156,6 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/terminals'
-    | '/working-indicator-demo'
     | '/$threadId'
     | '/settings/about'
     | '/settings/advanced'
@@ -181,7 +171,6 @@ export interface FileRouteTypes {
   to:
     | '/settings'
     | '/terminals'
-    | '/working-indicator-demo'
     | '/$threadId'
     | '/settings/about'
     | '/settings/advanced'
@@ -199,7 +188,6 @@ export interface FileRouteTypes {
     | '/_chat'
     | '/settings'
     | '/terminals'
-    | '/working-indicator-demo'
     | '/_chat/$threadId'
     | '/settings/about'
     | '/settings/advanced'
@@ -218,18 +206,10 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TerminalsRoute: typeof TerminalsRoute
-  WorkingIndicatorDemoRoute: typeof WorkingIndicatorDemoRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/working-indicator-demo': {
-      id: '/working-indicator-demo'
-      path: '/working-indicator-demo'
-      fullPath: '/working-indicator-demo'
-      preLoaderRoute: typeof WorkingIndicatorDemoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/terminals': {
       id: '/terminals'
       path: '/terminals'
@@ -384,7 +364,6 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TerminalsRoute: TerminalsRoute,
-  WorkingIndicatorDemoRoute: WorkingIndicatorDemoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
