@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -39,6 +40,12 @@ export default defineConfig({
   },
   resolve: {
     tsconfigPaths: true,
+    alias: [
+      {
+        find: /^shiki$/,
+        replacement: fileURLToPath(new URL("./src/lib/vendor/shikiWebCompat.ts", import.meta.url)),
+      },
+    ],
   },
   server: {
     port,
@@ -73,10 +80,6 @@ export default defineConfig({
             id.includes("mermaid")
           ) {
             return "markdown";
-          }
-
-          if (id.includes("/src/components/settings/") || id.includes("/src/routes/settings.")) {
-            return "settings";
           }
 
           return undefined;

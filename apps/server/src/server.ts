@@ -157,8 +157,12 @@ const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointStoreLive),
 );
 
+const ProviderSessionRuntimeRepositoryLayerLive = ProviderSessionRuntimeRepositoryLive.pipe(
+  Layer.provide(SqlitePersistenceLayerLive),
+);
+
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
-  Layer.provide(ProviderSessionRuntimeRepositoryLive),
+  Layer.provide(ProviderSessionRuntimeRepositoryLayerLive),
 );
 
 const ProviderLayerLive = Layer.unwrap(
@@ -259,7 +263,9 @@ const WorkspaceLayerLive = Layer.mergeAll(
 
 const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderSessionDirectoryLayerLive),
-  Layer.provideMerge(ServerRuntimeStartupLive),
+  Layer.provideMerge(
+    ServerRuntimeStartupLive.pipe(Layer.provide(ProviderSessionDirectoryLayerLive)),
+  ),
   Layer.provideMerge(RelayHostManagerLive),
   Layer.provideMerge(ReactorLayerLive),
 

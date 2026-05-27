@@ -1852,7 +1852,9 @@ function useSidebarComponent() {
   }, []);
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
+  const sidebarProjectListOffsetSourceRef = useRef<HTMLDivElement | null>(null);
   const sidebarProjectListRef = useRef<HTMLUListElement | null>(null);
+  const sidebarProjectListScrollMarginFrameRef = useRef<number | null>(null);
   const [sidebarProjectListScrollMargin, setSidebarProjectListScrollMargin] = useState(0);
   const browseRequestVersionRef = useRef(0);
   const [sidebarEditorState, dispatchSidebarEditorState] = useReducer(
@@ -5132,40 +5134,66 @@ function useSidebarComponent() {
     );
   }, []);
 
+  const scheduleSidebarProjectListScrollMarginMeasure = useCallback(() => {
+    if (sidebarProjectListScrollMarginFrameRef.current !== null) {
+      window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
+    }
+    sidebarProjectListScrollMarginFrameRef.current = window.requestAnimationFrame(() => {
+      sidebarProjectListScrollMarginFrameRef.current = null;
+      measureSidebarProjectListScrollMargin();
+    });
+  }, [measureSidebarProjectListScrollMargin]);
+
   const setSidebarProjectListElement = useCallback(
     (element: HTMLUListElement | null) => {
       sidebarProjectListRef.current = element;
-      measureSidebarProjectListScrollMargin();
+      scheduleSidebarProjectListScrollMarginMeasure();
     },
-    [measureSidebarProjectListScrollMargin],
+    [scheduleSidebarProjectListScrollMarginMeasure],
   );
 
   useEffect(() => {
-    measureSidebarProjectListScrollMargin();
+    scheduleSidebarProjectListScrollMarginMeasure();
   }, [
     boardsSectionExpanded,
-    measureSidebarProjectListScrollMargin,
+    pinnedSectionExpanded,
     projectsSectionExpanded,
     savedBoards.length,
+    scheduleSidebarProjectListScrollMarginMeasure,
     shouldShowProjectPathEntry,
+    sortedRenderedPinnedItems.length,
     visibleSavedBoardItems.length,
   ]);
 
   useEffect(() => {
     const scrollElement = sidebarContentScrollRef.current;
+    const offsetSourceElement = sidebarProjectListOffsetSourceRef.current;
     const projectListElement = sidebarProjectListRef.current;
     if (!scrollElement || !projectListElement || typeof ResizeObserver === "undefined") {
       return;
     }
     const resizeObserver = new ResizeObserver(() => {
-      measureSidebarProjectListScrollMargin();
+      scheduleSidebarProjectListScrollMarginMeasure();
     });
     resizeObserver.observe(scrollElement);
+    if (offsetSourceElement) {
+      resizeObserver.observe(offsetSourceElement);
+    }
     resizeObserver.observe(projectListElement);
     return () => {
       resizeObserver.disconnect();
     };
-  }, [measureSidebarProjectListScrollMargin]);
+  }, [scheduleSidebarProjectListScrollMarginMeasure]);
+
+  useEffect(() => {
+    return () => {
+      if (sidebarProjectListScrollMarginFrameRef.current === null) {
+        return;
+      }
+      window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
+      sidebarProjectListScrollMarginFrameRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     sidebarProjectListVirtualizer.measure();
@@ -6898,103 +6926,105 @@ function useSidebarComponent() {
             </div>
           </SidebarGroup>
           <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
-            {sortedRenderedPinnedItems.length > 0 ? (
-              <SidebarGroup className="px-2.5 pt-5 pb-2">
-                <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
-                  <button
-                    type="button"
-                    className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
-                    aria-expanded={pinnedSectionExpanded}
-                    onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
-                  >
-                    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
-                      Pinned
-                    </span>
-                    <ChevronRightIcon
-                      className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
-                        pinnedSectionExpanded ? "rotate-90" : ""
-                      }`}
-                    />
-                  </button>
-                </div>
-                <div
-                  aria-hidden={!pinnedSectionExpanded}
-                  className={cn(
-                    "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-                    pinnedSectionExpanded
-                      ? "grid-rows-[1fr] opacity-100"
-                      : "pointer-events-none grid-rows-[0fr] opacity-0",
-                  )}
-                >
-                  <div className="min-h-0 overflow-hidden">
-                    <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
-                      {sortedRenderedPinnedItems.map((item) =>
-                        item.kind === "thread" ? (
-                          renderPinnedThreadRow(item.threadId)
-                        ) : (
-                          <SidebarMenuItem
-                            key={`pinned-project:${item.projectId}`}
-                            className="mt-2 rounded-md"
-                          >
-                            <SidebarLocalProjectItem
-                              activeRouteConnectionUrl={activeRouteConnectionUrl}
-                              activeSidebarRouteThreadId={activeSidebarRouteThreadId}
-                              appSettingsConfirmThreadArchive={confirmThreadArchive}
-                              confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-                              confirmingArchiveThreadId={confirmingArchiveThreadId}
-                              connectionUrl={activeWsUrl}
-                              createBoardThreadRowDragProps={createBoardThreadRowDragProps}
-                              dragHandleProps={null}
-                              handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-                              handleProjectContextMenu={handleProjectContextMenu}
-                              handleProjectTitleClick={handleProjectTitleClick}
-                              handleProjectTitleKeyDown={handleProjectTitleKeyDown}
-                              handleProjectTitlePointerDownCapture={
-                                handleProjectTitlePointerDownCapture
-                              }
-                              handleStartNewThreadForProject={handleStartNewThreadForProject}
-                              handleThreadClick={handleThreadClick}
-                              handleThreadContextMenu={handleThreadContextMenu}
-                              isPinned={pinnedProjectIdSet.has(item.projectId)}
-                              jumpLabelByThreadId={threadJumpLabelById}
-                              markProjectContextMenuPending={markProjectContextMenuPending}
-                              newThreadShortcutLabel={newThreadShortcutLabel}
-                              onCollapseThreadList={collapseThreadListForProject}
-                              onExpandThreadList={expandThreadListForProject}
-                              onTogglePinnedProject={togglePinnedProject}
-                              onTogglePinnedThread={togglePinnedThread}
-                              openPrLink={openPrLink}
-                              pinnedThreadIdSet={pinnedThreadIdSet}
-                              prByThreadId={prByThreadId}
-                              prefetchThreadHistory={prefetchThreadHistory}
-                              projectId={item.projectId}
-                              renamingCommittedRef={renamingCommittedRef}
-                              renamingInputRef={renamingInputRef}
-                              renamingThreadId={renamingThreadId}
-                              renamingTitle={renamingTitle}
-                              routeThreadId={activeSidebarRouteThreadId}
-                              selectedThreadIds={selectedThreadIds}
-                              setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-                              setRenamingTitle={setRenamingTitle}
-                              showThreadJumpHints={showThreadJumpHints}
-                              threadRevealCount={
-                                threadRevealCountByProject[item.projectId] ?? THREAD_REVEAL_STEP
-                              }
-                              threadSortOrder={sidebarThreadSortOrder}
-                              clearSelection={clearSelection}
-                              commitRename={commitRename}
-                              cancelRename={cancelRename}
-                              attemptArchiveThread={attemptArchiveThread}
-                              navigateToThread={navigateToThread}
-                            />
-                          </SidebarMenuItem>
-                        ),
-                      )}
-                    </SidebarMenuSub>
+            <div ref={sidebarProjectListOffsetSourceRef} className="flex min-h-0 flex-col">
+              {sortedRenderedPinnedItems.length > 0 ? (
+                <SidebarGroup className="px-2.5 pt-5 pb-2">
+                  <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
+                    <button
+                      type="button"
+                      className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
+                      aria-expanded={pinnedSectionExpanded}
+                      onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
+                    >
+                      <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
+                        Pinned
+                      </span>
+                      <ChevronRightIcon
+                        className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                          pinnedSectionExpanded ? "rotate-90" : ""
+                        }`}
+                      />
+                    </button>
                   </div>
-                </div>
-              </SidebarGroup>
-            ) : null}
+                  <div
+                    aria-hidden={!pinnedSectionExpanded}
+                    className={cn(
+                      "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                      pinnedSectionExpanded
+                        ? "grid-rows-[1fr] opacity-100"
+                        : "pointer-events-none grid-rows-[0fr] opacity-0",
+                    )}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
+                        {sortedRenderedPinnedItems.map((item) =>
+                          item.kind === "thread" ? (
+                            renderPinnedThreadRow(item.threadId)
+                          ) : (
+                            <SidebarMenuItem
+                              key={`pinned-project:${item.projectId}`}
+                              className="mt-2 rounded-md"
+                            >
+                              <SidebarLocalProjectItem
+                                activeRouteConnectionUrl={activeRouteConnectionUrl}
+                                activeSidebarRouteThreadId={activeSidebarRouteThreadId}
+                                appSettingsConfirmThreadArchive={confirmThreadArchive}
+                                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                                confirmingArchiveThreadId={confirmingArchiveThreadId}
+                                connectionUrl={activeWsUrl}
+                                createBoardThreadRowDragProps={createBoardThreadRowDragProps}
+                                dragHandleProps={null}
+                                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                                handleProjectContextMenu={handleProjectContextMenu}
+                                handleProjectTitleClick={handleProjectTitleClick}
+                                handleProjectTitleKeyDown={handleProjectTitleKeyDown}
+                                handleProjectTitlePointerDownCapture={
+                                  handleProjectTitlePointerDownCapture
+                                }
+                                handleStartNewThreadForProject={handleStartNewThreadForProject}
+                                handleThreadClick={handleThreadClick}
+                                handleThreadContextMenu={handleThreadContextMenu}
+                                isPinned={pinnedProjectIdSet.has(item.projectId)}
+                                jumpLabelByThreadId={threadJumpLabelById}
+                                markProjectContextMenuPending={markProjectContextMenuPending}
+                                newThreadShortcutLabel={newThreadShortcutLabel}
+                                onCollapseThreadList={collapseThreadListForProject}
+                                onExpandThreadList={expandThreadListForProject}
+                                onTogglePinnedProject={togglePinnedProject}
+                                onTogglePinnedThread={togglePinnedThread}
+                                openPrLink={openPrLink}
+                                pinnedThreadIdSet={pinnedThreadIdSet}
+                                prByThreadId={prByThreadId}
+                                prefetchThreadHistory={prefetchThreadHistory}
+                                projectId={item.projectId}
+                                renamingCommittedRef={renamingCommittedRef}
+                                renamingInputRef={renamingInputRef}
+                                renamingThreadId={renamingThreadId}
+                                renamingTitle={renamingTitle}
+                                routeThreadId={activeSidebarRouteThreadId}
+                                selectedThreadIds={selectedThreadIds}
+                                setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+                                setRenamingTitle={setRenamingTitle}
+                                showThreadJumpHints={showThreadJumpHints}
+                                threadRevealCount={
+                                  threadRevealCountByProject[item.projectId] ?? THREAD_REVEAL_STEP
+                                }
+                                threadSortOrder={sidebarThreadSortOrder}
+                                clearSelection={clearSelection}
+                                commitRename={commitRename}
+                                cancelRename={cancelRename}
+                                attemptArchiveThread={attemptArchiveThread}
+                                navigateToThread={navigateToThread}
+                              />
+                            </SidebarMenuItem>
+                          ),
+                        )}
+                      </SidebarMenuSub>
+                    </div>
+                  </div>
+                </SidebarGroup>
+              ) : null}
+            </div>
             {savedBoards.length > 0 ? (
               <SidebarBoardsSection
                 activeSplitId={activeStoreSplitId}

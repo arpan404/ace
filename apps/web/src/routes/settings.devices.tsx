@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { DevicesSettingsPanel } from "../components/settings/DevicesSettingsPanel";
+import { DevicesSettingsPanelRoute } from "../components/settings/LazySettingsPanels";
 
 export const Route = createFileRoute("/settings/devices")({
-  component: DevicesSettingsPanel,
+  component: DevicesSettingsPanelRoute,
 });

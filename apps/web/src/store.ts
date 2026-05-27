@@ -73,6 +73,7 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 const EMPTY_SIDEBAR_THREAD_SUMMARIES: SidebarThreadSummary[] = [];
+const SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS = 1_000;
 const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
 const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>([
   "approval.requested",
@@ -791,11 +792,11 @@ function sidebarThreadSummariesEqual(
     left.projectId === right.projectId &&
     left.title === right.title &&
     left.interactionMode === right.interactionMode &&
-    left.session === right.session &&
+    sessionsEqual(left.session, right.session) &&
     left.createdAt === right.createdAt &&
     left.archivedAt === right.archivedAt &&
-    left.updatedAt === right.updatedAt &&
-    left.latestTurn === right.latestTurn &&
+    sidebarSummaryTimestampsEqual(left.updatedAt, right.updatedAt) &&
+    latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     left.handoff?.sourceThreadId === right.handoff?.sourceThreadId &&
@@ -805,11 +806,32 @@ function sidebarThreadSummariesEqual(
     left.handoff?.createdAt === right.handoff?.createdAt &&
     left.fork?.sourceThreadId === right.fork?.sourceThreadId &&
     left.fork?.createdAt === right.fork?.createdAt &&
+    handoffsEqual(left.handoff, right.handoff) &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.isErrorDismissed === right.isErrorDismissed &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
+  );
+}
+
+function sidebarSummaryTimestampsEqual(left: string | undefined, right: string | undefined) {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (!Number.isFinite(leftMs) || !Number.isFinite(rightMs)) {
+    return false;
+  }
+
+  return (
+    Math.floor(leftMs / SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS) ===
+    Math.floor(rightMs / SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS)
   );
 }
 
