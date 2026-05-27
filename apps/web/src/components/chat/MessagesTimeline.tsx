@@ -1514,10 +1514,9 @@ const WorkingActivityIndicator = memo(function WorkingActivityIndicator({
       )}
       data-working-activity-indicator="true"
     >
-      <span className="working-activity-indicator-bar" />
-      <span className="working-activity-indicator-bar" />
-      <span className="working-activity-indicator-bar" />
-      <span className="working-activity-indicator-bar" />
+      <span className="working-activity-indicator-dot" />
+      <span className="working-activity-indicator-dot" />
+      <span className="working-activity-indicator-dot" />
     </span>
   );
 });
