@@ -30,6 +30,7 @@ import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/session";
 import { cn } from "~/lib/utils";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
+import type { DiffReviewCommentInput } from "../DiffPanel";
 import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -49,6 +50,7 @@ function LocalDiffLoadingFallback() {
 export function LocalDiffPanel(props: {
   diffState: { filePath: string | null; open: boolean; turnId: TurnId | null };
   threadId: ThreadId;
+  onAddReviewComment: (comment: DiffReviewCommentInput) => void;
   onDiffStateChange: (state: {
     filePath: string | null;
     open: boolean;
@@ -70,6 +72,7 @@ export function LocalDiffPanel(props: {
           onSelectWholeConversation={() => {
             props.onDiffStateChange({ open: true, turnId: null, filePath: null });
           }}
+          onAddReviewComment={props.onAddReviewComment}
         />
       </Suspense>
     </DiffWorkerPoolProvider>
