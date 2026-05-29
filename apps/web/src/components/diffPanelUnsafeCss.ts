@@ -69,6 +69,66 @@ const DIFF_PANEL_SHARED_UNSAFE_CSS = `
   color: color-mix(in srgb, var(--foreground) 84%, var(--primary)) !important;
   text-decoration-color: currentColor;
 }
+
+[data-separator='line-info'] {
+  height: 24px !important;
+  margin-block: 0 !important;
+  background-color: var(--diffs-bg) !important;
+}
+
+[data-separator='line-info'] [data-separator-wrapper] {
+  padding-inline: 0 !important;
+  background-color: transparent !important;
+}
+
+[data-separator='line-info'] [data-separator-content] {
+  height: 100% !important;
+  border-radius: 0 !important;
+  border-block: 1px solid color-mix(in srgb, var(--border) 38%, transparent) !important;
+  background-color: transparent !important;
+  color: color-mix(in srgb, var(--muted-foreground) 70%, transparent) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  padding-inline: 10px !important;
+}
+
+[data-separator='line-info'] [data-expand-button] {
+  min-width: 28px !important;
+  border-radius: 0 !important;
+  border-right: 1px solid color-mix(in srgb, var(--border) 35%, transparent) !important;
+  background-color: transparent !important;
+  color: color-mix(in srgb, var(--muted-foreground) 64%, transparent) !important;
+}
+
+[data-separator='line-info'] [data-expand-button]:hover,
+[data-separator='line-info'][data-expand-index] [data-separator-content]:hover {
+  background-color: color-mix(in srgb, var(--muted) 18%, transparent) !important;
+  color: color-mix(in srgb, var(--foreground) 78%, transparent) !important;
+  text-decoration: none !important;
+}
+
+[data-utility-button] {
+  width: 18px !important;
+  height: 18px !important;
+  margin-right: 2px !important;
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent) !important;
+  border-radius: 4px !important;
+  background-color: color-mix(in srgb, var(--background) 94%, var(--foreground)) !important;
+  color: color-mix(in srgb, var(--muted-foreground) 76%, transparent) !important;
+  box-shadow: none !important;
+}
+
+[data-utility-button]:hover {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border)) !important;
+  background-color: color-mix(in srgb, var(--background) 86%, var(--primary)) !important;
+  color: color-mix(in srgb, var(--foreground) 84%, var(--primary)) !important;
+}
+
+[data-selected-line] {
+  --diffs-bg-selection-override: color-mix(in srgb, var(--background) 82%, var(--primary));
+  --diffs-bg-selection-number-override: color-mix(in srgb, var(--background) 74%, var(--primary));
+}
 `;
 
 function getDiffHeaderUnsafeCss(mode: DiffPanelMode): string {

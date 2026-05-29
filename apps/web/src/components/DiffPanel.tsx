@@ -1,17 +1,26 @@
-import { parsePatchFiles } from "@pierre/diffs";
+import { parsePatchFiles, type SelectedLineRange } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, TurnId } from "@ace/contracts";
 import {
+  ArrowUpRightIcon,
   ChevronDownIcon,
   Columns2Icon,
   ExternalLinkIcon,
-  MessageSquarePlusIcon,
   Rows3Icon,
   TextWrapIcon,
+  XIcon,
 } from "lucide-react";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
   gitBranchesQueryOptions,
@@ -42,6 +51,21 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 const ALL_TURNS_SELECT_VALUE = "__all_turns__";
+const REVIEW_COMMENT_POPOVER_HEIGHT_PX = 48;
+const REVIEW_COMMENT_POPOVER_WIDTH_PX = 390;
+const REVIEW_COMMENT_POPOVER_GAP_PX = 8;
+const REVIEW_COMMENT_POPOVER_FALLBACK_LEFT_PX = 56;
+const REVIEW_COMMENT_POPOVER_FALLBACK_TOP_PX = 44;
+
+type DiffReviewLineSide = "additions" | "deletions";
+
+export interface DiffReviewLineRange {
+  readonly endLine: number;
+  readonly endSide: DiffReviewLineSide;
+  readonly label: string;
+  readonly startLine: number;
+  readonly startSide: DiffReviewLineSide;
+}
 
 export interface DiffReviewCommentInput {
   readonly additions: number;
@@ -51,8 +75,24 @@ export interface DiffReviewCommentInput {
   readonly deletions: number;
   readonly filePath: string;
   readonly hunkCount: number;
+  readonly lineRange: DiffReviewLineRange;
   readonly previousFilePath: string | null;
   readonly scopeLabel: string;
+}
+
+interface ActiveReviewLineSelection {
+  readonly fileKey: string;
+  readonly filePath: string;
+  readonly label: string;
+  readonly lineRange: DiffReviewLineRange;
+  readonly range: SelectedLineRange;
+}
+
+interface ReviewCommentPopoverPosition {
+  readonly fileKey: string;
+  readonly left: number;
+  readonly placement: "anchored" | "fallback" | "pending";
+  readonly top: number;
 }
 
 type RenderablePatch =
@@ -129,6 +169,214 @@ function formatFileChangeType(fileDiff: FileDiffMetadata): string {
   return raw.length > 0 ? raw.replace(/[-_]/g, " ") : "modified";
 }
 
+function normalizeDiffReviewLineSide(side: SelectedLineRange["side"]): DiffReviewLineSide {
+  return side === "deletions" ? "deletions" : "additions";
+}
+
+function formatDiffReviewLineSide(side: DiffReviewLineSide): string {
+  return side === "deletions" ? "old" : "new";
+}
+
+function formatDiffReviewLineRange(range: SelectedLineRange): DiffReviewLineRange {
+  const startSide = normalizeDiffReviewLineSide(range.side);
+  const endSide = normalizeDiffReviewLineSide(range.endSide ?? range.side);
+  const sameSide = startSide === endSide;
+  const sameLine = range.start === range.end;
+  const orderedStartLine = sameSide ? Math.min(range.start, range.end) : range.start;
+  const orderedEndLine = sameSide ? Math.max(range.start, range.end) : range.end;
+  const startLabel = `${formatDiffReviewLineSide(startSide)} L${orderedStartLine}`;
+  const endLabel = `${formatDiffReviewLineSide(endSide)} L${orderedEndLine}`;
+  const label = sameSide
+    ? sameLine
+      ? startLabel
+      : `${formatDiffReviewLineSide(startSide)} L${orderedStartLine}-L${orderedEndLine}`
+    : `${startLabel} to ${endLabel}`;
+  return {
+    endLine: orderedEndLine,
+    endSide,
+    label,
+    startLine: orderedStartLine,
+    startSide,
+  };
+}
+
+function areSelectedLineRangesEqual(
+  left: SelectedLineRange | null | undefined,
+  right: SelectedLineRange | null | undefined,
+): boolean {
+  return (
+    (left?.start ?? null) === (right?.start ?? null) &&
+    (left?.end ?? null) === (right?.end ?? null) &&
+    (left?.side ?? null) === (right?.side ?? null) &&
+    (left?.endSide ?? null) === (right?.endSide ?? null)
+  );
+}
+
+function queryDiffElements(root: ParentNode, selector: string): HTMLElement[] {
+  const matches = Array.from(root.querySelectorAll<HTMLElement>(selector));
+  for (const element of root.querySelectorAll<HTMLElement>("*")) {
+    if (element.shadowRoot) {
+      matches.push(...queryDiffElements(element.shadowRoot, selector));
+    }
+  }
+  return matches;
+}
+
+function readDiffLineNumber(
+  node: HTMLElement,
+  key: "line" | "altLine" | "columnNumber",
+): number | null {
+  const raw = node.dataset[key];
+  if (!raw) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getDiffElementSide(node: HTMLElement): DiffReviewLineSide | null {
+  if (node.closest("[data-deletions]")) {
+    return "deletions";
+  }
+  if (node.closest("[data-additions]")) {
+    return "additions";
+  }
+  const lineType = node.dataset.lineType ?? "";
+  if (lineType.includes("deletion")) {
+    return "deletions";
+  }
+  if (lineType.includes("addition") || lineType === "context") {
+    return "additions";
+  }
+  return null;
+}
+
+function getDiffLineNumbers(node: HTMLElement): number[] {
+  return [
+    readDiffLineNumber(node, "line"),
+    readDiffLineNumber(node, "altLine"),
+    readDiffLineNumber(node, "columnNumber"),
+  ].filter((lineNumber): lineNumber is number => lineNumber !== null);
+}
+
+function isDiffLineElementForSelection(
+  node: HTMLElement,
+  selection: ActiveReviewLineSelection,
+): boolean {
+  if (!getDiffLineNumbers(node).includes(selection.range.start)) {
+    return false;
+  }
+  const elementSide = getDiffElementSide(node);
+  return elementSide === null || elementSide === normalizeDiffReviewLineSide(selection.range.side);
+}
+
+function getDiffLineAnchorScore(node: HTMLElement): number {
+  if (node.hasAttribute("data-line")) {
+    return 4;
+  }
+  if (node.hasAttribute("data-column-number")) {
+    return 3;
+  }
+  if (node.hasAttribute("data-line-annotation")) {
+    return 2;
+  }
+  return 1;
+}
+
+function chooseVisibleDiffLineElement(nodes: ReadonlyArray<HTMLElement>): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestScore = 0;
+  let bestWidth = 0;
+  for (const node of nodes) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      continue;
+    }
+    const score = getDiffLineAnchorScore(node);
+    if (score > bestScore || (score === bestScore && rect.width > bestWidth)) {
+      best = node;
+      bestScore = score;
+      bestWidth = rect.width;
+    }
+  }
+  return best;
+}
+
+function findReviewCommentAnchorLineElement(
+  fileElement: HTMLElement,
+  selection: ActiveReviewLineSelection,
+): HTMLElement | null {
+  const selectedLineElements = queryDiffElements(fileElement, "[data-selected-line]");
+  const selectedStartLineElements = selectedLineElements.filter((node) =>
+    isDiffLineElementForSelection(node, selection),
+  );
+  const selectedStartLineElement = chooseVisibleDiffLineElement(selectedStartLineElements);
+  if (selectedStartLineElement) {
+    return selectedStartLineElement;
+  }
+
+  const selectedLineElement = chooseVisibleDiffLineElement(selectedLineElements);
+  if (selectedLineElement) {
+    return selectedLineElement;
+  }
+
+  const matchingLineElements = queryDiffElements(
+    fileElement,
+    "[data-line], [data-alt-line], [data-column-number]",
+  ).filter((node) => isDiffLineElementForSelection(node, selection));
+  return chooseVisibleDiffLineElement(matchingLineElements);
+}
+
+function findDiffFileElement(
+  viewport: HTMLElement,
+  selection: ActiveReviewLineSelection,
+): HTMLElement | null {
+  return (
+    Array.from(viewport.querySelectorAll<HTMLElement>("[data-diff-file-path]")).find(
+      (element) => element.dataset.diffFilePath === selection.filePath,
+    ) ?? null
+  );
+}
+
+function resolveReviewCommentPopoverPosition(
+  fileElement: HTMLElement,
+  anchorElement: HTMLElement,
+  fileKey: string,
+): ReviewCommentPopoverPosition {
+  const fileRect = fileElement.getBoundingClientRect();
+  const anchorRect = anchorElement.getBoundingClientRect();
+  const fileWidth = Math.max(fileElement.clientWidth, fileRect.width);
+  const fileHeight = Math.max(fileElement.offsetHeight, fileRect.height);
+  const lineTop = anchorRect.top - fileRect.top;
+  const lineBottom = anchorRect.bottom - fileRect.top;
+  const minTop = 40;
+  const topAbove = lineTop - REVIEW_COMMENT_POPOVER_HEIGHT_PX - REVIEW_COMMENT_POPOVER_GAP_PX;
+  const topBelow = lineBottom + REVIEW_COMMENT_POPOVER_GAP_PX;
+  const unclampedTop = topAbove >= minTop ? topAbove : topBelow;
+  const maxTop = Math.max(minTop, fileHeight - REVIEW_COMMENT_POPOVER_HEIGHT_PX - 8);
+  const leftFromLine = anchorRect.left - fileRect.left + 8;
+  const maxLeft = Math.max(8, fileWidth - REVIEW_COMMENT_POPOVER_WIDTH_PX - 12);
+
+  return {
+    fileKey,
+    left: Math.min(Math.max(8, leftFromLine), maxLeft),
+    placement: "anchored",
+    top: Math.min(Math.max(minTop, unclampedTop), maxTop),
+  };
+}
+
+function createFallbackReviewCommentPopoverPosition(
+  fileKey: string,
+  placement: ReviewCommentPopoverPosition["placement"] = "fallback",
+): ReviewCommentPopoverPosition {
+  return {
+    fileKey,
+    left: REVIEW_COMMENT_POPOVER_FALLBACK_LEFT_PX,
+    placement,
+    top: REVIEW_COMMENT_POPOVER_FALLBACK_TOP_PX,
+  };
+}
+
 function resolveTurnCheckpointLabel(
   summary: {
     turnId: TurnId;
@@ -183,6 +431,10 @@ function useDiffPanelComponent({
   const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
   const [collapsedFileKeys, setCollapsedFileKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [activeCommentFileKey, setActiveCommentFileKey] = useState<string | null>(null);
+  const [activeReviewLineSelection, setActiveReviewLineSelection] =
+    useState<ActiveReviewLineSelection | null>(null);
+  const [reviewCommentPopoverPosition, setReviewCommentPopoverPosition] =
+    useState<ReviewCommentPopoverPosition | null>(null);
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");
   const patchViewportRef = useRef<HTMLDivElement>(null);
   const previousDiffOpenRef = useRef(false);
@@ -450,6 +702,8 @@ function useDiffPanelComponent({
   useEffect(() => {
     setCollapsedFileKeys(new Set());
     setActiveCommentFileKey(null);
+    setActiveReviewLineSelection(null);
+    setReviewCommentPopoverPosition(null);
     setReviewCommentDraft("");
   }, [renderableFileKeysSignature]);
 
@@ -514,32 +768,46 @@ function useDiffPanelComponent({
     },
     [renderableFileKeys],
   );
-  const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
-  const selectedTurnLabel = selectedTurn
-    ? resolveTurnCheckpointLabel(selectedTurn, inferredCheckpointTurnCountByTurnId)
-    : "All turns";
-  const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
 
-  const submitReviewComment = useCallback(
-    (fileDiff: FileDiffMetadata, filePath: string, fileKey: string) => {
-      const body = reviewCommentDraft.trim();
-      if (!body || !activeCwd || !onAddReviewComment) {
+  const openReviewLineSelection = useCallback(
+    (fileKey: string, filePath: string, range: SelectedLineRange | null) => {
+      if (!range) {
+        setActiveReviewLineSelection((current) => (current?.fileKey === fileKey ? null : current));
+        setActiveCommentFileKey((current) => (current === fileKey ? null : current));
+        if (activeReviewLineSelection?.fileKey === fileKey) {
+          setReviewCommentPopoverPosition(null);
+          setReviewCommentDraft("");
+        }
         return;
       }
-      const stat = summarizeFileDiff(fileDiff);
-      onAddReviewComment({
-        additions: stat.additions,
-        body,
-        changeType: formatFileChangeType(fileDiff),
-        cwd: activeCwd,
-        deletions: stat.deletions,
-        filePath,
-        hunkCount: stat.hunkCount,
-        previousFilePath: fileDiff.prevName ?? null,
-        scopeLabel: selectedTurnLabel,
+      const lineRange = formatDiffReviewLineRange(range);
+      const sameSelection =
+        activeReviewLineSelection?.fileKey === fileKey &&
+        activeReviewLineSelection.filePath === filePath &&
+        areSelectedLineRangesEqual(activeReviewLineSelection.range, range);
+      if (!sameSelection) {
+        setReviewCommentPopoverPosition(
+          createFallbackReviewCommentPopoverPosition(fileKey, "pending"),
+        );
+        setReviewCommentDraft("");
+      }
+      setActiveReviewLineSelection((current) => {
+        if (
+          current?.fileKey === fileKey &&
+          current.filePath === filePath &&
+          areSelectedLineRangesEqual(current.range, range)
+        ) {
+          return current;
+        }
+        return {
+          fileKey,
+          filePath,
+          label: lineRange.label,
+          lineRange,
+          range,
+        };
       });
-      setReviewCommentDraft("");
-      setActiveCommentFileKey(null);
+      setActiveCommentFileKey(fileKey);
       setCollapsedFileKeys((current) => {
         if (!current.has(fileKey)) {
           return current;
@@ -549,8 +817,147 @@ function useDiffPanelComponent({
         return next;
       });
     },
-    [activeCwd, onAddReviewComment, reviewCommentDraft, selectedTurnLabel],
+    [activeReviewLineSelection],
   );
+  const activeReviewFileDiff = useMemo(() => {
+    if (!activeReviewLineSelection) {
+      return null;
+    }
+    return (
+      renderableFiles.find(
+        (fileDiff) => buildFileDiffRenderKey(fileDiff) === activeReviewLineSelection.fileKey,
+      ) ?? null
+    );
+  }, [activeReviewLineSelection, renderableFiles]);
+  const reviewCommentPopoverOpen =
+    activeCommentFileKey !== null &&
+    activeReviewLineSelection !== null &&
+    activeReviewFileDiff !== null;
+  const closeReviewCommentPopover = useCallback(() => {
+    setActiveCommentFileKey(null);
+    setActiveReviewLineSelection(null);
+    setReviewCommentPopoverPosition(null);
+    setReviewCommentDraft("");
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!reviewCommentPopoverOpen || !activeReviewLineSelection) {
+      setReviewCommentPopoverPosition(null);
+      return;
+    }
+
+    let animationFrameId: number | null = null;
+    let retryCount = 0;
+    const pendingPosition = createFallbackReviewCommentPopoverPosition(
+      activeReviewLineSelection.fileKey,
+      "pending",
+    );
+    const fallbackPosition = createFallbackReviewCommentPopoverPosition(
+      activeReviewLineSelection.fileKey,
+      "fallback",
+    );
+
+    const measure = () => {
+      const viewport = patchViewportRef.current;
+      if (!viewport) {
+        setReviewCommentPopoverPosition(fallbackPosition);
+        return;
+      }
+
+      const fileElement = findDiffFileElement(viewport, activeReviewLineSelection);
+      const anchorElement = fileElement
+        ? findReviewCommentAnchorLineElement(fileElement, activeReviewLineSelection)
+        : null;
+
+      if (!fileElement || !anchorElement) {
+        setReviewCommentPopoverPosition((current) => current ?? pendingPosition);
+        if (retryCount < 10) {
+          retryCount += 1;
+          animationFrameId = window.requestAnimationFrame(measure);
+          return;
+        }
+        setReviewCommentPopoverPosition(fallbackPosition);
+        return;
+      }
+
+      const nextPosition = resolveReviewCommentPopoverPosition(
+        fileElement,
+        anchorElement,
+        activeReviewLineSelection.fileKey,
+      );
+      setReviewCommentPopoverPosition((current) =>
+        current?.fileKey === nextPosition.fileKey &&
+        current.left === nextPosition.left &&
+        current.placement === nextPosition.placement &&
+        current.top === nextPosition.top
+          ? current
+          : nextPosition,
+      );
+    };
+
+    animationFrameId = window.requestAnimationFrame(measure);
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [
+    activeReviewLineSelection,
+    collapsedFileKeys,
+    diffRenderMode,
+    diffWordWrap,
+    resolvedTheme,
+    reviewCommentPopoverOpen,
+  ]);
+
+  const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
+  const selectedTurnLabel = selectedTurn
+    ? resolveTurnCheckpointLabel(selectedTurn, inferredCheckpointTurnCountByTurnId)
+    : "All turns";
+  const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
+
+  const submitReviewComment = useCallback(() => {
+    const body = reviewCommentDraft.trim();
+    if (
+      !body ||
+      !activeCwd ||
+      !onAddReviewComment ||
+      !activeReviewLineSelection ||
+      !activeReviewFileDiff
+    ) {
+      return;
+    }
+    const stat = summarizeFileDiff(activeReviewFileDiff);
+    onAddReviewComment({
+      additions: stat.additions,
+      body,
+      changeType: formatFileChangeType(activeReviewFileDiff),
+      cwd: activeCwd,
+      deletions: stat.deletions,
+      filePath: activeReviewLineSelection.filePath,
+      hunkCount: stat.hunkCount,
+      lineRange: activeReviewLineSelection.lineRange,
+      previousFilePath: activeReviewFileDiff.prevName ?? null,
+      scopeLabel: selectedTurnLabel,
+    });
+    closeReviewCommentPopover();
+    setCollapsedFileKeys((current) => {
+      if (!current.has(activeReviewLineSelection.fileKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(activeReviewLineSelection.fileKey);
+      return next;
+    });
+  }, [
+    activeCwd,
+    activeReviewFileDiff,
+    activeReviewLineSelection,
+    closeReviewCommentPopover,
+    onAddReviewComment,
+    reviewCommentDraft,
+    selectedTurnLabel,
+  ]);
 
   const selectTurn = (turnId: TurnId) => {
     if (onSelectTurn) {
@@ -602,7 +1009,7 @@ function useDiffPanelComponent({
           <SelectTrigger
             variant="ghost"
             size="lg"
-            className="w-auto min-w-0 max-w-40 flex-none rounded-lg px-2.5 text-sm font-medium text-foreground hover:bg-accent/60 hover:text-foreground"
+            className="w-auto min-w-0 max-w-40 flex-none rounded-md px-2 text-sm font-medium text-foreground hover:bg-accent/55 hover:text-foreground"
             aria-label="Select review scope"
           >
             <span className="truncate text-sm font-medium text-foreground">
@@ -635,7 +1042,7 @@ function useDiffPanelComponent({
               render={
                 <button
                   type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground/75 transition-colors hover:bg-accent/70 hover:text-foreground"
                   onClick={() => setAllFilesCollapsed(!allFilesCollapsed)}
                   aria-label={allFilesCollapsed ? "Expand all files" : "Collapse all files"}
                 />
@@ -668,7 +1075,7 @@ function useDiffPanelComponent({
               render={
                 <Toggle
                   aria-label="Unified diff view"
-                  className="h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                  className="h-8 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent/80 data-pressed:text-foreground"
                   value="stacked"
                 />
               }
@@ -682,7 +1089,7 @@ function useDiffPanelComponent({
               render={
                 <Toggle
                   aria-label="Split diff view"
-                  className="h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                  className="h-8 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent/80 data-pressed:text-foreground"
                   value="split"
                 />
               }
@@ -701,7 +1108,7 @@ function useDiffPanelComponent({
                 }
                 variant="default"
                 size="sm"
-                className="h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                className="h-8 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground data-pressed:bg-accent/80 data-pressed:text-foreground"
                 pressed={diffWordWrap}
                 onPressedChange={(pressed) => {
                   setDiffWordWrap(Boolean(pressed));
@@ -779,75 +1186,67 @@ function useDiffPanelComponent({
                   const stat = summarizeFileDiff(fileDiff);
                   const changeType = formatFileChangeType(fileDiff);
                   const collapsed = collapsedFileKeys.has(fileKey);
-                  const commentOpen = activeCommentFileKey === fileKey;
+                  const commentSelection =
+                    activeReviewLineSelection?.fileKey === fileKey
+                      ? activeReviewLineSelection
+                      : null;
+                  const commentPopoverOpen =
+                    reviewCommentPopoverOpen &&
+                    activeCommentFileKey === fileKey &&
+                    commentSelection !== null;
+                  const commentPopoverPosition =
+                    reviewCommentPopoverPosition?.fileKey === fileKey
+                      ? reviewCommentPopoverPosition
+                      : commentPopoverOpen
+                        ? createFallbackReviewCommentPopoverPosition(fileKey, "pending")
+                        : null;
+                  const commentPopoverPositionReady =
+                    commentPopoverPosition !== null &&
+                    commentPopoverPosition.placement !== "pending";
                   return (
                     <div
                       key={themedFileKey}
                       data-diff-file-path={filePath}
-                      className="diff-render-file overflow-hidden border-b border-border/70 bg-background/95 last:border-b-0"
+                      className="diff-render-file relative overflow-hidden border-b border-border/40 bg-background last:border-b-0"
                     >
-                      <div className="sticky top-0 z-[2] border-b border-border/60 bg-background/98 backdrop-blur">
-                        <div className="flex min-h-10 items-center gap-2 px-2.5 py-1.5">
+                      <div className="group/file sticky top-0 z-[2] bg-background">
+                        <div className="flex min-h-9 items-center gap-1.5 px-2 py-1 transition-colors group-hover/file:bg-muted/20">
                           <button
                             type="button"
-                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground/72 transition-colors hover:bg-accent/70 hover:text-foreground"
                             aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
                             onClick={() => toggleFileCollapsed(fileKey)}
                           >
                             <ChevronDownIcon
                               className={cn(
-                                "size-4 transition-transform",
+                                "size-3.5 transition-transform",
                                 collapsed && "-rotate-90",
                               )}
                             />
                           </button>
                           <button
                             type="button"
-                            className="min-w-0 flex-1 truncate text-left font-mono text-[12px] font-medium text-foreground/90 underline decoration-transparent underline-offset-2 transition-colors hover:text-primary hover:decoration-current"
+                            className="min-w-0 flex-1 truncate text-left font-mono text-[12px] leading-5 text-foreground/80 underline decoration-transparent underline-offset-2 transition-colors hover:text-foreground hover:decoration-current"
                             title={filePath}
                             onClick={() => openDiffFileInEditor(filePath)}
                           >
                             {filePath}
                           </button>
-                          <span className="hidden shrink-0 rounded-md border border-border/60 bg-muted/45 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground capitalize sm:inline-flex">
+                          <span className="hidden shrink-0 text-[10px] font-medium uppercase text-muted-foreground/45 sm:inline-flex">
                             {changeType}
                           </span>
-                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-success">
+                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-success/75">
                             +{stat.additions}
                           </span>
-                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-destructive">
+                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-destructive/75">
                             -{stat.deletions}
                           </span>
-                          {onAddReviewComment ? (
-                            <Tooltip>
-                              <TooltipTrigger
-                                render={
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-                                      commentOpen && "bg-accent text-foreground",
-                                    )}
-                                    aria-pressed={commentOpen}
-                                    aria-label={`Comment on ${filePath}`}
-                                    onClick={() => {
-                                      setActiveCommentFileKey(commentOpen ? null : fileKey);
-                                      setReviewCommentDraft("");
-                                    }}
-                                  />
-                                }
-                              >
-                                <MessageSquarePlusIcon className="size-3.5" />
-                              </TooltipTrigger>
-                              <TooltipPopup side="bottom">Comment for agent</TooltipPopup>
-                            </Tooltip>
-                          ) : null}
                           <Tooltip>
                             <TooltipTrigger
                               render={
                                 <button
                                   type="button"
-                                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground/70 opacity-100 transition-colors hover:bg-accent/70 hover:text-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover/file:opacity-100 sm:group-focus-within/file:opacity-100"
                                   aria-label={`Open ${filePath} in editor`}
                                   onClick={() => openDiffFileInEditor(filePath)}
                                 />
@@ -858,55 +1257,97 @@ function useDiffPanelComponent({
                             <TooltipPopup side="bottom">Open in editor</TooltipPopup>
                           </Tooltip>
                         </div>
-                        {commentOpen ? (
-                          <form
-                            className="border-t border-border/50 bg-muted/25 px-3 py-2"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              submitReviewComment(fileDiff, filePath, fileKey);
-                            }}
-                          >
-                            <textarea
-                              value={reviewCommentDraft}
-                              onChange={(event) => setReviewCommentDraft(event.target.value)}
-                              className="min-h-18 w-full resize-y rounded-md border border-border/65 bg-background px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/55 focus:ring-2 focus:ring-primary/15"
-                              placeholder="Comment for the agent about this file"
-                              autoFocus
-                            />
-                            <div className="mt-2 flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                className="inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                                onClick={() => {
-                                  setActiveCommentFileKey(null);
-                                  setReviewCommentDraft("");
-                                }}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="submit"
-                                className="inline-flex h-7 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                                disabled={reviewCommentDraft.trim().length === 0}
-                              >
-                                Add comment
-                              </button>
-                            </div>
-                          </form>
-                        ) : null}
                       </div>
+                      {commentPopoverOpen && commentPopoverPosition ? (
+                        <form
+                          className={cn(
+                            "absolute z-[5] flex h-12 w-[min(390px,calc(100%-3rem))] items-center gap-2 rounded-full border border-foreground/18 bg-background/95 px-2 ring-1 ring-background/80 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl",
+                            !commentPopoverPositionReady && "pointer-events-none opacity-0",
+                          )}
+                          style={{
+                            left: commentPopoverPosition.left,
+                            top: commentPopoverPosition.top,
+                          }}
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            submitReviewComment();
+                          }}
+                        >
+                          <span
+                            className="max-w-28 shrink-0 truncate rounded-full bg-muted/55 px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground/78"
+                            title={commentSelection.label}
+                          >
+                            {commentSelection.label}
+                          </span>
+                          <input
+                            value={reviewCommentDraft}
+                            onChange={(event) => setReviewCommentDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                closeReviewCommentPopover();
+                              }
+                            }}
+                            placeholder="Comment for the agent"
+                            className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
+                            autoFocus
+                          />
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/72 transition-colors hover:bg-accent/70 hover:text-foreground"
+                                  onClick={closeReviewCommentPopover}
+                                  aria-label="Cancel comment"
+                                />
+                              }
+                            >
+                              <XIcon className="size-3.5" />
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">Cancel</TooltipPopup>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="submit"
+                                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
+                                  disabled={reviewCommentDraft.trim().length === 0}
+                                  aria-label="Submit comment"
+                                />
+                              }
+                            >
+                              <ArrowUpRightIcon className="size-4" />
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">Submit comment</TooltipPopup>
+                          </Tooltip>
+                        </form>
+                      ) : null}
                       {!collapsed ? (
                         <FileDiff
                           fileDiff={fileDiff}
                           options={{
                             diffStyle: diffRenderMode === "split" ? "split" : "unified",
                             disableFileHeader: true,
+                            enableGutterUtility: Boolean(onAddReviewComment),
+                            enableLineSelection: Boolean(onAddReviewComment),
                             lineDiffType: "none",
+                            lineHoverHighlight: onAddReviewComment ? "number" : "disabled",
+                            ...(onAddReviewComment
+                              ? {
+                                  onGutterUtilityClick: (range: SelectedLineRange) =>
+                                    openReviewLineSelection(fileKey, filePath, range),
+                                  onLineSelected: (range: SelectedLineRange | null) =>
+                                    openReviewLineSelection(fileKey, filePath, range),
+                                }
+                              : {}),
                             overflow: diffWordWrap ? "wrap" : "scroll",
                             theme: resolveDiffThemeName(resolvedTheme),
                             themeType: resolvedTheme as DiffThemeType,
                             unsafeCSS: diffPanelUnsafeCss,
                           }}
+                          selectedLines={commentSelection?.range ?? null}
                         />
                       ) : null}
                     </div>
