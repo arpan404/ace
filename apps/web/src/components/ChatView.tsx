@@ -197,6 +197,7 @@ import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
+import type { DiffReviewCommentInput } from "./DiffPanel";
 import BranchToolbar from "./BranchToolbar";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -1399,10 +1400,10 @@ function useChatViewComponent({
     () =>
       pendingComposerComments.map((comment) => ({
         id: comment.id,
-        sourceLabel: "Browser",
+        sourceLabel: comment.source === "review" ? "Review" : "Browser",
         targetLabel: comment.targetLabel,
         body: comment.body,
-        previewUrl: comment.image.previewUrl ?? null,
+        previewUrl: comment.image?.previewUrl ?? null,
       })),
     [pendingComposerComments],
   );
@@ -1433,6 +1434,53 @@ function useChatViewComponent({
       };
     });
   }, [threadId]);
+  const addDiffReviewComment = useCallback(
+    (comment: DiffReviewCommentInput) => {
+      const body = comment.body.trim();
+      if (!body) {
+        return;
+      }
+      const hiddenContextBlock = [
+        "<diff_review_context>",
+        JSON.stringify(
+          {
+            cwd: comment.cwd,
+            filePath: comment.filePath,
+            previousFilePath: comment.previousFilePath,
+            scope: comment.scopeLabel,
+            changeType: comment.changeType,
+            additions: comment.additions,
+            deletions: comment.deletions,
+            hunkCount: comment.hunkCount,
+          },
+          null,
+          2,
+        ),
+        "</diff_review_context>",
+      ].join("\n");
+      setPendingComposerCommentsByThreadId((current) => ({
+        ...current,
+        [threadId]: [
+          ...(current[threadId] ?? []),
+          {
+            id: randomUUID(),
+            source: "review",
+            body,
+            targetLabel: comment.filePath,
+            detailLabel: `${comment.scopeLabel} - ${comment.additions}+ ${comment.deletions}-`,
+            hiddenContextBlock,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }));
+      toastManager.add({
+        type: "success",
+        title: "Review comment added",
+        description: "It will be sent with your next message.",
+      });
+    },
+    [setPendingComposerCommentsByThreadId, threadId],
+  );
 
   const threadConnectionUrl = useThreadConnectionUrl(threadId);
   const projectConnectionUrl = useProjectConnectionUrl(
@@ -8756,6 +8804,7 @@ function useChatViewComponent({
                             <LocalDiffPanel
                               threadId={activeThread.id}
                               diffState={localDiffState}
+                              onAddReviewComment={addDiffReviewComment}
                               onDiffStateChange={setLocalDiffState}
                             />
                           ) : activeRightSidePanelMode === "editor" ? (

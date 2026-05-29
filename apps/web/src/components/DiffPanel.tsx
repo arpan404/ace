@@ -3,7 +3,14 @@ import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/reac
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, TurnId } from "@ace/contracts";
-import { Columns2Icon, Rows3Icon, TextWrapIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  Columns2Icon,
+  ExternalLinkIcon,
+  MessageSquarePlusIcon,
+  Rows3Icon,
+  TextWrapIcon,
+} from "lucide-react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
@@ -35,6 +42,18 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 const ALL_TURNS_SELECT_VALUE = "__all_turns__";
+
+export interface DiffReviewCommentInput {
+  readonly additions: number;
+  readonly body: string;
+  readonly changeType: string;
+  readonly cwd: string;
+  readonly deletions: number;
+  readonly filePath: string;
+  readonly hunkCount: number;
+  readonly previousFilePath: string | null;
+  readonly scopeLabel: string;
+}
 
 type RenderablePatch =
   | {
@@ -91,6 +110,25 @@ function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
   return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
 }
 
+function summarizeFileDiff(fileDiff: FileDiffMetadata): {
+  additions: number;
+  deletions: number;
+  hunkCount: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of fileDiff.hunks) {
+    additions += hunk.additionLines;
+    deletions += hunk.deletionLines;
+  }
+  return { additions, deletions, hunkCount: fileDiff.hunks.length };
+}
+
+function formatFileChangeType(fileDiff: FileDiffMetadata): string {
+  const raw = String(fileDiff.type);
+  return raw.length > 0 ? raw.replace(/[-_]/g, " ") : "modified";
+}
+
 function resolveTurnCheckpointLabel(
   summary: {
     turnId: TurnId;
@@ -115,6 +153,7 @@ function isCheckpointSummaryQueryable(
 
 interface DiffPanelProps {
   diffOpen?: boolean;
+  onAddReviewComment?: (comment: DiffReviewCommentInput) => void;
   onSelectTurn?: (turnId: TurnId) => void;
   onSelectWholeConversation?: () => void;
   mode?: DiffPanelMode;
@@ -128,6 +167,7 @@ export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 function useDiffPanelComponent({
   diffOpen: diffOpenOverride,
   mode = "inline",
+  onAddReviewComment,
   onSelectTurn,
   onSelectWholeConversation,
   selectedFilePath: selectedFilePathOverride,
@@ -141,6 +181,9 @@ function useDiffPanelComponent({
   const timestampFormat = useSetting("timestampFormat");
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
+  const [collapsedFileKeys, setCollapsedFileKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [activeCommentFileKey, setActiveCommentFileKey] = useState<string | null>(null);
+  const [reviewCommentDraft, setReviewCommentDraft] = useState("");
   const patchViewportRef = useRef<HTMLDivElement>(null);
   const previousDiffOpenRef = useRef(false);
   const routeThreadId = useParams({
@@ -389,6 +432,13 @@ function useDiffPanelComponent({
       }),
     );
   }, [renderablePatch]);
+  const renderableFileKeys = useMemo(
+    () => renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff)),
+    [renderableFiles],
+  );
+  const renderableFileKeysSignature = renderableFileKeys.join("\u0000");
+  const expandedFileCount = renderableFiles.length - collapsedFileKeys.size;
+  const allFilesCollapsed = renderableFiles.length > 0 && expandedFileCount === 0;
 
   useEffect(() => {
     if (diffOpen && !previousDiffOpenRef.current) {
@@ -396,6 +446,12 @@ function useDiffPanelComponent({
     }
     previousDiffOpenRef.current = diffOpen;
   }, [diffOpen, diffWordWrapSetting]);
+
+  useEffect(() => {
+    setCollapsedFileKeys(new Set());
+    setActiveCommentFileKey(null);
+    setReviewCommentDraft("");
+  }, [renderableFileKeysSignature]);
 
   useEffect(() => {
     if (!selectedFilePath || !patchViewportRef.current) {
@@ -407,6 +463,27 @@ function useDiffPanelComponent({
     target?.scrollIntoView({ block: "nearest" });
   }, [selectedFilePath, renderableFiles]);
 
+  useEffect(() => {
+    if (!selectedFilePath) {
+      return;
+    }
+    const selectedFile = renderableFiles.find(
+      (fileDiff) => resolveFileDiffPath(fileDiff) === selectedFilePath,
+    );
+    if (!selectedFile) {
+      return;
+    }
+    const selectedFileKey = buildFileDiffRenderKey(selectedFile);
+    setCollapsedFileKeys((current) => {
+      if (!current.has(selectedFileKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(selectedFileKey);
+      return next;
+    });
+  }, [renderableFiles, selectedFilePath]);
+
   const openDiffFileInEditor = useCallback(
     (filePath: string) => {
       const api = readNativeApi();
@@ -417,6 +494,62 @@ function useDiffPanelComponent({
       });
     },
     [activeCwd],
+  );
+
+  const toggleFileCollapsed = useCallback((fileKey: string) => {
+    setCollapsedFileKeys((current) => {
+      const next = new Set(current);
+      if (next.has(fileKey)) {
+        next.delete(fileKey);
+      } else {
+        next.add(fileKey);
+      }
+      return next;
+    });
+  }, []);
+
+  const setAllFilesCollapsed = useCallback(
+    (collapsed: boolean) => {
+      setCollapsedFileKeys(collapsed ? new Set(renderableFileKeys) : new Set());
+    },
+    [renderableFileKeys],
+  );
+  const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
+  const selectedTurnLabel = selectedTurn
+    ? resolveTurnCheckpointLabel(selectedTurn, inferredCheckpointTurnCountByTurnId)
+    : "All turns";
+  const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
+
+  const submitReviewComment = useCallback(
+    (fileDiff: FileDiffMetadata, filePath: string, fileKey: string) => {
+      const body = reviewCommentDraft.trim();
+      if (!body || !activeCwd || !onAddReviewComment) {
+        return;
+      }
+      const stat = summarizeFileDiff(fileDiff);
+      onAddReviewComment({
+        additions: stat.additions,
+        body,
+        changeType: formatFileChangeType(fileDiff),
+        cwd: activeCwd,
+        deletions: stat.deletions,
+        filePath,
+        hunkCount: stat.hunkCount,
+        previousFilePath: fileDiff.prevName ?? null,
+        scopeLabel: selectedTurnLabel,
+      });
+      setReviewCommentDraft("");
+      setActiveCommentFileKey(null);
+      setCollapsedFileKeys((current) => {
+        if (!current.has(fileKey)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(fileKey);
+        return next;
+      });
+    },
+    [activeCwd, onAddReviewComment, reviewCommentDraft, selectedTurnLabel],
   );
 
   const selectTurn = (turnId: TurnId) => {
@@ -449,12 +582,6 @@ function useDiffPanelComponent({
       },
     });
   };
-  const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
-  const selectedTurnLabel = selectedTurn
-    ? resolveTurnCheckpointLabel(selectedTurn, inferredCheckpointTurnCountByTurnId)
-    : "All turns";
-  const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
-
   const headerRow = (
     <>
       <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
@@ -502,6 +629,28 @@ function useDiffPanelComponent({
         </Select>
       </div>
       <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
+        {renderableFiles.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() => setAllFilesCollapsed(!allFilesCollapsed)}
+                  aria-label={allFilesCollapsed ? "Expand all files" : "Collapse all files"}
+                />
+              }
+            >
+              <ChevronDownIcon
+                className={cn("size-3.5 transition-transform", allFilesCollapsed && "-rotate-90")}
+              />
+              <span className="hidden sm:inline">{allFilesCollapsed ? "Expand" : "Collapse"}</span>
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {allFilesCollapsed ? "Expand all files" : "Collapse all files"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
         <ToggleGroup
           className="shrink-0 gap-1"
           variant="default"
@@ -627,33 +776,139 @@ function useDiffPanelComponent({
                   const filePath = resolveFileDiffPath(fileDiff);
                   const fileKey = buildFileDiffRenderKey(fileDiff);
                   const themedFileKey = `${fileKey}:${resolvedTheme}`;
+                  const stat = summarizeFileDiff(fileDiff);
+                  const changeType = formatFileChangeType(fileDiff);
+                  const collapsed = collapsedFileKeys.has(fileKey);
+                  const commentOpen = activeCommentFileKey === fileKey;
                   return (
                     <div
                       key={themedFileKey}
                       data-diff-file-path={filePath}
-                      className="diff-render-file overflow-hidden"
-                      onClickCapture={(event) => {
-                        const nativeEvent = event.nativeEvent as MouseEvent;
-                        const composedPath = nativeEvent.composedPath?.() ?? [];
-                        const clickedHeader = composedPath.some((node) => {
-                          if (!(node instanceof Element)) return false;
-                          return node.hasAttribute("data-title");
-                        });
-                        if (!clickedHeader) return;
-                        openDiffFileInEditor(filePath);
-                      }}
+                      className="diff-render-file overflow-hidden border-b border-border/70 bg-background/95 last:border-b-0"
                     >
-                      <FileDiff
-                        fileDiff={fileDiff}
-                        options={{
-                          diffStyle: diffRenderMode === "split" ? "split" : "unified",
-                          lineDiffType: "none",
-                          overflow: diffWordWrap ? "wrap" : "scroll",
-                          theme: resolveDiffThemeName(resolvedTheme),
-                          themeType: resolvedTheme as DiffThemeType,
-                          unsafeCSS: diffPanelUnsafeCss,
-                        }}
-                      />
+                      <div className="sticky top-0 z-[2] border-b border-border/60 bg-background/98 backdrop-blur">
+                        <div className="flex min-h-10 items-center gap-2 px-2.5 py-1.5">
+                          <button
+                            type="button"
+                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
+                            onClick={() => toggleFileCollapsed(fileKey)}
+                          >
+                            <ChevronDownIcon
+                              className={cn(
+                                "size-4 transition-transform",
+                                collapsed && "-rotate-90",
+                              )}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 truncate text-left font-mono text-[12px] font-medium text-foreground/90 underline decoration-transparent underline-offset-2 transition-colors hover:text-primary hover:decoration-current"
+                            title={filePath}
+                            onClick={() => openDiffFileInEditor(filePath)}
+                          >
+                            {filePath}
+                          </button>
+                          <span className="hidden shrink-0 rounded-md border border-border/60 bg-muted/45 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground capitalize sm:inline-flex">
+                            {changeType}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-success">
+                            +{stat.additions}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-destructive">
+                            -{stat.deletions}
+                          </span>
+                          {onAddReviewComment ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                                      commentOpen && "bg-accent text-foreground",
+                                    )}
+                                    aria-pressed={commentOpen}
+                                    aria-label={`Comment on ${filePath}`}
+                                    onClick={() => {
+                                      setActiveCommentFileKey(commentOpen ? null : fileKey);
+                                      setReviewCommentDraft("");
+                                    }}
+                                  />
+                                }
+                              >
+                                <MessageSquarePlusIcon className="size-3.5" />
+                              </TooltipTrigger>
+                              <TooltipPopup side="bottom">Comment for agent</TooltipPopup>
+                            </Tooltip>
+                          ) : null}
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                  aria-label={`Open ${filePath} in editor`}
+                                  onClick={() => openDiffFileInEditor(filePath)}
+                                />
+                              }
+                            >
+                              <ExternalLinkIcon className="size-3.5" />
+                            </TooltipTrigger>
+                            <TooltipPopup side="bottom">Open in editor</TooltipPopup>
+                          </Tooltip>
+                        </div>
+                        {commentOpen ? (
+                          <form
+                            className="border-t border-border/50 bg-muted/25 px-3 py-2"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              submitReviewComment(fileDiff, filePath, fileKey);
+                            }}
+                          >
+                            <textarea
+                              value={reviewCommentDraft}
+                              onChange={(event) => setReviewCommentDraft(event.target.value)}
+                              className="min-h-18 w-full resize-y rounded-md border border-border/65 bg-background px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/55 focus:ring-2 focus:ring-primary/15"
+                              placeholder="Comment for the agent about this file"
+                              autoFocus
+                            />
+                            <div className="mt-2 flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                onClick={() => {
+                                  setActiveCommentFileKey(null);
+                                  setReviewCommentDraft("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                className="inline-flex h-7 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={reviewCommentDraft.trim().length === 0}
+                              >
+                                Add comment
+                              </button>
+                            </div>
+                          </form>
+                        ) : null}
+                      </div>
+                      {!collapsed ? (
+                        <FileDiff
+                          fileDiff={fileDiff}
+                          options={{
+                            diffStyle: diffRenderMode === "split" ? "split" : "unified",
+                            disableFileHeader: true,
+                            lineDiffType: "none",
+                            overflow: diffWordWrap ? "wrap" : "scroll",
+                            theme: resolveDiffThemeName(resolvedTheme),
+                            themeType: resolvedTheme as DiffThemeType,
+                            unsafeCSS: diffPanelUnsafeCss,
+                          }}
+                        />
+                      ) : null}
                     </div>
                   );
                 })}
