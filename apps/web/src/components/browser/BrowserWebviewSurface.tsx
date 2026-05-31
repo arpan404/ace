@@ -33,6 +33,8 @@ import {
   type BrowserDesignElementDescriptor,
   type BrowserDesignSelectionRect,
   type BrowserConsoleLogEntry,
+  type BrowserFindOptions,
+  type BrowserFindResult,
   type BrowserWebviewKeyboardInputEvent,
   type BrowserTabHandle,
   type BrowserTabSnapshotOptions,
@@ -1442,6 +1444,31 @@ function stopWebviewBeforeRemoval(webview: BrowserWebview): void {
   }
 }
 
+function readWebviewValue<T>(read: () => T, fallback: T): T {
+  try {
+    return read();
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeFindInPageResult(value: unknown): BrowserFindResult | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const matches = record.matches;
+  const activeMatchOrdinal = record.activeMatchOrdinal;
+  return {
+    activeMatchOrdinal:
+      typeof activeMatchOrdinal === "number" && Number.isFinite(activeMatchOrdinal)
+        ? activeMatchOrdinal
+        : 0,
+    finalUpdate: record.finalUpdate === true,
+    matches: typeof matches === "number" && Number.isFinite(matches) ? matches : 0,
+  };
+}
+
 function BrowserFavicon(props: {
   url: string;
   title: string;
@@ -1542,6 +1569,7 @@ function useBrowserTabWebviewComponent(props: {
     position: { x: number; y: number },
     requestedAt: number,
   ) => void;
+  onFindResultChange?: (tabId: string, result: BrowserFindResult | null) => void;
   onOpenUrlInNewTab?: (url: string) => void;
   tab: BrowserTabState;
   onHandleChange: (tabId: string, handle: BrowserTabHandle | null) => void;
@@ -1561,6 +1589,7 @@ function useBrowserTabWebviewComponent(props: {
     onDesignCaptureError,
     onDesignCaptureSubmit,
     onContextMenuFallbackRequest,
+    onFindResultChange,
     onOpenUrlInNewTab,
     tab,
     onHandleChange,
@@ -1638,6 +1667,9 @@ function useBrowserTabWebviewComponent(props: {
   const requestOpenUrlInNewTab = useEffectEvent((url: string) => {
     onOpenUrlInNewTab?.(url);
   });
+  const emitFindResultChange = useEffectEvent((result: BrowserFindResult | null) => {
+    onFindResultChange?.(tab.id, result);
+  });
   const commitHoveredElementCapture = useCallback(
     (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
       hoveredElementCaptureRef.current = capture;
@@ -1698,14 +1730,19 @@ function useBrowserTabWebviewComponent(props: {
       if (!webview || !readyRef.current) {
         return;
       }
-      const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+      const resolvedUrl = resolveSnapshotUrl(
+        readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
+      );
       emitTabSnapshotChange(
         {
-          canGoBack: webview.canGoBack(),
-          canGoForward: webview.canGoForward(),
-          devToolsOpen: webview.isDevToolsOpened(),
-          loading: webview.isLoading(),
-          title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+          canGoBack: readWebviewValue(() => webview.canGoBack(), false),
+          canGoForward: readWebviewValue(() => webview.canGoForward(), false),
+          devToolsOpen: readWebviewValue(() => webview.isDevToolsOpened(), false),
+          loading: readWebviewValue(() => webview.isLoading(), false),
+          title: resolveBrowserTabTitle(
+            resolvedUrl,
+            readWebviewValue(() => webview.getTitle(), ""),
+          ),
           url: resolvedUrl,
         },
         options,
@@ -1719,13 +1756,18 @@ function useBrowserTabWebviewComponent(props: {
     if (!webview || !readyRef.current) {
       return null;
     }
-    const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+    const resolvedUrl = resolveSnapshotUrl(
+      readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
+    );
     return {
-      canGoBack: webview.canGoBack(),
-      canGoForward: webview.canGoForward(),
-      devToolsOpen: webview.isDevToolsOpened(),
-      loading: webview.isLoading(),
-      title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+      canGoBack: readWebviewValue(() => webview.canGoBack(), false),
+      canGoForward: readWebviewValue(() => webview.canGoForward(), false),
+      devToolsOpen: readWebviewValue(() => webview.isDevToolsOpened(), false),
+      loading: readWebviewValue(() => webview.isLoading(), false),
+      title: resolveBrowserTabTitle(
+        resolvedUrl,
+        readWebviewValue(() => webview.getTitle(), ""),
+      ),
       url: resolvedUrl,
     };
   }, [resolveSnapshotUrl]);
@@ -1779,7 +1821,9 @@ function useBrowserTabWebviewComponent(props: {
         pendingUrlRef.current = url;
         return;
       }
-      const currentUrl = normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()));
+      const currentUrl = normalizeBrowserHttpUrl(
+        resolveBrowserDisplayUrl(readWebviewValue(() => webview.getURL(), requestedUrlRef.current)),
+      );
       if (currentUrl === normalizeBrowserHttpUrl(url)) {
         scheduleEmitSnapshot({ persistTab: true });
         return;
@@ -2179,6 +2223,32 @@ function useBrowserTabWebviewComponent(props: {
         }
         return webview.executeJavaScript<T>(code, true);
       },
+      findInPage: (query: string, options?: BrowserFindOptions) => {
+        const webview = webviewRef.current;
+        if (!readyRef.current || !webview) {
+          return;
+        }
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) {
+          webview.stopFindInPage?.("clearSelection");
+          emitFindResultChange(null);
+          return;
+        }
+        if (webview.findInPage) {
+          webview.findInPage(trimmedQuery, {
+            findNext: options?.findNext === true,
+            forward: options?.forward !== false,
+            matchCase: options?.matchCase === true,
+          });
+          return;
+        }
+        if (webview.executeJavaScript) {
+          void webview.executeJavaScript(
+            `window.find(${JSON.stringify(trimmedQuery)}, ${JSON.stringify(options?.matchCase === true)}, ${JSON.stringify(options?.forward === false)}, false, false, false, false)`,
+            true,
+          );
+        }
+      },
       getZoomFactor: () => {
         if (!readyRef.current || !webviewRef.current) return 1;
         return getWebviewZoomFactor(webviewRef.current);
@@ -2243,6 +2313,11 @@ function useBrowserTabWebviewComponent(props: {
         if (!readyRef.current || !webviewRef.current) return;
         setWebviewZoomFactor(webviewRef.current, factor);
       },
+      stopFindInPage: (action = "clearSelection") => {
+        if (!readyRef.current || !webviewRef.current) return;
+        webviewRef.current.stopFindInPage?.(action);
+        emitFindResultChange(null);
+      },
       stop: () => {
         if (!readyRef.current || !webviewRef.current) return;
         webviewRef.current.stop();
@@ -2266,7 +2341,7 @@ function useBrowserTabWebviewComponent(props: {
         setWebviewZoomFactor(webviewRef.current, 1);
       },
     }),
-    [animateAgentPointer, clearAgentPointer, navigate, readSnapshot],
+    [animateAgentPointer, clearAgentPointer, emitFindResultChange, navigate, readSnapshot],
   );
 
   useEffect(() => {
@@ -2281,13 +2356,7 @@ function useBrowserTabWebviewComponent(props: {
       return;
     }
     clearAgentPointer();
-    const webview = webviewRef.current;
-    if (!readyRef.current || !webview?.isLoading()) {
-      return;
-    }
-    webview.stop();
-    scheduleEmitSnapshot({ persistTab: false });
-  }, [active, clearAgentPointer, scheduleEmitSnapshot]);
+  }, [active, clearAgentPointer]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -2317,7 +2386,11 @@ function useBrowserTabWebviewComponent(props: {
       if (
         pendingUrl &&
         normalizeBrowserHttpUrl(pendingUrl) !==
-          normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()))
+          normalizeBrowserHttpUrl(
+            resolveBrowserDisplayUrl(
+              readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
+            ),
+          )
       ) {
         loadWebviewUrl(webview, resolveLoadUrlEvent(pendingUrl), (message) => {
           dispatchDesignOverlayState({
@@ -2338,9 +2411,13 @@ function useBrowserTabWebviewComponent(props: {
       dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
       emitTabSnapshotChange(
         {
-          canGoBack: readyRef.current ? webview.canGoBack() : false,
-          canGoForward: readyRef.current ? webview.canGoForward() : false,
-          devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
+          canGoBack: readyRef.current ? readWebviewValue(() => webview.canGoBack(), false) : false,
+          canGoForward: readyRef.current
+            ? readWebviewValue(() => webview.canGoForward(), false)
+            : false,
+          devToolsOpen: readyRef.current
+            ? readWebviewValue(() => webview.isDevToolsOpened(), false)
+            : false,
           loading: true,
           title: resolveBrowserTabTitle(requestedUrlRef.current),
           url: requestedUrlRef.current,
@@ -2372,7 +2449,9 @@ function useBrowserTabWebviewComponent(props: {
         return;
       }
       cancelScheduledSnapshot();
-      const resolvedUrl = resolveSnapshotUrlEvent(detail.validatedURL ?? webview.getURL());
+      const resolvedUrl = resolveSnapshotUrlEvent(
+        detail.validatedURL ?? readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
+      );
       dispatchDesignOverlayState({
         type: "set-load-failure",
         loadFailure: {
@@ -2388,11 +2467,18 @@ function useBrowserTabWebviewComponent(props: {
       });
       emitTabSnapshotChange(
         {
-          canGoBack: readyRef.current ? webview.canGoBack() : false,
-          canGoForward: readyRef.current ? webview.canGoForward() : false,
-          devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
+          canGoBack: readyRef.current ? readWebviewValue(() => webview.canGoBack(), false) : false,
+          canGoForward: readyRef.current
+            ? readWebviewValue(() => webview.canGoForward(), false)
+            : false,
+          devToolsOpen: readyRef.current
+            ? readWebviewValue(() => webview.isDevToolsOpened(), false)
+            : false,
           loading: false,
-          title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+          title: resolveBrowserTabTitle(
+            resolvedUrl,
+            readWebviewValue(() => webview.getTitle(), ""),
+          ),
           url: resolvedUrl,
         },
         { persistTab: true },
@@ -2444,6 +2530,10 @@ function useBrowserTabWebviewComponent(props: {
       dragSelectionRef.current = null;
       cancelDesignCaptureEvent();
     };
+    const handleFoundInPage = (event: Event) => {
+      const detail = event as Event & { result?: unknown };
+      emitFindResultChange(normalizeFindInPageResult(detail.result));
+    };
 
     webview.addEventListener("dom-ready", handleDomReady);
     webview.addEventListener("did-start-loading", handleLoadStart);
@@ -2458,6 +2548,7 @@ function useBrowserTabWebviewComponent(props: {
     webview.addEventListener("new-window", handleNewWindow);
     webview.addEventListener("console-message", handleConsoleMessage);
     webview.addEventListener("render-process-gone", handleRenderProcessGone);
+    webview.addEventListener("found-in-page", handleFoundInPage);
 
     host.replaceChildren(webview);
     webviewRef.current = webview;
@@ -2476,6 +2567,7 @@ function useBrowserTabWebviewComponent(props: {
       webview.removeEventListener("new-window", handleNewWindow);
       webview.removeEventListener("console-message", handleConsoleMessage);
       webview.removeEventListener("render-process-gone", handleRenderProcessGone);
+      webview.removeEventListener("found-in-page", handleFoundInPage);
       stopWebviewBeforeRemoval(webview);
       host.replaceChildren();
       webviewRef.current = null;

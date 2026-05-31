@@ -51,6 +51,10 @@ This document covers how to run desktop releases from one tag, first without sig
   in-app browser uses Chromium's platform WebAuthn path where available and
   provides runtime selection dialogs for discoverable credentials, HID devices,
   USB devices, and serial ports.
+- The browser session removes Electron/app tokens from its user agent and exposes
+  a same-session sign-in window for auth pages. That window uses the same
+  persistent browser partition as embedded tabs, so successful auth can flow back
+  through shared cookies and storage without opening the user's default browser.
 - Browser-extension-only password managers are best-effort in Electron. The app
   auto-discovers known unpacked Chromium password-manager extensions from local
   profiles and also accepts explicit directories with

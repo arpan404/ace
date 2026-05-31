@@ -1,16 +1,21 @@
 import {
   ArrowLeftIcon,
+  ArrowDownIcon,
   ArrowRightIcon,
+  ArrowUpIcon,
   BoxSelectIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
+  KeyRoundIcon,
   LockIcon,
   LockOpenIcon,
   type LucideIcon,
   LoaderCircleIcon,
   MousePointerSquareDashedIcon,
   RefreshCwIcon,
+  SearchIcon,
   SlidersHorizontalIcon,
+  XIcon,
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -52,7 +57,7 @@ import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChro
 import { BrowserSiteDiagnosticsDialog } from "./browser/BrowserSiteDiagnosticsDialog";
 import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
 import { isBrowserInternalTabUrl } from "~/lib/browser/session";
-import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
+import type { BrowserDesignRequestSubmission, BrowserFindResult } from "~/lib/browser/types";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { isRenderProfilingEnabled, recordReactRenderProfile } from "~/lib/renderProfiling";
 import { toastManager } from "./ui/toast";
@@ -144,10 +149,37 @@ function resolveAddressFieldPresentation(currentUrl: string | null): {
   }
 }
 
+export function isLikelyBrowserAuthenticationUrl(input: {
+  title?: string | null;
+  url: string | null;
+}): boolean {
+  if (!input.url) {
+    return false;
+  }
+  try {
+    const parsedUrl = new URL(input.url);
+    const host = parsedUrl.hostname.toLowerCase();
+    if (
+      /(\.|^)secure\d*\.store\.apple\.com$/u.test(host) ||
+      /(\.|^)idmsa\.apple\.com$/u.test(host)
+    ) {
+      return true;
+    }
+    const haystack =
+      `${host} ${parsedUrl.pathname} ${parsedUrl.search} ${input.title ?? ""}`.toLowerCase();
+    return /\b(auth|authorize|login|log-in|signin|sign-in|saml|sso|oauth|oidc|password|passkey|webauthn|account|checkout)\b/u.test(
+      haystack,
+    );
+  } catch {
+    return false;
+  }
+}
+
 const BROWSER_SHELL_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
 } as const;
+const AUTH_LOADING_RECOVERY_DELAY_MS = 12_000;
 
 export function resolveMountedBrowserTabs(input: {
   activeTabId: string | null | undefined;
@@ -243,6 +275,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     reloadShortcutLabel,
     onQueueDesignRequest,
   } = props;
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findResultByTabId, setFindResultByTabId] = useState<Record<string, BrowserFindResult>>({});
+  const [showAuthRecovery, setShowAuthRecovery] = useState(false);
+  const openFindBar = useCallback(() => {
+    setFindOpen(true);
+    window.requestAnimationFrame(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    });
+  }, []);
   const {
     activeRuntime,
     activeTab,
@@ -257,6 +301,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     browserShellStyle,
     designerState,
     draftUrl,
+    findInPage,
     goBack,
     goForward,
     handleAddressBarKeyDown,
@@ -264,6 +309,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
     openActiveTabExternally,
+    openActiveTabInAuthWindow,
     openUrl,
     registerWebviewHandle,
     reload,
@@ -275,6 +321,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setSelectedSuggestionIndex,
     showAddressBarSuggestionOverlay,
     showAddressBarSuggestions,
+    stopFindInPage,
     zoomIn,
     zoomOut,
     zoomReset,
@@ -284,6 +331,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     mode,
     open,
     onClose,
+    onFindInPageShortcut: openFindBar,
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
@@ -427,16 +475,88 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   );
   const collapsedDesignerSelectorActive = designerState.active;
   const activeTabUrl = activeTab && !activeTabIsInternal ? activeTab.url : null;
+  const signInWindowAvailable =
+    isElectron &&
+    activeTabUrl !== null &&
+    isLikelyBrowserAuthenticationUrl({
+      title: activeTab?.title ?? null,
+      url: activeTabUrl,
+    });
+  const activeFindResult = activeTab ? (findResultByTabId[activeTab.id] ?? null) : null;
+  const closeFindBar = useCallback(() => {
+    stopFindInPage();
+    setFindOpen(false);
+    setFindQuery("");
+  }, [stopFindInPage]);
+  const runFind = useCallback(
+    (direction: "next" | "previous") => {
+      if (!findQuery.trim() || activeTabIsInternal) {
+        return;
+      }
+      findInPage(findQuery, {
+        findNext: true,
+        forward: direction === "next",
+      });
+    },
+    [activeTabIsInternal, findInPage, findQuery],
+  );
+  const handleFindResultChange = useCallback((tabId: string, result: BrowserFindResult | null) => {
+    setFindResultByTabId((current) => {
+      if (!result) {
+        if (!(tabId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[tabId];
+        return next;
+      }
+      const previous = current[tabId];
+      if (
+        previous?.activeMatchOrdinal === result.activeMatchOrdinal &&
+        previous?.finalUpdate === result.finalUpdate &&
+        previous?.matches === result.matches
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        [tabId]: result,
+      };
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) {
       setDesignerModeActive(false);
       setAddressFieldExpanded(false);
+      closeFindBar();
     }
-  }, [open, setDesignerModeActive]);
+  }, [closeFindBar, open, setDesignerModeActive]);
   useEffect(() => {
     setAddressFieldExpanded(false);
-  }, [activeTab?.id]);
+    if (findOpen && findQuery.trim()) {
+      findInputRef.current?.focus();
+    }
+  }, [activeTab?.id, findOpen, findQuery]);
+  useEffect(() => {
+    if (!findOpen || activeTabIsInternal || !findQuery.trim()) {
+      stopFindInPage();
+      return;
+    }
+    findInPage(findQuery, { forward: true });
+  }, [activeTab?.id, activeTabIsInternal, findInPage, findOpen, findQuery, stopFindInPage]);
+  useEffect(() => {
+    setShowAuthRecovery(false);
+    if (!signInWindowAvailable || !activeRuntime.loading) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setShowAuthRecovery(true);
+    }, AUTH_LOADING_RECOVERY_DELAY_MS);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [activeRuntime.loading, activeTab?.id, activeTab?.url, signInWindowAvailable]);
   const mountedBrowserTabs = useMemo(
     () =>
       resolveMountedBrowserTabs({
@@ -870,6 +990,35 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                       </TooltipPopup>
                     </Tooltip>
                   )}
+                  {signInWindowAvailable ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            type="button"
+                            className={cn(
+                              "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                              "pointer-events-none opacity-0 transition-opacity duration-150",
+                              "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                              "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                              forceExpandedAddressField &&
+                                "pointer-events-auto opacity-100 group-hover/address:opacity-100",
+                            )}
+                            onClick={() => {
+                              openActiveTabInAuthWindow();
+                            }}
+                            disabled={!activeTab || activeTabIsInternal}
+                            aria-label="Open sign-in window"
+                          >
+                            <KeyRoundIcon className="size-3.5" />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup side="bottom">Open sign-in window</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -1126,6 +1275,127 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
             </div>
           </>
 
+          {findOpen && !activeTabIsInternal ? (
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background/96 px-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-muted/[0.18] px-2">
+                <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <input
+                  ref={findInputRef}
+                  value={findQuery}
+                  onChange={(event) => {
+                    setFindQuery(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      closeFindBar();
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      runFind(event.shiftKey ? "previous" : "next");
+                    }
+                  }}
+                  placeholder="Find in page"
+                  className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <span className="min-w-16 shrink-0 text-right font-mono text-[11px] text-muted-foreground">
+                  {findQuery.trim()
+                    ? activeFindResult?.matches
+                      ? `${String(activeFindResult.activeMatchOrdinal)}/${String(activeFindResult.matches)}`
+                      : "0/0"
+                    : ""}
+                </span>
+              </div>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        runFind("previous");
+                      }}
+                      disabled={!findQuery.trim()}
+                      aria-label="Previous match"
+                    >
+                      <ArrowUpIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Previous match</TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        runFind("next");
+                      }}
+                      disabled={!findQuery.trim()}
+                      aria-label="Next match"
+                    >
+                      <ArrowDownIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Next match</TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={closeFindBar}
+                      aria-label="Close find in page"
+                    >
+                      <XIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Close</TooltipPopup>
+              </Tooltip>
+            </div>
+          ) : null}
+
+          {showAuthRecovery && signInWindowAvailable ? (
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-muted/[0.18] px-3 text-sm">
+              <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                Sign-in is still waiting on this page.
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  openActiveTabInAuthWindow();
+                }}
+              >
+                <KeyRoundIcon className="size-3.5" />
+                Sign-in window
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={reload}
+                disabled={!activeRuntime.loading}
+              >
+                Stop
+              </Button>
+            </div>
+          ) : null}
+
           <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
             {activeTabIsNewTab ? (
               <BrowserNewTabPanel
@@ -1168,6 +1438,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     }
                   : {})}
                 onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+                onFindResultChange={handleFindResultChange}
                 onOpenUrlInNewTab={openUrlInNewTabFromPage}
                 tab={tab}
                 onHandleChange={registerWebviewHandle}

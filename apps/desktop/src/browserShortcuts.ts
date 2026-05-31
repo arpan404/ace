@@ -49,6 +49,7 @@ export function resolveBrowserShortcutAction(
 
   if (key === "[") return "back";
   if (key === "]") return "forward";
+  if (key === "f") return "find-in-page";
   if (key === "l") return "focus-address-bar";
   if (key === "n") return "new-tab";
   if (key === "r") return "reload";

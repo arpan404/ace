@@ -789,7 +789,6 @@ function captureBackendOutput(child: ChildProcess.ChildProcess): void {
 }
 
 initializePackagedLogging();
-configureMacWebAuthn();
 
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("class", LINUX_WM_CLASS);
@@ -3204,6 +3203,149 @@ function createDetachedBrowserWindow(input: { scopeId?: string; initialUrl?: str
   return true;
 }
 
+function resolveBrowserAuthWindowKey(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+function configureBrowserAuthWindowWebContents(window: BrowserWindow): void {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (!externalUrl) {
+      writeDesktopLogHeader(`browser-auth-window blocked popup url=${sanitizeLogValue(url)}`);
+      return { action: "deny" };
+    }
+
+    if (isLikelyAuthenticationPopupUrl(externalUrl)) {
+      writeDesktopLogHeader(
+        `browser-auth-window auth popup allowed url=${sanitizeLogValue(externalUrl)}`,
+      );
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: createAuthenticationPopupOptions(window),
+      };
+    }
+
+    void window.webContents.loadURL(externalUrl).catch((error: unknown) => {
+      writeDesktopLogHeader(
+        `browser-auth-window popup navigation failed url=${sanitizeLogValue(externalUrl)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+      );
+    });
+    return { action: "deny" };
+  });
+
+  window.webContents.on("will-navigate", (event, url) => {
+    if (getSafeExternalUrl(url)) {
+      return;
+    }
+    event.preventDefault();
+    writeDesktopLogHeader(`browser-auth-window blocked navigation url=${sanitizeLogValue(url)}`);
+  });
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    writeDesktopLogHeader(
+      `browser-auth-window render-process-gone ${formatWebContentsGoneDetails(details)}`,
+    );
+  });
+  window.webContents.on("unresponsive", () => {
+    writeDesktopLogHeader("browser-auth-window unresponsive");
+  });
+  window.webContents.on("responsive", () => {
+    writeDesktopLogHeader("browser-auth-window responsive");
+  });
+
+  attachWebContentsContextMenu({
+    includeDevToolsAction: true,
+    targetContents: window.webContents,
+    window,
+  });
+}
+
+function createBrowserAuthWindow(rawUrl: unknown): boolean {
+  const authUrl = getSafeExternalUrl(rawUrl);
+  if (!authUrl) {
+    return false;
+  }
+
+  const windowKey = resolveBrowserAuthWindowKey(authUrl);
+  const existingWindow = browserAuthWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    void existingWindow.loadURL(authUrl).catch((error: unknown) => {
+      writeDesktopLogHeader(
+        `browser-auth-window reload failed url=${sanitizeLogValue(authUrl)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+      );
+    });
+    return true;
+  }
+
+  const parent = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  const window = new BrowserWindow({
+    ...(parent && !parent.isDestroyed() ? { parent } : {}),
+    width: 620,
+    height: 800,
+    minWidth: 420,
+    minHeight: 520,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Sign In`,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: IN_APP_BROWSER_PARTITION,
+      sandbox: true,
+    },
+  });
+
+  browserAuthWindows.set(windowKey, window);
+  configureBrowserAuthWindowWebContents(window);
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+    window.focus();
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Sign In`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Sign In`);
+  });
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    browserAuthWindows.delete(windowKey);
+  });
+
+  void window.loadURL(authUrl).catch((error: unknown) => {
+    writeDesktopLogHeader(
+      `browser-auth-window load failed url=${sanitizeLogValue(authUrl)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+    revealWindow();
+  });
+  return true;
+}
+
 function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: string }): boolean {
   const windowKey = input.connectionUrl
     ? `${input.connectionUrl}\0${input.threadId}`
@@ -3455,9 +3597,10 @@ app.on("before-quit", () => {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
     writeDesktopLogHeader("app ready");
-    configureInAppBrowserSessionFeatures({
+    configureMacWebAuthn();
+    await configureInAppBrowserSessionFeatures({
       partition: IN_APP_BROWSER_PARTITION,
       extensionDirectories: resolveBrowserExtensionDirectories(),
       getOwnerWindow: () => BrowserWindow.getFocusedWindow() ?? mainWindow,

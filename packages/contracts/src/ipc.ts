@@ -139,6 +139,7 @@ export type BrowserShortcutAction =
   | "designer-area-comment"
   | "designer-element-comment"
   | "duplicate-tab"
+  | "find-in-page"
   | "focus-address-bar"
   | "forward"
   | "move-tab-left"
@@ -383,6 +384,7 @@ export interface DesktopBridge {
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
   openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
   openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
+  openBrowserAuthWindow?: (url: string) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
@@ -417,6 +419,7 @@ export interface NativeApi {
     getDownloads: () => Promise<ReadonlyArray<DesktopBrowserDownload>>;
     getSiteInfo: (url: string) => Promise<DesktopBrowserSiteInfo | null>;
     onDownloadEvent: (callback: (event: DesktopBrowserDownloadEvent) => void) => () => void;
+    openAuthWindow: (url: string) => Promise<boolean>;
     repairStorage: () => Promise<boolean>;
     resetSitePermissions: (url: string) => Promise<boolean>;
     resolveBridgeRequest: (input: BrowserBridgeResolveInput) => Promise<BrowserBridgeResolveResult>;

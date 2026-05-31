@@ -72,6 +72,7 @@ export function createWsNativeApi(): NativeApi {
       getSiteInfo: async (url) => window.desktopBridge?.getBrowserSiteInfo?.(url) ?? null,
       onDownloadEvent: (callback) =>
         window.desktopBridge?.onBrowserDownloadEvent?.(callback) ?? (() => {}),
+      openAuthWindow: async (url) => window.desktopBridge?.openBrowserAuthWindow?.(url) ?? false,
       repairStorage: async () => {
         if (!window.desktopBridge) {
           return false;

@@ -15,6 +15,7 @@ const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -177,6 +178,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   openDetachedEditor: async (input) => {
     const result = await ipcRenderer.invoke(OPEN_DETACHED_EDITOR_CHANNEL, input);
+    return result === true;
+  },
+  openBrowserAuthWindow: async (url: string) => {
+    const result = await ipcRenderer.invoke(OPEN_BROWSER_AUTH_WINDOW_CHANNEL, url);
     return result === true;
   },
   onNotificationClick: (listener) => {

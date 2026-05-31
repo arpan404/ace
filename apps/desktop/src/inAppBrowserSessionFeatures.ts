@@ -39,6 +39,7 @@ interface BrowserDeviceChoice {
 }
 
 const configuredBrowserSessions = new WeakSet<Electron.Session>();
+const BROWSER_EXTENSION_LOAD_TIMEOUT_MS = 5_000;
 const MAX_DEVICE_DIALOG_CHOICES = 8;
 const MAX_RETAINED_DOWNLOAD_SNAPSHOTS = 50;
 const trackedDownloads = new Map<
@@ -793,15 +794,17 @@ function handleDownloadAction(input: {
 
 export function configureInAppBrowserSessionFeatures(
   options: ConfigureInAppBrowserSessionFeaturesOptions,
-): void {
+): Promise<void> {
   const browserSession = session.fromPartition(options.partition);
   activeBrowserSessionOptions = options;
   if (options.userAgent) {
     browserSession.setUserAgent(options.userAgent);
-    options.log(`browser session user-agent configured value=${sanitizeLogValue(options.userAgent)}`);
+    options.log(
+      `browser session user-agent configured value=${sanitizeLogValue(options.userAgent)}`,
+    );
   }
   if (configuredBrowserSessions.has(browserSession)) {
-    return;
+    return Promise.resolve();
   }
   configuredBrowserSessions.add(browserSession);
   const permissionStore = getPermissionStore(options.permissionStorePath);
@@ -1033,26 +1036,64 @@ export function configureInAppBrowserSessionFeatures(
     })();
   });
 
-  for (const extensionDirectory of options.extensionDirectories ?? []) {
-    const trimmedDirectory = extensionDirectory.trim();
-    if (trimmedDirectory.length === 0) {
-      continue;
-    }
-    void browserSession
-      .loadExtension(trimmedDirectory, { allowFileAccess: true })
-      .then((extension) => {
-        options.log(
-          `browser-extension loaded name=${sanitizeLogValue(extension.name)} id=${sanitizeLogValue(extension.id)}`,
-        );
-      })
-      .catch((error: unknown) => {
-        options.log(
-          `browser-extension load failed path=${sanitizeLogValue(trimmedDirectory)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
-        );
-      });
+  return loadBrowserExtensions({
+    browserSession,
+    directories: options.extensionDirectories ?? [],
+    log: options.log,
+  }).then(() => {
+    options.log("browser session feature handlers configured");
+  });
+}
+
+async function loadBrowserExtensions(input: {
+  readonly browserSession: Electron.Session;
+  readonly directories: readonly string[];
+  readonly log: (message: string) => void;
+}): Promise<void> {
+  const directories = input.directories
+    .map((directory) => directory.trim())
+    .filter((directory) => directory.length > 0);
+  if (directories.length === 0) {
+    return;
   }
 
-  options.log("browser session feature handlers configured");
+  await Promise.all(
+    directories.map(async (directory) => {
+      try {
+        const extension = await withTimeout(
+          input.browserSession.loadExtension(directory, { allowFileAccess: true }),
+          BROWSER_EXTENSION_LOAD_TIMEOUT_MS,
+          `Timed out loading browser extension after ${String(BROWSER_EXTENSION_LOAD_TIMEOUT_MS)}ms.`,
+        );
+        input.log(
+          `browser-extension loaded name=${sanitizeLogValue(extension.name)} id=${sanitizeLogValue(extension.id)}`,
+        );
+      } catch (error: unknown) {
+        input.log(
+          `browser-extension load failed path=${sanitizeLogValue(directory)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+        );
+      }
+    }),
+  );
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(message));
+        }, timeoutMs);
+        timeout.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 export async function getInAppBrowserSiteInfo(input: {

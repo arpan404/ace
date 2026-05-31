@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveMountedBrowserTabs, shouldPublishBrowserSessionChange } from "./InAppBrowser";
+import {
+  isLikelyBrowserAuthenticationUrl,
+  resolveMountedBrowserTabs,
+  shouldPublishBrowserSessionChange,
+} from "./InAppBrowser";
 
 describe("resolveMountedBrowserTabs", () => {
   const tabs = [
@@ -98,5 +102,33 @@ describe("shouldPublishBrowserSessionChange", () => {
         visible: false,
       }),
     ).toBe(true);
+  });
+});
+
+describe("isLikelyBrowserAuthenticationUrl", () => {
+  it("detects Apple Store passkey checkout pages", () => {
+    expect(
+      isLikelyBrowserAuthenticationUrl({
+        url: "https://secure9.store.apple.com/shop/signIn?ssi=1",
+      }),
+    ).toBe(true);
+  });
+
+  it("detects common auth and passkey URLs", () => {
+    expect(
+      isLikelyBrowserAuthenticationUrl({
+        title: "Sign in with passkey",
+        url: "https://accounts.example.com/oauth/authorize",
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores normal content pages", () => {
+    expect(
+      isLikelyBrowserAuthenticationUrl({
+        title: "Documentation",
+        url: "https://example.com/docs/browser",
+      }),
+    ).toBe(false);
   });
 });
