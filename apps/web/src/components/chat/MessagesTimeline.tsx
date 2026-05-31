@@ -49,9 +49,9 @@ import {
   ChevronRightIcon,
   Clock3Icon,
   EyeIcon,
-  GitForkIcon,
   GlobeIcon,
   HammerIcon,
+  SplitIcon,
   type LucideIcon,
   PlugIcon,
   SquarePenIcon,
@@ -456,10 +456,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => buildUserMessageProviderCommandLookup(providerCommands),
     [providerCommands],
   );
-  const supportsForkConversation = useMemo(
-    () => hasProviderSlashCommand(providerCommands, "fork"),
-    [providerCommands],
-  );
+  const supportsForkConversation = Boolean(onForkConversation);
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
       timelineEntries,
@@ -516,6 +513,85 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     shouldResolveTimelineRowsInWorker,
     timelineRowsCacheKey,
     timelineRowsInput,
+  ]);
+
+  const latestForkableAssistantMessageId = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (row?.kind !== "message") {
+        continue;
+      }
+      if (isUserTimelineMessage(row.message)) {
+        return null;
+      }
+      if (!isAssistantTimelineMessage(row.message)) continue;
+      const renderedText = getChatMessageRenderableText(row.message);
+      if (renderedText.trim().length > 0) {
+        return String(row.message.id);
+      }
+    }
+    return null;
+  }, [rows]);
+  const assistantFooterByPlacementRowId = useMemo(() => {
+    const footerByRowId = new Map<string, AssistantTurnFooterModel>();
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (
+        row?.kind !== "message" ||
+        !isAssistantTimelineMessage(row.message) ||
+        !(row.isAssistantTurnTerminal ?? false)
+      ) {
+        continue;
+      }
+
+      const copyText = collectVisibleAssistantTurnCopyText(rows, index);
+      const timing = resolveAssistantTurnTiming({
+        completedAt: row.message.completedAt ?? null,
+        durationStart: row.durationStart,
+        isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
+        showCompletedTiming: row.showAssistantTiming ?? false,
+        timestampFormat,
+      });
+      const onForkConversationForRow =
+        supportsForkConversation && String(row.message.id) === latestForkableAssistantMessageId
+          ? onForkConversation
+          : null;
+      if (!copyText && !timing && !onForkConversationForRow) {
+        continue;
+      }
+
+      let placementIndex = index;
+      for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex += 1) {
+        const nextRow = rows[nextIndex];
+        if (
+          nextRow?.kind !== "work" &&
+          nextRow?.kind !== "work-group" &&
+          nextRow?.kind !== "intent"
+        ) {
+          break;
+        }
+        placementIndex = nextIndex;
+      }
+
+      const placementRow = rows[placementIndex];
+      if (!placementRow) {
+        continue;
+      }
+      footerByRowId.set(placementRow.id, {
+        copyText,
+        isForkConversationDisabled,
+        onForkConversation: onForkConversationForRow,
+        timing,
+      });
+    }
+    return footerByRowId;
+  }, [
+    isForkConversationDisabled,
+    latestForkableAssistantMessageId,
+    onForkConversation,
+    rows,
+    supportsForkConversation,
+    timestampFormat,
   ]);
 
   const activeTurnStartedAtMs =
@@ -1005,6 +1081,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, []);
 
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
+    const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
         className="group/timeline relative pb-3"
@@ -1066,19 +1143,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const canRevertTurnDiffSummary =
               onRevertAssistantMessage !== undefined &&
               revertTurnCountByAssistantMessageId.has(row.message.id);
-            const renderedAssistantText = getChatMessageRenderableText(row.message);
-            const assistantCopyText =
-              renderedAssistantText.trim().length > 0 ? renderedAssistantText : null;
-            const assistantTiming = resolveAssistantTurnTiming({
-              completedAt: row.message.completedAt ?? null,
-              durationStart: row.durationStart,
-              isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
-              showCompletedTiming: row.showAssistantTiming ?? false,
-              timestampFormat,
-            });
-            const shouldPersistAssistantFooter = Boolean(
-              row.completionSummary || row.showAssistantSummaryByDefault,
-            );
             const shouldRenderAssistantMarkdown =
               !shouldPrioritizeAssistantMarkdown ||
               row.message.streaming ||
@@ -1089,22 +1153,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div className="min-w-0">
                 <AssistantMessageTimelineRow
-                  completionSummary={row.completionSummary}
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
                   liveTimers={liveTimers}
                   showCompletedTiming={row.showAssistantTiming ?? false}
-                  showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
-                  suppressFooter={shouldShowTurnSummary}
+                  suppressFooter
                   markdownCwd={markdownCwd}
                   message={row.message}
                   onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   enableLocalFileLinks={enableLocalFileLinks}
-                  onForkConversation={supportsForkConversation ? onForkConversation : null}
+                  onForkConversation={null}
                   isForkConversationDisabled={isForkConversationDisabled}
                   renderMarkdown={shouldRenderAssistantMarkdown}
+                  showCopyAction={false}
                   timestampFormat={timestampFormat}
                 />
                 {shouldShowTurnSummary && (
@@ -1127,13 +1190,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       revertActionTitle={revertActionTitle}
                       resolvedTheme={resolvedTheme}
                       turnSummary={turnSummary}
-                    />
-                    <AssistantTurnFooter
-                      copyText={assistantCopyText}
-                      onForkConversation={supportsForkConversation ? onForkConversation : null}
-                      isForkConversationDisabled={isForkConversationDisabled}
-                      persistVisible={shouldPersistAssistantFooter}
-                      timing={assistantTiming}
                     />
                   </div>
                 )}
@@ -1225,6 +1281,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               </div>
             ) : null}
           </div>
+        )}
+        {detachedAssistantFooter && (
+          <AssistantTurnFooter
+            copyText={detachedAssistantFooter.copyText}
+            onForkConversation={detachedAssistantFooter.onForkConversation}
+            isForkConversationDisabled={detachedAssistantFooter.isForkConversationDisabled}
+            timing={detachedAssistantFooter.timing}
+          />
         )}
       </div>
     );
@@ -2074,19 +2138,6 @@ function buildUserMessageProviderCommandLookup(
   return lookup;
 }
 
-function hasProviderSlashCommand(
-  commands: ReadonlyArray<ProviderSlashCommand>,
-  commandName: string,
-): boolean {
-  const normalizedTarget = normalizeProviderSlashCommandName(commandName);
-  if (!normalizedTarget) {
-    return false;
-  }
-  return commands.some(
-    (command) => normalizeProviderSlashCommandName(command.name) === normalizedTarget,
-  );
-}
-
 function splitTrailingMentionPunctuation(token: string): {
   token: string;
   trailingText: string;
@@ -2472,12 +2523,10 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
   return (
     <div className="min-w-0 py-0.5" data-completed-work-hidden-assistant-message="true">
       <AssistantMessageTimelineRow
-        completionSummary={props.row.completionSummary}
         durationStart={props.row.durationStart}
         isAssistantTurnTerminal={props.row.isAssistantTurnTerminal ?? false}
         liveTimers={props.liveTimers}
         showCompletedTiming={props.row.showAssistantTiming ?? false}
-        showAssistantSummaryByDefault={props.row.showAssistantSummaryByDefault ?? false}
         markdownCwd={props.markdownCwd}
         message={props.row.message}
         onImageExpand={props.onImageExpand}
@@ -2485,6 +2534,7 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
         onOpenFilePath={props.onOpenFilePath ?? null}
         enableLocalFileLinks={props.enableLocalFileLinks ?? true}
         renderMarkdown
+        showCopyAction={false}
         timestampFormat={props.timestampFormat}
       />
     </div>
@@ -2787,12 +2837,10 @@ const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFram
 });
 
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
-  completionSummary: string | null;
   durationStart: string;
   isAssistantTurnTerminal?: boolean;
   liveTimers: boolean;
   showCompletedTiming?: boolean;
-  showAssistantSummaryByDefault?: boolean;
   suppressFooter?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
@@ -2803,6 +2851,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   onForkConversation?: (() => void) | null;
   isForkConversationDisabled?: boolean;
   renderMarkdown: boolean;
+  showCopyAction: boolean;
   timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
@@ -2813,7 +2862,8 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
     props.message,
   );
   const renderedMessageText = getChatMessageRenderableText(props.message);
-  const copyText = renderedMessageText.trim().length > 0 ? renderedMessageText : null;
+  const copyText =
+    props.showCopyAction && renderedMessageText.trim().length > 0 ? renderedMessageText : null;
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
@@ -2829,8 +2879,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
     showCompletedTiming: props.showCompletedTiming ?? false,
     timestampFormat: props.timestampFormat,
   });
-  const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);
-
   return (
     <div className="min-w-0">
       {imageGenerationPlaceholder && (
@@ -2892,7 +2940,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           copyText={copyText}
           onForkConversation={props.onForkConversation ?? null}
           isForkConversationDisabled={props.isForkConversationDisabled ?? false}
-          persistVisible={persistVisible}
           timing={timing}
         />
       )}
@@ -2922,11 +2969,53 @@ function resolveAssistantTurnTiming(input: {
   };
 }
 
+type AssistantTurnFooterModel = {
+  copyText: string | null;
+  onForkConversation: (() => void) | null;
+  isForkConversationDisabled: boolean;
+  timing: { completedAtLabel: string; elapsedLabel: string } | null;
+};
+
+function collectVisibleAssistantTurnCopyText(
+  rows: ReadonlyArray<TimelineRow>,
+  terminalRowIndex: number,
+): string | null {
+  const terminalRow = rows[terminalRowIndex];
+  if (
+    terminalRow?.kind !== "message" ||
+    !isAssistantTimelineMessage(terminalRow.message) ||
+    !(terminalRow.isAssistantTurnTerminal ?? false)
+  ) {
+    return null;
+  }
+
+  const turnId = terminalRow.message.turnId ?? null;
+  const visibleAssistantTexts: string[] = [];
+  for (let index = 0; index <= terminalRowIndex; index += 1) {
+    const row = rows[index];
+    if (row?.kind !== "message" || !isAssistantTimelineMessage(row.message)) {
+      continue;
+    }
+    if (turnId !== null && row.message.turnId !== turnId) {
+      continue;
+    }
+    if (turnId === null && row.id !== terminalRow.id) {
+      continue;
+    }
+
+    const renderedText = getChatMessageRenderableText(row.message).trim();
+    if (renderedText.length > 0) {
+      visibleAssistantTexts.push(renderedText);
+    }
+  }
+
+  return visibleAssistantTexts.length > 0 ? visibleAssistantTexts.join("\n\n") : null;
+}
+
 const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
   copyText: string | null;
   onForkConversation?: (() => void) | null;
   isForkConversationDisabled?: boolean;
-  persistVisible: boolean;
   timing: { completedAtLabel: string; elapsedLabel: string } | null;
 }) {
   const hasActions = Boolean(props.copyText || props.onForkConversation);
@@ -2934,19 +3023,27 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
     return null;
   }
 
+  const hoverOnlyClass =
+    "opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100";
+
   return (
     <div
       className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1"
       data-assistant-turn-footer="true"
     >
+      {props.copyText && (
+        <div className="flex items-center" data-assistant-turn-copy-action="true">
+          <MessageCopyButton
+            text={props.copyText}
+            size="icon-xs"
+            variant="ghost"
+            className="text-muted-foreground/68 hover:bg-muted/45 hover:text-foreground"
+          />
+        </div>
+      )}
       {props.timing && (
         <span
-          className={cn(
-            "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
-            props.persistVisible
-              ? "opacity-100"
-              : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-          )}
+          className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52"
           data-response-summary="true"
           data-response-summary-time={props.timing.completedAtLabel}
           data-response-summary-elapsed={props.timing.elapsedLabel}
@@ -2957,26 +3054,19 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
           <span>{props.timing.elapsedLabel}</span>
         </span>
       )}
-      {hasActions && (
+      {props.onForkConversation && (
         <div
           className={cn(
-            "ml-auto flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-            !props.timing && "w-full justify-end",
+            "flex items-center",
+            hoverOnlyClass,
+            !props.timing && !props.copyText && "ml-auto",
           )}
           data-assistant-turn-actions="true"
         >
-          {props.onForkConversation && (
-            <AssistantForkButton
-              disabled={props.isForkConversationDisabled ?? false}
-              onClick={props.onForkConversation}
-            />
-          )}
-          {props.copyText && (
-            <MessageCopyButton
-              text={props.copyText}
-              className="bg-background/45 hover:bg-background/78"
-            />
-          )}
+          <AssistantForkButton
+            disabled={props.isForkConversationDisabled ?? false}
+            onClick={props.onForkConversation}
+          />
         </div>
       )}
     </div>
@@ -2997,16 +3087,16 @@ const AssistantForkButton = memo(function AssistantForkButton(props: {
         render={
           <Button
             type="button"
-            size="xs"
-            variant="outline"
-            className="border-border/40 bg-background/45 transition-all duration-200 hover:border-border/60 hover:bg-background/78"
+            size="icon-xs"
+            variant="ghost"
+            className="text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground"
             disabled={props.disabled}
             onClick={props.onClick}
             aria-label="Fork conversation"
           />
         }
       >
-        <GitForkIcon className="size-3" />
+        <SplitIcon className="size-3 rotate-90" />
       </TooltipTrigger>
       <TooltipPopup side="top">{tooltipLabel}</TooltipPopup>
     </Tooltip>
@@ -3027,7 +3117,6 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 }) {
   const checkpointFiles = props.turnSummary.files;
   const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-  const changedFileCountLabel = summarizeCount(checkpointFiles.length, "file");
   const hasExpandableDirectories = checkpointFiles.some(
     (file) =>
       file.path
@@ -3039,36 +3128,32 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
   return (
     <div
-      className="min-w-0 overflow-hidden rounded-lg border border-border/45 bg-muted/16 shadow-[0_1px_0_rgba(255,255,255,0.035)_inset]"
+      className="min-w-0 overflow-hidden border-border/20 border-y"
       data-turn-diff-summary="true"
     >
-      <div className="flex min-w-0 items-start gap-3 border-border/45 border-b px-3 py-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/55 text-foreground/80">
-          <SquarePenIcon className="size-4" aria-hidden="true" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <span className="sr-only">Changed files ({checkpointFiles.length})</span>
-          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] leading-5 font-medium text-foreground/92">
-            <span>Edited {changedFileCountLabel}</span>
-            {hasNonZeroStat(summaryStat) && (
-              <span className="font-mono text-[13px] tabular-nums">
-                <DiffStatLabel
-                  additions={summaryStat.additions}
-                  deletions={summaryStat.deletions}
-                />
-              </span>
-            )}
-          </p>
-          <Button
-            type="button"
-            size="xs"
-            variant="link"
-            className="mt-1 h-auto p-0 text-[11px] font-normal text-muted-foreground/70 hover:text-foreground"
-            onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
-          >
-            View diff
-          </Button>
-        </div>
+      <div className="flex min-w-0 items-center gap-2 border-border/15 border-b px-2 py-1.5">
+        <span className="min-w-0 truncate font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/72 uppercase">
+          Changed files ({checkpointFiles.length})
+        </span>
+        {hasNonZeroStat(summaryStat) && (
+          <>
+            <span aria-hidden="true" className="text-[11px] text-muted-foreground/34">
+              •
+            </span>
+            <span className="shrink-0 font-mono text-[12px] leading-4 tabular-nums">
+              <DiffStatLabel additions={summaryStat.additions} deletions={summaryStat.deletions} />
+            </span>
+          </>
+        )}
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className="h-5 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/62 hover:bg-foreground/[0.045] hover:text-foreground"
+          onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
+        >
+          View diff
+        </Button>
         {hasRightActions && (
           <div className="ml-auto flex shrink-0 items-center gap-0.5">
             {props.canRevert && props.onRevert && (
@@ -3079,14 +3164,14 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       type="button"
                       size="icon-xs"
                       variant="ghost"
-                      className="rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={props.onRevert}
                       aria-label={props.revertActionTitle}
                     />
                   }
                 >
-                  <Undo2Icon aria-hidden="true" className="size-2.5" />
+                  <Undo2Icon aria-hidden="true" className="size-3" />
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.revertActionTitle}
@@ -3102,7 +3187,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       size="icon-xs"
                       variant="ghost"
                       data-scroll-anchor-ignore
-                      className="rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
                       aria-label={props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
                     />
@@ -3111,7 +3196,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                   <ChevronDownIcon
                     aria-hidden="true"
                     className={cn(
-                      "size-2.5 transition-transform",
+                      "size-3 transition-transform",
                       !props.allDirectoriesExpanded && "-rotate-90",
                     )}
                   />
@@ -3124,13 +3209,12 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           </div>
         )}
       </div>
-      <div className="px-2 py-1.5">
+      <div className="px-1.5 py-1">
         <ChangedFilesTree
           key={`changed-files-tree:${props.turnSummary.turnId}`}
           turnId={props.turnSummary.turnId}
           files={checkpointFiles}
           allDirectoriesExpanded={props.allDirectoriesExpanded}
-          resolvedTheme={props.resolvedTheme}
           onOpenTurnDiff={props.onOpenTurnDiff}
         />
       </div>

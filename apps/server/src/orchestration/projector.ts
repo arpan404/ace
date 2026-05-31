@@ -352,6 +352,7 @@ export function projectEvent(
             branch: payload.branch,
             worktreePath: payload.worktreePath,
             ...(payload.handoff !== undefined ? { handoff: payload.handoff } : {}),
+            ...(payload.fork !== undefined ? { fork: payload.fork } : {}),
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,

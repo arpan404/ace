@@ -1,4 +1,4 @@
-import { ImageIcon, Trash2Icon, XIcon } from "lucide-react";
+import { MessageSquareIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -72,7 +72,7 @@ export function ComposerPendingComments(props: {
                   draggable={false}
                 />
               ) : (
-                <ImageIcon className="size-3.5" />
+                <MessageSquareIcon className="size-3.5" />
               )}
             </div>
             <div className="min-w-0">

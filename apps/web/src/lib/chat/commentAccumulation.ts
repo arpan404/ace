@@ -2,24 +2,29 @@ import type { QueuedComposerImageAttachment } from "../../types";
 
 export interface PendingComposerComment {
   readonly id: string;
-  readonly source: "browser";
+  readonly source: "browser" | "review";
   readonly body: string;
   readonly targetLabel: string;
   readonly detailLabel: string | null;
   readonly hiddenContextBlock: string;
-  readonly image: QueuedComposerImageAttachment;
+  readonly image?: QueuedComposerImageAttachment;
   readonly createdAt: string;
 }
 
 function formatCommentHeader(comment: PendingComposerComment, index: number): string {
-  const parts = [`${index + 1}. Browser comment`];
+  const sourceLabel = comment.source === "review" ? "Review comment" : "Browser comment";
+  const parts = [`${index + 1}. ${sourceLabel}`];
   if (comment.targetLabel.trim().length > 0) {
     parts.push(`Target: ${comment.targetLabel.trim()}`);
   }
   if (comment.detailLabel?.trim()) {
-    parts.push(`Element: ${comment.detailLabel.trim()}`);
+    parts.push(
+      `${comment.source === "review" ? "Scope" : "Element"}: ${comment.detailLabel.trim()}`,
+    );
   }
-  parts.push(`Screenshot: attached image ${index + 1}`);
+  if (comment.image) {
+    parts.push(`Screenshot: attached image ${index + 1}`);
+  }
   return parts.join("\n");
 }
 
@@ -57,7 +62,8 @@ export function mergePendingCommentImages<TImage extends { readonly id: string }
   comments: ReadonlyArray<PendingComposerComment>,
 ): Array<QueuedComposerImageAttachment | TImage> {
   const seenImageIds = new Set<string>();
-  return [...comments.map((comment) => comment.image), ...images].filter((image) => {
+  const commentImages = comments.flatMap((comment) => (comment.image ? [comment.image] : []));
+  return [...commentImages, ...images].filter((image) => {
     if (seenImageIds.has(image.id)) {
       return false;
     }

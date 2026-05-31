@@ -108,6 +108,9 @@ export type ProviderHistoryAuthority = typeof ProviderHistoryAuthority.Type;
 export const ProviderSessionResumeMode = Schema.Literals(["native", "local-replay"]);
 export type ProviderSessionResumeMode = typeof ProviderSessionResumeMode.Type;
 
+export const ProviderSessionForkMode = Schema.Literals(["native", "local-replay"]);
+export type ProviderSessionForkMode = typeof ProviderSessionForkMode.Type;
+
 export const ProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
@@ -132,6 +135,9 @@ export const ProviderIntegrationCapabilities = Schema.Struct({
     Schema.withDecodingDefault(() => "project-local" as const),
   ),
   sessionResumeMode: ProviderSessionResumeMode,
+  sessionForkMode: ProviderSessionForkMode.pipe(
+    Schema.withDecodingDefault(() => "local-replay" as const),
+  ),
 });
 export type ProviderIntegrationCapabilities = typeof ProviderIntegrationCapabilities.Type;
 

@@ -197,6 +197,7 @@ import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
+import type { DiffReviewCommentInput } from "./DiffPanel";
 import BranchToolbar from "./BranchToolbar";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -284,6 +285,7 @@ import {
   type HandoffLineageResult,
   resolveHandoffLineage,
   resolveHandoffSourceProvider,
+  resolveThreadLineageSourceThreadId,
 } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -714,7 +716,7 @@ function resolveHandoffLineageFromIndex(
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {
@@ -1399,10 +1401,10 @@ function useChatViewComponent({
     () =>
       pendingComposerComments.map((comment) => ({
         id: comment.id,
-        sourceLabel: "Browser",
+        sourceLabel: comment.source === "review" ? "Review" : "Browser",
         targetLabel: comment.targetLabel,
         body: comment.body,
-        previewUrl: comment.image.previewUrl ?? null,
+        previewUrl: comment.image?.previewUrl ?? null,
       })),
     [pendingComposerComments],
   );
@@ -1433,6 +1435,54 @@ function useChatViewComponent({
       };
     });
   }, [threadId]);
+  const addDiffReviewComment = useCallback(
+    (comment: DiffReviewCommentInput) => {
+      const body = comment.body.trim();
+      if (!body) {
+        return;
+      }
+      const hiddenContextBlock = [
+        "<diff_review_context>",
+        JSON.stringify(
+          {
+            cwd: comment.cwd,
+            filePath: comment.filePath,
+            previousFilePath: comment.previousFilePath,
+            scope: comment.scopeLabel,
+            changeType: comment.changeType,
+            additions: comment.additions,
+            deletions: comment.deletions,
+            hunkCount: comment.hunkCount,
+            lineRange: comment.lineRange,
+          },
+          null,
+          2,
+        ),
+        "</diff_review_context>",
+      ].join("\n");
+      setPendingComposerCommentsByThreadId((current) => ({
+        ...current,
+        [threadId]: [
+          ...(current[threadId] ?? []),
+          {
+            id: randomUUID(),
+            source: "review",
+            body,
+            targetLabel: `${comment.filePath} ${comment.lineRange.label}`,
+            detailLabel: comment.scopeLabel,
+            hiddenContextBlock,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }));
+      toastManager.add({
+        type: "success",
+        title: "Review comment added",
+        description: "It will be sent with your next message.",
+      });
+    },
+    [setPendingComposerCommentsByThreadId, threadId],
+  );
 
   const threadConnectionUrl = useThreadConnectionUrl(threadId);
   const projectConnectionUrl = useProjectConnectionUrl(
@@ -1524,15 +1574,14 @@ function useChatViewComponent({
   );
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const activeThreadLineageSourceThreadId =
+    isServerThread && activeThread ? resolveThreadLineageSourceThreadId(activeThread) : null;
   const handoffLineageSelector = useMemo(
-    () =>
-      createHandoffLineageSelector(
-        isServerThread ? (activeThread?.handoff?.sourceThreadId ?? null) : null,
-      ),
-    [activeThread?.handoff?.sourceThreadId, isServerThread],
+    () => createHandoffLineageSelector(activeThreadLineageSourceThreadId),
+    [activeThreadLineageSourceThreadId],
   );
   const handoffLineage = useStore(handoffLineageSelector);
-  const handoffSourceThreadIds = useMemo(
+  const lineageSourceThreadIds = useMemo(
     () => handoffLineage?.threads.map((thread) => thread.id) ?? [],
     [handoffLineage],
   );
@@ -1662,14 +1711,14 @@ function useChatViewComponent({
         activeThreadId,
         sourceProposedPlanThreadId,
         previousThreadId: recentThreadHistoryKeepId,
-        handoffSourceThreadIds,
+        lineageSourceThreadIds,
         additionalThreadIds: visibleBoardThreadIds,
       }),
     [
       activeThreadId,
       recentThreadHistoryKeepId,
       sourceProposedPlanThreadId,
-      handoffSourceThreadIds,
+      lineageSourceThreadIds,
       visibleBoardThreadIds,
     ],
   );
@@ -1679,10 +1728,10 @@ function useChatViewComponent({
         activeThreadId,
         sourceProposedPlanThreadId,
         previousThreadId: null,
-        handoffSourceThreadIds,
+        lineageSourceThreadIds,
         additionalThreadIds: visibleBoardThreadIds,
       }),
-    [activeThreadId, sourceProposedPlanThreadId, handoffSourceThreadIds, visibleBoardThreadIds],
+    [activeThreadId, sourceProposedPlanThreadId, lineageSourceThreadIds, visibleBoardThreadIds],
   );
   const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
@@ -1690,10 +1739,10 @@ function useChatViewComponent({
         activeThreadId,
         sourceProposedPlanThreadId: null,
         previousThreadId: null,
-        handoffSourceThreadIds,
+        lineageSourceThreadIds,
         additionalThreadIds: visibleBoardThreadIds,
       }),
-    [activeThreadId, handoffSourceThreadIds, visibleBoardThreadIds],
+    [activeThreadId, lineageSourceThreadIds, visibleBoardThreadIds],
   );
 
   // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
@@ -1882,16 +1931,16 @@ function useChatViewComponent({
   }, [activeThread?.id, hydrateThreadFromReadModel, sourcePlanThread, sourceProposedPlanThreadId]);
 
   useEffect(() => {
-    if (!activeThread?.handoff || !isServerThread || handoffHasCycle) {
+    if (!activeThreadLineageSourceThreadId || !isServerThread || handoffHasCycle) {
       return;
     }
 
-    if (handoffSourceThreadIds.length === 0 && handoffMissingThreadId === null) {
+    if (lineageSourceThreadIds.length === 0 && handoffMissingThreadId === null) {
       return;
     }
 
     let canceled = false;
-    const pendingThreadIds = new Set(handoffSourceThreadIds);
+    const pendingThreadIds = new Set(lineageSourceThreadIds);
     if (handoffMissingThreadId) {
       pendingThreadIds.add(handoffMissingThreadId);
     }
@@ -1943,10 +1992,10 @@ function useChatViewComponent({
       canceled = true;
     };
   }, [
-    activeThread?.handoff,
+    activeThreadLineageSourceThreadId,
     handoffHasCycle,
     handoffMissingThreadId,
-    handoffSourceThreadIds,
+    lineageSourceThreadIds,
     hydrateThreadFromReadModel,
     isServerThread,
   ]);
@@ -2241,6 +2290,7 @@ function useChatViewComponent({
     draft: composerShellDraft,
     hasThreadStarted,
     isServerThread,
+    lockProvider: Boolean(activeThread?.fork),
     modelSettings,
     projectModelSelection: activeProject?.defaultModelSelection,
     providers: providerStatuses,
@@ -3875,8 +3925,8 @@ function useChatViewComponent({
         images: mergedQueuedImages,
         terminalContexts: mergedQueuedTerminalContexts,
         modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
+        runtimeMode: activeThread.runtimeMode,
+        interactionMode: activeThread.interactionMode,
       };
       const targetThreadId = await ensureQueuedComposerThread({
         titleSeed: promptForQueueBase || pendingCommentsForQueue[0]?.body || "Pending comments",
@@ -6783,29 +6833,86 @@ function useChatViewComponent({
   );
 
   const onForkConversation = useEffectEvent(async () => {
-    if (!activeThread) {
+    const api = readNativeApi();
+    if (!api || !activeThread || !activeProject || !isServerThread) {
+      return;
+    }
+    if (activeThread.messages.length === 0) {
+      toastManager.add({
+        type: "error",
+        title: "Send a message before forking.",
+      });
+      return;
+    }
+    if (
+      handoffInFlight ||
+      liveTurnInProgress ||
+      isSendBusy ||
+      isConnecting ||
+      sendInFlightRef.current
+    ) {
+      toastManager.add({
+        type: "error",
+        title: "Wait for the current turn to finish.",
+      });
       return;
     }
 
-    const forkCommand = parseProviderComposerSlashCommand("/fork", composerProviderCommands);
-    if (!forkCommand) {
-      return;
-    }
+    const createdAt = new Date().toISOString();
+    const nextThreadId = newThreadId();
+    const modelSelection = activeThread.modelSelection;
+    const nextThreadTitle = truncate(`${activeThread.title} fork`);
 
-    if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
-      setThreadError(activeThread.id, "Finish the current turn before forking the conversation.");
-      return;
-    }
+    setHandoffInFlight(true);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.create",
+        commandId: newCommandId(),
+        threadId: nextThreadId,
+        projectId: activeProject.id,
+        title: nextThreadTitle,
+        modelSelection,
+        runtimeMode,
+        interactionMode,
+        branch: activeThread.branch,
+        worktreePath: activeThread.worktreePath,
+        fork: {
+          sourceThreadId: activeThread.id,
+          createdAt,
+        },
+        createdAt,
+      });
 
-    setThreadError(activeThread.id, null);
-    await dispatchComposerMessage({
-      prompt: forkCommand.promptText,
-      images: [],
-      terminalContexts: [],
-      modelSelection: selectedModelSelection,
-      runtimeMode,
-      interactionMode,
-    });
+      setComposerDraftModelSelection(nextThreadId, modelSelection);
+      setStickyComposerModelSelection(modelSelection);
+
+      try {
+        const readModelThread = await hydrateThreadFromCache(nextThreadId, {
+          expectedUpdatedAt: null,
+        });
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        console.error("Failed to hydrate new fork thread", error);
+      }
+
+      await navigate({
+        to: "/$threadId",
+        params: { threadId: nextThreadId },
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not create fork thread",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An error occurred while creating the fork thread.",
+      });
+    } finally {
+      setHandoffInFlight(false);
+    }
   });
 
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
@@ -7935,19 +8042,21 @@ function useChatViewComponent({
     },
   );
 
-  const isHandoffThread =
-    serverThread?.handoff !== undefined || activeThread?.handoff !== undefined;
+  const isLineageThread = Boolean(
+    serverThread?.handoff ?? serverThread?.fork ?? activeThread?.handoff ?? activeThread?.fork,
+  );
   const activeThreadHistoryLoaded = activeThread?.historyLoaded;
   const activeThreadIdValue = activeThread?.id ?? "";
   const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
   const activeThreadProvider = activeThread?.session?.provider;
   const activeThreadModelProvider = activeThread?.modelSelection.provider;
+  const canForkActiveThread = isServerThread && activeThreadMessagesLength > 0;
   const messagesTimelineProps = useMemo(
     () => ({
       hasMessages:
         timelineEntries.length > 0 ||
         (isThreadHistoryLoading && activeThreadMessagesLength > 0) ||
-        isHandoffThread,
+        isLineageThread,
       isWorking,
       onStartConversationFromMessage: scheduleComposerFocus,
       onContinueWithGitHubIssues: openGitHubIssueDialog,
@@ -7986,8 +8095,8 @@ function useChatViewComponent({
       onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
       enableLocalFileLinks: canOpenLocalMarkdownFiles,
       providerCommands: composerProviderCommands,
-      onForkConversation,
-      isForkConversationDisabled: isWorking,
+      onForkConversation: canForkActiveThread ? onForkConversation : null,
+      isForkConversationDisabled: isWorking || handoffInFlight,
       enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
       resolvedTheme,
       timestampFormat,
@@ -7998,6 +8107,7 @@ function useChatViewComponent({
       activeThreadMessagesLength,
       activeThreadProvider,
       activeThreadModelProvider,
+      canForkActiveThread,
       activeForSideEffects,
       activeWorkStartedAt,
       stuckTurnSnapshot,
@@ -8008,8 +8118,9 @@ function useChatViewComponent({
       codingGitCwd,
       composerProviderCommands,
       isGitRepo,
-      isHandoffThread,
+      isLineageThread,
       hideCompletedWorkMessages,
+      handoffInFlight,
       isRevertingCheckpoint,
       isThreadHistoryLoading,
       isWorking,
@@ -8380,6 +8491,7 @@ function useChatViewComponent({
           threadId={threadId}
           hasThreadStarted={threadHasStarted(activeThread)}
           isServerThread={isServerThread}
+          lockProvider={Boolean(activeThread.fork)}
           modelSettings={modelSettings}
           projectModelSelection={activeProject?.defaultModelSelection}
           providers={providerStatuses}
@@ -8756,6 +8868,7 @@ function useChatViewComponent({
                             <LocalDiffPanel
                               threadId={activeThread.id}
                               diffState={localDiffState}
+                              onAddReviewComment={addDiffReviewComment}
                               onDiffStateChange={setLocalDiffState}
                             />
                           ) : activeRightSidePanelMode === "editor" ? (
