@@ -280,6 +280,73 @@ export interface DesktopDetachedEditorOpenInput {
   connectionUrl?: string;
 }
 
+export type DesktopBrowserPermission =
+  | "camera"
+  | "microphone"
+  | "media"
+  | "clipboard"
+  | "displayCapture"
+  | "fileSystem"
+  | "fullscreen"
+  | "geolocation"
+  | "hid"
+  | "idleDetection"
+  | "keyboardLock"
+  | "midi"
+  | "notifications"
+  | "openExternal"
+  | "pointerLock"
+  | "serial"
+  | "speakerSelection"
+  | "storageAccess"
+  | "topLevelStorageAccess"
+  | "usb"
+  | "windowManagement";
+export type DesktopBrowserPermissionSetting = "allow" | "ask" | "block";
+
+export interface DesktopBrowserSitePermission {
+  permission: DesktopBrowserPermission;
+  setting: DesktopBrowserPermissionSetting;
+  updatedAt: string | null;
+}
+
+export type DesktopBrowserDownloadState = "cancelled" | "completed" | "interrupted" | "progressing";
+
+export interface DesktopBrowserDownload {
+  canResume: boolean;
+  endedAt: string | null;
+  filename: string;
+  id: string;
+  mimeType: string | null;
+  paused: boolean;
+  percentComplete: number;
+  receivedBytes: number;
+  savePath: string | null;
+  speedBytesPerSecond: number;
+  startedAt: string | null;
+  state: DesktopBrowserDownloadState;
+  totalBytes: number;
+  url: string;
+}
+
+export interface DesktopBrowserDownloadEvent {
+  download: DesktopBrowserDownload;
+  type: "done" | "updated";
+}
+
+export type DesktopBrowserDownloadAction = "cancel" | "open" | "pause" | "resume" | "reveal";
+
+export interface DesktopBrowserSiteInfo {
+  activeDownloads: number;
+  cookieCount: number;
+  downloads: ReadonlyArray<DesktopBrowserDownload>;
+  origin: string;
+  permissions: ReadonlyArray<DesktopBrowserSitePermission>;
+  storageOrigin: string | null;
+  url: string;
+  userAgent: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
@@ -292,6 +359,19 @@ export interface DesktopBridge {
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;
+  getBrowserSiteInfo?: (url: string) => Promise<DesktopBrowserSiteInfo | null>;
+  setBrowserSitePermission?: (input: {
+    permission: DesktopBrowserPermission;
+    setting: DesktopBrowserPermissionSetting;
+    url: string;
+  }) => Promise<boolean>;
+  resetBrowserSitePermissions?: (url: string) => Promise<boolean>;
+  clearBrowserSiteData?: (url: string) => Promise<boolean>;
+  getBrowserDownloads?: () => Promise<ReadonlyArray<DesktopBrowserDownload>>;
+  controlBrowserDownload?: (input: {
+    action: DesktopBrowserDownloadAction;
+    id: string;
+  }) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -318,6 +398,7 @@ export interface DesktopBridge {
   onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
   onBrowserContextMenuShown?: (listener: () => void) => () => void;
   onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
+  onBrowserDownloadEvent?: (listener: (event: DesktopBrowserDownloadEvent) => void) => () => void;
   sendOrchestrationEvent?: (event: unknown) => void;
   sendServerConfigEvent?: (event: unknown) => void;
 }
@@ -328,8 +409,22 @@ export interface NativeApi {
     confirm: (message: string) => Promise<boolean>;
   };
   browser: {
+    clearSiteData: (url: string) => Promise<boolean>;
+    controlDownload: (input: {
+      action: DesktopBrowserDownloadAction;
+      id: string;
+    }) => Promise<boolean>;
+    getDownloads: () => Promise<ReadonlyArray<DesktopBrowserDownload>>;
+    getSiteInfo: (url: string) => Promise<DesktopBrowserSiteInfo | null>;
+    onDownloadEvent: (callback: (event: DesktopBrowserDownloadEvent) => void) => () => void;
     repairStorage: () => Promise<boolean>;
+    resetSitePermissions: (url: string) => Promise<boolean>;
     resolveBridgeRequest: (input: BrowserBridgeResolveInput) => Promise<BrowserBridgeResolveResult>;
+    setSitePermission: (input: {
+      permission: DesktopBrowserPermission;
+      setting: DesktopBrowserPermissionSetting;
+      url: string;
+    }) => Promise<boolean>;
     onBridgeRequest: (callback: (request: BrowserBridgeRequest) => void) => () => void;
   };
   terminal: {

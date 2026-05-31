@@ -42,6 +42,21 @@ This document covers how to run desktop releases from one tag, first without sig
   - `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon.
   - The workflow merges the per-arch mac manifests into one `latest-mac.yml` before publishing the GitHub Release.
 
+## Desktop browser authentication notes
+
+- macOS signed builds require `APPLE_TEAM_ID` or
+  `ACE_DESKTOP_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP` so the in-app browser can
+  enable Electron's Touch ID WebAuthn platform authenticator.
+- Windows and Linux builds do not need a signing-time WebAuthn entitlement. The
+  in-app browser uses Chromium's platform WebAuthn path where available and
+  provides runtime selection dialogs for discoverable credentials, HID devices,
+  USB devices, and serial ports.
+- Browser-extension-only password managers still require opening the page in the
+  user's default browser; Electron webviews do not run arbitrary Chrome or Safari
+  extensions. For controlled testing, unpacked Chromium extensions can be loaded
+  with `ACE_DESKTOP_BROWSER_EXTENSION_DIRS`, but Electron supports only a subset
+  of extension APIs.
+
 ## 0) npm OIDC trusted publishing setup (CLI)
 
 The workflow publishes the CLI with `bun publish` from `apps/server` after bumping
@@ -113,6 +128,7 @@ Prerequisites:
   - `ACE_DESKTOP_SIGNED=true`
   - `CSC_LINK` and `CSC_KEY_PASSWORD`, or `CSC_NAME` for an installed Developer ID identity
   - `APPLE_API_KEY` as a local path to the `.p8` file, plus `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`
+  - `APPLE_TEAM_ID` for in-app browser Touch ID passkey entitlements
 - A clean working tree, except ignored/generated release output.
 - The release tag must point at `HEAD`, or pass `--create-tag` to create it.
 
@@ -186,6 +202,7 @@ Required secrets used by the workflow:
 - `APPLE_API_KEY`
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
+- `APPLE_TEAM_ID`
 
 Checklist:
 
@@ -195,12 +212,17 @@ Checklist:
 3. Export certificate + private key as `.p12` from Keychain.
 4. Base64-encode the `.p12` and store as `CSC_LINK`.
 5. Store the `.p12` export password as `CSC_KEY_PASSWORD`.
-6. In App Store Connect, create an API key (Team key).
-7. Add API key values:
+6. Record the Apple Developer Team ID as `APPLE_TEAM_ID`.
+   - The macOS in-app browser uses it to derive the WebAuthn keychain group
+     `<TEAM_ID>.com.ace.ace.webauthn` for Touch ID passkeys.
+   - If a custom group is needed, set
+     `ACE_DESKTOP_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP` instead.
+7. In App Store Connect, create an API key (Team key).
+8. Add API key values:
    - `APPLE_API_KEY`: contents of the downloaded `.p8`
    - `APPLE_API_KEY_ID`: Key ID
    - `APPLE_API_ISSUER`: Issuer ID
-8. Re-run a tag release and confirm macOS artifacts are signed/notarized.
+9. Re-run a tag release and confirm macOS artifacts are signed/notarized.
 
 Notes:
 

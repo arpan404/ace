@@ -59,6 +59,7 @@ CSC_KEY_PASSWORD=...
 APPLE_API_KEY=/absolute/path/to/AuthKey_KEYID.p8
 APPLE_API_KEY_ID=...
 APPLE_API_ISSUER=...
+APPLE_TEAM_ID=...
 
 # Optional. If omitted, the script asks gh for the current repo.
 ACE_DESKTOP_UPDATE_REPOSITORY=owner/repo
@@ -119,6 +120,8 @@ The local script is expected to:
 - Require either `CSC_LINK` or `CSC_NAME`.
 - Require `CSC_KEY_PASSWORD` when `CSC_LINK` is used.
 - Require `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
+- Require `APPLE_TEAM_ID` or `ACE_DESKTOP_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP`
+  for macOS WebAuthn entitlements.
 - Build signed and notarized macOS `arm64` and `x64` DMG/ZIP artifacts.
 - Build Linux `x64` and `arm64` AppImage artifacts in Docker.
 - Build Windows `x64` and `arm64` NSIS artifacts in Docker.
@@ -128,6 +131,10 @@ The local script is expected to:
 
 If any macOS signing or notarization value is missing, stop and fix the
 environment. Do not bypass the failure for a real release.
+
+Windows and Linux browser authentication does not add release-time secrets. The
+desktop runtime handles Chromium WebAuthn account selection plus HID, USB, and
+serial device selection dialogs at runtime.
 
 ## GitHub Actions Release Procedure
 
@@ -139,6 +146,7 @@ CSC_KEY_PASSWORD
 APPLE_API_KEY
 APPLE_API_KEY_ID
 APPLE_API_ISSUER
+APPLE_TEAM_ID
 RELEASE_APP_ID
 RELEASE_APP_PRIVATE_KEY
 ```

@@ -4,6 +4,13 @@ import { contextBridge, ipcRenderer } from "electron";
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
+const BROWSER_SITE_INFO_CHANNEL = "desktop:browser-site-info";
+const BROWSER_SET_SITE_PERMISSION_CHANNEL = "desktop:browser-set-site-permission";
+const BROWSER_RESET_SITE_PERMISSIONS_CHANNEL = "desktop:browser-reset-site-permissions";
+const BROWSER_CLEAR_SITE_DATA_CHANNEL = "desktop:browser-clear-site-data";
+const BROWSER_DOWNLOADS_GET_CHANNEL = "desktop:browser-downloads-get";
+const BROWSER_DOWNLOAD_CONTROL_CHANNEL = "desktop:browser-download-control";
+const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
@@ -144,6 +151,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   pickFolder: (options) => ipcRenderer.invoke(PICK_FOLDER_CHANNEL, options),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
   repairBrowserStorage: () => ipcRenderer.invoke(REPAIR_BROWSER_STORAGE_CHANNEL),
+  getBrowserSiteInfo: (url: string) => ipcRenderer.invoke(BROWSER_SITE_INFO_CHANNEL, url),
+  setBrowserSitePermission: (input) =>
+    ipcRenderer.invoke(BROWSER_SET_SITE_PERMISSION_CHANNEL, input),
+  resetBrowserSitePermissions: (url: string) =>
+    ipcRenderer.invoke(BROWSER_RESET_SITE_PERMISSIONS_CHANNEL, url),
+  clearBrowserSiteData: (url: string) => ipcRenderer.invoke(BROWSER_CLEAR_SITE_DATA_CHANNEL, url),
+  getBrowserDownloads: () => ipcRenderer.invoke(BROWSER_DOWNLOADS_GET_CHANNEL),
+  controlBrowserDownload: (input) => ipcRenderer.invoke(BROWSER_DOWNLOAD_CONTROL_CHANNEL, input),
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),
   showContextMenu: (items, position) => ipcRenderer.invoke(CONTEXT_MENU_CHANNEL, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
@@ -284,6 +299,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
+    };
+  },
+  onBrowserDownloadEvent: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, downloadEvent: unknown) => {
+      if (typeof downloadEvent !== "object" || downloadEvent === null) return;
+      listener(downloadEvent as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(BROWSER_DOWNLOAD_EVENT_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(BROWSER_DOWNLOAD_EVENT_CHANNEL, wrappedListener);
     };
   },
   sendOrchestrationEvent: (event: unknown) => {

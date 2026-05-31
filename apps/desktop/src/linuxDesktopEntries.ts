@@ -39,7 +39,6 @@ function buildDesktopEntry(input: DesktopEntryInput): string {
     `NoDisplay=${input.noDisplay === true ? "true" : "false"}`,
     `StartupNotify=${input.startupNotify === false ? "false" : "true"}`,
   ];
-
   if (input.desktopFileId) {
     lines.push(`DesktopFileName=${sanitizeDesktopEntryValue(input.desktopFileId)}`);
   }
