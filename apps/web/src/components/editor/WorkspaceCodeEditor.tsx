@@ -38,7 +38,18 @@ import {
   setDiagnostics,
   type Diagnostic as CodeMirrorDiagnostic,
 } from "@codemirror/lint";
-import { highlightSelectionMatches, openSearchPanel, searchKeymap } from "@codemirror/search";
+import {
+  closeSearchPanel,
+  findNext as cmFindNext,
+  findPrevious as cmFindPrevious,
+  highlightSelectionMatches,
+  openSearchPanel,
+  replaceAll as cmReplaceAll,
+  replaceNext as cmReplaceNext,
+  search,
+  selectMatches as cmSelectMatches,
+  setSearchQuery,
+} from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import {
   crosshairCursor,
@@ -52,6 +63,7 @@ import {
   highlightWhitespace,
   keymap,
   rectangularSelection,
+  type Panel,
   type KeyBinding,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -78,6 +90,13 @@ import {
   createWorkspaceShikiHighlightConfig,
   workspaceShikiHighlightSupport,
 } from "~/lib/editor/workspaceShikiHighlight";
+import {
+  countWorkspaceFindMatches,
+  createWorkspaceFindQuery,
+  resolveWorkspaceFindSeed,
+  type WorkspaceFindMatchSummary,
+  type WorkspaceFindState,
+} from "~/lib/editor/workspaceFind";
 import { cn } from "~/lib/utils";
 
 const COMPLETION_TRIGGER_CHARACTERS = new Set([".", "/", '"', "'", ":", "<", "@"]);
@@ -85,11 +104,18 @@ const COMPLETION_WORD_PATTERN = /[\w$.-]*$/u;
 const COMPLETION_VALID_FOR_PATTERN = /^[\w$.-]*$/u;
 
 export interface WorkspaceCodeEditorHandle {
+  readonly closeFindQuery: () => void;
+  readonly findNext: () => void;
+  readonly findPrevious: () => void;
   readonly focus: () => void;
-  readonly openFindPanel: () => void;
+  readonly getFindSeed: () => string;
+  readonly replaceAll: () => void;
+  readonly replaceNext: () => void;
   readonly revealLocation: (location: WorkspaceEditorLocation) => void;
+  readonly selectFindMatches: () => void;
   readonly setPosition: (position: { readonly column: number; readonly line: number }) => void;
   readonly triggerCompletion: () => void;
+  readonly updateFindQuery: (state: WorkspaceFindState) => WorkspaceFindMatchSummary;
 }
 
 export interface WorkspaceCodeEditorSelection {
@@ -117,6 +143,7 @@ interface WorkspaceCodeEditorProps {
     readonly contents: string;
     readonly line: number;
   }) => void;
+  readonly onFindRequest: (input: { readonly replace: boolean; readonly seed: string }) => void;
   readonly onFocus: () => void;
   readonly onSave: () => void;
   readonly onSelectionChange: (selection: WorkspaceCodeEditorSelection | null) => void;
@@ -135,6 +162,7 @@ interface WorkspaceCodeEditorCallbacks {
   readonly onChange: WorkspaceCodeEditorProps["onChange"];
   readonly onCursorLabelChange: WorkspaceCodeEditorProps["onCursorLabelChange"];
   readonly onDefinitionRequest: WorkspaceCodeEditorProps["onDefinitionRequest"];
+  readonly onFindRequest: WorkspaceCodeEditorProps["onFindRequest"];
   readonly onFocus: WorkspaceCodeEditorProps["onFocus"];
   readonly onSave: WorkspaceCodeEditorProps["onSave"];
   readonly onSelectionChange: WorkspaceCodeEditorProps["onSelectionChange"];
@@ -158,6 +186,7 @@ function updateCallbacksRef(
     onChange: props.onChange,
     onCursorLabelChange: props.onCursorLabelChange,
     onDefinitionRequest: props.onDefinitionRequest,
+    onFindRequest: props.onFindRequest,
     onFocus: props.onFocus,
     onSave: props.onSave,
     onSelectionChange: props.onSelectionChange,
@@ -364,6 +393,34 @@ function requestDefinitionAtPosition(
   return true;
 }
 
+function selectedTextForFind(state: EditorState): string | null {
+  const selection = state.selection.main;
+  if (selection.empty) {
+    return null;
+  }
+  const text = state.sliceDoc(selection.from, selection.to);
+  return text.includes("\n") ? null : text;
+}
+
+function currentWordForFind(state: EditorState): string | null {
+  const word = state.wordAt(state.selection.main.head);
+  return word ? state.sliceDoc(word.from, word.to) : null;
+}
+
+function findSeedForState(state: EditorState): string {
+  return resolveWorkspaceFindSeed({
+    currentWord: currentWordForFind(state),
+    selectedText: selectedTextForFind(state),
+  });
+}
+
+function createHiddenSearchPanel(): Panel {
+  const dom = document.createElement("div");
+  dom.className = "ace-workspace-hidden-search-panel";
+  dom.setAttribute("aria-hidden", "true");
+  return { dom };
+}
+
 function createKeymap(
   callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>,
 ): readonly KeyBinding[] {
@@ -390,14 +447,20 @@ function createKeymap(
     {
       key: "Mod-f",
       run(view) {
-        openSearchPanel(view);
+        callbacksRef.current.onFindRequest({
+          replace: false,
+          seed: findSeedForState(view.state),
+        });
         return true;
       },
     },
     {
       key: "Mod-h",
       run(view) {
-        openSearchPanel(view);
+        callbacksRef.current.onFindRequest({
+          replace: true,
+          seed: findSeedForState(view.state),
+        });
         return true;
       },
     },
@@ -454,7 +517,6 @@ function createKeymap(
     },
     indentWithTab,
     ...completionKeymap,
-    ...searchKeymap,
     ...lintKeymap,
     ...foldKeymap,
     ...historyKeymap,
@@ -515,6 +577,7 @@ function createEditorExtensions(input: {
     highlightTrailingWhitespace(),
     indentOnInput(),
     closeBrackets(),
+    search({ createPanel: createHiddenSearchPanel }),
     lintGutter(),
     linter(null, { delay: 300 }),
     input.options.renderWhitespace ? highlightWhitespace() : [],
@@ -600,6 +663,7 @@ const WorkspaceCodeEditor = memo(
         onChange: props.onChange,
         onCursorLabelChange: props.onCursorLabelChange,
         onDefinitionRequest: props.onDefinitionRequest,
+        onFindRequest: props.onFindRequest,
         onFocus: props.onFocus,
         onSave: props.onSave,
         onSelectionChange: props.onSelectionChange,
@@ -611,15 +675,54 @@ const WorkspaceCodeEditor = memo(
       useImperativeHandle(
         forwardedRef,
         () => ({
-          focus() {
-            viewRef.current?.focus();
-          },
-          openFindPanel() {
+          closeFindQuery() {
             const view = viewRef.current;
             if (!view) {
               return;
             }
-            openSearchPanel(view);
+            closeSearchPanel(view);
+            view.focus();
+          },
+          findNext() {
+            const view = viewRef.current;
+            if (!view) {
+              return;
+            }
+            cmFindNext(view);
+            view.focus();
+          },
+          findPrevious() {
+            const view = viewRef.current;
+            if (!view) {
+              return;
+            }
+            cmFindPrevious(view);
+            view.focus();
+          },
+          focus() {
+            viewRef.current?.focus();
+          },
+          getFindSeed() {
+            const view = viewRef.current;
+            if (!view) {
+              return "";
+            }
+            return findSeedForState(view.state);
+          },
+          replaceAll() {
+            const view = viewRef.current;
+            if (!view) {
+              return;
+            }
+            cmReplaceAll(view);
+            view.focus();
+          },
+          replaceNext() {
+            const view = viewRef.current;
+            if (!view) {
+              return;
+            }
+            cmReplaceNext(view);
             view.focus();
           },
           revealLocation(location) {
@@ -635,6 +738,14 @@ const WorkspaceCodeEditor = memo(
               effects: EditorView.scrollIntoView(editorSelection.main, { y: "center" }),
               selection: editorSelection,
             });
+            view.focus();
+          },
+          selectFindMatches() {
+            const view = viewRef.current;
+            if (!view) {
+              return;
+            }
+            cmSelectMatches(view);
             view.focus();
           },
           setPosition(position) {
@@ -660,6 +771,21 @@ const WorkspaceCodeEditor = memo(
             }
             startCompletion(view);
             view.focus();
+          },
+          updateFindQuery(state) {
+            const view = viewRef.current;
+            if (!view) {
+              return { capped: false, count: 0 };
+            }
+            const query = createWorkspaceFindQuery(state);
+            if (state.search.length === 0) {
+              view.dispatch({ effects: setSearchQuery.of(query) });
+              closeSearchPanel(view);
+              return { capped: false, count: 0 };
+            }
+            openSearchPanel(view);
+            view.dispatch({ effects: setSearchQuery.of(query) });
+            return countWorkspaceFindMatches(view.state, query);
           },
         }),
         [],

@@ -5,6 +5,8 @@ import {
   buildWorkspaceCodeSearchQueries,
   createWorkspaceCodeSearchResult,
   extractWorkspaceCodeSearchTerms,
+  groupWorkspaceCodeSearchResults,
+  highlightWorkspaceCodeSearchText,
 } from "./workspaceCodeSearch";
 
 function createFileEntry(path: string): ProjectEntry {
@@ -56,5 +58,38 @@ describe("workspaceCodeSearch", () => {
     expect(result?.entry.path).toBe("src/auth/tokens.ts");
     expect(result?.matchCount).toBeGreaterThan(0);
     expect(result?.snippets.map((snippet) => snippet.lineNumber)).toEqual([1, 2]);
+  });
+
+  it("groups likely, content, and path matches", () => {
+    const likely = createWorkspaceCodeSearchResult({
+      contents: "auth token refresh token refresh",
+      entry: createFileEntry("src/auth/tokens.ts"),
+      query: "auth token refresh",
+    });
+    const content = createWorkspaceCodeSearchResult({
+      contents: "refresh()",
+      entry: createFileEntry("src/session/run.ts"),
+      query: "refresh",
+    });
+    const path = createWorkspaceCodeSearchResult({
+      contents: "",
+      entry: createFileEntry("src/auth/path-only.ts"),
+      query: "auth",
+    });
+
+    const groups = groupWorkspaceCodeSearchResults(
+      [likely, content, path].flatMap((result) => (result ? [result] : [])),
+    );
+
+    expect(groups.map((group) => group.id)).toEqual(["likely", "content", "path"]);
+  });
+
+  it("highlights matched terms in snippets", () => {
+    expect(highlightWorkspaceCodeSearchText("refreshAuthToken()", "auth token")).toEqual([
+      { highlight: false, text: "refresh" },
+      { highlight: true, text: "Auth" },
+      { highlight: true, text: "Token" },
+      { highlight: false, text: "()" },
+    ]);
   });
 });

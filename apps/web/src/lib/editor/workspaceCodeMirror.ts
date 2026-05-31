@@ -138,6 +138,9 @@ export function createWorkspaceCodeMirrorTheme(input: {
         color: "var(--foreground)",
         outline: "none",
       },
+      ".cm-panels:has(.ace-workspace-hidden-search-panel)": {
+        display: "none",
+      },
       ".cm-scroller": {
         fontFamily: input.options.fontFamily,
         lineHeight: `${input.options.lineHeight}px`,

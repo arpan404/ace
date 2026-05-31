@@ -49,6 +49,19 @@ export interface WorkspaceCodeSearchResult {
   readonly snippets: readonly WorkspaceCodeSearchSnippet[];
 }
 
+export type WorkspaceCodeSearchGroupId = "likely" | "content" | "path";
+
+export interface WorkspaceCodeSearchResultGroup {
+  readonly id: WorkspaceCodeSearchGroupId;
+  readonly label: string;
+  readonly results: readonly WorkspaceCodeSearchResult[];
+}
+
+export interface WorkspaceCodeSearchTextPart {
+  readonly highlight: boolean;
+  readonly text: string;
+}
+
 function uniqueValues(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -183,4 +196,66 @@ export function sortWorkspaceCodeSearchResults(
   return results.toSorted(
     (left, right) => right.score - left.score || left.entry.path.localeCompare(right.entry.path),
   );
+}
+
+export function groupWorkspaceCodeSearchResults(
+  results: readonly WorkspaceCodeSearchResult[],
+): readonly WorkspaceCodeSearchResultGroup[] {
+  const likely: WorkspaceCodeSearchResult[] = [];
+  const content: WorkspaceCodeSearchResult[] = [];
+  const path: WorkspaceCodeSearchResult[] = [];
+
+  for (const result of results) {
+    if (result.score >= 90 || result.matchCount >= 3) {
+      likely.push(result);
+    } else if (result.snippets.length > 0) {
+      content.push(result);
+    } else {
+      path.push(result);
+    }
+  }
+
+  const groups: WorkspaceCodeSearchResultGroup[] = [
+    { id: "likely", label: "Likely files", results: likely },
+    { id: "content", label: "Content matches", results: content },
+    { id: "path", label: "Path matches", results: path },
+  ];
+  return groups.filter((group) => group.results.length > 0);
+}
+
+export function highlightWorkspaceCodeSearchText(
+  text: string,
+  query: string,
+): readonly WorkspaceCodeSearchTextPart[] {
+  const terms = extractWorkspaceCodeSearchTerms(query)
+    .filter((term) => term.length > 0)
+    .toSorted((left, right) => right.length - left.length);
+  if (terms.length === 0 || text.length === 0) {
+    return [{ highlight: false, text }];
+  }
+
+  const normalizedText = text.toLowerCase();
+  const parts: WorkspaceCodeSearchTextPart[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const match = terms
+      .map((term) => ({ term, index: normalizedText.indexOf(term, index) }))
+      .filter((candidate) => candidate.index >= 0)
+      .toSorted((left, right) => left.index - right.index || right.term.length - left.term.length)
+      .at(0);
+    if (!match) {
+      parts.push({ highlight: false, text: text.slice(index) });
+      break;
+    }
+    if (match.index > index) {
+      parts.push({ highlight: false, text: text.slice(index, match.index) });
+    }
+    parts.push({
+      highlight: true,
+      text: text.slice(match.index, match.index + match.term.length),
+    });
+    index = match.index + match.term.length;
+  }
+
+  return parts;
 }

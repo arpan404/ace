@@ -151,6 +151,7 @@ export type GitStatusInput = typeof GitStatusInput.Type;
 
 export const GitWorkingTreeDiffInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
+  relativePath: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type GitWorkingTreeDiffInput = typeof GitWorkingTreeDiffInput.Type;
 

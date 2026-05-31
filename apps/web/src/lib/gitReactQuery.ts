@@ -20,7 +20,11 @@ export const gitQueryKeys = {
   all: ["git"] as const,
   status: (cwd: string | null, connectionUrl?: string | null) =>
     ["git", "status", connectionUrl ?? null, cwd] as const,
-  workingTreeDiff: (cwd: string | null) => ["git", "working-tree-diff", cwd] as const,
+  workingTreeDiff: (
+    cwd: string | null,
+    connectionUrl?: string | null,
+    relativePath?: string | null,
+  ) => ["git", "working-tree-diff", connectionUrl ?? null, cwd, relativePath ?? null] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   githubIssues: (
     cwd: string | null,
@@ -78,13 +82,26 @@ export function gitStatusQueryOptions(cwd: string | null, connectionUrl?: string
   });
 }
 
-export function gitWorkingTreeDiffQueryOptions(input: { cwd: string | null; enabled?: boolean }) {
+export function gitWorkingTreeDiffQueryOptions(input: {
+  connectionUrl?: string | null;
+  cwd: string | null;
+  enabled?: boolean;
+  relativePath?: string | null;
+}) {
   return queryOptions({
-    queryKey: gitQueryKeys.workingTreeDiff(input.cwd),
+    queryKey: gitQueryKeys.workingTreeDiff(input.cwd, input.connectionUrl, input.relativePath),
     queryFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Working tree diff is unavailable.");
-      return api.git.readWorkingTreeDiff({ cwd: input.cwd });
+      return api.git.readWorkingTreeDiff(
+        withRpcRouteConnection(
+          {
+            cwd: input.cwd,
+            ...(input.relativePath ? { relativePath: input.relativePath } : {}),
+          },
+          input.connectionUrl,
+        ),
+      );
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
     staleTime: GIT_WORKING_TREE_DIFF_STALE_TIME_MS,

@@ -1597,6 +1597,56 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("reads a file-scoped working tree diff", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "a.ts"), "a v1\n");
+        yield* writeTextFile(path.join(tmp, "b.ts"), "b v1\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add files"]);
+
+        yield* writeTextFile(path.join(tmp, "a.ts"), "a v2\n");
+        yield* writeTextFile(path.join(tmp, "b.ts"), "b v2\n");
+
+        const scoped = yield* core.readWorkingTreeDiff({ cwd: tmp, relativePath: "a.ts" });
+        expect(scoped.diff).toContain("diff --git a/a.ts b/a.ts");
+        expect(scoped.diff).not.toContain("diff --git a/b.ts b/b.ts");
+
+        const full = yield* core.readWorkingTreeDiff({ cwd: tmp });
+        expect(full.diff).toContain("diff --git a/a.ts b/a.ts");
+        expect(full.diff).toContain("diff --git a/b.ts b/b.ts");
+      }),
+    );
+
+    it.effect("emits subdirectory working tree diffs relative to the requested workspace", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const core = yield* GitCore;
+
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "server"), { recursive: true });
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "web"), { recursive: true });
+        yield* writeTextFile(path.join(tmp, "apps", "server", "server.ts"), "server v1\n");
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web v1\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add workspaces"]);
+
+        yield* writeTextFile(path.join(tmp, "apps", "server", "server.ts"), "server v2\n");
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web v2\n");
+
+        const serverDiff = yield* core.readWorkingTreeDiff({
+          cwd: path.join(tmp, "apps", "server"),
+          relativePath: "server.ts",
+        });
+        expect(serverDiff.diff).toContain("diff --git a/server.ts b/server.ts");
+        expect(serverDiff.diff).not.toContain("apps/web/web.ts");
+      }),
+    );
+
     it.effect("computes ahead count against base branch when no upstream is configured", () =>
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();

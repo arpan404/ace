@@ -38,6 +38,11 @@ import {
   type WorkspaceCodeEditorProblem,
 } from "~/lib/editor/workspaceCodeMirror";
 import type { WorkspaceCodeEditorOptions } from "~/lib/editor/workspaceEditorOptions";
+import {
+  EMPTY_WORKSPACE_FIND_STATE,
+  type WorkspaceFindMatchSummary,
+  type WorkspaceFindState,
+} from "~/lib/editor/workspaceFind";
 import { resolveWorkspaceLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import {
   buildWorkspaceSelectionContext,
@@ -66,6 +71,7 @@ import WorkspaceCodeEditor, {
   type WorkspaceCodeEditorHandle,
   type WorkspaceCodeEditorSelection,
 } from "./WorkspaceCodeEditor";
+import WorkspaceFindBar from "./WorkspaceFindBar";
 import {
   buildWorkspacePreviewUrl,
   detectWorkspacePreviewKind,
@@ -177,6 +183,11 @@ const EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE: WorkspaceEditorFeedbackState = {
   previewError: null,
   problemsOpen: false,
   problems: [],
+};
+
+const EMPTY_WORKSPACE_FIND_MATCH_SUMMARY: WorkspaceFindMatchSummary = {
+  capped: false,
+  count: 0,
 };
 
 type WorkspaceEditorNavigationState = {
@@ -633,6 +644,12 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [textPreviewFilePaths, setTextPreviewFilePaths] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [findOpen, setFindOpen] = useState(false);
+  const [findExpandedReplace, setFindExpandedReplace] = useState(false);
+  const [findState, setFindState] = useState<WorkspaceFindState>(EMPTY_WORKSPACE_FIND_STATE);
+  const [findMatchSummary, setFindMatchSummary] = useState<WorkspaceFindMatchSummary>(
+    EMPTY_WORKSPACE_FIND_MATCH_SUMMARY,
+  );
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
@@ -953,6 +970,32 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
   );
 
+  const openWorkspaceFind = useCallback((input: { replace: boolean; seed: string }) => {
+    setFindExpandedReplace(input.replace);
+    setFindOpen(true);
+    if (input.seed.length > 0) {
+      setFindState((current) => ({ ...current, search: input.seed }));
+    }
+  }, []);
+
+  const closeWorkspaceFind = useCallback(() => {
+    setFindOpen(false);
+    setFindMatchSummary(EMPTY_WORKSPACE_FIND_MATCH_SUMMARY);
+    editorRef.current?.closeFindQuery();
+  }, []);
+
+  const updateFindState = useCallback((patch: Partial<WorkspaceFindState>) => {
+    setFindState((current) => ({ ...current, ...patch }));
+  }, []);
+
+  useEffect(() => {
+    if (!findOpen) {
+      return;
+    }
+    const summary = editorRef.current?.updateFindQuery(findState);
+    setFindMatchSummary(summary ?? EMPTY_WORKSPACE_FIND_MATCH_SUMMARY);
+  }, [activeFileContents, editorMountVersion, findOpen, findState]);
+
   useEffect(() => {
     const editor = editorRef.current;
     if (
@@ -989,8 +1032,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     if (!editor || !props.active || !props.findRequestToken) {
       return;
     }
-    editor.openFindPanel();
-  }, [editorMountVersion, props.active, props.findRequestToken]);
+    openWorkspaceFind({ replace: false, seed: editor.getFindSeed() });
+  }, [editorMountVersion, openWorkspaceFind, props.active, props.findRequestToken]);
 
   useEffect(() => {
     syncRequestIdRef.current += 1;
@@ -1636,6 +1679,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               }}
               onCursorLabelChange={handleCursorLabelChange}
               onDefinitionRequest={handleDefinitionRequest}
+              onFindRequest={openWorkspaceFind}
               onFocus={handleEditorFocus}
               onSave={handleSave}
               onSelectionChange={handleSelectionChange}
@@ -1649,6 +1693,20 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               options={props.editorOptions}
               resolvedTheme={props.resolvedTheme}
               value={activeFileContents}
+            />
+            <WorkspaceFindBar
+              expandedReplace={findExpandedReplace}
+              matchSummary={findMatchSummary}
+              onClose={closeWorkspaceFind}
+              onFindNext={() => editorRef.current?.findNext()}
+              onFindPrevious={() => editorRef.current?.findPrevious()}
+              onReplaceAll={() => editorRef.current?.replaceAll()}
+              onReplaceNext={() => editorRef.current?.replaceNext()}
+              onSelectAll={() => editorRef.current?.selectFindMatches()}
+              onStateChange={updateFindState}
+              onToggleReplace={() => setFindExpandedReplace((current) => !current)}
+              open={findOpen}
+              state={findState}
             />
             {activeSelection ? (
               <div
@@ -1865,7 +1923,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               {activeLanguageId}
             </span>
           ) : null}
-          {props.pane.activeFilePath && !isPreviewMode ? (
+          {props.pane.activeFilePath && !isPreviewMode && diagnosticSummary ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -1889,9 +1947,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                 }
               />
               <TooltipPopup side="top" align="end">
-                {diagnosticSummary
-                  ? `${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`
-                  : `${problemsOpen ? "Hide" : "Show"} problems panel`}
+                {`${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`}
               </TooltipPopup>
             </Tooltip>
           ) : null}

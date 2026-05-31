@@ -1494,7 +1494,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
   const readWorkingTreeDiff: GitCoreShape["readWorkingTreeDiff"] = Effect.fn("readWorkingTreeDiff")(
     function* (input) {
-      const args = ["diff", "--no-ext-diff", "--submodule=diff"] as const;
+      const args = ["diff", "--relative", "--no-ext-diff", "--submodule=diff"] as const;
+      const pathspecArgs = input.relativePath ? ["--", input.relativePath] : ["--"];
       const readDiff = (commandArgs: readonly string[]) =>
         runGitStdoutWithOptions("GitCore.readWorkingTreeDiff", input.cwd, commandArgs, {
           maxOutputBytes: RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES,
@@ -1502,8 +1503,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         });
 
       const diff = (yield* hasHeadCommit(input.cwd))
-        ? yield* readDiff([...args, "HEAD", "--"])
-        : [yield* readDiff([...args, "--cached", "--root", "--"]), yield* readDiff([...args, "--"])]
+        ? yield* readDiff([...args, "HEAD", ...pathspecArgs])
+        : [
+            yield* readDiff([...args, "--cached", "--root", ...pathspecArgs]),
+            yield* readDiff([...args, ...pathspecArgs]),
+          ]
             .filter((patch) => patch.trim().length > 0)
             .join("\n");
 
