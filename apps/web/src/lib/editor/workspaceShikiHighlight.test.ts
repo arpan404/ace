@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createWorkspaceShikiTokenStyle,
+  highlightWorkspaceShikiHtmlLines,
   resolveWorkspaceShikiLanguage,
 } from "./workspaceShikiHighlight";
 
@@ -36,6 +37,21 @@ describe("resolveWorkspaceShikiLanguage", () => {
     );
   });
 
+  it("infers bundled Shiki grammars from file paths when no language id is available", () => {
+    expect(
+      resolveWorkspaceShikiLanguage({
+        filePath: "Apps/Desktop/Sources/AndyDesktopApp.swift",
+        languageId: undefined,
+      }),
+    ).toBe("swift");
+    expect(
+      resolveWorkspaceShikiLanguage({
+        filePath: "apps/web/src/components/App.tsx",
+        languageId: undefined,
+      }),
+    ).toBe("tsx");
+  });
+
   it("returns null for unsupported or missing language ids", () => {
     expect(
       resolveWorkspaceShikiLanguage({ filePath: "README.unknown", languageId: undefined }),
@@ -46,6 +62,30 @@ describe("resolveWorkspaceShikiLanguage", () => {
         languageId: "unknown-language",
       }),
     ).toBeNull();
+  });
+});
+
+describe("highlightWorkspaceShikiHtmlLines", () => {
+  it("returns styled HTML for file-path-only Swift diff lines", async () => {
+    const [line] = await highlightWorkspaceShikiHtmlLines({
+      filePath: "Apps/Desktop/Sources/AndyDesktopApp.swift",
+      lines: ["struct AndyDesktopApp: App {\n"],
+      resolvedTheme: "dark",
+    });
+
+    expect(line).toContain("<span");
+    expect(line).toContain("color:");
+    expect(line).toContain("AndyDesktopApp");
+  });
+
+  it("escapes plain fallback HTML for unsupported files", async () => {
+    const [line] = await highlightWorkspaceShikiHtmlLines({
+      filePath: "notes.unknown",
+      lines: ['<unsafe attr="x">\n'],
+      resolvedTheme: "dark",
+    });
+
+    expect(line).toBe("&lt;unsafe attr=&quot;x&quot;&gt;");
   });
 });
 

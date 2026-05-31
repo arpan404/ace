@@ -1,4 +1,3 @@
-import { FileDiff } from "@pierre/diffs/react";
 import {
   BotIcon,
   Columns2Icon,
@@ -17,17 +16,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../ui/button";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { buildDiffPanelUnsafeCss } from "../diffPanelUnsafeCss";
 import { useSetting } from "~/hooks/useSettings";
 import {
-  buildFileDiffRenderKey,
   formatFileChangeType,
   getRenderablePatch,
   resolveFileDiffPath,
   summarizeFileDiff,
 } from "~/lib/diffPatch";
-import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { gitWorkingTreeDiffQueryOptions } from "~/lib/gitReactQuery";
+import WorkspaceReviewDiff from "./WorkspaceReviewDiff";
 
 interface WorkspaceReviewPaneProps {
   readonly connectionUrl?: string | null | undefined;
@@ -42,7 +39,6 @@ interface WorkspaceReviewPaneProps {
 }
 
 type WorkspaceReviewDiffRenderMode = "stacked" | "split";
-type WorkspaceReviewDiffThemeType = "light" | "dark";
 
 function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
   const diffWordWrapSetting = useSetting("diffWordWrap");
@@ -60,7 +56,6 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
     () => getRenderablePatch(diffQuery.data?.diff, `workspace-review:${props.filePath}`),
     [diffQuery.data?.diff, props.filePath],
   );
-  const diffUnsafeCss = useMemo(() => buildDiffPanelUnsafeCss("inline"), []);
   const fileDiff = useMemo(() => {
     if (renderablePatch?.kind !== "files") {
       return null;
@@ -267,24 +262,12 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
           </div>
         ) : fileDiff ? (
           <div className="min-h-full bg-background">
-            <FileDiff
-              key={`${buildFileDiffRenderKey(fileDiff)}:${props.resolvedTheme}:${diffRenderMode}:${
-                diffWordWrap ? "wrap" : "scroll"
-              }`}
-              disableWorkerPool
+            <WorkspaceReviewDiff
               fileDiff={fileDiff}
-              options={{
-                diffStyle: diffRenderMode === "split" ? "split" : "unified",
-                disableFileHeader: true,
-                enableGutterUtility: false,
-                enableLineSelection: false,
-                lineDiffType: "none",
-                lineHoverHighlight: "disabled",
-                overflow: diffWordWrap ? "wrap" : "scroll",
-                theme: resolveDiffThemeName(props.resolvedTheme),
-                themeType: props.resolvedTheme as WorkspaceReviewDiffThemeType,
-                unsafeCSS: diffUnsafeCss,
-              }}
+              filePath={props.filePath}
+              renderMode={diffRenderMode}
+              resolvedTheme={props.resolvedTheme}
+              wordWrap={diffWordWrap}
             />
           </div>
         ) : (

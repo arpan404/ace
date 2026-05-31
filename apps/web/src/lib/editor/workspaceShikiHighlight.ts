@@ -265,12 +265,12 @@ export function resolveWorkspaceShikiLanguage(input: {
   readonly filePath: string | null;
   readonly languageId: string | null | undefined;
 }): WorkspaceShikiLanguage | null {
-  const languageId = input.languageId?.toLowerCase();
+  const filePath = input.filePath?.toLowerCase() ?? "";
+  const languageId = input.languageId?.toLowerCase() ?? inferWorkspaceLanguageIdFromPath(filePath);
   if (!languageId) {
     return null;
   }
 
-  const filePath = input.filePath?.toLowerCase() ?? "";
   const mappedLanguage = mapWorkspaceLanguageToShikiLanguage(languageId, filePath);
   if (mappedLanguage && isBundledShikiLanguage(mappedLanguage)) {
     return mappedLanguage;
@@ -310,6 +310,50 @@ export function createWorkspaceShikiTokenStyle(input: TokenStyles): string | nul
   return styleParts.length > 0 ? styleParts.join("; ") : null;
 }
 
+export function createPlainWorkspaceShikiHtmlLines(lines: readonly string[]): readonly string[] {
+  return lines.map((line) => formatWorkspaceShikiPlainHtmlLine(line));
+}
+
+export async function highlightWorkspaceShikiHtmlLines(input: {
+  readonly filePath: string | null;
+  readonly languageId?: string | null | undefined;
+  readonly lines: readonly string[];
+  readonly resolvedTheme: "light" | "dark";
+}): Promise<readonly string[]> {
+  const language = resolveWorkspaceShikiLanguage({
+    filePath: input.filePath,
+    languageId: input.languageId,
+  });
+  if (!language || language === "text" || input.lines.length === 0) {
+    return createPlainWorkspaceShikiHtmlLines(input.lines);
+  }
+
+  const highlighter = await getWorkspaceShikiHighlighter(language);
+  if (!highlighter) {
+    return createPlainWorkspaceShikiHtmlLines(input.lines);
+  }
+
+  const normalizedLines = input.lines.map((line) => stripWorkspaceShikiLineEnding(line));
+  const code = normalizedLines.join("\n");
+  try {
+    const result = highlighter.codeToTokens(code, {
+      lang: language,
+      theme: WORKSPACE_SHIKI_THEME_IDS[input.resolvedTheme],
+      tokenizeMaxLineLength: WORKSPACE_SHIKI_TOKENIZE_MAX_LINE_LENGTH,
+      tokenizeTimeLimit: WORKSPACE_SHIKI_TOKENIZE_TIME_LIMIT_MS,
+    });
+    return normalizedLines.map((line, index) =>
+      formatWorkspaceShikiTokenHtmlLine(result.tokens[index] ?? [], line),
+    );
+  } catch (error) {
+    console.warn(
+      `Workspace Shiki HTML highlighting failed for language "${language}".`,
+      error instanceof Error ? error.message : error,
+    );
+    return createPlainWorkspaceShikiHtmlLines(input.lines);
+  }
+}
+
 function mapWorkspaceLanguageToShikiLanguage(languageId: string, filePath: string): string | null {
   switch (languageId) {
     case "typescript":
@@ -338,6 +382,110 @@ function mapWorkspaceLanguageToShikiLanguage(languageId: string, filePath: strin
       return "shellscript";
     default:
       return languageId;
+  }
+}
+
+function inferWorkspaceLanguageIdFromPath(filePath: string): string | null {
+  const normalized = filePath.toLowerCase();
+  const basename = normalized.split("/").at(-1) ?? normalized;
+  switch (basename) {
+    case ".env":
+    case ".env.local":
+    case ".env.development":
+    case ".env.production":
+      return "dotenv";
+    case "dockerfile":
+      return "dockerfile";
+    default:
+      break;
+  }
+
+  const extension = normalized.match(/\.([a-z0-9-]+)$/)?.[1];
+  switch (extension) {
+    case "bat":
+    case "css":
+    case "dart":
+    case "go":
+    case "graphql":
+    case "hcl":
+    case "html":
+    case "java":
+    case "jsonc":
+    case "jsx":
+    case "less":
+    case "lua":
+    case "mdx":
+    case "php":
+    case "prisma":
+    case "scss":
+    case "sql":
+    case "swift":
+    case "toml":
+    case "tsx":
+    case "xml":
+    case "yaml":
+      return extension;
+    case "cjs":
+      return "javascript";
+    case "cpp":
+    case "cc":
+    case "cxx":
+    case "hpp":
+    case "hxx":
+      return "cpp";
+    case "cs":
+      return "csharp";
+    case "cts":
+      return "typescript";
+    case "env":
+      return "dotenv";
+    case "ini":
+      return "ini";
+    case "js":
+      return "javascript";
+    case "json":
+      return "json";
+    case "kt":
+    case "kts":
+      return "kotlin";
+    case "m":
+    case "mm":
+      return "objective-c";
+    case "md":
+    case "markdown":
+      return "markdown";
+    case "mjs":
+      return "javascript";
+    case "mts":
+      return "typescript";
+    case "pl":
+    case "pm":
+      return "perl";
+    case "proto":
+      return "protobuf";
+    case "ps1":
+      return "powershell";
+    case "py":
+      return "python";
+    case "rb":
+      return "ruby";
+    case "rs":
+      return "rust";
+    case "scala":
+    case "sc":
+      return "scala";
+    case "sh":
+    case "bash":
+    case "zsh":
+      return "shell";
+    case "ts":
+      return "typescript";
+    case "sol":
+      return "solidity";
+    case "yml":
+      return "yaml";
+    default:
+      return null;
   }
 }
 
@@ -454,4 +602,45 @@ function getWorkspaceShikiDecoration(token: ThemedToken): Decoration | null {
   });
   tokenDecorationCache.set(style, decoration);
   return decoration;
+}
+
+function stripWorkspaceShikiLineEnding(line: string): string {
+  return line.replace(/\r?\n$/, "");
+}
+
+function formatWorkspaceShikiPlainHtmlLine(line: string): string {
+  return escapeWorkspaceShikiHtml(stripWorkspaceShikiLineEnding(line)) || "&nbsp;";
+}
+
+function formatWorkspaceShikiTokenHtmlLine(
+  tokens: readonly ThemedToken[],
+  fallbackLine: string,
+): string {
+  const html = tokens
+    .map((token) => {
+      const content = escapeWorkspaceShikiHtml(token.content);
+      if (content.length === 0) {
+        return "";
+      }
+      const style = createWorkspaceShikiTokenStyle(token);
+      if (!style) {
+        return content;
+      }
+      return `<span style="${escapeWorkspaceShikiHtmlAttribute(style)}">${content}</span>`;
+    })
+    .join("");
+  return html || formatWorkspaceShikiPlainHtmlLine(fallbackLine);
+}
+
+function escapeWorkspaceShikiHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeWorkspaceShikiHtmlAttribute(value: string): string {
+  return escapeWorkspaceShikiHtml(value).replace(/`/g, "&#96;");
 }
