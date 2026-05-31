@@ -4195,7 +4195,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                 <WorkspaceDiffEditor
                   activeFilePath={saveConflict.relativePath}
                   height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
-                  languageId={resolveWorkspaceLanguageFromFilePath(saveConflict.relativePath) ?? null}
+                  languageId={
+                    resolveWorkspaceLanguageFromFilePath(saveConflict.relativePath) ?? null
+                  }
                   original={saveConflict.currentContents}
                   modified={saveConflict.localContents}
                   options={diffEditorOptions}

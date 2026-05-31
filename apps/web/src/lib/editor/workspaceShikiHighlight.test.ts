@@ -22,21 +22,24 @@ describe("resolveWorkspaceShikiLanguage", () => {
   });
 
   it("maps workspace language ids to bundled Shiki grammars", () => {
-    expect(resolveWorkspaceShikiLanguage({ filePath: "Dockerfile", languageId: "dockerfile" }))
-      .toBe("docker");
+    expect(
+      resolveWorkspaceShikiLanguage({ filePath: "Dockerfile", languageId: "dockerfile" }),
+    ).toBe("docker");
     expect(resolveWorkspaceShikiLanguage({ filePath: ".env.local", languageId: "dotenv" })).toBe(
       "dotenv",
     );
-    expect(resolveWorkspaceShikiLanguage({ filePath: "schema.prisma", languageId: "prisma" }))
-      .toBe("prisma");
+    expect(resolveWorkspaceShikiLanguage({ filePath: "schema.prisma", languageId: "prisma" })).toBe(
+      "prisma",
+    );
     expect(resolveWorkspaceShikiLanguage({ filePath: "build.sh", languageId: "shell" })).toBe(
       "shellscript",
     );
   });
 
   it("returns null for unsupported or missing language ids", () => {
-    expect(resolveWorkspaceShikiLanguage({ filePath: "README.unknown", languageId: undefined }))
-      .toBeNull();
+    expect(
+      resolveWorkspaceShikiLanguage({ filePath: "README.unknown", languageId: undefined }),
+    ).toBeNull();
     expect(
       resolveWorkspaceShikiLanguage({
         filePath: "README.unknown",
@@ -51,7 +54,9 @@ describe("createWorkspaceShikiTokenStyle", () => {
     expect(
       createWorkspaceShikiTokenStyle({
         color: "#f8fafc",
-        fontStyle: 3,
+        fontStyle: 3 as NonNullable<
+          Parameters<typeof createWorkspaceShikiTokenStyle>[0]["fontStyle"]
+        >,
       }),
     ).toBe("color: #f8fafc; font-style: italic; font-weight: 700");
   });

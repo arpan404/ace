@@ -69,7 +69,14 @@ export default defineConfig({
             return "codemirror";
           }
 
-          if (id.includes("/shiki/") || id.includes("@shikijs")) {
+          if (
+            (id.includes("@shikijs") &&
+              !id.includes("@shikijs+langs") &&
+              !id.includes("@shikijs+themes")) ||
+            id.includes("/shiki/dist/core") ||
+            id.includes("/shiki/dist/engine-") ||
+            id.includes("/shiki/dist/textmate")
+          ) {
             return "shiki";
           }
 

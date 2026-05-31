@@ -29,12 +29,7 @@ import {
   toggleComment,
   undoSelection,
 } from "@codemirror/commands";
-import {
-  foldGutter,
-  foldKeymap,
-  indentOnInput,
-  indentUnit,
-} from "@codemirror/language";
+import { foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import {
   forceLinting,
   lintGutter,
