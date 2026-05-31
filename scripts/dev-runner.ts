@@ -23,7 +23,7 @@ export const DEFAULT_ACE_DEV_HOME = Effect.map(Effect.service(Path.Path), (path)
   path.join(homedir(), ".ace", "dev"),
 );
 export const DEFAULT_ACE_DEV_WEB_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(homedir(), ".ace"),
+  path.join(homedir(), ".ace", "dev", "web"),
 );
 export const DEFAULT_ACE_DEV_DESKTOP_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(homedir(), ".ace", "dev", "desktop"),

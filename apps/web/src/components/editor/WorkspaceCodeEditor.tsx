@@ -30,12 +30,10 @@ import {
   undoSelection,
 } from "@codemirror/commands";
 import {
-  defaultHighlightStyle,
   foldGutter,
   foldKeymap,
   indentOnInput,
   indentUnit,
-  syntaxHighlighting,
 } from "@codemirror/language";
 import {
   forceLinting,
@@ -82,6 +80,10 @@ import {
   workspacePositionFromOffset,
 } from "~/lib/editor/workspaceCodeMirror";
 import type { WorkspaceCodeEditorOptions } from "~/lib/editor/workspaceEditorOptions";
+import {
+  createWorkspaceShikiHighlightConfig,
+  workspaceShikiHighlightSupport,
+} from "~/lib/editor/workspaceShikiHighlight";
 import { cn } from "~/lib/utils";
 
 const COMPLETION_TRIGGER_CHARACTERS = new Set([".", "/", '"', "'", ":", "<", "@"]);
@@ -473,6 +475,7 @@ function createEditorExtensions(input: {
   options: WorkspaceCodeEditorOptions;
   readOnly: boolean;
   resolvedTheme: "light" | "dark";
+  shikiHighlightCompartment: Compartment;
   themeCompartment: Compartment;
   wrappingCompartment: Compartment;
   languageId: string | null | undefined;
@@ -492,7 +495,15 @@ function createEditorExtensions(input: {
         languageId: input.languageId,
       }),
     ),
+    input.shikiHighlightCompartment.of(
+      createWorkspaceShikiHighlightConfig({
+        filePath: input.activeFilePath,
+        languageId: input.languageId,
+        resolvedTheme: input.resolvedTheme,
+      }),
+    ),
     input.wrappingCompartment.of(input.options.wordWrap ? EditorView.lineWrapping : []),
+    workspaceShikiHighlightSupport(),
     ...setWorkspaceEditorReadOnly(input.readOnly),
     ...createWorkspaceLineNumberExtension(input.options.lineNumbers),
     EditorState.tabSize.of(input.options.tabSize),
@@ -513,7 +524,6 @@ function createEditorExtensions(input: {
     closeBrackets(),
     lintGutter(),
     linter(null, { delay: 300 }),
-    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     input.options.renderWhitespace ? highlightWhitespace() : [],
     input.options.suggestions
       ? autocompletion({
@@ -587,6 +597,7 @@ const WorkspaceCodeEditor = memo(
       const valueRef = useRef(props.value);
       const syncingFromPropsRef = useRef(false);
       const languageCompartment = useMemo(() => new Compartment(), []);
+      const shikiHighlightCompartment = useMemo(() => new Compartment(), []);
       const themeCompartment = useMemo(() => new Compartment(), []);
       const wrappingCompartment = useMemo(() => new Compartment(), []);
       const callbacksRef = useRef<WorkspaceCodeEditorCallbacks>({
@@ -678,6 +689,7 @@ const WorkspaceCodeEditor = memo(
             options: props.options,
             readOnly: props.readOnly ?? false,
             resolvedTheme: props.resolvedTheme,
+            shikiHighlightCompartment,
             themeCompartment,
             transientRefs: { syncingFromPropsRef, valueRef },
             wrappingCompartment,
@@ -703,6 +715,7 @@ const WorkspaceCodeEditor = memo(
         props.options,
         props.readOnly,
         props.resolvedTheme,
+        shikiHighlightCompartment,
         themeCompartment,
         wrappingCompartment,
       ]);
@@ -748,6 +761,13 @@ const WorkspaceCodeEditor = memo(
                 languageId: props.languageId,
               }),
             ),
+            shikiHighlightCompartment.reconfigure(
+              createWorkspaceShikiHighlightConfig({
+                filePath: props.activeFilePath,
+                languageId: props.languageId,
+                resolvedTheme: props.resolvedTheme,
+              }),
+            ),
             wrappingCompartment.reconfigure(props.options.wordWrap ? EditorView.lineWrapping : []),
           ],
         });
@@ -757,6 +777,7 @@ const WorkspaceCodeEditor = memo(
         props.languageId,
         props.options,
         props.resolvedTheme,
+        shikiHighlightCompartment,
         themeCompartment,
         wrappingCompartment,
       ]);

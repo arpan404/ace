@@ -1,5 +1,4 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { MergeView } from "@codemirror/merge";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView, highlightSpecialChars, keymap } from "@codemirror/view";
@@ -11,11 +10,17 @@ import {
   setWorkspaceEditorReadOnly,
 } from "~/lib/editor/workspaceCodeMirror";
 import type { WorkspaceCodeEditorOptions } from "~/lib/editor/workspaceEditorOptions";
+import {
+  createWorkspaceShikiHighlightConfig,
+  workspaceShikiHighlightSupport,
+} from "~/lib/editor/workspaceShikiHighlight";
 import { cn } from "~/lib/utils";
 
 interface WorkspaceDiffEditorProps {
+  readonly activeFilePath: string;
   readonly className?: string;
   readonly height: number;
+  readonly languageId: string | null | undefined;
   readonly modified: string;
   readonly options: WorkspaceCodeEditorOptions;
   readonly original: string;
@@ -23,17 +28,24 @@ interface WorkspaceDiffEditorProps {
 }
 
 function createDiffEditorExtensions(input: {
+  readonly activeFilePath: string;
+  readonly languageId: string | null | undefined;
   readonly options: WorkspaceCodeEditorOptions;
   readonly resolvedTheme: "light" | "dark";
 }): Extension[] {
   return [
     createWorkspaceCodeMirrorTheme(input),
+    createWorkspaceShikiHighlightConfig({
+      filePath: input.activeFilePath,
+      languageId: input.languageId,
+      resolvedTheme: input.resolvedTheme,
+    }),
+    workspaceShikiHighlightSupport(),
     ...setWorkspaceEditorReadOnly(true),
     ...createWorkspaceLineNumberExtension(input.options.lineNumbers),
     EditorState.tabSize.of(input.options.tabSize),
     history(),
     highlightSpecialChars(),
-    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     keymap.of([...historyKeymap, ...defaultKeymap]),
     EditorView.theme({
       ".cm-editor": {
@@ -63,6 +75,8 @@ function WorkspaceDiffEditor(props: WorkspaceDiffEditorProps) {
     }
     parent.textContent = "";
     const extensions = createDiffEditorExtensions({
+      activeFilePath: props.activeFilePath,
+      languageId: props.languageId,
       options: props.options,
       resolvedTheme: props.resolvedTheme,
     });
@@ -87,7 +101,14 @@ function WorkspaceDiffEditor(props: WorkspaceDiffEditorProps) {
     return () => {
       mergeView.destroy();
     };
-  }, [props.modified, props.options, props.original, props.resolvedTheme]);
+  }, [
+    props.activeFilePath,
+    props.languageId,
+    props.modified,
+    props.options,
+    props.original,
+    props.resolvedTheme,
+  ]);
 
   return (
     <div

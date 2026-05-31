@@ -4193,7 +4193,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
             {saveConflict ? (
               <div className="overflow-hidden rounded-md">
                 <WorkspaceDiffEditor
+                  activeFilePath={saveConflict.relativePath}
                   height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
+                  languageId={resolveWorkspaceLanguageFromFilePath(saveConflict.relativePath) ?? null}
                   original={saveConflict.currentContents}
                   modified={saveConflict.localContents}
                   options={diffEditorOptions}

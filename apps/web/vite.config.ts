@@ -69,6 +69,10 @@ export default defineConfig({
             return "codemirror";
           }
 
+          if (id.includes("/shiki/") || id.includes("@shikijs")) {
+            return "shiki";
+          }
+
           if (
             id.includes("react-markdown") ||
             id.includes("remark-gfm") ||
