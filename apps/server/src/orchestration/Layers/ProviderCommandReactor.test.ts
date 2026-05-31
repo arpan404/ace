@@ -1293,11 +1293,12 @@ describe("ProviderCommandReactor", () => {
     await waitFor(async () => {
       const readModel = await Effect.runPromise(harness.engine.getReadModel());
       const thread = readModel.threads.find((entry) => entry.id === threadId);
+      const steerMessage = thread?.messages.find(
+        (message) => message.id === asMessageId("queued-native-steer-ordering"),
+      );
       return Boolean(
-        thread?.messages.some(
-          (message) => message.id === asMessageId("queued-native-steer-ordering"),
-        ) &&
-        thread.activities.some(
+        steerMessage?.turnId === asTurnId("turn-1") &&
+        thread?.activities.some(
           (activity) => activity.id === EventId.makeUnsafe("evt-native-steer-tool-started"),
         ),
       );
