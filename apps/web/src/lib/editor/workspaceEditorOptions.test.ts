@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkspaceEditorOptions } from "./workspaceEditorOptions";
 
 describe("createWorkspaceEditorOptions", () => {
-  it("keeps hover and error widgets inside the editor viewport", () => {
+  it("creates a compact workspace editor option snapshot", () => {
     const options = createWorkspaceEditorOptions({
       lineNumbers: "on",
       minimap: true,
@@ -13,24 +13,30 @@ describe("createWorkspaceEditorOptions", () => {
       wordWrap: false,
     });
 
-    expect(options.allowOverflow).toBe(false);
-    expect(options.fixedOverflowWidgets).toBe(false);
+    expect(options).toMatchObject({
+      fontSize: 13,
+      lineHeight: 22,
+      lineNumbers: "on",
+      renderWhitespace: false,
+      suggestions: true,
+      tabSize: 2,
+      wordWrap: false,
+    });
   });
 
-  it("enables visible occurrence and selection highlighting", () => {
+  it("preserves user-facing editor toggles for CodeMirror extensions", () => {
     const options = createWorkspaceEditorOptions({
-      lineNumbers: "on",
+      lineNumbers: "relative",
       minimap: false,
-      renderWhitespace: false,
+      renderWhitespace: true,
       stickyScroll: false,
-      suggestions: true,
+      suggestions: false,
       wordWrap: true,
     });
 
-    expect(options.occurrencesHighlight).toBe("singleFile");
-    expect(options.occurrencesHighlightDelay).toBe(150);
-    expect(options.selectionHighlight).toBe(true);
-    expect(options.selectionHighlightMultiline).toBe(true);
-    expect(options.selectionHighlightMaxLength).toBe(200);
+    expect(options.lineNumbers).toBe("relative");
+    expect(options.renderWhitespace).toBe(true);
+    expect(options.suggestions).toBe(false);
+    expect(options.wordWrap).toBe(true);
   });
 });

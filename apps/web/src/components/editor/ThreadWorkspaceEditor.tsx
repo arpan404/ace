@@ -33,8 +33,6 @@ import {
 } from "lucide-react";
 import {
   memo,
-  lazy,
-  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
@@ -53,7 +51,6 @@ import {
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
-import { useAppearancePrefs } from "~/appearancePrefs";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
@@ -66,7 +63,7 @@ import {
   searchWorkspaceEntriesLocally,
   shouldRunWorkspaceRemoteSearch,
 } from "~/lib/editor/workspaceEntrySearch";
-import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
+import { resolveWorkspaceLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import {
   buildWorkspaceCodeCommentPrompt,
   countOpenWorkspaceCodeComments,
@@ -82,7 +79,6 @@ import {
   projectSearchEntriesQueryOptions,
 } from "~/lib/projectReactQuery";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
-import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
@@ -111,6 +107,7 @@ import WorkspaceEditorPane, {
   type WorkspaceEditorProblemNavigationTarget,
   type WorkspaceEditorSymbolNavigationTarget,
 } from "./WorkspaceEditorPane";
+import WorkspaceDiffEditor from "./WorkspaceDiffEditor";
 import {
   WorkspaceCommandPalette,
   type WorkspaceCommandAction,
@@ -121,12 +118,6 @@ const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
-const LazyMonacoDiffEditor = lazy(() =>
-  import("@monaco-editor/react").then((module) => ({
-    default: module.DiffEditor,
-  })),
-);
-
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -748,7 +739,7 @@ function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
-  if (target.closest(".monaco-editor")) {
+  if (target.closest(".cm-editor")) {
     return false;
   }
   return (
@@ -1040,7 +1031,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [detachedEditorConnectionUrl, detachedEditorThreadId, onEditorDetached]);
 
   const { resolvedTheme } = useTheme();
-  const { themePreset } = useAppearancePrefs();
   const { updateSettings } = useUpdateSettings();
   const editorLineNumbers = useSetting("editorLineNumbers");
   const editorMinimap = useSetting("editorMinimap");
@@ -1490,14 +1480,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
-  const monacoTheme = useMemo(
-    () =>
-      ensureMonacoConfigured({
-        resolvedTheme,
-        themePreset,
-      }),
-    [resolvedTheme, themePreset],
-  );
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -2486,7 +2468,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               cwd: props.gitCwd,
               diagnostics: [],
               kind: "workspace-selection",
-              languageId: resolveMonacoLanguageFromFilePath(activePane.activeFilePath) ?? null,
+              languageId: resolveWorkspaceLanguageFromFilePath(activePane.activeFilePath) ?? null,
               range: {
                 relativePath: activePane.activeFilePath,
                 startLine: 0,
@@ -4130,7 +4112,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             onUpdateDraft={(filePath, contents) =>
                               updateDraft(props.threadId, filePath, contents)
                             }
-                            monacoTheme={monacoTheme}
                             pane={pane}
                             paneIndex={paneIndex}
                             problemNavigationTarget={problemNavigationTarget}
@@ -4211,22 +4192,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           <DialogPanel className="space-y-3">
             {saveConflict ? (
               <div className="overflow-hidden rounded-md">
-                <Suspense
-                  fallback={
-                    <div
-                      className="h-[420px] w-full animate-pulse rounded-md bg-muted/15"
-                      aria-hidden
-                    />
-                  }
-                >
-                  <LazyMonacoDiffEditor
-                    height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
-                    original={saveConflict.currentContents}
-                    modified={saveConflict.localContents}
-                    theme={monacoTheme}
-                    options={diffEditorOptions}
-                  />
-                </Suspense>
+                <WorkspaceDiffEditor
+                  height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
+                  original={saveConflict.currentContents}
+                  modified={saveConflict.localContents}
+                  options={diffEditorOptions}
+                  resolvedTheme={resolvedTheme}
+                />
               </div>
             ) : null}
           </DialogPanel>

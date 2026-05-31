@@ -65,12 +65,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (
-            id.includes("monaco-editor") ||
-            id.includes("@monaco-editor") ||
-            id.includes("@codingame")
-          ) {
-            return "monaco";
+          if (id.includes("@codemirror") || id.includes("@lezer")) {
+            return "codemirror";
           }
 
           if (
