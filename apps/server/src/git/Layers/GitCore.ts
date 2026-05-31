@@ -1338,9 +1338,28 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
     const [statusStdout, unstagedNumstatStdout, stagedNumstatStdout] = yield* Effect.all(
       [
-        runGitStdout("GitCore.statusDetails.status", cwd, ["status", "--porcelain=2", "--branch"]),
-        runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
-        runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, ["diff", "--cached", "--numstat"]),
+        runGitStdout("GitCore.statusDetails.status", cwd, [
+          "status",
+          "--porcelain=2",
+          "--branch",
+          "--",
+          ".",
+        ]),
+        runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, [
+          "diff",
+          "--relative",
+          "--numstat",
+          "--",
+          ".",
+        ]),
+        runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, [
+          "diff",
+          "--cached",
+          "--relative",
+          "--numstat",
+          "--",
+          ".",
+        ]),
       ],
       { concurrency: "unbounded" },
     );

@@ -1571,6 +1571,32 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("scopes status details to the requested workspace directory", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const core = yield* GitCore;
+
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "server"), { recursive: true });
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "web"), { recursive: true });
+        yield* writeTextFile(path.join(tmp, "apps", "server", "server.ts"), "server\n");
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add apps"]);
+
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web updated\n");
+
+        const serverDetails = yield* core.statusDetails(path.join(tmp, "apps", "server"));
+        expect(serverDetails.hasWorkingTreeChanges).toBe(false);
+        expect(serverDetails.workingTree.files).toEqual([]);
+
+        const rootDetails = yield* core.statusDetails(tmp);
+        expect(rootDetails.hasWorkingTreeChanges).toBe(true);
+        expect(rootDetails.workingTree.files.map((file) => file.path)).toEqual(["apps/web/web.ts"]);
+      }),
+    );
+
     it.effect("computes ahead count against base branch when no upstream is configured", () =>
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();

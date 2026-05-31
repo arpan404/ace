@@ -368,7 +368,7 @@ type ThreadWorkspaceEditorUiAction =
 const EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE: ThreadWorkspaceEditorUiState = {
   treeSearch: "",
   codeSearchQuery: "",
-  sidebarMode: "explorer",
+  sidebarMode: "search",
   commandPaletteOpen: false,
   commandPaletteMode: "commands",
   queuedWorkspaceContexts: [],
@@ -2508,6 +2508,30 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [treeEntries],
   );
   const activeWorktreePath = props.worktreePath ?? null;
+  const sidebarTitle =
+    sidebarMode === "search"
+      ? "Code Search"
+      : sidebarMode === "source-control"
+        ? "Changes"
+        : sidebarMode === "problems"
+          ? "Problems"
+          : sidebarMode === "explorer"
+            ? "Files"
+            : sidebarMode === "notes"
+              ? "Agent Notes"
+              : "Outline";
+  const sidebarDetail =
+    sidebarMode === "search"
+      ? "Find code by intent"
+      : sidebarMode === "source-control"
+        ? `${changedFiles.length} changed ${changedFiles.length === 1 ? "file" : "files"}`
+        : sidebarMode === "problems"
+          ? `${workspaceProblems.length} open ${workspaceProblems.length === 1 ? "problem" : "problems"}`
+          : sidebarMode === "explorer"
+            ? `${workspaceFileCount} indexed ${workspaceFileCount === 1 ? "file" : "files"}`
+            : activeWorktreePath
+              ? "Worktree active"
+              : "Workspace";
 
   const handleSplitPane = useCallback(
     (paneId?: string, filePath?: string, direction: "down" | "right" = "right") => {
@@ -3497,15 +3521,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       >
         <nav className="flex min-h-0 flex-col items-center border-r border-border bg-card/80 py-2">
           <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "explorer"}
-            icon={<FolderTreeIcon className="size-4" />}
-            label="Explorer"
-            onClick={() => {
-              setSidebarMode("explorer");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "search"}
             badge={codeSearchResultsQuery.data?.length ?? 0}
             icon={<SearchIcon className="size-4" />}
@@ -3516,31 +3531,31 @@ function useThreadWorkspaceEditorComponent(inputProps: {
             }}
           />
           <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "source-control"}
-            badge={changedFiles.length}
-            icon={<GitBranchIcon className="size-4" />}
-            label="Source Control"
-            onClick={() => {
-              setSidebarMode("source-control");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "outline"}
-            icon={<ListTreeIcon className="size-4" />}
-            label="Outline"
-            onClick={() => {
-              setSidebarMode("outline");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "problems"}
             badge={workspaceProblems.length}
             icon={<CircleAlertIcon className="size-4" />}
             label="Problems"
             onClick={() => {
               setSidebarMode("problems");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "source-control"}
+            badge={changedFiles.length}
+            icon={<GitBranchIcon className="size-4" />}
+            label="Changes"
+            onClick={() => {
+              setSidebarMode("source-control");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "explorer"}
+            icon={<FolderTreeIcon className="size-4" />}
+            label="Files"
+            onClick={() => {
+              setSidebarMode("explorer");
               setExplorerOpen(props.threadId, true);
             }}
           />
@@ -3563,25 +3578,48 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           <>
             <aside className="flex min-h-0 min-w-0 flex-col border-r border-border bg-card/68 text-foreground">
               <div className="flex h-12 items-center gap-2 border-b border-border bg-card/80 px-3">
-                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-                  {activeWorktreePath ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[10.5px] font-medium text-foreground/76">
-                            <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
-                            <span>Worktree</span>
-                          </span>
-                        }
-                      />
-                      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
-                        {activeWorktreePath}
-                      </TooltipPopup>
-                    </Tooltip>
-                  ) : null}
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="truncate text-[12px] font-semibold text-foreground/92">
+                    {sidebarTitle}
+                  </div>
+                  <div className="truncate text-[10.5px] text-muted-foreground/78">
+                    {sidebarDetail}
+                  </div>
                 </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  {canDetachEditor ? (
+                {sidebarMode === "explorer" ? (
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {activeWorktreePath ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground">
+                              <GitForkIcon className="size-3.5" />
+                            </span>
+                          }
+                        />
+                        <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                          {activeWorktreePath}
+                        </TooltipPopup>
+                      </Tooltip>
+                    ) : null}
+                    {canDetachEditor ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                              onClick={() => void detachEditor()}
+                              aria-label="Detach editor"
+                            >
+                              <ExternalLinkIcon className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                      </Tooltip>
+                    ) : null}
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -3589,67 +3627,51 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             variant="ghost"
                             size="icon-xs"
                             className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                            onClick={() => void detachEditor()}
-                            aria-label="Detach editor"
-                          >
-                            <ExternalLinkIcon className="size-3.5" />
-                          </Button>
+                            onClick={() =>
+                              startInlineEntry({
+                                kind: "create-file",
+                                parentPath:
+                                  focusedExplorerEntry?.kind === "directory"
+                                    ? focusedExplorerEntry.path
+                                    : (focusedExplorerEntry?.parentPath ?? null),
+                                value: "",
+                              })
+                            }
+                            aria-label="New file"
+                          />
                         }
-                      />
-                      <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                      >
+                        <FilePlus2Icon className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipPopup side="bottom">New file</TooltipPopup>
                     </Tooltip>
-                  ) : null}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                          onClick={() =>
-                            startInlineEntry({
-                              kind: "create-file",
-                              parentPath:
-                                focusedExplorerEntry?.kind === "directory"
-                                  ? focusedExplorerEntry.path
-                                  : (focusedExplorerEntry?.parentPath ?? null),
-                              value: "",
-                            })
-                          }
-                          aria-label="New file"
-                        />
-                      }
-                    >
-                      <FilePlus2Icon className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="bottom">New file</TooltipPopup>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                          onClick={() =>
-                            startInlineEntry({
-                              kind: "create-folder",
-                              parentPath:
-                                focusedExplorerEntry?.kind === "directory"
-                                  ? focusedExplorerEntry.path
-                                  : (focusedExplorerEntry?.parentPath ?? null),
-                              value: "",
-                            })
-                          }
-                          aria-label="New folder"
-                        />
-                      }
-                    >
-                      <FolderPlusIcon className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="bottom">New folder</TooltipPopup>
-                  </Tooltip>
-                </div>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
+                            onClick={() =>
+                              startInlineEntry({
+                                kind: "create-folder",
+                                parentPath:
+                                  focusedExplorerEntry?.kind === "directory"
+                                    ? focusedExplorerEntry.path
+                                    : (focusedExplorerEntry?.parentPath ?? null),
+                                value: "",
+                              })
+                            }
+                            aria-label="New folder"
+                          />
+                        }
+                      >
+                        <FolderPlusIcon className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipPopup side="bottom">New folder</TooltipPopup>
+                    </Tooltip>
+                  </div>
+                ) : null}
               </div>
               {sidebarMode === "explorer" ? (
                 <>
