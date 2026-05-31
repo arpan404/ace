@@ -236,6 +236,7 @@ jobs:
   publish_cli:
     name: Publish ace CLI to npm
     needs: [preflight, build]
+    continue-on-error: true
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -268,7 +269,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: [preflight, build, publish_cli]
+    needs: [preflight, build]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
