@@ -22,6 +22,7 @@ interface ConfigureInAppBrowserSessionFeaturesOptions {
   readonly partition: string;
   readonly permissionStorePath?: string;
   readonly sendDownloadEvent?: (event: DesktopBrowserDownloadEvent) => void;
+  readonly userAgent?: string;
 }
 
 interface BrowserWebAuthnAccount {
@@ -795,6 +796,10 @@ export function configureInAppBrowserSessionFeatures(
 ): void {
   const browserSession = session.fromPartition(options.partition);
   activeBrowserSessionOptions = options;
+  if (options.userAgent) {
+    browserSession.setUserAgent(options.userAgent);
+    options.log(`browser session user-agent configured value=${sanitizeLogValue(options.userAgent)}`);
+  }
   if (configuredBrowserSessions.has(browserSession)) {
     return;
   }

@@ -102,6 +102,7 @@ import {
   type DesktopBackgroundNotificationService,
 } from "./backgroundNotificationService";
 import { resolveBrowserExtensionDirectories } from "./browserExtensionDiscovery";
+import { resolveBrowserSessionUserAgent } from "./browserUserAgent";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -117,6 +118,7 @@ const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -224,6 +226,7 @@ interface DesktopRendererBootstrapPayload {
 let mainWindow: BrowserWindow | null = null;
 const detachedBrowserWindows = new Map<string, BrowserWindow>();
 const detachedEditorWindows = new Map<string, BrowserWindow>();
+const browserAuthWindows = new Map<string, BrowserWindow>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -2751,6 +2754,11 @@ function registerIpcHandlers(): void {
     return input ? createDetachedEditorWindow(input) : false;
   });
 
+  ipcMain.removeHandler(OPEN_BROWSER_AUTH_WINDOW_CHANNEL);
+  ipcMain.handle(OPEN_BROWSER_AUTH_WINDOW_CHANNEL, async (_event, rawUrl: unknown) => {
+    return createBrowserAuthWindow(rawUrl);
+  });
+
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
   ipcMain.handle(
     CONTEXT_MENU_CHANNEL,
@@ -3058,10 +3066,10 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
       return;
     }
 
-    delete webPreferences.preload;
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
+    delete webPreferences.preload;
     params.partition = IN_APP_BROWSER_PARTITION;
     params.src = safeInitialUrl;
   });
@@ -3460,6 +3468,7 @@ app
           safelySendToWindow(window, BROWSER_DOWNLOAD_EVENT_CHANNEL, event);
         }
       },
+      userAgent: resolveBrowserSessionUserAgent(app.userAgentFallback),
     });
     syncShellEnvironment();
     if (process.platform === "linux" && app.isPackaged) {
