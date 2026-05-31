@@ -1570,23 +1570,27 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
           </div>
         ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
           <div className="flex h-full min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="min-h-[220px] border border-border/60 bg-card/72 p-4">
-                {activePreviewKind === "markdown" ? (
+            {activePreviewKind === "markdown" ? (
+              <div className="min-h-0 flex-1 overflow-auto bg-background">
+                <div className="workspace-markdown-preview mx-auto w-full max-w-4xl px-5 py-5 sm:px-8 sm:py-7">
                   <ChatMarkdown
                     text={activeFileQuery.data.contents}
                     cwd={props.gitCwd ?? undefined}
                     isStreaming={false}
                   />
-                ) : (
+                </div>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto p-4">
+                <div className="min-h-[220px] border border-border/60 bg-card/72 p-4">
                   <MermaidDiagram
                     source={activeFileQuery.data.contents}
                     theme={props.resolvedTheme}
                     className="h-full"
                   />
-                )}
+                </div>
               </div>
-            </div>
+            )}
             <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <span className="truncate">{previewModeLabel}</span>
             </div>

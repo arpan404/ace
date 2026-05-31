@@ -59,6 +59,12 @@ import {
   createWorkspaceEditorOptions,
 } from "~/lib/editor/workspaceEditorOptions";
 import {
+  buildWorkspaceCodeSearchQueries,
+  createWorkspaceCodeSearchResult,
+  sortWorkspaceCodeSearchResults,
+  type WorkspaceCodeSearchResult,
+} from "~/lib/editor/workspaceCodeSearch";
+import {
   mergeWorkspaceSearchEntries,
   searchWorkspaceEntriesLocally,
   shouldRunWorkspaceRemoteSearch,
@@ -117,6 +123,9 @@ import {
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
+const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 80;
+const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 48;
+const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 interface SaveConflictState {
   readonly currentContents: string;
@@ -226,7 +235,13 @@ type ExplorerRenderRow =
       state: ExplorerInlineEntryState;
     };
 
-type WorkspaceSidebarMode = "explorer" | "source-control" | "outline" | "problems" | "notes";
+type WorkspaceSidebarMode =
+  | "explorer"
+  | "search"
+  | "source-control"
+  | "outline"
+  | "problems"
+  | "notes";
 
 interface QueuedWorkspaceContext {
   readonly context: WorkspaceSelectionContext;
@@ -242,6 +257,7 @@ interface WorkspaceAgentNoteSubmission {
 
 type ThreadWorkspaceEditorUiState = {
   treeSearch: string;
+  codeSearchQuery: string;
   sidebarMode: WorkspaceSidebarMode;
   commandPaletteOpen: boolean;
   commandPaletteMode: WorkspaceCommandPaletteMode;
@@ -268,6 +284,7 @@ type ThreadWorkspaceEditorUiState = {
 
 type ThreadWorkspaceEditorUiAction =
   | { type: "set-tree-search"; treeSearch: string }
+  | { type: "set-code-search-query"; codeSearchQuery: string }
   | { type: "set-sidebar-mode"; sidebarMode: WorkspaceSidebarMode }
   | { type: "set-command-palette-open"; commandPaletteOpen: boolean }
   | { type: "set-command-palette-mode"; commandPaletteMode: WorkspaceCommandPaletteMode }
@@ -350,6 +367,7 @@ type ThreadWorkspaceEditorUiAction =
 
 const EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE: ThreadWorkspaceEditorUiState = {
   treeSearch: "",
+  codeSearchQuery: "",
   sidebarMode: "explorer",
   commandPaletteOpen: false,
   commandPaletteMode: "commands",
@@ -375,6 +393,8 @@ function threadWorkspaceEditorUiStateReducer(
   switch (action.type) {
     case "set-tree-search":
       return { ...state, treeSearch: action.treeSearch };
+    case "set-code-search-query":
+      return { ...state, codeSearchQuery: action.codeSearchQuery };
     case "set-sidebar-mode":
       return { ...state, sidebarMode: action.sidebarMode };
     case "set-command-palette-open":
@@ -1064,6 +1084,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const {
     treeSearch,
+    codeSearchQuery,
     sidebarMode,
     commandPaletteOpen,
     commandPaletteMode,
@@ -1083,6 +1104,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   } = uiState;
   const setTreeSearch = useCallback((treeSearch: string) => {
     dispatchUiState({ type: "set-tree-search", treeSearch });
+  }, []);
+  const setCodeSearchQuery = useCallback((codeSearchQuery: string) => {
+    dispatchUiState({ type: "set-code-search-query", codeSearchQuery });
   }, []);
   const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
@@ -1208,6 +1232,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [],
   );
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
+  const deferredCodeSearchQuery = useDeferredValue(codeSearchQuery.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
@@ -1594,6 +1619,109 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
   );
+  const codeSearchResultsQuery = useQuery({
+    queryKey: [
+      "workspace",
+      "code-search",
+      inputProps.connectionUrl ?? null,
+      props.gitCwd,
+      deferredCodeSearchQuery,
+    ],
+    queryFn: async (): Promise<readonly WorkspaceCodeSearchResult[]> => {
+      if (!api || !props.gitCwd) {
+        throw new Error("Workspace code search is unavailable.");
+      }
+
+      const searchQueries = buildWorkspaceCodeSearchQueries(deferredCodeSearchQuery);
+      const candidateEntriesByPath = new Map<string, ProjectEntry>();
+      for (const entry of searchWorkspaceEntriesLocally(
+        treeEntries.filter((candidate) => candidate.kind === "file"),
+        deferredCodeSearchQuery,
+      ).slice(0, WORKSPACE_CODE_SEARCH_REMOTE_LIMIT)) {
+        candidateEntriesByPath.set(entry.path, entry);
+      }
+
+      const remoteResults = await Promise.all(
+        searchQueries.map((query) =>
+          api.projects
+            .searchEntries(
+              withRpcRouteConnection(
+                {
+                  cwd: props.gitCwd!,
+                  limit: WORKSPACE_CODE_SEARCH_REMOTE_LIMIT,
+                  query,
+                },
+                inputProps.connectionUrl,
+              ),
+            )
+            .catch(() => ({ entries: [], truncated: false })),
+        ),
+      );
+
+      for (const result of remoteResults) {
+        for (const entry of result.entries) {
+          if (entry.kind === "file") {
+            candidateEntriesByPath.set(entry.path, entry);
+          }
+        }
+      }
+
+      const candidateEntries = Array.from(candidateEntriesByPath.values()).slice(
+        0,
+        WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES,
+      );
+      const results: WorkspaceCodeSearchResult[] = [];
+      for (
+        let startIndex = 0;
+        startIndex < candidateEntries.length;
+        startIndex += WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE
+      ) {
+        const batchEntries = candidateEntries.slice(
+          startIndex,
+          startIndex + WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE,
+        );
+        const batchFiles = await Promise.all(
+          batchEntries.map((entry) =>
+            api.projects
+              .readFile(
+                withRpcRouteConnection(
+                  {
+                    cwd: props.gitCwd!,
+                    relativePath: entry.path,
+                  },
+                  inputProps.connectionUrl,
+                ),
+              )
+              .then((file) => ({ entry, file }))
+              .catch(() => null),
+          ),
+        );
+
+        for (const batchFile of batchFiles) {
+          if (!batchFile) {
+            continue;
+          }
+          const result = createWorkspaceCodeSearchResult({
+            contents: batchFile.file.contents,
+            entry: batchFile.entry,
+            query: deferredCodeSearchQuery,
+          });
+          if (result) {
+            results.push(result);
+          }
+        }
+      }
+
+      return sortWorkspaceCodeSearchResults(results).slice(0, 80);
+    },
+    enabled:
+      sidebarMode === "search" &&
+      Boolean(api) &&
+      props.gitCwd !== null &&
+      deferredCodeSearchQuery.length >= 2,
+    staleTime: 20_000,
+    placeholderData: (previous) => previous ?? [],
+  });
 
   useEffect(() => {
     if (treeEntries.length === 0) {
@@ -2023,6 +2151,28 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [activePane?.id, openFile, panesById, props.threadId, setActivePane],
   );
+  const handleOpenCodeSearchResult = useCallback(
+    (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
+      const targetPaneId = activePane?.id ?? panes[0]?.id;
+      if (!targetPaneId) {
+        return;
+      }
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, result.entry.path, targetPaneId);
+      const line = Math.max(0, (lineNumber ?? result.snippets[0]?.lineNumber ?? 1) - 1);
+      setSymbolNavigationTarget({
+        id: Date.now(),
+        location: {
+          endColumn: 0,
+          endLine: line,
+          relativePath: result.entry.path,
+          startColumn: 0,
+          startLine: line,
+        },
+      });
+    },
+    [activePane?.id, openFile, panes, props.threadId, setActivePane, setSymbolNavigationTarget],
+  );
   const toggleOutlineId = useCallback((id: string) => {
     setCollapsedOutlineIds((current) => {
       const next = new Set(current);
@@ -2438,6 +2588,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       },
       {
         id: "search-text",
+        description: "Search files and code like an agent would.",
+        icon: "search",
+        label: "Search Codebase",
+        run: () => {
+          setSidebarMode("search");
+          setExplorerOpen(props.threadId, true);
+        },
+      },
+      {
+        id: "find-active-editor",
         description: "Open find in the active editor.",
         icon: "search",
         label: "Find in Active Editor",
@@ -2516,6 +2676,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       queueWorkspaceSelectionContext,
       requestFindInActiveEditor,
       setExplorerOpen,
+      setSidebarMode,
     ],
   );
   const handleOpenFileInPane = useCallback(
@@ -3345,6 +3506,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
             }}
           />
           <WorkspaceActivityButton
+            active={explorerOpen && sidebarMode === "search"}
+            badge={codeSearchResultsQuery.data?.length ?? 0}
+            icon={<SearchIcon className="size-4" />}
+            label="Code Search"
+            onClick={() => {
+              setSidebarMode("search");
+              setExplorerOpen(props.threadId, true);
+            }}
+          />
+          <WorkspaceActivityButton
             active={explorerOpen && sidebarMode === "source-control"}
             badge={changedFiles.length}
             icon={<GitBranchIcon className="size-4" />}
@@ -3618,6 +3789,131 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                     )}
                   </div>
                 </>
+              ) : sidebarMode === "search" ? (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="border-b border-border/70 bg-background/35 p-2.5">
+                    <div className="relative">
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                      <Input
+                        nativeInput
+                        value={codeSearchQuery}
+                        onChange={(event) => setCodeSearchQuery(event.target.value)}
+                        placeholder="Search code, symbols, or intent"
+                        className="h-8 rounded-lg border-border/60 bg-background/82 pl-7 text-[12px] shadow-none focus-within:border-primary/45 focus-within:bg-background"
+                        size="sm"
+                        type="search"
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {["auth token refresh", "content:useMutation", "re:Provider.*test"].map(
+                        (example) => (
+                          <button
+                            key={example}
+                            type="button"
+                            className="rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            onClick={() => setCodeSearchQuery(example)}
+                          >
+                            {example}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
+                    <SearchIcon className="size-3.5 text-muted-foreground/74" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                      Code Search
+                    </span>
+                    {codeSearchResultsQuery.isFetching ? (
+                      <span className="text-[10px] text-muted-foreground/76">Searching</span>
+                    ) : null}
+                    <span className="text-[10px] text-muted-foreground/76">
+                      {codeSearchResultsQuery.data?.length ?? 0}
+                    </span>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
+                    {deferredCodeSearchQuery.length < 2 ? (
+                      <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                        <SearchIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                        Search by natural language, identifier, file path, content:, or re:.
+                      </div>
+                    ) : codeSearchResultsQuery.isPending || codeSearchResultsQuery.isFetching ? (
+                      <div className="space-y-2 p-2">
+                        {Array.from({ length: 7 }, (_, index) => (
+                          <div
+                            key={`code-search-pending-${index}`}
+                            className="space-y-1 rounded-lg border border-border/50 bg-background/55 p-2"
+                          >
+                            <div className="h-3 w-3/4 rounded bg-foreground/6" />
+                            <div className="h-3 w-full rounded bg-foreground/4" />
+                            <div className="h-3 w-5/6 rounded bg-foreground/4" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : codeSearchResultsQuery.isError ? (
+                      <div className="px-4 py-8 text-center text-xs text-destructive">
+                        Code search failed.
+                      </div>
+                    ) : (codeSearchResultsQuery.data?.length ?? 0) === 0 ? (
+                      <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                        No code matches found.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {(codeSearchResultsQuery.data ?? []).map((result) => (
+                          <div
+                            key={result.entry.path}
+                            className="mx-1 rounded-lg border border-border/45 bg-background/50 p-2"
+                          >
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 text-left"
+                              onClick={() => handleOpenCodeSearchResult(result)}
+                            >
+                              <VscodeEntryIcon
+                                pathValue={result.entry.path}
+                                kind="file"
+                                theme={resolvedTheme}
+                                className="size-4"
+                              />
+                              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
+                                {result.entry.path}
+                              </span>
+                              <span className="rounded-md bg-info/10 px-1.5 py-px text-[9px] font-semibold text-info-foreground">
+                                {result.matchCount || "path"}
+                              </span>
+                            </button>
+                            {result.snippets.length > 0 ? (
+                              <div className="mt-1.5 space-y-1">
+                                {result.snippets.map((snippet) => (
+                                  <button
+                                    key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
+                                    type="button"
+                                    className="flex w-full gap-2 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground/88 transition-colors hover:bg-accent hover:text-foreground"
+                                    onClick={() =>
+                                      handleOpenCodeSearchResult(result, snippet.lineNumber)
+                                    }
+                                  >
+                                    <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/65">
+                                      {snippet.lineNumber}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate font-mono">
+                                      {snippet.text || " "}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-1 truncate pl-6 text-[10px] text-muted-foreground/70">
+                                Path match
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : sidebarMode === "source-control" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">

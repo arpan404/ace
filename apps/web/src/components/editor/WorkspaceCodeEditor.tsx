@@ -52,7 +52,6 @@ import {
   highlightWhitespace,
   keymap,
   rectangularSelection,
-  scrollPastEnd,
   type KeyBinding,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -514,7 +513,6 @@ function createEditorExtensions(input: {
     highlightActiveLineGutter(),
     highlightSelectionMatches(),
     highlightTrailingWhitespace(),
-    scrollPastEnd(),
     indentOnInput(),
     closeBrackets(),
     lintGutter(),
