@@ -2307,6 +2307,7 @@ function useBrowserTabWebviewComponent(props: {
     const webview = document.createElement("webview") as BrowserWebview;
     webview.className = "size-full bg-background";
     webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
+    webview.setAttribute("allowpopups", "true");
     webview.setAttribute("src", resolveLoadUrlEvent(requestedUrlRef.current));
 
     const handleDomReady = () => {

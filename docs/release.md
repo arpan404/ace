@@ -51,11 +51,11 @@ This document covers how to run desktop releases from one tag, first without sig
   in-app browser uses Chromium's platform WebAuthn path where available and
   provides runtime selection dialogs for discoverable credentials, HID devices,
   USB devices, and serial ports.
-- Browser-extension-only password managers still require opening the page in the
-  user's default browser; Electron webviews do not run arbitrary Chrome or Safari
-  extensions. For controlled testing, unpacked Chromium extensions can be loaded
-  with `ACE_DESKTOP_BROWSER_EXTENSION_DIRS`, but Electron supports only a subset
-  of extension APIs.
+- Browser-extension-only password managers are best-effort in Electron. The app
+  auto-discovers known unpacked Chromium password-manager extensions from local
+  profiles and also accepts explicit directories with
+  `ACE_DESKTOP_BROWSER_EXTENSION_DIRS`, but Electron supports only a subset of
+  extension APIs and does not run Safari extensions.
 
 ## 0) npm OIDC trusted publishing setup (CLI)
 

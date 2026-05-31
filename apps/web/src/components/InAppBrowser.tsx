@@ -3,9 +3,7 @@ import {
   ArrowRightIcon,
   BoxSelectIcon,
   ChevronDownIcon,
-  DownloadIcon,
   ExternalLinkIcon,
-  KeyRoundIcon,
   LockIcon,
   LockOpenIcon,
   type LucideIcon,
@@ -143,22 +141,6 @@ function resolveAddressFieldPresentation(currentUrl: string | null): {
     return { hostOnlyLabel: host, security: "none", securityLabel: null };
   } catch {
     return { hostOnlyLabel: currentUrl, security: "none", securityLabel: null };
-  }
-}
-
-function isLikelyAuthenticationUrl(url: string | null | undefined): boolean {
-  if (!url) {
-    return false;
-  }
-  try {
-    const parsedUrl = new URL(url);
-    const haystack =
-      `${parsedUrl.hostname} ${parsedUrl.pathname} ${parsedUrl.search}`.toLowerCase();
-    return /\b(auth|authorize|login|log-in|signin|sign-in|saml|sso|oauth|oidc|password|passkey|webauthn|account)\b/.test(
-      haystack,
-    );
-  } catch {
-    return false;
   }
 }
 
@@ -445,7 +427,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   );
   const collapsedDesignerSelectorActive = designerState.active;
   const activeTabUrl = activeTab && !activeTabIsInternal ? activeTab.url : null;
-  const activeTabLooksLikeAuth = isLikelyAuthenticationUrl(activeTabUrl);
 
   useEffect(() => {
     if (!open) {
@@ -905,6 +886,33 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               "pointer-events-auto opacity-100 group-hover/address:opacity-100",
                           )}
                           onClick={() => {
+                            setSitePanelOpen(true);
+                          }}
+                          disabled={!activeTab || activeTabIsInternal}
+                          aria-label="Open browser site panel"
+                        >
+                          <SlidersHorizontalIcon className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="bottom">Site panel</TooltipPopup>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          type="button"
+                          className={cn(
+                            "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                            "pointer-events-none opacity-0 transition-opacity duration-150",
+                            "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                            "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                            forceExpandedAddressField &&
+                              "pointer-events-auto opacity-100 group-hover/address:opacity-100",
+                          )}
+                          onClick={() => {
                             openActiveTabExternally();
                           }}
                           disabled={!activeTab || activeTabIsInternal}
@@ -926,63 +934,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   />
                 ) : null}
               </div>
-              {!activeTabIsInternal ? (
-                <div className="flex shrink-0 items-center gap-0.5">
-                  {activeTabLooksLikeAuth ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                            onClick={openActiveTabExternally}
-                            disabled={!activeTab}
-                            aria-label="Continue authentication in default browser"
-                          >
-                            <KeyRoundIcon className="size-4" />
-                          </Button>
-                        }
-                      />
-                      <TooltipPopup side="bottom">Continue in default browser</TooltipPopup>
-                    </Tooltip>
-                  ) : null}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                          onClick={() => setSitePanelOpen(true)}
-                          disabled={!activeTab}
-                          aria-label="Open browser site panel"
-                        >
-                          <SlidersHorizontalIcon className="size-4" />
-                        </Button>
-                      }
-                    />
-                    <TooltipPopup side="bottom">Site panel</TooltipPopup>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                          onClick={() => setSitePanelOpen(true)}
-                          disabled={!activeTab}
-                          aria-label="Open downloads"
-                        >
-                          <DownloadIcon className="size-4" />
-                        </Button>
-                      }
-                    />
-                    <TooltipPopup side="bottom">Downloads</TooltipPopup>
-                  </Tooltip>
-                </div>
-              ) : null}
               {designerModeAvailable ? (
                 <div
                   ref={designerToolSlotRef}
@@ -1229,7 +1180,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           open={sitePanelOpen}
           url={activeTabUrl}
           onOpenChange={setSitePanelOpen}
-          onOpenExternal={openActiveTabExternally}
         />
       </m.div>
     </LazyMotion>

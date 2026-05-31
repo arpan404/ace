@@ -101,6 +101,7 @@ import {
   startDesktopBackgroundNotificationService,
   type DesktopBackgroundNotificationService,
 } from "./backgroundNotificationService";
+import { resolveBrowserExtensionDirectories } from "./browserExtensionDiscovery";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -282,17 +283,6 @@ function backendChildEnv(): NodeJS.ProcessEnv {
   delete env.ACE_HOST;
   delete env.ACE_DESKTOP_WS_URL;
   return env;
-}
-
-function resolveBrowserExtensionDirectories(): string[] {
-  const rawValue = process.env.ACE_DESKTOP_BROWSER_EXTENSION_DIRS;
-  if (!rawValue) {
-    return [];
-  }
-  return rawValue
-    .split(Path.delimiter)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0 && FS.existsSync(entry));
 }
 
 function writeDesktopLogHeader(message: string): void {
@@ -796,6 +786,7 @@ function captureBackendOutput(child: ChildProcess.ChildProcess): void {
 }
 
 initializePackagedLogging();
+configureMacWebAuthn();
 
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("class", LINUX_WM_CLASS);
@@ -3458,7 +3449,6 @@ app
   .whenReady()
   .then(() => {
     writeDesktopLogHeader("app ready");
-    configureMacWebAuthn();
     configureInAppBrowserSessionFeatures({
       partition: IN_APP_BROWSER_PARTITION,
       extensionDirectories: resolveBrowserExtensionDirectories(),
