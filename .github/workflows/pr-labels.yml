@@ -18,7 +18,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Apply PR labels
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const pullRequest = context.payload.pull_request;
