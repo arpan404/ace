@@ -6971,9 +6971,9 @@ function useSidebarComponent() {
             </div>
           </SidebarGroup>
           <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
-            <div ref={sidebarProjectListOffsetSourceRef} className="flex min-h-0 flex-col">
+            <div ref={sidebarProjectListOffsetSourceRef} className="flex shrink-0 flex-col">
               {sortedRenderedPinnedItems.length > 0 ? (
-                <SidebarGroup className="px-2.5 pt-5 pb-2">
+                <SidebarGroup className="shrink-0 px-2.5 pt-5 pb-2">
                   <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
                     <button
                       type="button"
@@ -7114,7 +7114,7 @@ function useSidebarComponent() {
                 onSplitSortOrderChange={setSplitSortOrder}
               />
             ) : null}
-            <SidebarGroup className="px-2.5 pt-2.5 pb-5">
+            <SidebarGroup className="shrink-0 px-2.5 pt-2.5 pb-5">
               <SidebarProjectsSectionHeader
                 addProjectShortcutLabel={addProjectShortcutLabel}
                 canCollapseVisibleProjects={canCollapseVisibleProjects}
