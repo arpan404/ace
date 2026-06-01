@@ -5,13 +5,13 @@ import {
   type ThreadId,
 } from "@ace/contracts";
 import { IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
+import { SlidersHorizontalIcon } from "lucide-react";
 import { memo, type ReactNode } from "react";
-import GitActionsControl from "../GitActionsControl";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
+import type { NewProjectScriptInput } from "../ProjectScriptsControl";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import type { ActivePlanProgressState } from "../../session-logic";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
@@ -30,6 +30,7 @@ interface ChatHeaderProps {
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
+  environmentPanelOpen: boolean;
   rightSidePanelToggleShortcutLabel: string | null;
   gitCwd: string | null;
   activePlanProgress: ActivePlanProgressState | null;
@@ -42,6 +43,7 @@ interface ChatHeaderProps {
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
+  onToggleEnvironmentPanel: () => void;
   onToggleTerminal: () => void;
   onToggleRightSidePanel: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
@@ -106,6 +108,7 @@ export const ChatHeader = memo(function ChatHeader({
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
+  environmentPanelOpen,
   rightSidePanelToggleShortcutLabel,
   rightSidePanelOpen,
   gitCwd,
@@ -118,37 +121,12 @@ export const ChatHeader = memo(function ChatHeader({
   onUpdateProjectScript,
   onDeleteProjectScript,
   onActiveProjectChange,
+  onToggleEnvironmentPanel,
   onToggleTerminal,
   onToggleRightSidePanel,
   onWorkspaceModeChange,
   reliabilitySlot,
 }: ChatHeaderProps) {
-  const workspaceActionItems: ReactNode[] = [
-    activeProjectScripts ? (
-      <ProjectScriptsControl
-        key="scripts"
-        scripts={activeProjectScripts}
-        keybindings={keybindings}
-        preferredScriptId={preferredScriptId}
-        onRunScript={onRunProjectScript}
-        onAddScript={onAddProjectScript}
-        onUpdateScript={onUpdateProjectScript}
-        onDeleteScript={onDeleteProjectScript}
-      />
-    ) : null,
-    activeProjectName ? (
-      <GitActionsControl
-        key="git"
-        gitCwd={gitCwd}
-        activeThreadId={activeThreadId}
-        workspaceMode={workspaceMode}
-        onWorkspaceModeChange={onWorkspaceModeChange}
-      />
-    ) : null,
-  ];
-  const workspaceActionNodes = workspaceActionItems.filter(
-    (item): item is NonNullable<ReactNode> => item !== null,
-  );
   const terminalTooltipLabel = !terminalAvailable
     ? "Terminal is unavailable until this thread has an active project."
     : terminalToggleShortcutLabel
@@ -219,16 +197,31 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {workspaceActionNodes.length > 0 ? (
-          <>
-            <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">
-              {workspaceActionNodes}
-            </div>
-            <div className="mx-3 h-4 w-px shrink-0 rounded-full bg-border/40" aria-hidden="true" />
-          </>
-        ) : null}
         <div className="flex shrink-0 items-center gap-1.5">
           {reliabilitySlot}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-lg"
+                  className={cn(
+                    DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                    environmentPanelOpen && "!bg-accent text-foreground hover:text-foreground",
+                  )}
+                  onClick={onToggleEnvironmentPanel}
+                  aria-pressed={environmentPanelOpen}
+                  aria-label="Toggle environment panel"
+                />
+              }
+            >
+              <SlidersHorizontalIcon className="size-[18px]" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="end">
+              Environment
+            </TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={

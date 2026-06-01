@@ -193,6 +193,7 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { useEditorStateStore } from "../editorStateStore";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
+import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
 import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
@@ -2641,6 +2642,7 @@ function useChatViewComponent({
     [timelineWorkEntries],
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
+  const [environmentPanelOpen, setEnvironmentPanelOpen] = useState(true);
   useEffect(() => {
     if (subagentThreads.length === 0) {
       if (activeSubagentThreadId !== null) {
@@ -8499,6 +8501,7 @@ function useChatViewComponent({
                   terminalAvailable={activeProject !== undefined}
                   terminalOpen={terminalState.terminalOpen}
                   terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+                  environmentPanelOpen={environmentPanelOpen}
                   rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
                   gitCwd={gitCwd}
                   activePlanProgress={activePlanProgress}
@@ -8513,6 +8516,9 @@ function useChatViewComponent({
                   onUpdateProjectScript={updateProjectScript}
                   onDeleteProjectScript={deleteProjectScript}
                   onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+                  onToggleEnvironmentPanel={() => {
+                    setEnvironmentPanelOpen((open) => !open);
+                  }}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
                   onWorkspaceModeChange={onWorkspaceModeChange}
@@ -8568,6 +8574,37 @@ function useChatViewComponent({
         ) : null}
         {/* Main content area with optional plan sidebar */}
         <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          {environmentPanelOpen && !rightSidePanelOpen ? (
+            <EnvironmentMiniPanel
+              activeProjectScripts={activeProject?.scripts}
+              activeSubagentThreadId={activeSubagentThreadId}
+              activeThreadId={activeThread.id}
+              currentBranchName={activeThreadBranchName}
+              gitCwd={gitCwd}
+              isGitRepo={isGitRepo}
+              keybindings={keybindings}
+              localEnvironmentIcon={activeEnvironmentIcon}
+              localEnvironmentLabel={activeRemoteHost?.name ?? "Local"}
+              preferredScriptId={
+                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+              }
+              subagentThreads={subagentThreads}
+              workspaceChangeStat={workspaceChangeStat}
+              workspaceMode={headerWorkspaceMode}
+              onAddProjectScript={saveProjectScript}
+              onDeleteProjectScript={deleteProjectScript}
+              onRunProjectScript={(script) => {
+                void runProjectScript(script);
+              }}
+              onSelectSubagentThread={setActiveSubagentThreadId}
+              onSubagentPanelOpen={() => {
+                setRightSidePanelMode("subagent");
+                setRightSidePanelVisible(true);
+              }}
+              onUpdateProjectScript={updateProjectScript}
+              onWorkspaceModeChange={onWorkspaceModeChange}
+            />
+          ) : null}
           {/* Chat column */}
           <div
             ref={workspaceViewportRef}

@@ -27,6 +27,7 @@ describe("ChatHeader", () => {
         terminalAvailable
         terminalOpen={false}
         terminalToggleShortcutLabel={null}
+        environmentPanelOpen
         rightSidePanelToggleShortcutLabel={null}
         gitCwd={null}
         activePlanProgress={activePlanProgress}
@@ -38,6 +39,7 @@ describe("ChatHeader", () => {
         onAddProjectScript={async () => undefined}
         onUpdateProjectScript={async () => undefined}
         onDeleteProjectScript={async () => undefined}
+        onToggleEnvironmentPanel={() => undefined}
         onToggleTerminal={() => undefined}
         onToggleRightSidePanel={() => undefined}
         onWorkspaceModeChange={() => undefined}
@@ -69,6 +71,7 @@ describe("ChatHeader", () => {
         terminalAvailable
         terminalOpen={false}
         terminalToggleShortcutLabel={null}
+        environmentPanelOpen
         rightSidePanelToggleShortcutLabel={null}
         gitCwd={null}
         activePlanProgress={activePlanProgress}
@@ -80,6 +83,7 @@ describe("ChatHeader", () => {
         onAddProjectScript={async () => undefined}
         onUpdateProjectScript={async () => undefined}
         onDeleteProjectScript={async () => undefined}
+        onToggleEnvironmentPanel={() => undefined}
         onToggleTerminal={() => undefined}
         onToggleRightSidePanel={() => undefined}
         onWorkspaceModeChange={() => undefined}
