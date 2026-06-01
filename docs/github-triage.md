@@ -37,6 +37,10 @@ Configure Actions security in GitHub repository settings:
 - Require approval for first-time contributors before running workflows.
 - Keep `pull_request_target` workflows limited to GitHub API reads/writes and avoid checking out or executing untrusted PR code.
 
+## Dependency Updates
+
+`.github/dependabot.yml` enables weekly Bun and GitHub Actions update PRs with conservative open PR limits and dependency labels.
+
 ## Code Owners
 
 `.github/CODEOWNERS` routes high-risk protocol, provider runtime, CI, release, and desktop changes to the repository owner.
