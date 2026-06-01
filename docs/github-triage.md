@@ -34,6 +34,7 @@ Recommended required checks:
 
 Configure Actions security in GitHub repository settings:
 
+- Set workflow permissions to "Read and write permissions" so label workflows can call the Issues API.
 - Require approval for first-time contributors before running workflows.
 - Keep `pull_request_target` workflows limited to GitHub API reads/writes and avoid checking out or executing untrusted PR code.
 
