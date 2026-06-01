@@ -2413,7 +2413,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('aria-label="Revert changes"');
     expect(markup).not.toContain(">Revert</button>");
     expect(markup).toContain("View diff");
-    expect(markup).toContain('aria-label="Collapse all"');
+    expect(markup).toContain('aria-label="Expand all"');
     expect(markup).not.toContain("<span>Collapse all</span>");
   });
 
