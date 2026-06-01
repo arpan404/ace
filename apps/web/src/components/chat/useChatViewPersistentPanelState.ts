@@ -30,6 +30,7 @@ import {
   RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_MODE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY,
   RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
   RightSidePanelModeStorageSchema,
@@ -170,6 +171,10 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY, threadId),
     [threadId],
   );
+  const rightSidePanelTerminalOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const rightSidePanelFullscreenStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY, threadId),
     [threadId],
@@ -198,7 +203,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   const [rightSidePanelLastNonDiffMode, setRightSidePanelLastNonDiffMode] = useLocalStorage(
     rightSidePanelLastNonDiffModeStorageKey,
     "summary" satisfies Exclude<RightSidePanelMode, "diff">,
-    Schema.Literals(["browser", "editor", "subagent", "summary"]),
+    Schema.Literals(["browser", "editor", "subagent", "summary", "terminal"]),
   );
   const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
     rightSidePanelDiffOpenStorageKey,
@@ -212,6 +217,11 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   );
   const [rightSidePanelEditorOpen, setRightSidePanelEditorOpen] = useLocalStorage(
     rightSidePanelEditorOpenStorageKey,
+    false,
+    Schema.Boolean,
+  );
+  const [rightSidePanelTerminalOpen, setRightSidePanelTerminalOpen] = useLocalStorage(
+    rightSidePanelTerminalOpenStorageKey,
     false,
     Schema.Boolean,
   );
@@ -346,6 +356,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     rightSidePanelLastNonDiffMode,
     rightSidePanelMode,
     rightSidePanelReviewOpen,
+    rightSidePanelTerminalOpen,
     rightSidePanelVisible,
     rightSidePanelWidth,
     setBrowserDevToolsOpen,
@@ -361,6 +372,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     setRightSidePanelLastNonDiffMode,
     setRightSidePanelMode,
     setRightSidePanelReviewOpen,
+    setRightSidePanelTerminalOpen,
     setRightSidePanelVisible,
     setRightSidePanelWidth,
     setShowScrollToBottom,

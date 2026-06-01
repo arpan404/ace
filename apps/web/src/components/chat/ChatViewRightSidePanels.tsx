@@ -23,6 +23,7 @@ import {
   MessageSquareIcon,
   Minimize2Icon,
   PlusIcon,
+  TerminalIcon,
   XIcon,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useRef, type MutableRefObject } from "react";
@@ -39,7 +40,7 @@ import type { SubagentThread } from "./SubagentThreadsPanel";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
-type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary";
+type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
 
 function LocalDiffLoadingFallback() {
   return (
@@ -157,6 +158,8 @@ function RightSidePanelAddTabMenu(props: {
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
   editorOpen: boolean;
+  terminalShortcutLabel: string | null;
+  terminalOpen: boolean;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
   onNewBrowserTab: () => void;
@@ -220,6 +223,21 @@ function RightSidePanelAddTabMenu(props: {
           {props.editorShortcutLabel ? (
             <MenuShortcut className="text-muted-foreground/60">
               {props.editorShortcutLabel}
+            </MenuShortcut>
+          ) : null}
+        </MenuItem>
+        <MenuItem
+          disabled={props.terminalOpen}
+          onClick={() => {
+            props.onSelectMode("terminal");
+          }}
+          className="gap-2.5 py-1.5 text-[14px]"
+        >
+          <TerminalIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
+          <span>Terminal</span>
+          {props.terminalShortcutLabel ? (
+            <MenuShortcut className="text-muted-foreground/60">
+              {props.terminalShortcutLabel}
             </MenuShortcut>
           ) : null}
         </MenuItem>
@@ -318,6 +336,8 @@ export function RightSidePanelTabStrip(props: {
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
   editorOpen: boolean;
+  terminalShortcutLabel: string | null;
+  terminalOpen: boolean;
   floatingChatShortcutLabel: string | null;
   fullscreen: boolean;
   fullscreenShortcutLabel: string | null;
@@ -330,6 +350,7 @@ export function RightSidePanelTabStrip(props: {
   onBrowserTabSelect: (tabId: string) => void;
   onDiffClose: () => void;
   onEditorClose: () => void;
+  onTerminalClose: () => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
   onSelectSubagentThread: (threadId: string) => void;
@@ -352,6 +373,9 @@ export function RightSidePanelTabStrip(props: {
   const editorTooltipLabel = props.editorShortcutLabel
     ? `Editor (${props.editorShortcutLabel})`
     : "Editor";
+  const terminalTooltipLabel = props.terminalShortcutLabel
+    ? `Terminal (${props.terminalShortcutLabel})`
+    : "Terminal";
   const panelToggleTooltipLabel = props.panelToggleShortcutLabel
     ? `Close panel (${props.panelToggleShortcutLabel})`
     : "Close panel";
@@ -557,6 +581,47 @@ export function RightSidePanelTabStrip(props: {
             </Tooltip>
           </>
         ) : null}
+        {props.terminalOpen ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={tabClassName(props.activeMode === "terminal")}
+                    aria-pressed={props.activeMode === "terminal"}
+                    onClick={() => props.onSelectMode("terminal")}
+                  />
+                }
+              >
+                <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                  <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                  <button
+                    type="button"
+                    className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                    aria-label="Close terminal tab"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onTerminalClose();
+                    }}
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </span>
+                <span className="min-w-0 truncate text-left">Terminal</span>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" align="start">
+                {terminalTooltipLabel}
+              </TooltipPopup>
+            </Tooltip>
+          </>
+        ) : null}
         {props.browserSession?.tabs.length ? (
           <span className="h-5 w-px shrink-0 bg-border/70" />
         ) : null}
@@ -596,6 +661,8 @@ export function RightSidePanelTabStrip(props: {
             diffAvailable={props.diffAvailable}
             editorShortcutLabel={props.editorShortcutLabel}
             editorOpen={props.editorOpen}
+            terminalShortcutLabel={props.terminalShortcutLabel}
+            terminalOpen={props.terminalOpen}
             reviewShortcutLabel={props.reviewShortcutLabel}
             reviewOpen={props.reviewOpen}
             onNewBrowserTab={props.onNewBrowserTab}
@@ -610,6 +677,8 @@ export function RightSidePanelTabStrip(props: {
           diffAvailable={props.diffAvailable}
           editorShortcutLabel={props.editorShortcutLabel}
           editorOpen={props.editorOpen}
+          terminalShortcutLabel={props.terminalShortcutLabel}
+          terminalOpen={props.terminalOpen}
           reviewShortcutLabel={props.reviewShortcutLabel}
           reviewOpen={props.reviewOpen}
           onNewBrowserTab={props.onNewBrowserTab}

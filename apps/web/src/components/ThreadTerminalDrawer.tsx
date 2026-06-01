@@ -992,6 +992,7 @@ interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
   runtimeEnv?: Record<string, string>;
+  layout?: "bottom" | "panel";
   height: number;
   interactive: boolean;
   terminalIds: string[];
@@ -1157,6 +1158,7 @@ export default memo(function ThreadTerminalDrawer({
   threadId,
   cwd,
   runtimeEnv,
+  layout = "bottom",
   height,
   interactive,
   terminalIds,
@@ -1493,15 +1495,18 @@ export default memo(function ThreadTerminalDrawer({
   return (
     <aside
       className={cn(
-        "thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-terminal",
+        "thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-terminal",
+        layout === "bottom" ? "border-t border-border/70" : "h-full flex-1 border-0",
         !interactive && "pointer-events-none select-none",
       )}
-      style={{ height: `${drawerHeight}px` }}
+      style={layout === "bottom" ? { height: `${drawerHeight}px` } : undefined}
     >
-      <div
-        className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
-        onPointerDown={handleResizePointerDown}
-      />
+      {layout === "bottom" ? (
+        <div
+          className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
+          onPointerDown={handleResizePointerDown}
+        />
+      ) : null}
 
       <div className="terminal-tabs-strip flex shrink-0 items-center gap-2 bg-transparent px-3 pb-3 pt-2.5">
         <div

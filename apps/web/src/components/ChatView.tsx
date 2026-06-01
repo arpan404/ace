@@ -510,6 +510,10 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
 }
 
+interface ConnectedThreadTerminalPanelProps extends ConnectedRetainedThreadTerminalDrawersProps {
+  onClosePanelTerminal: () => void;
+}
+
 function ConnectedRetainedThreadTerminalDrawers({
   activeThreadId,
   activeProjectAvailable,
@@ -568,6 +572,68 @@ function ConnectedRetainedThreadTerminalDrawers({
     />
   );
 }
+
+function ConnectedThreadTerminalPanel({
+  activeThreadId,
+  activeProjectAvailable,
+  cwd,
+  runtimeEnv,
+  focusRequestId,
+  interactive,
+  newShortcutLabel,
+  toggleShortcutLabel,
+  onNewTerminal,
+  onActiveTerminalChange,
+  onMoveTerminal,
+  onSplitRatiosChange,
+  onAutoTerminalTitleChange,
+  onCloseTerminal,
+  onClosePanelTerminal,
+  onHeightChange,
+  onAddTerminalContext,
+}: ConnectedThreadTerminalPanelProps) {
+  const terminalDrawerState = useTerminalStateStore((state) =>
+    selectThreadTerminalState(state.terminalStateByThreadId, activeThreadId),
+  );
+
+  if (!activeProjectAvailable || !cwd) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-terminal px-4 text-center text-[13px] text-muted-foreground">
+        Terminal is unavailable until this thread has an active project.
+      </div>
+    );
+  }
+
+  return (
+    <ThreadTerminalDrawer
+      threadId={activeThreadId}
+      cwd={cwd}
+      {...(runtimeEnv ? { runtimeEnv } : {})}
+      layout="panel"
+      height={terminalDrawerState.terminalHeight}
+      terminalIds={terminalDrawerState.terminalIds}
+      activeTerminalId={terminalDrawerState.activeTerminalId}
+      terminalGroups={terminalDrawerState.terminalGroups}
+      runningTerminalIds={terminalDrawerState.runningTerminalIds}
+      autoTerminalTitlesById={terminalDrawerState.autoTerminalTitlesById}
+      splitRatiosByGroupId={terminalDrawerState.splitRatiosByGroupId}
+      focusRequestId={focusRequestId}
+      interactive={interactive}
+      onNewTerminal={onNewTerminal}
+      newShortcutLabel={newShortcutLabel}
+      toggleShortcutLabel={toggleShortcutLabel}
+      onActiveTerminalChange={onActiveTerminalChange}
+      onMoveTerminal={onMoveTerminal}
+      onSplitRatiosChange={onSplitRatiosChange}
+      onAutoTerminalTitleChange={onAutoTerminalTitleChange}
+      onCloseTerminal={onCloseTerminal}
+      onToggleTerminal={onClosePanelTerminal}
+      onHeightChange={onHeightChange}
+      onAddTerminalContext={onAddTerminalContext}
+    />
+  );
+}
+
 const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
 const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
 
@@ -1085,6 +1151,7 @@ function useChatViewComponent({
     rightSidePanelLastNonDiffMode,
     rightSidePanelMode,
     rightSidePanelReviewOpen,
+    rightSidePanelTerminalOpen,
     rightSidePanelVisible,
     rightSidePanelWidth,
     setBrowserDevToolsOpen,
@@ -1100,6 +1167,7 @@ function useChatViewComponent({
     setRightSidePanelLastNonDiffMode,
     setRightSidePanelMode,
     setRightSidePanelReviewOpen,
+    setRightSidePanelTerminalOpen,
     setRightSidePanelVisible,
     setRightSidePanelWidth,
     setShowScrollToBottom,
@@ -1640,7 +1708,8 @@ function useChatViewComponent({
   const rightSidePanelInteractive = rightSidePanelEnabled;
   const effectiveRightSidePanelMode = rightSidePanelEnabled ? rightSidePanelMode : null;
   const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
-  const hasRightSidePanelContent = diffOpen || effectiveRightSidePanelMode !== null;
+  const hasRightSidePanelContent =
+    diffOpen || rightSidePanelTerminalOpen || effectiveRightSidePanelMode !== null;
   const rightSidePanelOpen =
     rightSidePanelEnabled && rightSidePanelVisible && hasRightSidePanelContent;
   const activeThreadId = activeThread?.id ?? null;
@@ -2935,6 +3004,15 @@ function useChatViewComponent({
       shortcutLabelForCommand(
         keybindings,
         "rightPanel.editor.open",
+        nonTerminalShortcutLabelOptions,
+      ),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
+  const rightPanelTerminalShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.terminal.open",
         nonTerminalShortcutLabelOptions,
       ),
     [keybindings, nonTerminalShortcutLabelOptions],
@@ -4360,6 +4438,17 @@ function useChatViewComponent({
     setRightSidePanelMode("editor");
     setRightSidePanelVisible(true);
   }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
+  const onOpenRightSidePanelTerminal = useCallback(() => {
+    setRightSidePanelTerminalOpen(true);
+    setRightSidePanelMode("terminal");
+    setRightSidePanelVisible(true);
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [
+    setRightSidePanelMode,
+    setRightSidePanelTerminalOpen,
+    setRightSidePanelVisible,
+    setTerminalFocusRequestId,
+  ]);
   const openEditorFile = useEditorStateStore((state) => state.openFile);
   const workspaceRootsForInAppFileOpen = useMemo(
     () =>
@@ -4417,11 +4506,16 @@ function useChatViewComponent({
         setRightSidePanelMode("subagent");
         return;
       }
+      if (mode === "terminal") {
+        onOpenRightSidePanelTerminal();
+        return;
+      }
       onOpenRightSidePanelEditor();
     },
     [
       onOpenRightSidePanelDiff,
       onOpenRightSidePanelEditor,
+      onOpenRightSidePanelTerminal,
       openBrowser,
       setRightSidePanelMode,
       setRightSidePanelVisible,
@@ -4471,6 +4565,12 @@ function useChatViewComponent({
       setRightSidePanelMode("summary");
     }
   }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
+  const onCloseRightSidePanelTerminal = useCallback(() => {
+    setRightSidePanelTerminalOpen(false);
+    if (rightSidePanelMode === "terminal") {
+      setRightSidePanelMode("summary");
+    }
+  }, [rightSidePanelMode, setRightSidePanelMode, setRightSidePanelTerminalOpen]);
   const onCloseRightSidePanelDiff = useCallback(() => {
     setRightSidePanelDiffOpenState(false);
     setRightSidePanelReviewOpen(false);
@@ -6356,6 +6456,13 @@ function useChatViewComponent({
         return;
       }
 
+      if (command === "rightPanel.terminal.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenRightSidePanelTerminal();
+        return;
+      }
+
       if (command === "rightPanel.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -6522,6 +6629,7 @@ function useChatViewComponent({
     onToggleRightSidePanel,
     onToggleRightSidePanelFullscreen,
     onToggleRightSidePanelFloatingChat,
+    onOpenRightSidePanelTerminal,
     onOpenRightSidePanelEditor,
     onOpenRightSidePanelDiff,
     rightSidePanelFullscreen,
@@ -8467,6 +8575,8 @@ function useChatViewComponent({
         fullscreenShortcutLabel={rightSidePanelFullscreenShortcutLabel}
         reviewShortcutLabel={reviewPanelShortcutLabel}
         reviewOpen={rightSidePanelReviewOpen}
+        terminalShortcutLabel={rightPanelTerminalShortcutLabel}
+        terminalOpen={rightSidePanelTerminalOpen}
         activeSubagentThreadId={activeSubagentThreadId}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
         onBrowserTabClose={onCloseRightSidePanelBrowserTab}
@@ -8474,6 +8584,7 @@ function useChatViewComponent({
         onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
         onDiffClose={onCloseRightSidePanelDiff}
         onEditorClose={onCloseRightSidePanelEditor}
+        onTerminalClose={onCloseRightSidePanelTerminal}
         onNewBrowserTab={onOpenRightSidePanelBrowserTab}
         onSelectMode={onSelectRightSidePanelMode}
         onSelectSubagentThread={setActiveSubagentThreadId}
@@ -9022,6 +9133,27 @@ function useChatViewComponent({
                             <SubagentWorkspacePanel
                               activeThreadId={activeSubagentThreadId}
                               threads={subagentThreads}
+                            />
+                          ) : activeRightSidePanelMode === "terminal" ? (
+                            <ConnectedThreadTerminalPanel
+                              activeThreadId={activeThread.id}
+                              activeProjectAvailable={activeProject !== undefined}
+                              cwd={gitCwd ?? activeProject?.cwd ?? null}
+                              runtimeEnv={threadTerminalRuntimeEnv}
+                              focusRequestId={terminalFocusRequestId}
+                              interactive={activeForSideEffects}
+                              onNewTerminal={createNewTerminal}
+                              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+                              toggleShortcutLabel={rightPanelTerminalShortcutLabel ?? undefined}
+                              onActiveTerminalChange={activateTerminal}
+                              onMoveTerminal={moveTerminal}
+                              onSplitRatiosChange={setTerminalGroupSplitRatios}
+                              onAutoTerminalTitleChange={setTerminalAutoTitle}
+                              onCloseTerminal={closeTerminal}
+                              onToggleTerminal={toggleTerminalVisibility}
+                              onClosePanelTerminal={onCloseRightSidePanelTerminal}
+                              onHeightChange={setTerminalHeight}
+                              onAddTerminalContext={addTerminalContextToDraft}
                             />
                           ) : activeRightSidePanelMode === "editor" ? (
                             <Suspense
