@@ -1,11 +1,17 @@
 name: Issue Labels
 
 on:
+  issues:
+    types: [opened, edited]
   push:
     branches:
       - main
     paths:
       - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/issue-response.yml
+      - .github/workflows/pr-labels.yml
+      - .github/workflows/pr-review-state.yml
+      - .github/workflows/stale.yml
       - .github/workflows/issue-labels.yml
   workflow_dispatch:
 
@@ -74,9 +80,114 @@ jobs:
                 description: "Build, packaging, signing, publishing, and updater metadata.",
               },
               {
+                name: "area:marketing",
+                color: "c297ff",
+                description: "Marketing site, download pages, and product website content.",
+              },
+              {
+                name: "area:packages",
+                color: "1f883d",
+                description: "Shared packages, schemas, and reusable runtime utilities.",
+              },
+              {
                 name: "area:docs",
                 color: "0075ca",
                 description: "Documentation, templates, and examples.",
+              },
+              {
+                name: "area:ci",
+                color: "57606a",
+                description: "GitHub Actions, automation, and repository workflow configuration.",
+              },
+              {
+                name: "dependencies",
+                color: "0366d6",
+                description: "Dependency, package manifest, or lockfile changes.",
+              },
+              {
+                name: "tests-only",
+                color: "bfdadc",
+                description: "Changes are limited to tests and test support files.",
+              },
+              {
+                name: "docs-only",
+                color: "0075ca",
+                description: "Changes are limited to documentation.",
+              },
+              {
+                name: "status:needs-review",
+                color: "fbca04",
+                description: "Pull request is ready for maintainer review.",
+              },
+              {
+                name: "status:approved",
+                color: "0e8a16",
+                description: "Pull request has an approving review.",
+              },
+              {
+                name: "status:changes-requested",
+                color: "d93f0b",
+                description: "Pull request has requested changes to address.",
+              },
+              {
+                name: "status:needs-response",
+                color: "fbca04",
+                description: "Needs a response from the author or maintainer.",
+              },
+              {
+                name: "status:stale",
+                color: "cfd3d7",
+                description: "Inactive issue or pull request that may be closed soon.",
+              },
+              {
+                name: "status:draft",
+                color: "cfd3d7",
+                description: "Pull request is a draft and not ready for review.",
+              },
+              {
+                name: "author:maintainer",
+                color: "0e8a16",
+                description: "Opened by an owner, member, or collaborator.",
+              },
+              {
+                name: "author:trusted",
+                color: "1a7f37",
+                description: "Opened by a prior contributor.",
+              },
+              {
+                name: "author:first-time",
+                color: "d4c5f9",
+                description: "Opened by a first-time contributor.",
+              },
+              {
+                name: "author:external",
+                color: "e99695",
+                description: "Opened by an external contributor with no prior association.",
+              },
+              {
+                name: "risk:protocol",
+                color: "b60205",
+                description: "Touches shared protocols, schemas, or cross-process contracts.",
+              },
+              {
+                name: "risk:runtime",
+                color: "d93f0b",
+                description: "Touches provider runtime, sessions, orchestration, or streaming behavior.",
+              },
+              {
+                name: "risk:release",
+                color: "6f42c1",
+                description: "Touches packaging, publishing, signing, updater, or release automation.",
+              },
+              {
+                name: "risk:security",
+                color: "b60205",
+                description: "Touches auth, token handling, browser control, relay, filesystem, or security-sensitive behavior.",
+              },
+              {
+                name: "risk:large-change",
+                color: "d93f0b",
+                description: "Large pull request that deserves extra review attention.",
               },
               {
                 name: "reliability",
@@ -92,6 +203,11 @@ jobs:
                 name: "security",
                 color: "b60205",
                 description: "Security-sensitive behavior or dependency vulnerability work.",
+              },
+              {
+                name: "good first issue",
+                color: "7057ff",
+                description: "Good entry point for a new contributor.",
               },
             ];
 
@@ -128,4 +244,79 @@ jobs:
                   description: label.description,
                 });
               }
+            }
+  issue-triage:
+    name: Apply issue form labels
+    needs: sync
+    if: github.event_name == 'issues' && !github.event.issue.pull_request
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Apply area labels from issue form
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const managedAreaLabels = new Set([
+              "area:web",
+              "area:server",
+              "area:desktop",
+              "area:mobile",
+              "area:relay",
+              "area:providers",
+              "area:release",
+              "area:marketing",
+              "area:packages",
+              "area:docs",
+              "area:ci",
+            ]);
+
+            const areaMappings = [
+              { text: "apps/web", label: "area:web" },
+              { text: "apps/server", label: "area:server" },
+              { text: "apps/desktop", label: "area:desktop" },
+              { text: "apps/mobile", label: "area:mobile" },
+              { text: "apps/relay", label: "area:relay" },
+              { text: "apps/marketing", label: "area:marketing" },
+              { text: "Provider runtime or CLI integration", label: "area:providers" },
+              { text: "packages/contracts or packages/shared", label: "area:packages" },
+              { text: "Build, CI, or release tooling", label: "area:ci" },
+              { text: "Docs", label: "area:docs" },
+            ];
+
+            const body = context.payload.issue.body ?? "";
+            const selectedArea = areaMappings.find(({ text }) => body.includes(text));
+            if (!selectedArea) {
+              core.info("No recognized issue form area selected.");
+              return;
+            }
+
+            const issueNumber = context.payload.issue.number;
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+
+            for (const label of currentLabels) {
+              if (!managedAreaLabels.has(label.name) || label.name === selectedArea.label) {
+                continue;
+              }
+
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: label.name,
+              }).catch((error) => {
+                if (error.status !== 404) throw error;
+              });
+            }
+
+            if (!currentLabels.some((label) => label.name === selectedArea.label)) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: [selectedArea.label],
+              });
             }

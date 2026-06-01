@@ -1,0 +1,265 @@
+name: PR Labels
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize, ready_for_review, converted_to_draft]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  label:
+    name: Apply rule-based PR labels
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: pr-labels-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Apply PR labels
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const issueNumber = pullRequest.number;
+
+            const managedLabels = new Set([
+              "area:web",
+              "area:server",
+              "area:desktop",
+              "area:mobile",
+              "area:relay",
+              "area:providers",
+              "area:release",
+              "area:marketing",
+              "area:packages",
+              "area:docs",
+              "area:ci",
+              "dependencies",
+              "tests-only",
+              "docs-only",
+              "status:needs-review",
+              "status:draft",
+              "author:maintainer",
+              "author:trusted",
+              "author:first-time",
+              "author:external",
+              "risk:protocol",
+              "risk:runtime",
+              "risk:release",
+              "risk:security",
+              "risk:large-change",
+              "reliability",
+              "cross-platform",
+              "security",
+            ]);
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: issueNumber,
+              per_page: 100,
+            });
+            const paths = files.map((file) => file.filename);
+            const totalChangedLines = files.reduce(
+              (total, file) => total + file.additions + file.deletions,
+              0,
+            );
+            const nextLabels = new Set();
+
+            const addIf = (condition, label) => {
+              if (condition) nextLabels.add(label);
+            };
+            const hasPath = (predicate) => paths.some(predicate);
+            const startsWith = (prefix) => (path) => path.startsWith(prefix);
+
+            addIf(hasPath(startsWith("apps/web/")), "area:web");
+            addIf(hasPath(startsWith("apps/server/")), "area:server");
+            addIf(hasPath(startsWith("apps/desktop/")), "area:desktop");
+            addIf(hasPath(startsWith("apps/mobile/")), "area:mobile");
+            addIf(hasPath(startsWith("apps/relay/")), "area:relay");
+            addIf(hasPath(startsWith("apps/marketing/")), "area:marketing");
+            addIf(hasPath(startsWith("packages/")), "area:packages");
+            addIf(
+              hasPath((path) =>
+                path.startsWith("docs/") ||
+                path.startsWith(".docs/") ||
+                path.endsWith(".md") ||
+                path === "AGENTS.md",
+              ),
+              "area:docs",
+            );
+            addIf(hasPath(startsWith(".github/")), "area:ci");
+            addIf(
+              hasPath((path) =>
+                path.startsWith("scripts/") ||
+                path.startsWith("apps/server/scripts/") ||
+                path.startsWith("apps/desktop/scripts/") ||
+                path.startsWith("apps/desktop/resources/") ||
+                path.includes("release"),
+              ),
+              "area:release",
+            );
+            addIf(
+              hasPath((path) =>
+                path.startsWith("apps/server/src/provider/") ||
+                path === "apps/server/src/codexAppServerManager.ts" ||
+                path === "apps/server/src/providerManager.ts",
+              ),
+              "area:providers",
+            );
+
+            addIf(
+              hasPath((path) =>
+                path.endsWith("package.json") ||
+                path.endsWith("bun.lock") ||
+                path.endsWith("package-lock.json") ||
+                path.endsWith("pnpm-lock.yaml") ||
+                path.endsWith("yarn.lock"),
+              ),
+              "dependencies",
+            );
+
+            const isDocPath = (path) =>
+              path.startsWith("docs/") ||
+              path.startsWith(".docs/") ||
+              path.endsWith(".md") ||
+              path === "AGENTS.md";
+            const isTestPath = (path) =>
+              /(^|\/)(__tests__|tests?|integration)\//u.test(path) ||
+              /\.(test|spec|browser|integration)\./u.test(path);
+
+            addIf(paths.length > 0 && paths.every(isDocPath), "docs-only");
+            addIf(paths.length > 0 && paths.every(isTestPath), "tests-only");
+
+            const authorAssociation = pullRequest.author_association;
+            if (["OWNER", "MEMBER", "COLLABORATOR"].includes(authorAssociation)) {
+              nextLabels.add("author:maintainer");
+            } else if (authorAssociation === "CONTRIBUTOR") {
+              nextLabels.add("author:trusted");
+            } else if (authorAssociation === "FIRST_TIME_CONTRIBUTOR") {
+              nextLabels.add("author:first-time");
+            } else {
+              nextLabels.add("author:external");
+            }
+
+            nextLabels.add(pullRequest.draft ? "status:draft" : "status:needs-review");
+
+            addIf(hasPath(startsWith("packages/contracts/")), "risk:protocol");
+            addIf(
+              hasPath((path) =>
+                path === "apps/server/src/wsServer.ts" ||
+                path.startsWith("packages/contracts/") ||
+                path.startsWith("packages/shared/src/relay") ||
+                path.includes("Rpc") ||
+                path.includes("protocol"),
+              ),
+              "risk:protocol",
+            );
+            addIf(
+              hasPath((path) =>
+                path.startsWith("apps/server/src/provider/") ||
+                path === "apps/server/src/codexAppServerManager.ts" ||
+                path === "apps/server/src/providerManager.ts" ||
+                path === "apps/server/src/wsClientSessions.ts" ||
+                path.startsWith("apps/server/src/orchestration/Layers/Provider") ||
+                path.startsWith("apps/server/src/orchestration/Services/Provider") ||
+                path.startsWith("apps/server/src/persistence/Layers/ProviderSessionRuntime") ||
+                path.startsWith("apps/server/src/persistence/Services/ProviderSessionRuntime") ||
+                path.startsWith("apps/server/src/persistence/Migrations/004_ProviderSessionRuntime") ||
+                path.startsWith("apps/server/src/persistence/Migrations/026_ProviderSessionRuntime") ||
+                path.startsWith("apps/server/src/persistence/Migrations/032_ProjectionThreadSession") ||
+                path.includes("Adapter") ||
+                path.includes("Provider") ||
+                path.includes("providerSdkRuntime") ||
+                path.includes("opencodeRuntime") ||
+                path.includes("acpClient") ||
+                path.includes("RpcClient") ||
+                path.includes("orchestration") ||
+                path.includes("session") ||
+                path.includes("Session"),
+              ),
+              "risk:runtime",
+            );
+            addIf(
+              hasPath((path) =>
+                path.startsWith(".github/workflows/release") ||
+                path.startsWith("apps/desktop/") ||
+                path.startsWith("scripts/") ||
+                path.includes("release") ||
+                path.includes("updater") ||
+                path.includes("Update"),
+              ),
+              "risk:release",
+            );
+            addIf(
+              hasPath((path) =>
+                path.startsWith("apps/relay/") ||
+                path.includes("auth") ||
+                path.includes("Auth") ||
+                path.includes("token") ||
+                path.includes("Token") ||
+                path.includes("secret") ||
+                path.includes("Secret") ||
+                path.includes("browser") ||
+                path.includes("Browser") ||
+                path.includes("filesystem") ||
+                path.includes("FileSystem") ||
+                path.includes("permissions") ||
+                path.includes("Permissions"),
+              ),
+              "risk:security",
+            );
+            addIf(totalChangedLines >= 500, "risk:large-change");
+
+            addIf(nextLabels.has("risk:runtime"), "reliability");
+            addIf(nextLabels.has("risk:security"), "security");
+            addIf(
+              hasPath((path) =>
+                path.startsWith("apps/desktop/") ||
+                path.startsWith("apps/mobile/") ||
+                path.includes("darwin") ||
+                path.includes("linux") ||
+                path.includes("win32") ||
+                path.includes("windows"),
+              ),
+              "cross-platform",
+            );
+
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            const currentLabelNames = new Set(currentLabels.map((label) => label.name));
+
+            for (const label of currentLabelNames) {
+              if (!managedLabels.has(label) || nextLabels.has(label)) {
+                continue;
+              }
+
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: label,
+              }).catch((error) => {
+                if (error.status !== 404) throw error;
+              });
+            }
+
+            const labelsToAdd = [...nextLabels].filter((label) => !currentLabelNames.has(label));
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: labelsToAdd,
+              });
+            }
+
+            core.info(
+              `PR #${issueNumber}: ${paths.length} files, ${totalChangedLines} changed lines -> ${[...nextLabels].sort().join(", ")}`,
+            );
