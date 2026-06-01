@@ -1,6 +1,7 @@
 import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { type ComponentProps } from "react";
 import { BotIcon, ListTodoIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
+import { m } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
@@ -13,6 +14,13 @@ import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
+
+const ENVIRONMENT_MINI_PANEL_SPRING = {
+  type: "spring",
+  stiffness: 420,
+  damping: 38,
+  mass: 0.9,
+} as const;
 
 export function EnvironmentMiniPanel(props: {
   activeProjectScripts: ProjectScript[] | undefined;
@@ -59,13 +67,15 @@ export function EnvironmentMiniPanel(props: {
     : 2;
 
   return (
-    <aside
+    <m.aside
       className={cn(
-        "pointer-events-auto z-30 max-h-[calc(100%-1.5rem)] w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl",
-        props.layoutMode === "inline"
-          ? "relative mt-3 mr-3 shrink-0 self-start"
-          : "absolute top-3 right-3",
+        "pointer-events-auto absolute top-3 right-3 z-30 max-h-[calc(100%-1.5rem)] w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl backdrop-blur-xl",
+        props.layoutMode === "inline" ? "shadow-black/10" : "shadow-black/20",
       )}
+      initial={{ opacity: 0, scale: 0.985, x: 22 }}
+      animate={{ opacity: 1, scale: 1, x: 0 }}
+      exit={{ opacity: 0, scale: 0.985, x: 18 }}
+      transition={ENVIRONMENT_MINI_PANEL_SPRING}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-medium text-muted-foreground">Environment</h2>
@@ -179,6 +189,6 @@ export function EnvironmentMiniPanel(props: {
         <div className="px-2 text-[13px] font-medium text-muted-foreground">Sources</div>
         <div className="px-2 pt-1.5 text-[13px] text-muted-foreground">No sources yet</div>
       </div>
-    </aside>
+    </m.aside>
   );
 }
