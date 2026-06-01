@@ -3668,12 +3668,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         )}
       >
         <EntryIcon
-          className={cn(
-            "mt-1 shrink-0",
-            isNested ? "size-3.5" : "size-4",
-            iconConfig.className,
-            metaToneTextClass(tone),
-          )}
+          className={cn("mt-1 shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone))}
         />
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-0.5 flex min-w-0 items-center gap-2">
@@ -3681,7 +3676,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               type="button"
               className={cn(
                 "group/work-detail flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-                isNested ? "text-[12px]" : "text-[15px]",
+                isNested ? "text-[12px]" : "text-[13px]",
                 workEntry.tone === "thinking" && "tracking-[0.01em]",
                 !hasExpandableDetail && "cursor-default hover:text-muted-foreground/70",
               )}
@@ -3850,15 +3845,13 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
       data-work-entry-nested={isNested ? "true" : undefined}
     >
       <div className={cn("flex items-start", isNested ? "gap-2.5" : "gap-3")}>
-        <IconTerminal
-          className={cn("mt-1 shrink-0 text-muted-foreground/62", isNested ? "size-3.5" : "size-4")}
-        />
+        <IconTerminal className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
         <div className="min-w-0 flex-1">
           <button
             type="button"
             className={cn(
-              "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-6 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-              isNested ? "text-[12px]" : "text-[15px]",
+              "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
+              isNested ? "text-[12px]" : "text-[13px]",
               !hasExpandableOutput && "cursor-default hover:text-muted-foreground/70",
             )}
             onClick={() => {
