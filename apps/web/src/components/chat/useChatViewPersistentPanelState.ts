@@ -39,6 +39,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 
 const RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY =
   "ace:chat:right-side-panel-floating-chat:v1";
+const ENVIRONMENT_PANEL_OPEN_STORAGE_KEY = "ace:chat:environment-panel-open:v1";
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 
 type ChatViewPanelState = {
@@ -186,6 +187,10 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
   );
+  const environmentPanelOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(ENVIRONMENT_PANEL_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const rightSidePanelWidthStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY, threadId),
     [threadId],
@@ -232,6 +237,11 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   const [rightSidePanelFloatingChatOpen, setRightSidePanelFloatingChatOpen] = useLocalStorage(
     rightSidePanelFloatingChatOpenStorageKey,
     false,
+    Schema.Boolean,
+  );
+  const [environmentPanelOpen, setEnvironmentPanelOpen] = useLocalStorage(
+    environmentPanelOpenStorageKey,
+    true,
     Schema.Boolean,
   );
   const [browserMode, setBrowserMode] = useLocalStorage(
@@ -336,6 +346,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   return {
     browserSplitWidth,
     browserMode,
+    environmentPanelOpen,
     handoffInFlight,
     isHeaderHidden,
     isRevertingCheckpoint: revertingCheckpointThreadId === threadId,
@@ -351,6 +362,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     setBrowserDevToolsOpen,
     setBrowserMode,
     setBrowserSplitWidth,
+    setEnvironmentPanelOpen,
     setHandoffInFlight,
     setIsHeaderHidden,
     setIsRevertingCheckpoint,

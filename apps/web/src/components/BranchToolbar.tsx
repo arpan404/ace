@@ -93,10 +93,10 @@ function EnvironmentModeMenu(props: {
       </MenuTrigger>
       <MenuPopup
         align="start"
-        side="left"
+        side="bottom"
         className="w-72 rounded-2xl shadow-2xl shadow-black/25"
         listClassName="p-2"
-        sideOffset={12}
+        sideOffset={6}
       >
         <MenuGroup>
           <MenuGroupLabel className="px-2 pb-1.5 pt-1 text-[13px] font-normal normal-case text-muted-foreground">

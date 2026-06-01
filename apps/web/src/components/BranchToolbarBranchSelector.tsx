@@ -535,8 +535,8 @@ export function BranchToolbarBranchSelector({
       </ComboboxTrigger>
       <ComboboxPopup
         align={isEnvironmentPresentation ? "start" : "end"}
-        side={isEnvironmentPresentation ? "left" : "top"}
-        sideOffset={isEnvironmentPresentation ? 12 : 4}
+        side={isEnvironmentPresentation ? "bottom" : "top"}
+        sideOffset={isEnvironmentPresentation ? 6 : 4}
         className={
           isEnvironmentPresentation
             ? "w-72 overflow-hidden rounded-2xl border-border/70 bg-popover/96 shadow-2xl shadow-black/25 supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"

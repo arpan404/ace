@@ -116,6 +116,7 @@ import {
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import { shouldEscalateInterruptToSessionStop } from "../lib/chat/interruptFallback";
+import { PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
 import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -328,39 +329,38 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
   width: { duration: 0 },
   x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
-const RIGHT_SIDE_PANEL_TRANSITION = {
-  opacity: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
-  width: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
-  x: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
-} as const;
-const RIGHT_SIDE_PANEL_HEADER_TRANSITION = {
-  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-  width: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
-  x: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
-  y: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
-} as const;
-const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
-  delay: 0.04,
-  duration: 0.2,
-  ease: [0.16, 1, 0.3, 1],
-} as const;
-const TERMINAL_DRAWER_TRANSITION = {
-  duration: 0.2,
-  ease: [0.16, 1, 0.3, 1],
-} as const;
 const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
   ENVIRONMENT_MINI_PANEL_WIDTH_PX + ENVIRONMENT_MINI_PANEL_GAP_PX;
-const ENVIRONMENT_MINI_PANEL_SPRING = {
-  type: "spring",
-  stiffness: 420,
-  damping: 38,
-  mass: 0.9,
-} as const;
+const ENVIRONMENT_POPOVER_INTERACTIVE_LAYER_SELECTOR = [
+  '[data-slot="combobox-positioner"]',
+  '[data-slot="combobox-popup"]',
+  '[data-slot="menu-positioner"]',
+  '[data-slot="menu-popup"]',
+  '[data-slot="popover-positioner"]',
+  '[data-slot="popover-popup"]',
+  '[data-slot="select-positioner"]',
+  '[data-slot="select-popup"]',
+].join(",");
 
 function isAbsoluteFilesystemPath(path: string): boolean {
   return /^(?:\/|\\\\|[A-Za-z]:[\\/])/.test(path);
+}
+
+function eventTargetIsInsideElement(event: Event, element: HTMLElement | null): boolean {
+  if (!element) {
+    return false;
+  }
+  return event.composedPath().includes(element);
+}
+
+function eventTargetIsInsideSelector(event: Event, selector: string): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return target.closest(selector) !== null;
 }
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
@@ -472,7 +472,7 @@ function RetainedThreadTerminalDrawers(props: {
       animate={
         activeDrawerProps ? { height: "auto", opacity: 1, y: 0 } : { height: 0, opacity: 0, y: 18 }
       }
-      transition={TERMINAL_DRAWER_TRANSITION}
+      transition={PANEL_SPRING_TRANSITION}
     >
       {renderEntries.map((entry) => {
         const isActive = activeDrawerProps !== null && entry.threadId === activeThreadId;
@@ -1071,6 +1071,7 @@ function useChatViewComponent({
   const {
     browserSplitWidth,
     browserMode,
+    environmentPanelOpen,
     handoffInFlight,
     isHeaderHidden,
     isRevertingCheckpoint,
@@ -1086,6 +1087,7 @@ function useChatViewComponent({
     setBrowserDevToolsOpen,
     setBrowserMode,
     setBrowserSplitWidth,
+    setEnvironmentPanelOpen,
     setHandoffInFlight,
     setIsHeaderHidden,
     setIsRevertingCheckpoint,
@@ -2653,7 +2655,7 @@ function useChatViewComponent({
     [subagentProvider, timelineWorkEntries],
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
-  const [environmentPanelOpen, setEnvironmentPanelOpen] = useState(true);
+  const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (subagentThreads.length === 0) {
       if (activeSubagentThreadId !== null) {
@@ -8227,6 +8229,32 @@ function useChatViewComponent({
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
   const environmentPanelInlineOpen =
     environmentPanelVisible && !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
+  const environmentPanelPopoverOpen = environmentPanelVisible && !environmentPanelInlineOpen;
+  useEffect(() => {
+    if (!environmentPanelPopoverOpen) {
+      return;
+    }
+
+    const handlePointerDownCapture = (event: PointerEvent) => {
+      if (eventTargetIsInsideElement(event, environmentMiniPanelRef.current)) {
+        return;
+      }
+      if (eventTargetIsInsideSelector(event, ENVIRONMENT_POPOVER_INTERACTIVE_LAYER_SELECTOR)) {
+        return;
+      }
+      if (eventTargetIsInsideSelector(event, 'button[aria-label="Toggle environment panel"]')) {
+        return;
+      }
+
+      setEnvironmentPanelOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDownCapture, { capture: true });
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDownCapture, { capture: true });
+    };
+  }, [environmentPanelPopoverOpen, setEnvironmentPanelOpen]);
   const chatMessagesPaneProps = useMemo(
     () => ({
       loadingNotice,
@@ -8302,6 +8330,10 @@ function useChatViewComponent({
         onAddProjectScript: saveProjectScript,
         onDeleteProjectScript: deleteProjectScript,
         onOpenDiffPanel: onOpenRightSidePanelDiff,
+        onOpenSummaryPanel: () => {
+          setRightSidePanelMode("summary");
+          setRightSidePanelVisible(true);
+        },
         onRunProjectScript: (script) => {
           void runProjectScript(script);
         },
@@ -8486,7 +8518,7 @@ function useChatViewComponent({
           initial={{ width: 0, opacity: 0, x: 20 }}
           animate={{ width: dockedRightSidePanelWidth, opacity: 1, x: 0 }}
           exit={{ width: 0, opacity: 0, x: 20 }}
-          transition={RIGHT_SIDE_PANEL_HEADER_TRANSITION}
+          transition={PANEL_SPRING_TRANSITION}
         >
           <div className="relative h-full w-3 shrink-0" aria-hidden="true">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
@@ -8496,7 +8528,7 @@ function useChatViewComponent({
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 8 }}
-            transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+            transition={PANEL_SPRING_TRANSITION}
           >
             {rightSidePanelTabStripNode}
           </m.div>
@@ -8516,14 +8548,14 @@ function useChatViewComponent({
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
-          transition={RIGHT_SIDE_PANEL_HEADER_TRANSITION}
+          transition={PANEL_SPRING_TRANSITION}
         >
           <m.div
             className="min-w-0 flex-1 overflow-hidden"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 8 }}
-            transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+            transition={PANEL_SPRING_TRANSITION}
           >
             {rightSidePanelTabStripNode}
           </m.div>
@@ -8678,7 +8710,7 @@ function useChatViewComponent({
                           ? ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX
                           : 0,
                       }}
-                      transition={ENVIRONMENT_MINI_PANEL_SPRING}
+                      transition={PANEL_SPRING_TRANSITION}
                     >
                       {/* Messages Wrapper */}
                       <ChatMessagesPane {...chatMessagesPaneProps} />
@@ -8797,6 +8829,7 @@ function useChatViewComponent({
                       {environmentPanelVisible && environmentMiniPanelProps ? (
                         <EnvironmentMiniPanel
                           key="environment-mini-panel"
+                          ref={environmentMiniPanelRef}
                           {...environmentMiniPanelProps}
                           layoutMode={environmentPanelInlineOpen ? "inline" : "popover"}
                         />
@@ -8922,7 +8955,7 @@ function useChatViewComponent({
                     ? { width: 0, opacity: 0 }
                     : { width: 0, opacity: 0, x: 24 }
                 }
-                transition={RIGHT_SIDE_PANEL_TRANSITION}
+                transition={PANEL_SPRING_TRANSITION}
               >
                 {!rightSidePanelFullscreen ? (
                   <div
@@ -8947,7 +8980,7 @@ function useChatViewComponent({
                     avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }
                   }
                   exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 6 }}
-                  transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+                  transition={PANEL_SPRING_TRANSITION}
                 >
                   <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                     <AnimatePresence mode="wait" initial={false}>

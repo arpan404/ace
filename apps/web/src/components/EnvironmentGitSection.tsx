@@ -978,10 +978,10 @@ function useEnvironmentGitSection({
             </div>
             <MenuPopup
               align="start"
-              side="left"
+              side="bottom"
               className="w-72 shadow-2xl shadow-black/25"
               listClassName="p-3"
-              sideOffset={12}
+              sideOffset={6}
             >
               <MenuGroup>
                 <MenuItem

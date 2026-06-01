@@ -1,4 +1,4 @@
-import { BotIcon, CheckCircle2Icon, Clock3Icon, MessageSquareIcon } from "lucide-react";
+import { BotIcon } from "lucide-react";
 import { useMemo } from "react";
 import type { ProviderKind } from "@ace/contracts";
 
@@ -11,8 +11,18 @@ export interface SubagentThread {
   readonly id: string;
   readonly label: string;
   readonly model?: string;
+  readonly persona: SubagentPersona;
+  readonly roleLabel?: string;
   readonly status: "running" | "completed" | "failed";
   readonly entries: ReadonlyArray<WorkLogEntry>;
+}
+
+export interface SubagentPersona {
+  readonly avatarClassName: string;
+  readonly haloClassName: string;
+  readonly initials: string;
+  readonly name: string;
+  readonly pingClassName: string;
 }
 
 export function formatSubagentLabel(value: string | undefined): string | null {
@@ -28,6 +38,78 @@ export function formatSubagentLabel(value: string | undefined): string | null {
 
 function subagentThreadKey(entry: WorkLogEntry): string | null {
   return entry.subagentId ?? entry.subagentName ?? entry.subagentType ?? null;
+}
+
+const GENERATED_SUBAGENT_NAMES = [
+  "Ada",
+  "Cora",
+  "Dax",
+  "Iris",
+  "Mira",
+  "Nova",
+  "Orion",
+  "Rhea",
+  "Sol",
+  "Vega",
+] as const;
+
+const SUBAGENT_PERSONA_TONES = [
+  {
+    avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
+    haloClassName: "bg-sky-500/14",
+    pingClassName: "bg-sky-400",
+  },
+  {
+    avatarClassName: "bg-emerald-500/14 text-emerald-500 ring-emerald-500/24",
+    haloClassName: "bg-emerald-500/14",
+    pingClassName: "bg-emerald-400",
+  },
+  {
+    avatarClassName: "bg-amber-500/14 text-amber-500 ring-amber-500/24",
+    haloClassName: "bg-amber-500/14",
+    pingClassName: "bg-amber-400",
+  },
+  {
+    avatarClassName: "bg-fuchsia-500/14 text-fuchsia-500 ring-fuchsia-500/24",
+    haloClassName: "bg-fuchsia-500/14",
+    pingClassName: "bg-fuchsia-400",
+  },
+] as const;
+
+function hashSubagentId(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function isGenericSubagentLabel(label: string): boolean {
+  return /^(codex\s+)?subagent$/i.test(label.trim());
+}
+
+function initialsForName(name: string): string {
+  const parts = name.replace(/[_-]+/g, " ").split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
+  }
+  return (parts[0]?.slice(0, 2) ?? "AI").toUpperCase();
+}
+
+function resolveSubagentPersona(input: { id: string; identityLabel: string }): SubagentPersona {
+  const hash = hashSubagentId(input.id);
+  const generatedName = GENERATED_SUBAGENT_NAMES[hash % GENERATED_SUBAGENT_NAMES.length] ?? "Nova";
+  const name = isGenericSubagentLabel(input.identityLabel)
+    ? `${generatedName} Agent`
+    : input.identityLabel;
+  const tone =
+    SUBAGENT_PERSONA_TONES[hash % SUBAGENT_PERSONA_TONES.length] ?? SUBAGENT_PERSONA_TONES[0];
+  return {
+    ...tone,
+    initials: initialsForName(name),
+    name,
+  };
 }
 
 function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThread["status"] {
@@ -67,10 +149,14 @@ export function deriveSubagentThreads(
   return [...grouped.entries()]
     .map(([id, group]) => {
       const identity = resolveSubagentIdentity({ entries: group, fallbackId: id, provider });
+      const persona = resolveSubagentPersona({ id, identityLabel: identity.label });
+      const roleLabel = persona.name === identity.label ? null : identity.label;
       return {
         id,
-        label: identity.label,
+        label: persona.name,
         ...(identity.model ? { model: identity.model } : {}),
+        persona,
+        ...(roleLabel ? { roleLabel } : {}),
         status: resolveThreadStatus(group),
         entries: group.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
       };
@@ -82,14 +168,69 @@ export function deriveSubagentThreads(
     });
 }
 
-function StatusIcon(props: { status: SubagentThread["status"] }) {
-  if (props.status === "running") {
-    return <Clock3Icon className="size-3.5 text-sky-500" />;
+export function statusLabel(status: SubagentThread["status"]): string {
+  if (status === "running") {
+    return "Running";
   }
-  if (props.status === "failed") {
-    return <MessageSquareIcon className="size-3.5 text-destructive" />;
+  if (status === "failed") {
+    return "Failed";
   }
-  return <CheckCircle2Icon className="size-3.5 text-emerald-500" />;
+  return "Completed";
+}
+
+export function formatSubagentSubtitle(thread: SubagentThread): string | null {
+  return [thread.roleLabel, thread.model].filter(Boolean).join(" · ") || null;
+}
+
+export function SubagentPersonaIcon(props: {
+  className?: string;
+  status: SubagentThread["status"];
+  thread: SubagentThread;
+}) {
+  const isRunning = props.status === "running";
+  return (
+    <span
+      className={cn(
+        "relative inline-flex size-6 shrink-0 items-center justify-center",
+        props.className,
+      )}
+    >
+      <span
+        className={cn(
+          "absolute inset-0 rounded-full opacity-0 blur-[1px]",
+          props.thread.persona.haloClassName,
+          isRunning && "opacity-100 motion-safe:animate-pulse",
+        )}
+      />
+      <span
+        className={cn(
+          "relative inline-flex size-full items-center justify-center rounded-full text-[10px] font-semibold ring-1",
+          props.thread.persona.avatarClassName,
+          props.status === "failed" && "bg-destructive/12 text-destructive ring-destructive/25",
+        )}
+      >
+        {props.thread.persona.initials}
+      </span>
+      <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-2.5 items-center justify-center">
+        {isRunning ? (
+          <span
+            className={cn(
+              "absolute inline-flex size-2 rounded-full opacity-75 motion-safe:animate-ping",
+              props.thread.persona.pingClassName,
+            )}
+          />
+        ) : null}
+        <span
+          className={cn(
+            "relative inline-flex size-2 rounded-full ring-2 ring-background",
+            props.status === "running" && props.thread.persona.pingClassName,
+            props.status === "completed" && "bg-emerald-500",
+            props.status === "failed" && "bg-destructive",
+          )}
+        />
+      </span>
+    </span>
+  );
 }
 
 export function SubagentThreadsPanel(props: {
@@ -120,11 +261,13 @@ export function SubagentThreadsPanel(props: {
               className="overflow-hidden rounded-md border border-border/70 bg-card"
             >
               <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
-                <StatusIcon status={thread.status} />
+                <SubagentPersonaIcon status={thread.status} thread={thread} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium">{thread.label}</div>
-                  {thread.model ? (
-                    <div className="truncate text-[11px] text-muted-foreground">{thread.model}</div>
+                  {formatSubagentSubtitle(thread) ? (
+                    <div className="truncate text-[11px] text-muted-foreground">
+                      {formatSubagentSubtitle(thread)}
+                    </div>
                   ) : null}
                 </div>
                 <span
@@ -135,7 +278,7 @@ export function SubagentThreadsPanel(props: {
                     thread.status === "failed" && "bg-destructive/12 text-destructive",
                   )}
                 >
-                  {thread.status}
+                  {statusLabel(thread.status)}
                 </span>
               </div>
               <div className="max-h-72 overflow-y-auto px-3 py-2">
@@ -158,16 +301,6 @@ export function SubagentThreadsPanel(props: {
       </div>
     </section>
   );
-}
-
-function statusLabel(status: SubagentThread["status"]): string {
-  if (status === "running") {
-    return "Running";
-  }
-  if (status === "failed") {
-    return "Failed";
-  }
-  return "Completed";
 }
 
 export function SubagentWorkspacePanel(props: {
@@ -193,11 +326,17 @@ export function SubagentWorkspacePanel(props: {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/60 px-5">
-        <StatusIcon status={activeThread.status} />
+        <SubagentPersonaIcon
+          className="size-7"
+          status={activeThread.status}
+          thread={activeThread}
+        />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-medium">{activeThread.label}</h2>
-          {activeThread.model ? (
-            <p className="truncate text-xs text-muted-foreground">{activeThread.model}</p>
+          {formatSubagentSubtitle(activeThread) ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {formatSubagentSubtitle(activeThread)}
+            </p>
           ) : null}
         </div>
         <span
