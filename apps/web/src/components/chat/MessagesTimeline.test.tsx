@@ -3400,7 +3400,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
-  it("shows assistant copy and fork actions for completed responses when global working state is stale", async () => {
+  it("hides assistant copy and fork actions for completed responses without elapsed timing", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -3443,9 +3443,9 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
 
     expect(markup).toContain("Completed assistant response.");
-    expect(markup).toContain('data-assistant-turn-copy-action="true"');
-    expect(markup).toContain('aria-label="Copy message"');
-    expect(markup).toContain('aria-label="Fork conversation"');
+    expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).not.toContain('aria-label="Copy message"');
+    expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
   it("does not require a provider slash command to render the fork action", async () => {

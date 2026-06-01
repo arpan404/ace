@@ -544,13 +544,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
-      const shouldShowAssistantTurnActions =
-        !row.message.streaming &&
-        row.message.completedAt !== undefined &&
-        row.message.completedAt !== null;
-      const copyText = shouldShowAssistantTurnActions
-        ? collectVisibleAssistantTurnCopyText(rows, index)
-        : null;
       const timing = resolveAssistantTurnTiming({
         completedAt: row.message.completedAt ?? null,
         durationStart: row.durationStart,
@@ -558,6 +551,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         showCompletedTiming: row.showAssistantTiming ?? false,
         timestampFormat,
       });
+      const shouldShowAssistantTurnActions =
+        timing !== null &&
+        !row.message.streaming &&
+        row.message.completedAt !== undefined &&
+        row.message.completedAt !== null;
+      const copyText = shouldShowAssistantTurnActions
+        ? collectVisibleAssistantTurnCopyText(rows, index)
+        : null;
       const onForkConversationForRow =
         shouldShowAssistantTurnActions &&
         supportsForkConversation &&
