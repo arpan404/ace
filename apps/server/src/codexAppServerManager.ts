@@ -2228,10 +2228,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!record) {
       return params;
     }
+    const existingAce = this.readObject(record, "ace");
     return {
       ...record,
       ace: {
-        ...(this.readObject(record, "ace") ?? {}),
+        ...existingAce,
         parentTurnId,
         childProviderThreadId: this.readProviderConversationId(params),
       },

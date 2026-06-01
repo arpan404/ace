@@ -1098,13 +1098,12 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "thread/goal/cleared") {
+    const providerThreadId = asString(payload?.threadId);
     return [
       {
         type: "thread.goal.cleared",
         ...runtimeEventBase(event, canonicalThreadId),
-        payload: {
-          ...(asString(payload?.threadId) ? { providerThreadId: asString(payload?.threadId) } : {}),
-        },
+        payload: providerThreadId ? { providerThreadId } : {},
       },
     ];
   }

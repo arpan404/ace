@@ -1,0 +1,148 @@
+import { BotIcon, CheckCircle2Icon, Clock3Icon, MessageSquareIcon } from "lucide-react";
+import { useMemo } from "react";
+
+import type { WorkLogEntry } from "../../session-logic/types";
+import { cn } from "../../lib/utils";
+
+interface SubagentThread {
+  readonly id: string;
+  readonly label: string;
+  readonly model?: string;
+  readonly status: "running" | "completed" | "failed";
+  readonly entries: ReadonlyArray<WorkLogEntry>;
+}
+
+function formatSubagentLabel(value: string | undefined): string | null {
+  const normalized = value?.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized
+    .split(" ")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function subagentThreadKey(entry: WorkLogEntry): string | null {
+  return entry.subagentId ?? entry.subagentName ?? entry.subagentType ?? null;
+}
+
+function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThread["status"] {
+  if (entries.some((entry) => entry.status === "failed" || entry.tone === "error")) {
+    return "failed";
+  }
+  if (entries.some((entry) => entry.status === "inProgress")) {
+    return "running";
+  }
+  return "completed";
+}
+
+function deriveSubagentThreads(entries: ReadonlyArray<WorkLogEntry>): SubagentThread[] {
+  const grouped = new Map<string, WorkLogEntry[]>();
+  for (const entry of entries) {
+    const key = subagentThreadKey(entry);
+    if (!key) {
+      continue;
+    }
+    const group = grouped.get(key);
+    if (group) {
+      group.push(entry);
+    } else {
+      grouped.set(key, [entry]);
+    }
+  }
+
+  return [...grouped.entries()]
+    .map(([id, group]) => {
+      const first = group[0];
+      const label =
+        formatSubagentLabel(first?.subagentName) ??
+        formatSubagentLabel(first?.subagentType) ??
+        formatSubagentLabel(id) ??
+        "Subagent";
+      return {
+        id,
+        label,
+        ...(first?.subagentModel ? { model: first.subagentModel } : {}),
+        status: resolveThreadStatus(group),
+        entries: group.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
+      };
+    })
+    .toSorted((left, right) => {
+      const leftLast = left.entries.at(-1)?.createdAt ?? "";
+      const rightLast = right.entries.at(-1)?.createdAt ?? "";
+      return rightLast.localeCompare(leftLast);
+    });
+}
+
+function StatusIcon(props: { status: SubagentThread["status"] }) {
+  if (props.status === "running") {
+    return <Clock3Icon className="size-3.5 text-sky-500" />;
+  }
+  if (props.status === "failed") {
+    return <MessageSquareIcon className="size-3.5 text-destructive" />;
+  }
+  return <CheckCircle2Icon className="size-3.5 text-emerald-500" />;
+}
+
+export function SubagentThreadsPanel(props: { workEntries: ReadonlyArray<WorkLogEntry> }) {
+  const threads = useMemo(() => deriveSubagentThreads(props.workEntries), [props.workEntries]);
+
+  if (threads.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="flex max-h-[45%] min-h-40 shrink-0 flex-col border-t border-border/70 bg-background">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+        <BotIcon className="size-4 text-muted-foreground" />
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium">Subagents</h2>
+        <span className="text-xs tabular-nums text-muted-foreground">{threads.length}</span>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div className="space-y-2">
+          {threads.map((thread) => (
+            <article
+              key={thread.id}
+              className="overflow-hidden rounded-md border border-border/70 bg-card"
+            >
+              <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+                <StatusIcon status={thread.status} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium">{thread.label}</div>
+                  {thread.model ? (
+                    <div className="truncate text-[11px] text-muted-foreground">{thread.model}</div>
+                  ) : null}
+                </div>
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-normal",
+                    thread.status === "running" && "bg-sky-500/12 text-sky-600",
+                    thread.status === "completed" && "bg-emerald-500/12 text-emerald-600",
+                    thread.status === "failed" && "bg-destructive/12 text-destructive",
+                  )}
+                >
+                  {thread.status}
+                </span>
+              </div>
+              <div className="max-h-72 overflow-y-auto px-3 py-2">
+                <ol className="space-y-2">
+                  {thread.entries.map((entry) => (
+                    <li key={entry.id} className="border-l border-border/70 pl-2.5">
+                      <div className="truncate text-xs font-medium">{entry.label}</div>
+                      {entry.detail ? (
+                        <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[11px] leading-4 text-muted-foreground">
+                          {entry.detail}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

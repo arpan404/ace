@@ -1652,6 +1652,9 @@ function runtimeEventToActivities(
     }
 
     case "thread.goal.cleared": {
+      const payload = event.payload.providerThreadId
+        ? { providerThreadId: event.payload.providerThreadId }
+        : {};
       return [
         {
           id: event.eventId,
@@ -1659,11 +1662,7 @@ function runtimeEventToActivities(
           tone: "info",
           kind: "goal.cleared",
           summary: "Goal cleared",
-          payload: {
-            ...(event.payload.providerThreadId
-              ? { providerThreadId: event.payload.providerThreadId }
-              : {}),
-          },
+          payload,
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },

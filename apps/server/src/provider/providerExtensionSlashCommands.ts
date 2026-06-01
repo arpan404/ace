@@ -357,9 +357,10 @@ function discoverSkillRootSlashCommands(input: {
     input.roots
       .filter((root): root is string => Boolean(root))
       .flatMap((root) =>
-        readSkillRoot(root, {
-          ...(input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {}),
-        }),
+        readSkillRoot(
+          root,
+          input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {},
+        ),
       ),
   );
 }

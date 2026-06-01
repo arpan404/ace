@@ -217,6 +217,7 @@ import {
   type InAppBrowserMode,
 } from "./InAppBrowser";
 import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
+import { SubagentThreadsPanel } from "./chat/SubagentThreadsPanel";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
 import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
@@ -8846,24 +8847,29 @@ function useChatViewComponent({
                           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                         >
                           {activeRightSidePanelMode === "summary" ? (
-                            <PlanSummaryPanel
-                              activePlan={activePlan}
-                              activeProposedPlan={sidebarProposedPlan}
-                              generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
-                              activeProvider={activeThread?.session?.provider ?? null}
-                              markdownCwd={gitCwd ?? undefined}
-                              onOpenDiffPanel={
-                                isGitRepo ? () => setRightSidePanelMode("diff") : null
-                              }
-                              onRegenerateSummary={handleRegenerateSummary}
-                              onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                              onOpenFilePath={
-                                canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
-                              }
-                              enableLocalFileLinks={canOpenLocalMarkdownFiles}
-                              workspaceDiffSummary={workspaceDiffSummary}
-                              workspaceRoot={activeProject?.cwd ?? undefined}
-                            />
+                            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                              <div className="min-h-0 flex-1 overflow-hidden">
+                                <PlanSummaryPanel
+                                  activePlan={activePlan}
+                                  activeProposedPlan={sidebarProposedPlan}
+                                  generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                                  activeProvider={activeThread?.session?.provider ?? null}
+                                  markdownCwd={gitCwd ?? undefined}
+                                  onOpenDiffPanel={
+                                    isGitRepo ? () => setRightSidePanelMode("diff") : null
+                                  }
+                                  onRegenerateSummary={handleRegenerateSummary}
+                                  onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                                  onOpenFilePath={
+                                    canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                                  }
+                                  enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                                  workspaceDiffSummary={workspaceDiffSummary}
+                                  workspaceRoot={activeProject?.cwd ?? undefined}
+                                />
+                              </div>
+                              <SubagentThreadsPanel workEntries={timelineWorkEntries} />
+                            </div>
                           ) : activeRightSidePanelMode === "diff" ? (
                             <LocalDiffPanel
                               threadId={activeThread.id}
