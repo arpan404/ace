@@ -27,6 +27,8 @@ export interface DefaultBranchActionDialogCopy {
   continueLabel: string;
 }
 
+const COMMIT_PUSH_LABEL = "Commit & Push";
+
 export type DefaultBranchConfirmableAction =
   | "push"
   | "create_pr"
@@ -171,15 +173,7 @@ export function resolveQuickAction(
     if (!gitStatus.hasUpstream && !hasOriginRemote) {
       return { label: "Commit", disabled: false, kind: "run_action", action: "commit" };
     }
-    if (hasOpenPr || isDefaultBranch) {
-      return { label: "Commit & push", disabled: false, kind: "run_action", action: "commit_push" };
-    }
-    return {
-      label: "Commit, push & PR",
-      disabled: false,
-      kind: "run_action",
-      action: "commit_push_pr",
-    };
+    return { label: COMMIT_PUSH_LABEL, disabled: false, kind: "run_action", action: "commit_push" };
   }
 
   if (!gitStatus.hasUpstream) {
@@ -207,17 +201,17 @@ export function resolveQuickAction(
     }
     if (hasOpenPr || isDefaultBranch) {
       return {
-        label: "Push",
+        label: COMMIT_PUSH_LABEL,
         disabled: false,
         kind: "run_action",
-        action: isDefaultBranch ? "commit_push" : "push",
+        action: "commit_push",
       };
     }
     return {
-      label: "Push & create PR",
+      label: COMMIT_PUSH_LABEL,
       disabled: false,
       kind: "run_action",
-      action: "create_pr",
+      action: "commit_push",
     };
   }
 
@@ -241,17 +235,17 @@ export function resolveQuickAction(
   if (isAhead) {
     if (hasOpenPr || isDefaultBranch) {
       return {
-        label: "Push",
+        label: COMMIT_PUSH_LABEL,
         disabled: false,
         kind: "run_action",
-        action: isDefaultBranch ? "commit_push" : "push",
+        action: "commit_push",
       };
     }
     return {
-      label: "Push & create PR",
+      label: COMMIT_PUSH_LABEL,
       disabled: false,
       kind: "run_action",
-      action: "create_pr",
+      action: "commit_push",
     };
   }
 
