@@ -395,12 +395,10 @@ export function buildCollapsedProposedPlanPreviewMarkdown(
     .map((line) => line.trimEnd());
   const previewLines: string[] = [];
   let visibleLineCount = 0;
-  let hasMoreContent = false;
 
   for (const line of lines) {
     const isVisibleLine = line.trim().length > 0;
     if (isVisibleLine && visibleLineCount >= maxLines) {
-      hasMoreContent = true;
       break;
     }
     previewLines.push(line);
@@ -415,10 +413,6 @@ export function buildCollapsedProposedPlanPreviewMarkdown(
 
   if (previewLines.length === 0) {
     return proposedPlanTitle(planMarkdown) ?? "Plan preview unavailable.";
-  }
-
-  if (hasMoreContent) {
-    previewLines.push("", "...");
   }
 
   return previewLines.join("\n");

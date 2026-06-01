@@ -67,12 +67,12 @@ describe("buildCollapsedProposedPlanPreviewMarkdown", () => {
     ).toBe("- step 1\n- step 2");
   });
 
-  it("appends an overflow marker when the preview truncates remaining content", () => {
+  it("omits the overflow marker because the card uses a fade affordance", () => {
     expect(
       buildCollapsedProposedPlanPreviewMarkdown("# Integrate RPC\n\n- step 1\n- step 2\n- step 3", {
         maxLines: 2,
       }),
-    ).toBe("- step 1\n- step 2\n\n...");
+    ).toBe("- step 1\n- step 2");
   });
 });
 

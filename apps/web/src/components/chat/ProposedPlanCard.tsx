@@ -19,7 +19,6 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
-import { cn } from "~/lib/utils";
 import {
   Dialog,
   DialogDescription,
@@ -170,7 +169,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
         </Menu>
       </div>
       <div className="px-3 py-2">
-        <div className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}>
+        <div className="relative">
           {canCollapse && !expanded ? (
             <ChatMarkdown
               text={collapsedPreview ?? ""}
@@ -193,7 +192,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             />
           )}
           {canCollapse && !expanded ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-background via-background/95 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-background via-background/82 to-transparent" />
           ) : null}
         </div>
         {canCollapse ? (
@@ -201,14 +200,20 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             <Button
               size="xs"
               variant="ghost"
-              className="h-6 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/68 hover:bg-foreground/[0.045] hover:text-foreground"
+              className="group h-6 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/68 hover:bg-transparent hover:text-foreground/90 active:bg-transparent"
               data-scroll-anchor-ignore
               onClick={() => setExpanded((value) => !value)}
             >
               {expanded ? (
-                <ChevronDownIcon aria-hidden="true" className="mr-1 size-3" />
+                <ChevronDownIcon
+                  aria-hidden="true"
+                  className="mr-1 size-3 text-muted-foreground/68 transition-colors group-hover:text-foreground/85"
+                />
               ) : (
-                <ChevronRightIcon aria-hidden="true" className="mr-1 size-3" />
+                <ChevronRightIcon
+                  aria-hidden="true"
+                  className="mr-1 size-3 text-muted-foreground/68 transition-colors group-hover:text-foreground/85"
+                />
               )}
               {expanded ? "Collapse plan" : "Expand plan"}
             </Button>
