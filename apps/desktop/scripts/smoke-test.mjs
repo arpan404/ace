@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,13 +11,20 @@ const mainJs = resolve(desktopDir, "dist-electron/main.js");
 
 console.log("\nLaunching Electron smoke test...");
 
+const childEnv = {
+  ...process.env,
+  ACE_HOME: mkdtempSync(resolve(tmpdir(), "ace-smoke-data-")),
+  ACE_LOCAL_DESKTOP_RUN: "1",
+  ELECTRON_ENABLE_LOGGING: "1",
+  HOME: mkdtempSync(resolve(tmpdir(), "ace-smoke-home-")),
+};
+delete childEnv.ELECTRON_RUN_AS_NODE;
+delete childEnv.VITE_DEV_SERVER_URL;
+
+let timedOut = false;
 const child = spawn(electronBin, [mainJs], {
   stdio: ["pipe", "pipe", "pipe"],
-  env: {
-    ...process.env,
-    VITE_DEV_SERVER_URL: "",
-    ELECTRON_ENABLE_LOGGING: "1",
-  },
+  env: childEnv,
 });
 
 let output = "";
@@ -27,21 +36,27 @@ child.stderr.on("data", (chunk) => {
 });
 
 const timeout = setTimeout(() => {
+  timedOut = true;
   child.kill();
 }, 8_000);
 
-child.on("exit", () => {
+child.on("exit", (code, signal) => {
   clearTimeout(timeout);
 
   const fatalPatterns = [
     "Cannot find module",
+    "ConfigError:",
     "MODULE_NOT_FOUND",
     "Refused to execute",
+    "TypeError:",
     "Uncaught Error",
     "Uncaught TypeError",
     "Uncaught ReferenceError",
   ];
   const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
+  if (!timedOut && code !== 0) {
+    failures.push(`unexpected exit code ${String(code)} signal ${String(signal)}`);
+  }
 
   if (failures.length > 0) {
     console.error("\nDesktop smoke test failed:");

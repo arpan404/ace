@@ -40,6 +40,7 @@ export type BrowserWebview = HTMLElement & {
   capturePage?: (rect?: BrowserDesignSelectionRect) => Promise<BrowserCapturedImage>;
   closeDevTools: () => void;
   executeJavaScript?: <T = unknown>(code: string, userGesture?: boolean) => Promise<T>;
+  findInPage?: (query: string, options?: BrowserFindOptions) => number;
   getTitle: () => string;
   getURL: () => string;
   goBack: () => void;
@@ -54,6 +55,7 @@ export type BrowserWebview = HTMLElement & {
   ) => void;
   getZoomFactor?: () => number;
   setZoomFactor?: (factor: number) => void;
+  stopFindInPage?: (action: "activateSelection" | "clearSelection" | "keepSelection") => void;
   stop: () => void;
 };
 
@@ -118,6 +120,18 @@ export type BrowserTabRuntimeState = {
   loading: boolean;
 };
 
+export type BrowserFindOptions = {
+  findNext?: boolean;
+  forward?: boolean;
+  matchCase?: boolean;
+};
+
+export type BrowserFindResult = {
+  activeMatchOrdinal: number;
+  finalUpdate: boolean;
+  matches: number;
+};
+
 export type BrowserTabSnapshot = BrowserTabRuntimeState & {
   title: string;
   url: string;
@@ -141,6 +155,7 @@ export type BrowserTabHandle = {
   clearAgentPointer: () => void;
   closeDevTools: () => void;
   executeJavaScript: <T = unknown>(code: string) => Promise<T>;
+  findInPage: (query: string, options?: BrowserFindOptions) => void;
   getZoomFactor: () => number;
   getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
@@ -156,6 +171,7 @@ export type BrowserTabHandle = {
   reload: () => void;
   pressKeys: (keys: ReadonlyArray<string>) => Promise<void>;
   setZoomFactor: (factor: number) => void;
+  stopFindInPage: (action?: "activateSelection" | "clearSelection" | "keepSelection") => void;
   stop: () => void;
   zoomIn: () => void;
   zoomOut: () => void;

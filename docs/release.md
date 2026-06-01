@@ -2,6 +2,81 @@
 
 This document covers how to run desktop releases from one tag, first without signing, then with signing.
 
+## Fast path: local signed desktop release
+
+Use this when you want to build every desktop asset locally and publish a GitHub
+Release through `gh`.
+
+Prerequisites:
+
+- macOS host.
+- Docker Desktop running.
+- `gh auth status` succeeds for the target repository.
+- `.env.local` exists at the repo root. Start from `.env.local.example`.
+- The working tree is clean except ignored generated release output.
+
+Build all release assets without publishing:
+
+```bash
+bun run dist:desktop:all -- --tag vX.Y.Z --create-tag
+```
+
+Publish the release with generated changelog notes:
+
+```bash
+bun run release -- --tag vX.Y.Z
+```
+
+Generate notes against an explicit previous tag:
+
+```bash
+bun run release -- --tag vX.Y.Z --previous-tag vA.B.C
+```
+
+Reuse already-built assets after an upload failure:
+
+```bash
+bun run release:desktop:local -- --tag vX.Y.Z --skip-build --publish
+```
+
+The publish command creates or updates the GitHub Release for the tag, uploads
+the files from `release-local/publish`, and writes notes containing `What's
+Changed`, release-prep commits, and a full changelog link.
+
+## Required local `.env.local`
+
+Copy `.env.local.example` to `.env.local` and fill in the real values. The local
+release script loads this file automatically and does not print secret values.
+
+Minimum macOS signing/notarization values:
+
+```dotenv
+ACE_DESKTOP_UPDATE_REPOSITORY=owner/repo
+ACE_DESKTOP_SIGNED=true
+
+CSC_LINK=base64-encoded-developer-id-application-p12
+CSC_KEY_PASSWORD=p12-export-password
+
+APPLE_API_KEY=/absolute/path/to/AuthKey_KEYID.p8
+APPLE_API_KEY_ID=KEYID
+APPLE_API_ISSUER=issuer-id-uuid
+
+# Optional metadata for consistent local/CI logs.
+APPLE_TEAM_ID=TEAMID1234
+ACE_DESKTOP_MAC_TEAM_ID=TEAMID1234
+```
+
+Windows signing is optional. If Azure Trusted Signing values are absent, the
+local script still builds Windows installers, but they are not Authenticode
+signed.
+
+Important macOS signing rule:
+
+- Do not add App Group or keychain access group entitlements to Developer ID
+  builds unless a matching provisioning profile is packaged. The fixed release
+  path uses Electron Builder's default hardened-runtime entitlements and
+  notarization.
+
 ## What the release tooling does
 
 - Trigger: push tag matching `v*.*.*`.
@@ -41,6 +116,29 @@ This document covers how to run desktop releases from one tag, first without sig
 - macOS metadata note:
   - `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon.
   - The workflow merges the per-arch mac manifests into one `latest-mac.yml` before publishing the GitHub Release.
+
+## Desktop browser authentication notes
+
+- macOS Developer ID builds must not add App Group or keychain access group
+  entitlements unless the app is also packaged with a matching provisioning
+  profile. The release build intentionally uses Electron Builder's default
+  hardened-runtime entitlements for notarized Developer ID distribution.
+- `APPLE_TEAM_ID` and `ACE_DESKTOP_MAC_TEAM_ID` are optional local metadata
+  values. They are useful for keeping local and CI signing logs consistent, but
+  they are not required for the fixed Developer ID release path.
+- Windows and Linux builds do not need a signing-time WebAuthn entitlement. The
+  in-app browser uses Chromium's platform WebAuthn path where available and
+  provides runtime selection dialogs for discoverable credentials, HID devices,
+  USB devices, and serial ports.
+- The browser session removes Electron/app tokens from its user agent and exposes
+  a same-session sign-in window for auth pages. That window uses the same
+  persistent browser partition as embedded tabs, so successful auth can flow back
+  through shared cookies and storage without opening the user's default browser.
+- Browser-extension-only password managers are best-effort in Electron. The app
+  auto-discovers known unpacked Chromium password-manager extensions from local
+  profiles and also accepts explicit directories with
+  `ACE_DESKTOP_BROWSER_EXTENSION_DIRS`, but Electron supports only a subset of
+  extension APIs and does not run Safari extensions.
 
 ## 0) npm OIDC trusted publishing setup (CLI)
 
@@ -109,33 +207,35 @@ Prerequisites:
 - macOS host for DMG/ZIP packaging.
 - Docker Desktop with `linux/amd64` support.
 - `gh` authenticated with `repo` scope.
-- `.env.local` at the repo root with macOS signing/notarization values:
+- `.env.local` at the repo root. Start from `.env.local.example` and fill in
+  macOS signing/notarization values:
   - `ACE_DESKTOP_SIGNED=true`
   - `CSC_LINK` and `CSC_KEY_PASSWORD`, or `CSC_NAME` for an installed Developer ID identity
   - `APPLE_API_KEY` as a local path to the `.p8` file, plus `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`
+  - optionally `APPLE_TEAM_ID` and `ACE_DESKTOP_MAC_TEAM_ID` for Apple log consistency
 - A clean working tree, except ignored/generated release output.
 - The release tag must point at `HEAD`, or pass `--create-tag` to create it.
 
 Dry-run build without publishing:
 
 ```bash
-bun run release:desktop:local -- --tag v0.2.0 --create-tag
+bun run dist:desktop:all -- --tag v0.2.0 --create-tag
 ```
 
 Publish the release after local artifacts are built:
 
 ```bash
-bun run release:desktop:local -- --tag v0.2.0 --publish
+bun run release -- --tag v0.2.0
 ```
 
 Useful options:
 
 ```bash
-bun run release:desktop:local -- --tag v0.2.0 --previous-tag v0.2.0-beta --publish
-bun run release:desktop:local -- --tag v0.2.0 --output-dir release-v0.2.0
-bun run release:desktop:local -- --tag v0.2.0 --skip-build
-bun run release:desktop:local -- --tag v0.2.0 --skip-gates
-bun run release:desktop:local -- --tag v0.2.0 --allow-dirty
+bun run release -- --tag v0.2.0 --previous-tag v0.2.0-beta
+bun run dist:desktop:all -- --tag v0.2.0 --output-dir release-v0.2.0
+bun run release:desktop:local -- --tag v0.2.0 --skip-build --publish
+bun run release:desktop:local -- --tag v0.2.0 --skip-gates --publish
+bun run release:desktop:local -- --tag v0.2.0 --allow-dirty --publish
 ```
 
 What the script does:
@@ -177,6 +277,24 @@ Local release caveats:
 - Windows artifacts built without Azure Trusted Signing credentials are not authenticode-signed.
 - Docker builds use named volumes for platform-specific `node_modules`; remove those volumes if dependency state needs a completely fresh rebuild.
 
+## Local release command quick reference
+
+```bash
+# Build every desktop asset locally without publishing.
+bun run dist:desktop:all -- --tag vX.Y.Z --create-tag
+
+# Publish every locally built desktop asset to GitHub Releases with generated
+# changelog notes. This also builds first unless --skip-build is passed.
+bun run release -- --tag vX.Y.Z
+
+# Re-upload existing output after a failed release upload.
+bun run release:desktop:local -- --tag vX.Y.Z --skip-build --publish
+```
+
+The publish command uses `gh release create` or `gh release edit` plus
+`gh release upload --clobber`, and writes release notes with `What's Changed`,
+release-prep commits, and a full changelog link.
+
 ## 2) Apple signing + notarization setup (macOS)
 
 Required secrets used by the workflow:
@@ -186,6 +304,7 @@ Required secrets used by the workflow:
 - `APPLE_API_KEY`
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
+- `APPLE_TEAM_ID`
 
 Checklist:
 
@@ -195,12 +314,14 @@ Checklist:
 3. Export certificate + private key as `.p12` from Keychain.
 4. Base64-encode the `.p12` and store as `CSC_LINK`.
 5. Store the `.p12` export password as `CSC_KEY_PASSWORD`.
-6. In App Store Connect, create an API key (Team key).
-7. Add API key values:
+6. Optionally record the Apple Developer Team ID as `APPLE_TEAM_ID` and
+   `ACE_DESKTOP_MAC_TEAM_ID` for consistent local/CI signing logs.
+7. In App Store Connect, create an API key (Team key).
+8. Add API key values:
    - `APPLE_API_KEY`: contents of the downloaded `.p8`
    - `APPLE_API_KEY_ID`: Key ID
    - `APPLE_API_ISSUER`: Issuer ID
-8. Re-run a tag release and confirm macOS artifacts are signed/notarized.
+9. Re-run a tag release and confirm macOS artifacts are signed/notarized.
 
 Notes:
 

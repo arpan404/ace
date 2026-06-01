@@ -225,8 +225,10 @@ import {
 } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
 const SPLIT_REVEAL_STEP = 5;
-const SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX = 32;
+const SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX = 28;
 const SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX = 28;
+const SIDEBAR_PROJECT_AUXILIARY_ROW_ESTIMATE_PX = 24;
+const SIDEBAR_PROJECT_CHILD_ROW_GAP_PX = 2;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
 const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
@@ -831,23 +833,64 @@ function sidebarAuxUiStateReducer(
   }
 }
 
+function estimateSidebarProjectChildRows(
+  threadRowCount: number,
+  auxiliaryRowCount: number,
+): number {
+  const childRowCount = threadRowCount + auxiliaryRowCount;
+  if (childRowCount === 0) {
+    return 0;
+  }
+  return (
+    threadRowCount * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX +
+    auxiliaryRowCount * SIDEBAR_PROJECT_AUXILIARY_ROW_ESTIMATE_PX +
+    (childRowCount - 1) * SIDEBAR_PROJECT_CHILD_ROW_GAP_PX
+  );
+}
+
 function estimateSidebarProjectListItemSize(item: SidebarProjectListItem | undefined): number {
   if (!item) {
-    return SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX;
+    return SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX;
   }
   if (item.kind === "local") {
     return (
-      SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX +
-      item.renderedThreadCount * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX +
-      item.auxiliaryRowCount * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX
+      SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX +
+      estimateSidebarProjectChildRows(item.renderedThreadCount, item.auxiliaryRowCount)
     );
   }
+  const remoteAuxiliaryRowCount =
+    item.renderedProject.projectExpanded && item.renderedProject.visibleThreads.length === 0
+      ? 1
+      : 0;
   return (
-    SIDEBAR_PROJECT_ROW_BASE_ESTIMATE_PX +
-    item.renderedProject.visibleThreads.length * SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX +
-    (item.renderedProject.hasHiddenThreads ? SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX : 0) +
-    (item.renderedProject.canCollapseThreadList ? SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX : 0)
+    SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX +
+    estimateSidebarProjectChildRows(
+      item.renderedProject.visibleThreads.length,
+      remoteAuxiliaryRowCount +
+        (item.renderedProject.hasHiddenThreads ? 1 : 0) +
+        (item.renderedProject.canCollapseThreadList ? 1 : 0),
+    )
   );
+}
+
+function getSidebarProjectListItemLayoutSignature(item: SidebarProjectListItem): string {
+  if (item.kind === "local") {
+    return [
+      item.key,
+      "local",
+      item.sortable ? "sortable" : "static",
+      item.renderedThreadCount,
+      item.auxiliaryRowCount,
+    ].join(":");
+  }
+  return [
+    item.key,
+    "remote",
+    item.renderedProject.projectExpanded ? "expanded" : "collapsed",
+    item.renderedProject.visibleThreads.length,
+    item.renderedProject.hasHiddenThreads ? 1 : 0,
+    item.renderedProject.canCollapseThreadList ? 1 : 0,
+  ].join(":");
 }
 
 function getVirtualProjectRowStyle(virtualRow: VirtualItem, scrollMargin: number): CSSProperties {
@@ -5106,6 +5149,10 @@ function useSidebarComponent() {
     renderedRemoteProjects,
     unifiedRenderedProjects,
   ]);
+  const sidebarProjectListLayoutSignature = useMemo(
+    () => sidebarProjectListItems.map(getSidebarProjectListItemLayoutSignature).join("|"),
+    [sidebarProjectListItems],
+  );
   const sidebarProjectListVirtualizer = useVirtualizer({
     count: projectsSectionExpanded ? sidebarProjectListItems.length : 0,
     estimateSize: (index) => estimateSidebarProjectListItemSize(sidebarProjectListItems[index]),
@@ -5199,11 +5246,9 @@ function useSidebarComponent() {
     sidebarProjectListVirtualizer.measure();
   }, [
     projectsSectionExpanded,
-    sidebarProjectListItems,
+    sidebarProjectListLayoutSignature,
     sidebarProjectListScrollMargin,
     sidebarProjectListVirtualizer,
-    sidebarProjectSortOrder,
-    sidebarThreadSortOrder,
   ]);
 
   const hasExpandedVisibleProjects = useMemo(
@@ -6926,9 +6971,9 @@ function useSidebarComponent() {
             </div>
           </SidebarGroup>
           <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
-            <div ref={sidebarProjectListOffsetSourceRef} className="flex min-h-0 flex-col">
+            <div ref={sidebarProjectListOffsetSourceRef} className="flex shrink-0 flex-col">
               {sortedRenderedPinnedItems.length > 0 ? (
-                <SidebarGroup className="px-2.5 pt-5 pb-2">
+                <SidebarGroup className="shrink-0 px-2.5 pt-5 pb-2">
                   <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
                     <button
                       type="button"
@@ -7069,7 +7114,7 @@ function useSidebarComponent() {
                 onSplitSortOrderChange={setSplitSortOrder}
               />
             ) : null}
-            <SidebarGroup className="px-2.5 pt-2.5 pb-5">
+            <SidebarGroup className="shrink-0 px-2.5 pt-2.5 pb-5">
               <SidebarProjectsSectionHeader
                 addProjectShortcutLabel={addProjectShortcutLabel}
                 canCollapseVisibleProjects={canCollapseVisibleProjects}

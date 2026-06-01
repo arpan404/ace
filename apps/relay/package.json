@@ -1,12 +1,12 @@
 {
   "name": "@ace/relay",
-  "version": "0.2.3",
+  "version": "0.2.7",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "bun run src/server.ts",
     "start": "bun run src/server.ts",
-    "typecheck": "bun x tsc --noEmit"
+    "typecheck": "node node_modules/.bin/tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "catalog:",

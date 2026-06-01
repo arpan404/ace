@@ -1,4 +1,4 @@
-import { MessageId } from "@ace/contracts";
+import { MessageId, type OrchestrationProposedPlanId } from "@ace/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -2332,8 +2332,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
-    expect(markup).toContain("Collapse all");
-    expect(markup).not.toContain("Expand all");
+    expect(markup).toContain("Expand all");
+    expect(markup).not.toContain("Collapse all");
     expect(markup).toContain('aria-label="Copy message"');
     expect(markup.indexOf("bun lint")).toBeLessThan(
       markup.indexOf("Updated the timeline rendering."),
@@ -2344,6 +2344,69 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup.indexOf("Changed files (2)")).toBeLessThan(
       markup.indexOf('data-response-summary="true"'),
     );
+  });
+
+  it("hides raw proposed-plan markers and renders the plan as a timeline panel", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-plan-marker",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-plan-marker"),
+              role: "assistant",
+              text: "<!--ACE_PROPOSED_PLAN",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "plan-rendering",
+            kind: "proposed-plan",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            proposedPlan: {
+              id: "plan-rendering" as OrchestrationProposedPlanId,
+              createdAt: "2026-03-17T19:12:33.000Z",
+              updatedAt: "2026-03-17T19:12:33.000Z",
+              turnId: null,
+              planMarkdown:
+                "<!--ACE_PROPOSED_PLAN_START\n>#Proposed Plan\n\n1.Define SLOs.\n2.Add observability.\n<!--ACE_PROPOSED_PLAN_END",
+              implementedAt: null,
+              implementationThreadId: null,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-proposed-plan-thread="true"');
+    expect(markup).toContain("Proposed Plan");
+    expect(markup).toContain("1. Define SLOs.");
+    expect(markup).not.toContain("ACE_PROPOSED_PLAN");
+    expect(markup).not.toContain('data-message-id="assistant-plan-marker"');
   });
 
   it("shows compact changed-files actions with assistant revert when available", async () => {
@@ -2413,7 +2476,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('aria-label="Revert changes"');
     expect(markup).not.toContain(">Revert</button>");
     expect(markup).toContain("View diff");
-    expect(markup).toContain('aria-label="Collapse all"');
+    expect(markup).toContain('aria-label="Expand all"');
     expect(markup).not.toContain("<span>Collapse all</span>");
   });
 
@@ -3335,6 +3398,117 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       markup.indexOf('aria-label="Fork conversation"'),
     );
     expect(markup).toContain('data-variant="ghost"');
+  });
+
+  it("hides assistant copy and fork actions while the assistant is working", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-working-actions-hidden");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-working-actions-hidden",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-working-actions-hidden"),
+              role: "assistant",
+              turnId,
+              text: "Partial assistant response.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              streaming: true,
+            },
+          },
+          {
+            id: "work-after-active-assistant",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "work-after-active-assistant",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Edit file",
+              toolTitle: "Edit file",
+              tone: "tool",
+              requestKind: "file-change",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Partial assistant response.");
+    expect(markup).toContain("Edit file");
+    expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).not.toContain('aria-label="Copy message"');
+    expect(markup).not.toContain('aria-label="Fork conversation"');
+  });
+
+  it("hides assistant copy and fork actions for completed responses without elapsed timing", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-complete-actions-visible",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-complete-actions-visible"),
+              role: "assistant",
+              text: "Completed assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Completed assistant response.");
+    expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).not.toContain('aria-label="Copy message"');
+    expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
   it("does not require a provider slash command to render the fork action", async () => {

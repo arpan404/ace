@@ -1,16 +1,16 @@
 {
   "name": "@ace/mobile",
-  "version": "0.2.3",
+  "version": "0.2.7",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "expo start --clear --port 0",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "build": "expo export --platform all",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "dev": "node node_modules/.bin/expo start --clear --port 0",
+    "android": "node node_modules/.bin/expo start --android",
+    "ios": "node node_modules/.bin/expo start --ios",
+    "web": "node node_modules/.bin/expo start --web",
+    "build": "node node_modules/.bin/expo export --platform all",
+    "typecheck": "node node_modules/.bin/tsc --noEmit",
+    "test": "node node_modules/.bin/vitest run"
   },
   "dependencies": {
     "@ace/contracts": "workspace:*",

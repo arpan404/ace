@@ -47,8 +47,11 @@ import {
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
   Clock3Icon,
   EyeIcon,
+  FileDiffIcon,
   GlobeIcon,
   HammerIcon,
   SplitIcon,
@@ -119,7 +122,7 @@ const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
-const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = true;
+const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
@@ -544,7 +547,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
-      const copyText = collectVisibleAssistantTurnCopyText(rows, index);
       const timing = resolveAssistantTurnTiming({
         completedAt: row.message.completedAt ?? null,
         durationStart: row.durationStart,
@@ -552,8 +554,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         showCompletedTiming: row.showAssistantTiming ?? false,
         timestampFormat,
       });
+      const shouldShowAssistantTurnActions =
+        timing !== null &&
+        !row.message.streaming &&
+        row.message.completedAt !== undefined &&
+        row.message.completedAt !== null;
+      const copyText = shouldShowAssistantTurnActions
+        ? collectVisibleAssistantTurnCopyText(rows, index)
+        : null;
       const onForkConversationForRow =
-        supportsForkConversation && String(row.message.id) === latestForkableAssistantMessageId
+        shouldShowAssistantTurnActions &&
+        supportsForkConversation &&
+        String(row.message.id) === latestForkableAssistantMessageId
           ? onForkConversation
           : null;
       if (!copyText && !timing && !onForkConversationForRow) {
@@ -3152,6 +3164,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           className="h-5 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/62 hover:bg-foreground/[0.045] hover:text-foreground"
           onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
         >
+          <FileDiffIcon aria-hidden="true" className="mr-1 size-3.5" />
           View diff
         </Button>
         {hasRightActions && (
@@ -3193,13 +3206,11 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                     />
                   }
                 >
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className={cn(
-                      "size-3 transition-transform",
-                      !props.allDirectoriesExpanded && "-rotate-90",
-                    )}
-                  />
+                  {props.allDirectoriesExpanded ? (
+                    <ChevronsDownUpIcon aria-hidden="true" className="size-3" />
+                  ) : (
+                    <ChevronsUpDownIcon aria-hidden="true" className="size-3" />
+                  )}
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
@@ -3233,7 +3244,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
   return (
-    <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
+    <div className="max-w-3xl">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}
@@ -3659,12 +3670,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         )}
       >
         <EntryIcon
-          className={cn(
-            "mt-1 shrink-0",
-            isNested ? "size-3.5" : "size-4",
-            iconConfig.className,
-            metaToneTextClass(tone),
-          )}
+          className={cn("mt-1 shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone))}
         />
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-0.5 flex min-w-0 items-center gap-2">
@@ -3841,14 +3847,12 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
       data-work-entry-nested={isNested ? "true" : undefined}
     >
       <div className={cn("flex items-start", isNested ? "gap-2.5" : "gap-3")}>
-        <IconTerminal
-          className={cn("mt-1 shrink-0 text-muted-foreground/62", isNested ? "size-3.5" : "size-4")}
-        />
+        <IconTerminal className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
         <div className="min-w-0 flex-1">
           <button
             type="button"
             className={cn(
-              "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-6 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
+              "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
               isNested ? "text-[12px]" : "text-[12.5px]",
               !hasExpandableOutput && "cursor-default hover:text-muted-foreground/70",
             )}

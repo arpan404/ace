@@ -62,6 +62,7 @@ import {
   type BrowserAgentPointerEffect,
   type BrowserConsoleLogEntry,
   type BrowserDesignSelectionRect,
+  type BrowserFindOptions,
   type BrowserTabHandle,
   type BrowserTabRuntimeState,
   type BrowserTabSnapshot,
@@ -81,6 +82,7 @@ export interface InAppBrowserController {
   closeActiveTab: () => void;
   closeTab: (tabId: string) => void;
   closeDevTools: () => void;
+  findInPage: (query: string, options?: BrowserFindOptions) => void;
   focusAddressBar: () => void;
   goBack: () => void;
   goForward: () => void;
@@ -94,6 +96,7 @@ export interface InAppBrowserController {
   runBridgeRequest: (request: BrowserBridgeRequest) => Promise<Record<string, unknown>>;
   setActiveTabByIndex: (index: number) => void;
   setDesignerModeActive: (active: boolean) => void;
+  stopFindInPage: () => void;
   toggleDesignerTool: (tool: BrowserDesignerTool) => void;
   toggleDevTools: () => void;
   zoomIn: () => void;
@@ -136,6 +139,7 @@ interface UseInAppBrowserStateOptions {
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   onClose?: () => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
+  onFindInPageShortcut?: () => void;
   onResizeViewport?: (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult;
   onToggleRightPanelFloatingChat?: () => void;
   onToggleRightPanelFullscreen?: () => void;
@@ -713,6 +717,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     onActiveRuntimeStateChange,
     onClose,
     onControllerChange,
+    onFindInPageShortcut,
     onResizeViewport,
     onToggleRightPanelFloatingChat,
     onToggleRightPanelFullscreen,
@@ -919,6 +924,23 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     clearBridgeReadCache(activeTab.id);
     webviewHandlesRef.current.get(activeTab.id)?.zoomReset();
   }, [activeTab, activeTabIsInternal, clearBridgeReadCache]);
+
+  const findInPage = useCallback(
+    (query: string, options?: BrowserFindOptions) => {
+      if (!activeTab || activeTabIsInternal) {
+        return;
+      }
+      webviewHandlesRef.current.get(activeTab.id)?.findInPage(query, options);
+    },
+    [activeTab, activeTabIsInternal],
+  );
+
+  const stopFindInPage = useCallback(() => {
+    if (!activeTab || activeTabIsInternal) {
+      return;
+    }
+    webviewHandlesRef.current.get(activeTab.id)?.stopFindInPage("clearSelection");
+  }, [activeTab, activeTabIsInternal]);
 
   const openUrl = useCallback(
     (rawUrl: string, options?: { newTab?: boolean }) => {
@@ -1937,6 +1959,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const clearAgentPointersEvent = useEffectEvent(clearAgentPointers);
   const closeTabEvent = useEffectEvent(closeTab);
   const closeDevToolsEvent = useEffectEvent(closeDevTools);
+  const findInPageEvent = useEffectEvent(findInPage);
   const focusAddressBarEvent = useEffectEvent(focusAddressBar);
   const goBackEvent = useEffectEvent(goBack);
   const goForwardEvent = useEffectEvent(goForward);
@@ -1949,6 +1972,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const runBridgeRequestEvent = useEffectEvent(runBridgeRequest);
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
   const setDesignerModeActiveEvent = useEffectEvent(setDesignerModeActive);
+  const stopFindInPageEvent = useEffectEvent(stopFindInPage);
   const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
   const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
   const zoomInEvent = useEffectEvent(zoomIn);
@@ -1960,6 +1984,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       closeActiveTab: () => closeActiveTabEvent(),
       closeTab: (tabId) => closeTabEvent(tabId),
       closeDevTools: () => closeDevToolsEvent(),
+      findInPage: (query, options) => findInPageEvent(query, options),
       focusAddressBar: () => focusAddressBarEvent(),
       goBack: () => goBackEvent(),
       goForward: () => goForwardEvent(),
@@ -1973,6 +1998,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       runBridgeRequest: (request) => runBridgeRequestEvent(request),
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
       setDesignerModeActive: (active) => setDesignerModeActiveEvent(active),
+      stopFindInPage: () => stopFindInPageEvent(),
       toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
       toggleDevTools: () => toggleDevToolsEvent(),
       zoomIn: () => zoomInEvent(),
@@ -2035,6 +2061,31 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       return;
     }
     void api?.shell.openExternal(activeTab.url);
+  }, [activeTab, activeTabIsInternal, api]);
+
+  const openActiveTabInAuthWindow = useCallback(() => {
+    if (!activeTab || activeTabIsInternal) {
+      return;
+    }
+    void (async () => {
+      try {
+        const opened = await api?.browser.openAuthWindow(activeTab.url);
+        if (opened) {
+          return;
+        }
+        toastManager.add({
+          type: "error",
+          title: "Sign-in window unavailable.",
+          description: "This page could not be opened in a browser sign-in window.",
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Sign-in window unavailable.",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    })();
   }, [activeTab, activeTabIsInternal, api]);
 
   const handleAddressBarKeyDown = useCallback(
@@ -2113,6 +2164,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         openNewTab();
         return;
       }
+      if (key === "f") {
+        event.preventDefault();
+        event.stopPropagation();
+        onFindInPageShortcut?.();
+        return;
+      }
       if (key === "w") {
         event.preventDefault();
         event.stopPropagation();
@@ -2157,6 +2214,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       goBack,
       goForward,
       moveTabSelection,
+      onFindInPageShortcut,
       openNewTab,
       reload,
       setActiveTabByIndex,
@@ -2303,6 +2361,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "devtools":
           toggleDevTools();
           return;
+        case "find-in-page":
+          onFindInPageShortcut?.();
+          return;
         case "designer-area-comment":
           toggleDesignerTool("area-comment");
           return;
@@ -2357,6 +2418,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     goBack,
     goForward,
     moveTabSelection,
+    onFindInPageShortcut,
     active,
     open,
     openNewTab,
@@ -2438,6 +2500,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     closeTab,
     draftUrl,
     designerState,
+    findInPage,
     focusAddressBar,
     goBack,
     goForward,
@@ -2448,6 +2511,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     isAddressBarFocused,
     isRepairingStorage,
     openActiveTabExternally,
+    openActiveTabInAuthWindow,
     openDevTools,
     openNewTab,
     openUrl,
@@ -2461,6 +2525,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     },
     setDesignerModeActive,
     setDesignerPillPosition,
+    stopFindInPage,
     selectedSuggestionIndex,
     setDraftUrl,
     showAddressBarSuggestionOverlay,

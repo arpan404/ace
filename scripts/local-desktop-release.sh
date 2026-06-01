@@ -177,7 +177,6 @@ require_macos_signing_env() {
       missing+=("$name")
     fi
   done
-
   if [[ "${#missing[@]}" -gt 0 ]]; then
     printf 'Missing macOS signing/notarization values in .env.local or the process environment: %s\n' "${missing[*]}" >&2
     exit 1
@@ -452,6 +451,8 @@ write_release_notes() {
     if [[ -n "$base_tag" ]]; then
       git log --first-parent --no-merges --format='- %s by %an in https://github.com/%H' "$base_tag..$tag" \
         | sed "s#https://github.com/#https://github.com/$repo/commit/#"
+    else
+      printf -- "- Release %s from %s\n" "$tag" "$(git rev-parse --short=12 "$tag")"
     fi
 
     if [[ -n "$base_tag" ]]; then

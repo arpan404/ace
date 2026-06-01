@@ -60,6 +60,10 @@ APPLE_API_KEY=/absolute/path/to/AuthKey_KEYID.p8
 APPLE_API_KEY_ID=...
 APPLE_API_ISSUER=...
 
+# Optional metadata, not a Developer ID entitlement requirement.
+APPLE_TEAM_ID=...
+ACE_DESKTOP_MAC_TEAM_ID=...
+
 # Optional. If omitted, the script asks gh for the current repo.
 ACE_DESKTOP_UPDATE_REPOSITORY=owner/repo
 ```
@@ -87,7 +91,7 @@ bun typecheck
 3. Build a local release without publishing:
 
 ```bash
-bun run release:desktop:local -- --tag vX.Y.Z --create-tag
+bun run dist:desktop:all -- --tag vX.Y.Z --create-tag
 ```
 
 4. Inspect the generated assets in `release-local/publish`:
@@ -100,14 +104,14 @@ shasum -a 256 release-local/publish/*
 5. Publish only after the user confirms the version and artifacts are correct:
 
 ```bash
-bun run release:desktop:local -- --tag vX.Y.Z --publish
+bun run release -- --tag vX.Y.Z
 ```
 
 Use `--previous-tag vA.B.C` when release notes should compare against a specific
 previous tag:
 
 ```bash
-bun run release:desktop:local -- --tag vX.Y.Z --previous-tag vA.B.C --publish
+bun run release -- --tag vX.Y.Z --previous-tag vA.B.C
 ```
 
 ## What The Local Script Must Do
@@ -119,7 +123,9 @@ The local script is expected to:
 - Require either `CSC_LINK` or `CSC_NAME`.
 - Require `CSC_KEY_PASSWORD` when `CSC_LINK` is used.
 - Require `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
-- Build signed and notarized macOS `arm64` and `x64` DMG/ZIP artifacts.
+- Build signed and notarized macOS `arm64` and `x64` DMG/ZIP artifacts using
+  Developer ID hardened-runtime entitlements. Do not add App Group or keychain
+  access group entitlements unless a matching provisioning profile is packaged.
 - Build Linux `x64` and `arm64` AppImage artifacts in Docker.
 - Build Windows `x64` and `arm64` NSIS artifacts in Docker.
 - Merge macOS and Windows updater manifests before publishing.
@@ -128,6 +134,10 @@ The local script is expected to:
 
 If any macOS signing or notarization value is missing, stop and fix the
 environment. Do not bypass the failure for a real release.
+
+Windows and Linux browser authentication does not add release-time secrets. The
+desktop runtime handles Chromium WebAuthn account selection plus HID, USB, and
+serial device selection dialogs at runtime.
 
 ## GitHub Actions Release Procedure
 
@@ -139,6 +149,7 @@ CSC_KEY_PASSWORD
 APPLE_API_KEY
 APPLE_API_KEY_ID
 APPLE_API_ISSUER
+APPLE_TEAM_ID
 RELEASE_APP_ID
 RELEASE_APP_PRIVATE_KEY
 ```
