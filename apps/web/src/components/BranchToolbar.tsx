@@ -31,6 +31,7 @@ import { ProjectGlyphIcon } from "./ProjectAvatar";
 import { Button } from "./ui/button";
 import {
   Menu,
+  MenuGroup,
   MenuGroupLabel,
   MenuItem,
   MenuPopup,
@@ -133,57 +134,65 @@ function EnvironmentModeMenu(props: {
         listClassName="p-2"
         sideOffset={12}
       >
-        <MenuGroupLabel className="px-2 pb-2 pt-1 text-[15px] font-normal normal-case text-muted-foreground">
-          Continue in
-        </MenuGroupLabel>
-        <MenuItem
-          className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
-          onClick={() => props.onEnvModeSelect("local")}
-        >
-          <LaptopIcon className="size-4 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">Work locally</span>
-          {isLocal ? <CheckIcon className="size-4 text-muted-foreground" /> : null}
-        </MenuItem>
-        <MenuItem className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
-          <CloudIcon className="size-4 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">Connect Codex web</span>
-          <ExternalLinkIcon className="size-4 text-muted-foreground" />
-        </MenuItem>
-        <MenuItem disabled className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
-          <CloudOffIcon className="size-4 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">Send to cloud</span>
-        </MenuItem>
-        <MenuSeparator className="mx-2 my-2" />
-        <MenuSub>
-          <MenuSubTrigger className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
-            <GaugeIcon className="size-4 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Usage remaining</span>
-          </MenuSubTrigger>
-          <MenuSubPopup
-            className="w-64 rounded-2xl shadow-2xl shadow-black/25"
-            listClassName="p-2"
-            sideOffset={8}
+        <MenuGroup>
+          <MenuGroupLabel className="px-2 pb-2 pt-1 text-[15px] font-normal normal-case text-muted-foreground">
+            Continue in
+          </MenuGroupLabel>
+          <MenuItem
+            className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+            onClick={() => props.onEnvModeSelect("local")}
           >
-            <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
-              Usage remaining
-            </MenuGroupLabel>
-            <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">Local usage is unlimited</span>
-            </MenuItem>
-            <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">Cloud usage unavailable</span>
-            </MenuItem>
-          </MenuSubPopup>
-        </MenuSub>
+            <LaptopIcon className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Work locally</span>
+            {isLocal ? <CheckIcon className="size-4 text-muted-foreground" /> : null}
+          </MenuItem>
+          <MenuItem className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
+            <CloudIcon className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Connect Codex web</span>
+            <ExternalLinkIcon className="size-4 text-muted-foreground" />
+          </MenuItem>
+          <MenuItem disabled className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
+            <CloudOffIcon className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Send to cloud</span>
+          </MenuItem>
+        </MenuGroup>
         <MenuSeparator className="mx-2 my-2" />
-        <MenuItem
-          className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
-          disabled={!isLocal}
-          onClick={() => props.onEnvModeSelect("worktree")}
-        >
-          <ArrowLeftRightIcon className="size-4 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">Handoff to worktree</span>
-        </MenuItem>
+        <MenuGroup>
+          <MenuSub>
+            <MenuSubTrigger className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
+              <GaugeIcon className="size-4 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">Usage remaining</span>
+            </MenuSubTrigger>
+            <MenuSubPopup
+              className="w-64 rounded-2xl shadow-2xl shadow-black/25"
+              listClassName="p-2"
+              sideOffset={8}
+            >
+              <MenuGroup>
+                <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
+                  Usage remaining
+                </MenuGroupLabel>
+                <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">Local usage is unlimited</span>
+                </MenuItem>
+                <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">Cloud usage unavailable</span>
+                </MenuItem>
+              </MenuGroup>
+            </MenuSubPopup>
+          </MenuSub>
+        </MenuGroup>
+        <MenuSeparator className="mx-2 my-2" />
+        <MenuGroup>
+          <MenuItem
+            className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+            disabled={!isLocal}
+            onClick={() => props.onEnvModeSelect("worktree")}
+          >
+            <ArrowLeftRightIcon className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Handoff to worktree</span>
+          </MenuItem>
+        </MenuGroup>
       </MenuPopup>
     </Menu>
   );

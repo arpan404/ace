@@ -43,7 +43,14 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "~/components/ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
@@ -970,48 +977,54 @@ function useEnvironmentGitSection({
                 listClassName="p-2"
                 sideOffset={12}
               >
-                <MenuItem
-                  className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
-                  disabled={isGitActionRunning || quickAction.disabled}
-                  title={quickActionDisabledReason ?? undefined}
-                  onClick={runQuickAction}
-                >
-                  <GitQuickActionIcon quickAction={quickAction} />
-                  <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
-                </MenuItem>
+                <MenuGroup>
+                  <MenuItem
+                    className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+                    disabled={isGitActionRunning || quickAction.disabled}
+                    title={quickActionDisabledReason ?? undefined}
+                    onClick={runQuickAction}
+                  >
+                    <GitQuickActionIcon quickAction={quickAction} />
+                    <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
+                  </MenuItem>
+                </MenuGroup>
                 <MenuSeparator className="mx-2 my-2" />
-                {gitActionMenuItems.map((item) => {
-                  const disabledReason = getMenuActionDisabledReason({
-                    item,
-                    gitStatus: gitStatusForActions,
-                    isBusy: isGitActionRunning,
-                    hasOriginRemote,
-                  });
-                  return (
-                    <MenuItem
-                      key={`${item.id}-${item.label}`}
-                      className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
-                      disabled={item.disabled}
-                      title={disabledReason ?? undefined}
-                      onClick={() => {
-                        openDialogForMenuItem(item);
-                      }}
-                    >
-                      <GitActionItemIcon icon={item.icon} />
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    </MenuItem>
-                  );
-                })}
+                <MenuGroup>
+                  {gitActionMenuItems.map((item) => {
+                    const disabledReason = getMenuActionDisabledReason({
+                      item,
+                      gitStatus: gitStatusForActions,
+                      isBusy: isGitActionRunning,
+                      hasOriginRemote,
+                    });
+                    return (
+                      <MenuItem
+                        key={`${item.id}-${item.label}`}
+                        className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+                        disabled={item.disabled}
+                        title={disabledReason ?? undefined}
+                        onClick={() => {
+                          openDialogForMenuItem(item);
+                        }}
+                      >
+                        <GitActionItemIcon icon={item.icon} />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      </MenuItem>
+                    );
+                  })}
+                </MenuGroup>
                 <MenuSeparator className="mx-2 my-2" />
-                <MenuItem
-                  className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
-                  onClick={() => {
-                    dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
-                  }}
-                >
-                  <KeyRoundIcon />
-                  <span className="min-w-0 flex-1 truncate">SSH key passphrase</span>
-                </MenuItem>
+                <MenuGroup>
+                  <MenuItem
+                    className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+                    onClick={() => {
+                      dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
+                    }}
+                  >
+                    <KeyRoundIcon />
+                    <span className="min-w-0 flex-1 truncate">SSH key passphrase</span>
+                  </MenuItem>
+                </MenuGroup>
               </MenuPopup>
             </Menu>
           </div>
