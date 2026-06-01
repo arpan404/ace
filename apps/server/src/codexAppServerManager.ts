@@ -168,6 +168,24 @@ export interface CodexThreadSnapshot {
   turns: CodexThreadTurnSnapshot[];
 }
 
+export type CodexGoalStatus = "active" | "paused" | "completed" | "blocked" | "cleared";
+
+export interface CodexGoalSnapshot {
+  readonly threadId: string;
+  readonly objective: string;
+  readonly status: CodexGoalStatus;
+  readonly tokenBudget?: number;
+  readonly tokensUsed?: number;
+  readonly timeUsedSeconds?: number;
+}
+
+export interface CodexSetGoalInput {
+  readonly threadId: ThreadId;
+  readonly objective?: string;
+  readonly status?: CodexGoalStatus;
+  readonly tokenBudget?: number;
+}
+
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
@@ -1011,6 +1029,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         status: "ready",
         resumeCursor: { threadId: providerThreadId },
       });
+      await this.refreshThreadGoal(context, providerThreadId);
       this.emitLifecycleEvent(
         context,
         "session/threadOpenResolved",
@@ -1282,6 +1301,51 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return this.parseThreadSnapshot("thread/rollback", response);
   }
 
+  async getThreadGoal(threadId: ThreadId): Promise<CodexGoalSnapshot | null> {
+    const context = this.requireSession(threadId);
+    const providerThreadId = this.requireProviderThreadId(context);
+    const response = await this.sendRequest(context, "thread/goal/get", {
+      threadId: providerThreadId,
+    });
+    return this.parseGoalFromResponse(response);
+  }
+
+  async setThreadGoal(input: CodexSetGoalInput): Promise<CodexGoalSnapshot> {
+    const context = this.requireSession(input.threadId);
+    const providerThreadId = this.requireProviderThreadId(context);
+    const response = await this.sendRequest(context, "thread/goal/set", {
+      threadId: providerThreadId,
+      ...(input.objective !== undefined ? { objective: input.objective } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+    });
+    const goal = this.parseGoalFromResponse(response);
+    if (!goal) {
+      throw new Error("thread/goal/set response did not include a goal.");
+    }
+    this.emitGoalUpdatedEvent(context, goal);
+    return goal;
+  }
+
+  async clearThreadGoal(threadId: ThreadId): Promise<void> {
+    const context = this.requireSession(threadId);
+    const providerThreadId = this.requireProviderThreadId(context);
+    await this.sendRequest(context, "thread/goal/clear", {
+      threadId: providerThreadId,
+    });
+    this.emitEvent({
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: "codex",
+      threadId: context.session.threadId,
+      createdAt: new Date().toISOString(),
+      method: "thread/goal/cleared",
+      payload: {
+        threadId: providerThreadId,
+      },
+    });
+  }
+
   async respondToRequest(
     threadId: ThreadId,
     requestId: ApprovalRequestId,
@@ -1516,12 +1580,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const childParentTurnId = this.readChildParentTurnId(context, notification.params);
     const isChildConversation = childParentTurnId !== undefined;
-    if (
-      isChildConversation &&
-      this.shouldSuppressChildConversationNotification(notification.method)
-    ) {
-      return;
-    }
     const textDelta =
       notification.method === "item/agentMessage/delta"
         ? this.readString(notification.params, "delta")
@@ -1534,15 +1592,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       createdAt: new Date().toISOString(),
       method: notification.method,
-      ...((childParentTurnId ?? rawRoute.turnId)
-        ? { turnId: childParentTurnId ?? rawRoute.turnId }
-        : {}),
+      ...(rawRoute.turnId ? { turnId: rawRoute.turnId } : {}),
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       textDelta,
-      payload: notification.params,
+      payload: this.withChildConversationRoute(notification.params, childParentTurnId),
     });
 
     if (notification.method === "thread/started") {
+      if (isChildConversation) {
+        return;
+      }
       const providerThreadId = normalizeProviderThreadId(
         this.readString(this.readObject(notification.params)?.thread, "id"),
       );
@@ -1617,7 +1676,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const rawRoute = this.readRouteFields(request.params);
     const childParentTurnId = this.readChildParentTurnId(context, request.params);
-    const effectiveTurnId = childParentTurnId ?? rawRoute.turnId;
+    const effectiveTurnId = rawRoute.turnId;
     const requestKind = this.requestKindForMethod(request.method);
     let requestId: ApprovalRequestId | undefined;
     if (requestKind) {
@@ -1661,7 +1720,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       requestId,
       requestKind,
-      payload: request.params,
+      payload: this.withChildConversationRoute(request.params, childParentTurnId),
     });
 
     if (requestKind) {
@@ -2072,12 +2131,111 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
   }
 
+  private requireProviderThreadId(context: CodexSessionContext): string {
+    const providerThreadId = readResumeThreadId({
+      threadId: context.session.threadId,
+      runtimeMode: context.session.runtimeMode,
+      resumeCursor: context.session.resumeCursor,
+    });
+    if (!providerThreadId) {
+      throw new Error("Session is missing provider resume thread id.");
+    }
+    return providerThreadId;
+  }
+
+  private parseGoalFromResponse(response: unknown): CodexGoalSnapshot | null {
+    const responseRecord = this.readObject(response);
+    const goal = this.readObject(responseRecord, "goal") ?? this.readObject(response);
+    return this.parseGoal(goal);
+  }
+
+  private parseGoal(goal: Record<string, unknown> | undefined): CodexGoalSnapshot | null {
+    const threadId = this.readString(goal, "threadId");
+    const objective = this.readString(goal, "objective");
+    if (!threadId || !objective) {
+      return null;
+    }
+    const rawStatus = this.readString(goal, "status");
+    const status: CodexGoalStatus =
+      rawStatus === "paused" ||
+      rawStatus === "completed" ||
+      rawStatus === "blocked" ||
+      rawStatus === "cleared"
+        ? rawStatus
+        : "active";
+    const tokenBudget = this.readPositiveInteger(goal, "tokenBudget");
+    const tokensUsed = this.readNonNegativeInteger(goal, "tokensUsed");
+    const timeUsedSeconds = this.readNonNegativeInteger(goal, "timeUsedSeconds");
+    return {
+      threadId,
+      objective,
+      status,
+      ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
+      ...(timeUsedSeconds !== undefined ? { timeUsedSeconds } : {}),
+    };
+  }
+
+  private async refreshThreadGoal(
+    context: CodexSessionContext,
+    providerThreadId: string,
+  ): Promise<void> {
+    try {
+      const response = await this.sendRequest(context, "thread/goal/get", {
+        threadId: providerThreadId,
+      });
+      const goal = this.parseGoalFromResponse(response);
+      if (goal) {
+        this.emitGoalUpdatedEvent(context, goal);
+      }
+    } catch (error) {
+      this.emitLifecycleEvent(
+        context,
+        "session/goal-warning",
+        `Failed to read Codex goal state: ${messageFromUnknownError(error)}`,
+      );
+    }
+  }
+
+  private emitGoalUpdatedEvent(context: CodexSessionContext, goal: CodexGoalSnapshot): void {
+    this.emitEvent({
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: "codex",
+      threadId: context.session.threadId,
+      createdAt: new Date().toISOString(),
+      method: "thread/goal/updated",
+      payload: {
+        threadId: goal.threadId,
+        goal,
+      },
+    });
+  }
+
   private readChildParentTurnId(context: CodexSessionContext, params: unknown): TurnId | undefined {
     const providerConversationId = this.readProviderConversationId(params);
     if (!providerConversationId) {
       return undefined;
     }
     return context.collabReceiverTurns.get(providerConversationId);
+  }
+
+  private withChildConversationRoute(params: unknown, parentTurnId: TurnId | undefined): unknown {
+    if (!parentTurnId) {
+      return params;
+    }
+    const record = this.readObject(params);
+    if (!record) {
+      return params;
+    }
+    return {
+      ...record,
+      ace: {
+        ...(this.readObject(record, "ace") ?? {}),
+        parentTurnId,
+        childProviderThreadId: this.readProviderConversationId(params),
+      },
+    };
   }
 
   private rememberCollabReceiverTurns(
@@ -2102,24 +2260,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     for (const receiverThreadId of receiverThreadIds) {
       context.collabReceiverTurns.set(receiverThreadId, parentTurnId);
     }
-  }
-
-  private shouldSuppressChildConversationNotification(method: string): boolean {
-    return (
-      method === "thread/started" ||
-      method === "thread/status/changed" ||
-      method === "thread/archived" ||
-      method === "thread/unarchived" ||
-      method === "thread/closed" ||
-      method === "thread/compacted" ||
-      method === "thread/name/updated" ||
-      method === "thread/tokenUsage/updated" ||
-      method === "turn/started" ||
-      method === "turn/completed" ||
-      method === "turn/aborted" ||
-      method === "turn/plan/updated" ||
-      method === "item/plan/delta"
-    );
   }
 
   private shouldApplyActiveTurnTerminalNotification(
@@ -2177,6 +2317,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     const candidate = (value as Record<string, unknown>)[key];
     return typeof candidate === "boolean" ? candidate : undefined;
+  }
+
+  private readPositiveInteger(value: unknown, key: string): number | undefined {
+    const candidate = this.readNumber(value, key);
+    return candidate !== undefined && Number.isInteger(candidate) && candidate > 0
+      ? candidate
+      : undefined;
+  }
+
+  private readNonNegativeInteger(value: unknown, key: string): number | undefined {
+    const candidate = this.readNumber(value, key);
+    return candidate !== undefined && Number.isInteger(candidate) && candidate >= 0
+      ? candidate
+      : undefined;
+  }
+
+  private readNumber(value: unknown, key: string): number | undefined {
+    if (!value || typeof value !== "object") {
+      return undefined;
+    }
+
+    const candidate = (value as Record<string, unknown>)[key];
+    return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : undefined;
   }
 }
 

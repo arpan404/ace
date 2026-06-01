@@ -476,18 +476,7 @@ export function discoverProviderExtensionSlashCommands(
           cwd: input.cwd,
           codexHome: input.settings.providers.codex.homePath,
         }),
-        (input.resolveCodexGoalsFeatureEnabled ?? isCodexGoalsFeatureEnabled)({
-          binaryPath: input.settings.providers.codex.binaryPath,
-          cwd: input.cwd ?? process.cwd(),
-          ...(input.settings.providers.codex.homePath
-            ? { homePath: input.settings.providers.codex.homePath }
-            : {}),
-          ...(Object.keys(input.settings.providers.codex.launchEnv).length > 0
-            ? { launchEnv: input.settings.providers.codex.launchEnv }
-            : {}),
-        })
-          ? [CODEX_GOAL_SLASH_COMMAND]
-          : [],
+        [CODEX_GOAL_SLASH_COMMAND],
       );
     case "claudeAgent":
       return discoverClaudeExtensionSlashCommands({

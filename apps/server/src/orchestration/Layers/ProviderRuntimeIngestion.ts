@@ -1633,6 +1633,43 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "thread.goal.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "goal.updated",
+          summary: event.payload.goal.status === "paused" ? "Goal paused" : "Goal updated",
+          payload: {
+            ...event.payload.goal,
+            detail: event.payload.goal.objective,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "thread.goal.cleared": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "goal.cleared",
+          summary: "Goal cleared",
+          payload: {
+            ...(event.payload.providerThreadId
+              ? { providerThreadId: event.payload.providerThreadId }
+              : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "content.delta": {
       if (
         event.payload.streamKind === "command_output" ||

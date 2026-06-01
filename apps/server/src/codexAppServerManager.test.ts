@@ -1307,7 +1307,7 @@ describe("respondToUserInput", () => {
 });
 
 describe("collab child conversation routing", () => {
-  it("rewrites child notification turn ids onto the parent turn", () => {
+  it("preserves child notification turn ids and records parent route metadata", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 
     (
@@ -1344,13 +1344,19 @@ describe("collab child conversation routing", () => {
     expect(emitEvent).toHaveBeenLastCalledWith(
       expect.objectContaining({
         method: "item/agentMessage/delta",
-        turnId: "turn_parent",
+        turnId: "turn_child_1",
         itemId: "msg_child_1",
+        payload: expect.objectContaining({
+          ace: expect.objectContaining({
+            parentTurnId: "turn_parent",
+            childProviderThreadId: "child_provider_1",
+          }),
+        }),
       }),
     );
   });
 
-  it("suppresses child lifecycle notifications so they cannot replace the parent turn", () => {
+  it("emits child lifecycle notifications without replacing the parent turn", () => {
     const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
 
     (
@@ -1396,7 +1402,19 @@ describe("collab child conversation routing", () => {
       },
     });
 
-    expect(emitEvent).not.toHaveBeenCalled();
+    expect(emitEvent).toHaveBeenCalledTimes(2);
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "turn/started",
+        turnId: "turn_child_1",
+      }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "turn/completed",
+        turnId: "turn_child_1",
+      }),
+    );
     expect(updateSession).not.toHaveBeenCalled();
   });
 
@@ -1481,7 +1499,7 @@ describe("collab child conversation routing", () => {
     );
   });
 
-  it("rewrites child approval requests onto the parent turn", () => {
+  it("preserves child approval request routes and records parent metadata", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 
     (
@@ -1519,15 +1537,21 @@ describe("collab child conversation routing", () => {
 
     expect(Array.from(context.pendingApprovals.values())[0]).toEqual(
       expect.objectContaining({
-        turnId: "turn_parent",
+        turnId: "turn_child_1",
         itemId: "call_child_1",
       }),
     );
     expect(emitEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "item/commandExecution/requestApproval",
-        turnId: "turn_parent",
+        turnId: "turn_child_1",
         itemId: "call_child_1",
+        payload: expect.objectContaining({
+          ace: expect.objectContaining({
+            parentTurnId: "turn_parent",
+            childProviderThreadId: "child_provider_1",
+          }),
+        }),
       }),
     );
   });

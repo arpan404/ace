@@ -18,6 +18,7 @@ import { Effect, Fiber, Layer, Option, Stream } from "effect";
 
 import {
   CodexAppServerManager,
+  type CodexSetGoalInput,
   type CodexAppServerStartSessionInput,
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
@@ -70,6 +71,18 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
+  public getThreadGoalImpl = vi.fn(async (_threadId: ThreadId) => null);
+
+  public setThreadGoalImpl = vi.fn(async (_input: CodexSetGoalInput) => ({
+    threadId: "provider-thread-1",
+    objective: _input.objective ?? "Existing goal",
+    status: _input.status ?? ("active" as const),
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+  }));
+
+  public clearThreadGoalImpl = vi.fn(async (_threadId: ThreadId) => undefined);
+
   public respondToRequestImpl = vi.fn(
     async (
       _threadId: ThreadId,
@@ -106,6 +119,18 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override rollbackThread(threadId: ThreadId, numTurns: number) {
     return this.rollbackThreadImpl(threadId, numTurns);
+  }
+
+  override getThreadGoal(threadId: ThreadId) {
+    return this.getThreadGoalImpl(threadId);
+  }
+
+  override setThreadGoal(input: CodexSetGoalInput) {
+    return this.setThreadGoalImpl(input);
+  }
+
+  override clearThreadGoal(threadId: ThreadId) {
+    return this.clearThreadGoalImpl(threadId);
   }
 
   override respondToRequest(

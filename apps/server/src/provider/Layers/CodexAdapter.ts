@@ -6,6 +6,7 @@
  *
  * @module CodexAdapterLive
  */
+import { randomUUID } from "node:crypto";
 import {
   type CanonicalItemType,
   type CanonicalRequestType,
@@ -17,6 +18,7 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
+  EventId,
   ProviderApprovalDecision,
   ProviderItemId,
   ThreadId,
@@ -53,9 +55,10 @@ import {
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { discoverCodexExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
-import { CODEX_GOAL_SLASH_COMMAND, isCodexGoalsFeatureEnabled } from "../codexGoalFeature.ts";
+import { CODEX_GOAL_SLASH_COMMAND } from "../codexGoalFeature.ts";
 import {
   CodexAppServerManager,
+  type CodexGoalStatus,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -71,12 +74,7 @@ export interface CodexAdapterLiveOptions {
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
-  readonly resolveGoalsFeatureEnabled?: (input: {
-    readonly binaryPath: string;
-    readonly cwd: string;
-    readonly homePath?: string;
-    readonly launchEnv?: Readonly<Record<string, string>>;
-  }) => boolean;
+  readonly resolveGoalsFeatureEnabled?: () => boolean;
 }
 
 interface CodexReplayBootstrapState {
@@ -179,6 +177,49 @@ function mergeSessionConfiguredCommandEntries(
     return providerCommands;
   }
   return [...providerCommands, ...extensionCommands];
+}
+
+interface ParsedCodexGoalCommand {
+  readonly action: "get" | "set" | "clear" | "pause" | "resume";
+  readonly objective?: string;
+  readonly tokenBudget?: number;
+}
+
+const COMPOSER_PROVIDER_COMMAND_MARKER = "\u2064";
+const CODEX_GOAL_MAX_OBJECTIVE_CHARS = 4_000;
+
+function stripProviderCommandMarkers(text: string): string {
+  return text.replaceAll(COMPOSER_PROVIDER_COMMAND_MARKER, "");
+}
+
+function parseCodexGoalCommand(input: string | undefined): ParsedCodexGoalCommand | null {
+  const text = stripProviderCommandMarkers(input ?? "").trim();
+  const match = /^\/goal(?:\s+([\s\S]*))?$/iu.exec(text);
+  if (!match) {
+    return null;
+  }
+  const body = (match[1] ?? "").trim();
+  if (!body) {
+    return { action: "get" };
+  }
+  const normalized = body.toLowerCase();
+  if (normalized === "clear") {
+    return { action: "clear" };
+  }
+  if (normalized === "pause") {
+    return { action: "pause" };
+  }
+  if (normalized === "resume") {
+    return { action: "resume" };
+  }
+  const budgetMatch = /\s+--token-budget\s+(\d+)\s*$/iu.exec(body);
+  const tokenBudget = budgetMatch?.[1] ? Number.parseInt(budgetMatch[1], 10) : undefined;
+  const objective = (budgetMatch ? body.slice(0, budgetMatch.index) : body).trim();
+  return objective ? { action: "set", objective, ...(tokenBudget ? { tokenBudget } : {}) } : null;
+}
+
+function goalStatusForCommand(action: ParsedCodexGoalCommand["action"]): CodexGoalStatus {
+  return action === "pause" ? "paused" : "active";
 }
 
 function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
@@ -1018,6 +1059,56 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "thread/goal/updated") {
+    const goal = asObject(payload?.goal);
+    const threadId = asString(goal?.threadId) ?? asString(payload?.threadId);
+    const objective = asString(goal?.objective);
+    if (!threadId || !objective) {
+      return [];
+    }
+    const status = asString(goal?.status);
+    return [
+      {
+        type: "thread.goal.updated",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          goal: {
+            threadId,
+            objective,
+            status:
+              status === "paused" ||
+              status === "completed" ||
+              status === "blocked" ||
+              status === "cleared"
+                ? status
+                : "active",
+            ...(asNumber(goal?.tokenBudget) !== undefined
+              ? { tokenBudget: asNumber(goal?.tokenBudget) }
+              : {}),
+            ...(asNumber(goal?.tokensUsed) !== undefined
+              ? { tokensUsed: asNumber(goal?.tokensUsed) }
+              : {}),
+            ...(asNumber(goal?.timeUsedSeconds) !== undefined
+              ? { timeUsedSeconds: asNumber(goal?.timeUsedSeconds) }
+              : {}),
+          },
+        },
+      },
+    ];
+  }
+
+  if (event.method === "thread/goal/cleared") {
+    return [
+      {
+        type: "thread.goal.cleared",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          ...(asString(payload?.threadId) ? { providerThreadId: asString(payload?.threadId) } : {}),
+        },
+      },
+    ];
+  }
+
   if (event.method === "thread/tokenUsage/updated") {
     const tokenUsage = asObject(payload?.tokenUsage);
     const normalizedUsage = normalizeCodexTokenUsage(tokenUsage ?? event.payload);
@@ -1714,27 +1805,13 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
-      const cwd = input.cwd ?? process.cwd();
       const discoveredCommands = discoverCodexExtensionSlashCommands({
         cwd: input.cwd,
         codexHome: homePath,
       });
-      const goalsFeatureEnabled = (
-        options?.resolveGoalsFeatureEnabled ?? isCodexGoalsFeatureEnabled
-      )({
-        binaryPath,
-        cwd,
-        ...(homePath ? { homePath } : {}),
-        ...(Object.keys(codexSettings.launchEnv).length > 0
-          ? { launchEnv: codexSettings.launchEnv }
-          : {}),
-      });
       extensionCommandsByThreadId.set(
         input.threadId,
-        mergeProviderSlashCommands(
-          discoveredCommands,
-          goalsFeatureEnabled ? [CODEX_GOAL_SLASH_COMMAND] : [],
-        ),
+        mergeProviderSlashCommands(discoveredCommands, [CODEX_GOAL_SLASH_COMMAND]),
       );
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
@@ -1853,6 +1930,51 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ROLLBACK_BOOTSTRAP_MAX_CHARS,
           ).text
         : input.input;
+    const goalCommand =
+      codexAttachments.length === 0 && replayBootstrap?.pendingBootstrapReset !== true
+        ? parseCodexGoalCommand(promptText)
+        : null;
+
+    if (goalCommand) {
+      return yield* Effect.tryPromise({
+        try: async () => {
+          if (goalCommand.action === "clear") {
+            await manager.clearThreadGoal(input.threadId);
+          } else if (goalCommand.action === "get") {
+            const goal = await manager.getThreadGoal(input.threadId);
+            manager.emit("event", {
+              id: EventId.makeUnsafe(randomUUID()),
+              kind: "notification",
+              provider: "codex",
+              threadId: input.threadId,
+              createdAt: new Date().toISOString(),
+              method: goal ? "thread/goal/updated" : "thread/goal/cleared",
+              payload: goal ? { threadId: goal.threadId, goal } : {},
+            } satisfies ProviderEvent);
+          } else {
+            if (
+              goalCommand.objective !== undefined &&
+              goalCommand.objective.length > CODEX_GOAL_MAX_OBJECTIVE_CHARS
+            ) {
+              throw new Error("Goal objective must be at most 4000 characters.");
+            }
+            await manager.setThreadGoal({
+              threadId: input.threadId,
+              ...(goalCommand.objective !== undefined ? { objective: goalCommand.objective } : {}),
+              status: goalStatusForCommand(goalCommand.action),
+              ...(goalCommand.tokenBudget !== undefined
+                ? { tokenBudget: goalCommand.tokenBudget }
+                : {}),
+            });
+          }
+          return {
+            threadId: input.threadId,
+            turnId: TurnId.makeUnsafe(`goal:${Date.now()}`),
+          };
+        },
+        catch: (cause) => toRequestError(input.threadId, "thread/goal", cause),
+      });
+    }
 
     return yield* Effect.tryPromise({
       try: () => {
