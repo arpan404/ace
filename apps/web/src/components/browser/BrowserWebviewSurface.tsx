@@ -46,6 +46,7 @@ import {
   resolveBrowserRelayUrl,
 } from "~/lib/browser/url";
 import { resolveLocalConnectionUrl } from "~/lib/connectionRouting";
+import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -1616,6 +1617,7 @@ function useBrowserTabWebviewComponent(props: {
     loadFailure,
   } = designOverlayState;
   const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
+  const commentPlaceholder = useWorkspaceCommentPlaceholder("design");
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
@@ -3264,7 +3266,7 @@ function useBrowserTabWebviewComponent(props: {
                     void submitDesignDraft();
                   }
                 }}
-                placeholder="Comment for the agent"
+                placeholder={commentPlaceholder}
                 className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
               />
               <Tooltip>

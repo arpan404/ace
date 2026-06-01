@@ -51,6 +51,7 @@ import {
   type WorkspaceCodeComment,
   type WorkspaceSelectionContext,
 } from "~/lib/editor/workspaceDesigner";
+import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -650,6 +651,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [findMatchSummary, setFindMatchSummary] = useState<WorkspaceFindMatchSummary>(
     EMPTY_WORKSPACE_FIND_MATCH_SUMMARY,
   );
+  const commentPlaceholder = useWorkspaceCommentPlaceholder("code");
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
   const selectionCommentInputRef = useRef<HTMLInputElement | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -1776,7 +1778,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                           });
                         }
                       }}
-                      placeholder="Comment for the agent"
+                      placeholder={commentPlaceholder}
                       className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] font-medium outline-none placeholder:text-muted-foreground/55"
                     />
                     {props.onAddCodeCommentAndSend ? (

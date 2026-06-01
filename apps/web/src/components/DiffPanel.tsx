@@ -44,6 +44,7 @@ import {
   resolveFileDiffPath,
   summarizeFileDiff,
 } from "../lib/diffPatch";
+import { useWorkspaceCommentPlaceholder } from "../lib/editor/workspaceCommentPlaceholders";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
 import { useSetting } from "../hooks/useSettings";
@@ -359,6 +360,7 @@ function useDiffPanelComponent({
   const { resolvedTheme } = useTheme();
   const diffWordWrapSetting = useSetting("diffWordWrap");
   const timestampFormat = useSetting("timestampFormat");
+  const commentPlaceholder = useWorkspaceCommentPlaceholder("diff");
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
   const [collapsedFileKeys, setCollapsedFileKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -1220,7 +1222,7 @@ function useDiffPanelComponent({
                                 closeReviewCommentPopover();
                               }
                             }}
-                            placeholder="Comment for the agent"
+                            placeholder={commentPlaceholder}
                             className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
                             autoFocus
                           />
