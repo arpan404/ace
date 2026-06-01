@@ -58,7 +58,7 @@ export function SidebarBoardsSection(props: {
   onSplitSortOrderChange: (sortOrder: SidebarSplitSortOrder) => void;
 }) {
   return (
-    <SidebarGroup className="order-last px-2.5 pt-1 pb-2">
+    <SidebarGroup className="order-last shrink-0 px-2.5 pt-1 pb-2">
       <div className="group/section-row mb-1.5 flex items-center justify-between pl-2 pr-1.5">
         <button
           type="button"
