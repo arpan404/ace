@@ -1,4 +1,5 @@
 import { computeMessageDurationStart } from "./messagesTimeline";
+import { getChatMessageRenderableText } from "./messageText";
 import { stripProviderCommandMarkers } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
@@ -503,7 +504,10 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   if (message.role !== "assistant" || message.streaming) {
     return false;
   }
-  return message.text.trim().length === 0 && (message.attachments?.length ?? 0) === 0;
+  return (
+    getChatMessageRenderableText(message).trim().length === 0 &&
+    (message.attachments?.length ?? 0) === 0
+  );
 }
 
 function isVisibleCompletedWorkDiagnosticEntry(

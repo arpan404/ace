@@ -1,10 +1,24 @@
+const ACE_PROPOSED_PLAN_MARKER_LINE_REGEX =
+  /^\s*<!--\s*ACE_PROPOSED_PLAN_(?:START|END)(?:\s*--\s*>?)?\s*$/gim;
+
+function normalizeProposedPlanMarkdownForDisplay(planMarkdown: string): string {
+  return planMarkdown
+    .replace(ACE_PROPOSED_PLAN_MARKER_LINE_REGEX, "")
+    .replace(/^>\s*(#{1,6})/gm, "$1")
+    .replace(/^(#{1,6})(?=\S)/gm, "$1 ")
+    .replace(/(?<!\d)(\d+)\.(?=\S)/g, "$1. ")
+    .replace(/([,:;])(?=\S)/g, "$1 ")
+    .trim();
+}
+
 export function proposedPlanTitle(planMarkdown: string): string | null {
-  const heading = planMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
+  const displayMarkdown = normalizeProposedPlanMarkdownForDisplay(planMarkdown);
+  const heading = displayMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
   return heading && heading.length > 0 ? heading : null;
 }
 
 export function stripDisplayedPlanMarkdown(planMarkdown: string): string {
-  const lines = planMarkdown.trimEnd().split(/\r?\n/);
+  const lines = normalizeProposedPlanMarkdownForDisplay(planMarkdown).trimEnd().split(/\r?\n/);
   const sourceLines = lines[0] && /^\s{0,3}#{1,6}\s+/.test(lines[0]) ? lines.slice(1) : [...lines];
   while (sourceLines[0]?.trim().length === 0) {
     sourceLines.shift();
