@@ -1364,6 +1364,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     activeFileQuery.error instanceof Error
       ? activeFileQuery.error.message
       : "An unexpected error occurred.";
+  const activeFileName = pane.activeFilePath ? basenameOfPath(pane.activeFilePath) : "File";
 
   return (
     <section
@@ -1664,20 +1665,46 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             <div className="h-4 w-[76%] rounded bg-foreground/4" />
           </div>
         ) : activeFileQuery.isError && !activeDraft ? (
-          <div className="flex h-full items-center justify-center px-6">
-            <div className="max-w-md rounded-xl bg-destructive/5 p-4 text-center">
-              <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                <AlertCircleIcon className="size-5" />
-              </div>
-              <p className="mt-3 text-sm font-medium text-foreground">
-                This file could not be opened.
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">{activeFileErrorMessage}</p>
-              <div className="mt-4 flex items-center justify-center gap-2">
-                <Button size="sm" variant="outline" onClick={props.onRetryActiveFile}>
-                  <RefreshCwIcon className="size-3.5" />
-                  Retry
-                </Button>
+          <div className="flex h-full min-h-0 items-center justify-center px-8 py-10">
+            <div className="w-full max-w-[520px]">
+              <div className="flex items-start gap-3 border-l border-destructive/45 pl-4">
+                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-destructive/8 text-destructive/85">
+                  <AlertCircleIcon className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {pane.activeFilePath ? (
+                      <VscodeEntryIcon
+                        pathValue={pane.activeFilePath}
+                        kind="file"
+                        theme={props.resolvedTheme}
+                        className="size-4 shrink-0 opacity-80"
+                      />
+                    ) : null}
+                    <p className="truncate text-sm font-medium text-foreground">
+                      Cannot open {activeFileName}
+                    </p>
+                  </div>
+                  {pane.activeFilePath ? (
+                    <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/65">
+                      {pane.activeFilePath}
+                    </p>
+                  ) : null}
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                    {activeFileErrorMessage}
+                  </p>
+                  <div className="mt-4 flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                      onClick={props.onRetryActiveFile}
+                    >
+                      <RefreshCwIcon className="size-3.5" />
+                      Try again
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
