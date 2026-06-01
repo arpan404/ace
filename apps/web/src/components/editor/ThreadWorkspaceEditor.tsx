@@ -3571,8 +3571,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             sidebarMode === "problems" ||
                             sidebarMode === "notes"));
                       const iconClassName = cn(
-                        "size-3.5 transition-colors",
-                        active ? "text-foreground" : "text-muted-foreground/66",
+                        "size-4 transition-colors",
+                        active ? "text-foreground" : "text-muted-foreground/58",
                       );
                       const icon =
                         mode === "explorer" ? (
@@ -3590,10 +3590,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <button
                                 type="button"
                                 className={cn(
-                                  "relative flex size-7 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-1 focus-visible:ring-primary/45",
+                                  "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45",
                                   active
-                                    ? "bg-accent/80 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]"
-                                    : "text-muted-foreground hover:bg-accent/45 hover:text-foreground",
+                                    ? "text-foreground"
+                                    : "text-muted-foreground/58 hover:text-foreground",
                                 )}
                                 onClick={() => setSidebarMode(mode)}
                                 aria-label={label}
@@ -3615,8 +3615,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/66 hover:bg-accent/60 hover:text-foreground">
-                                <GitForkIcon className="size-3.5" />
+                              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-transparent text-muted-foreground/58 transition-colors hover:text-foreground">
+                                <GitForkIcon className="size-4" />
                               </span>
                             }
                           />
@@ -3632,11 +3632,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                className="size-7 shrink-0 rounded-md text-muted-foreground/66 hover:bg-accent/60 hover:text-foreground"
+                                className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
                                 onClick={() => void detachEditor()}
                                 aria-label="Detach editor"
                               >
-                                <ExternalLinkIcon className="size-3.5" />
+                                <ExternalLinkIcon className="size-4" />
                               </Button>
                             }
                           />
@@ -3649,7 +3649,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-7 shrink-0 rounded-md text-muted-foreground/66 hover:bg-accent/60 hover:text-foreground"
+                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
                               onClick={() =>
                                 startInlineEntry({
                                   kind: "create-file",
@@ -3664,7 +3664,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FilePlus2Icon className="size-3.5" />
+                          <FilePlus2Icon className="size-4" />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New file</TooltipPopup>
                       </Tooltip>
@@ -3674,7 +3674,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-7 shrink-0 rounded-md text-muted-foreground/66 hover:bg-accent/60 hover:text-foreground"
+                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
                               onClick={() =>
                                 startInlineEntry({
                                   kind: "create-folder",
@@ -3689,7 +3689,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FolderPlusIcon className="size-3.5" />
+                          <FolderPlusIcon className="size-4" />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New folder</TooltipPopup>
                       </Tooltip>
@@ -4480,6 +4480,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                 connectionUrl={inputProps.connectionUrl}
                 cwd={props.gitCwd}
                 filePath={selectedReviewFilePath}
+                onAddCodeComment={handleAddCodeComment}
                 onAskAgent={(filePath) =>
                   void submitAgentNotePrompt({
                     mode: "send",

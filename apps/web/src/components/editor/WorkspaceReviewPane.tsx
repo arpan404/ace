@@ -1,11 +1,8 @@
 import {
   BotIcon,
+  ClipboardPlusIcon,
   Columns2Icon,
-  ExternalLinkIcon,
-  FileCode2Icon,
-  GitBranchIcon,
   Loader2Icon,
-  MessageSquarePlusIcon,
   Rows3Icon,
   TextWrapIcon,
   XIcon,
@@ -17,12 +14,8 @@ import { Button } from "../ui/button";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useSetting } from "~/hooks/useSettings";
-import {
-  formatFileChangeType,
-  getRenderablePatch,
-  resolveFileDiffPath,
-  summarizeFileDiff,
-} from "~/lib/diffPatch";
+import { getRenderablePatch, resolveFileDiffPath, summarizeFileDiff } from "~/lib/diffPatch";
+import type { WorkspaceCodeComment } from "~/lib/editor/workspaceDesigner";
 import { gitWorkingTreeDiffQueryOptions } from "~/lib/gitReactQuery";
 import WorkspaceReviewDiff from "./WorkspaceReviewDiff";
 
@@ -30,6 +23,7 @@ interface WorkspaceReviewPaneProps {
   readonly connectionUrl?: string | null | undefined;
   readonly cwd: string | null;
   readonly filePath: string;
+  readonly onAddCodeComment: (comment: WorkspaceCodeComment) => void;
   readonly onAskAgent: (filePath: string) => void;
   readonly onClose: () => void;
   readonly onOpenFile: (filePath: string) => void;
@@ -69,40 +63,27 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
     );
   }, [props.filePath, renderablePatch]);
   const stat = fileDiff ? summarizeFileDiff(fileDiff) : null;
-  const changeType = fileDiff ? formatFileChangeType(fileDiff) : "modified";
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-card/72 px-3">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <GitBranchIcon className="size-3.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-mono text-[12px] font-medium text-foreground">
-              {props.filePath}
+      <header className="flex h-9 shrink-0 items-center gap-3 border-b border-border/70 bg-background/88 px-3">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span
+            className="truncate font-mono text-[12px] font-medium text-foreground/92"
+            title={props.filePath}
+          >
+            {props.filePath}
+          </span>
+          {stat ? (
+            <span className="flex shrink-0 items-center gap-1 font-mono text-[10.5px]">
+              <span className="text-success/90">+{stat.additions}</span>
+              <span className="text-destructive/90">-{stat.deletions}</span>
             </span>
-            {stat ? (
-              <>
-                <span className="hidden shrink-0 rounded-md bg-foreground/6 px-1.5 py-px text-[9px] font-semibold text-muted-foreground uppercase sm:inline-flex">
-                  {changeType}
-                </span>
-                <span className="shrink-0 font-mono text-[11px] text-success">
-                  +{stat.additions}
-                </span>
-                <span className="shrink-0 font-mono text-[11px] text-destructive">
-                  -{stat.deletions}
-                </span>
-              </>
-            ) : null}
-          </div>
-          <div className="truncate text-[10.5px] text-muted-foreground/75">
-            Review working tree changes before bringing the agent in.
-          </div>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <ToggleGroup
-            className="mr-1 shrink-0 gap-0.5 rounded-md border border-border/70 bg-background/42 p-0.5"
+            className="shrink-0 gap-0.5"
             variant="default"
             size="sm"
             value={[diffRenderMode]}
@@ -118,7 +99,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
                 render={
                   <Toggle
                     aria-label="Unified diff view"
-                    className="size-6 rounded-[5px] px-0 text-muted-foreground/72 hover:bg-accent hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                    className="size-7 rounded-md bg-transparent px-0 text-muted-foreground/58 hover:bg-transparent hover:text-foreground data-pressed:bg-transparent data-pressed:text-foreground"
                     value="stacked"
                   />
                 }
@@ -132,7 +113,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
                 render={
                   <Toggle
                     aria-label="Side-by-side diff view"
-                    className="size-6 rounded-[5px] px-0 text-muted-foreground/72 hover:bg-accent hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                    className="size-7 rounded-md bg-transparent px-0 text-muted-foreground/58 hover:bg-transparent hover:text-foreground data-pressed:bg-transparent data-pressed:text-foreground"
                     value="split"
                   />
                 }
@@ -151,7 +132,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
                   }
                   variant="default"
                   size="sm"
-                  className="size-7 rounded-md px-0 text-muted-foreground/72 hover:bg-accent hover:text-foreground data-pressed:bg-accent data-pressed:text-foreground"
+                  className="size-7 rounded-md bg-transparent px-0 text-muted-foreground/58 hover:bg-transparent hover:text-foreground data-pressed:bg-transparent data-pressed:text-foreground"
                   pressed={diffWordWrap}
                   onPressedChange={(pressed) => {
                     setDiffWordWrap(Boolean(pressed));
@@ -165,26 +146,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
               {diffWordWrap ? "Disable line wrapping" : "Enable line wrapping"}
             </TooltipPopup>
           </Tooltip>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 rounded-md px-2 text-[11px]"
-            onClick={() => props.onAskAgent(props.filePath)}
-          >
-            <BotIcon className="size-3.5" />
-            Review
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 rounded-md px-2 text-[11px]"
-            onClick={() => props.onQueueContext(props.filePath)}
-          >
-            <MessageSquarePlusIcon className="size-3.5" />
-            Queue
-          </Button>
+          <div className="mx-1 h-4 w-px bg-border/60" />
           <Tooltip>
             <TooltipTrigger
               render={
@@ -192,15 +154,15 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="size-7 rounded-md text-muted-foreground/72 hover:bg-accent hover:text-foreground"
-                  onClick={() => props.onOpenFile(props.filePath)}
-                  aria-label="Open file"
+                  className="size-7 rounded-md bg-transparent text-muted-foreground/64 hover:bg-transparent hover:text-foreground"
+                  onClick={() => props.onAskAgent(props.filePath)}
+                  aria-label="Ask agent to review"
                 />
               }
             >
-              <FileCode2Icon className="size-3.5" />
+              <BotIcon className="size-3.5" />
             </TooltipTrigger>
-            <TooltipPopup side="bottom">Open file</TooltipPopup>
+            <TooltipPopup side="bottom">Ask agent to review</TooltipPopup>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
@@ -209,16 +171,17 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="size-7 rounded-md text-muted-foreground/72 hover:bg-accent hover:text-foreground"
-                  onClick={() => props.onOpenToSide(props.filePath)}
-                  aria-label="Open to side"
+                  className="size-7 rounded-md bg-transparent text-muted-foreground/64 hover:bg-transparent hover:text-foreground"
+                  onClick={() => props.onQueueContext(props.filePath)}
+                  aria-label="Queue diff context"
                 />
               }
             >
-              <ExternalLinkIcon className="size-3.5" />
+              <ClipboardPlusIcon className="size-3.5" />
             </TooltipTrigger>
-            <TooltipPopup side="bottom">Open to side</TooltipPopup>
+            <TooltipPopup side="bottom">Queue diff context</TooltipPopup>
           </Tooltip>
+          <div className="mx-1 h-4 w-px bg-border/60" />
           <Tooltip>
             <TooltipTrigger
               render={
@@ -226,7 +189,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="size-7 rounded-md text-muted-foreground/72 hover:bg-accent hover:text-foreground"
+                  className="size-7 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
                   onClick={props.onClose}
                   aria-label="Close review"
                 />
@@ -263,8 +226,10 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
         ) : fileDiff ? (
           <div className="min-h-full bg-background">
             <WorkspaceReviewDiff
+              cwd={props.cwd}
               fileDiff={fileDiff}
               filePath={props.filePath}
+              onAddCodeComment={props.onAddCodeComment}
               renderMode={diffRenderMode}
               resolvedTheme={props.resolvedTheme}
               wordWrap={diffWordWrap}

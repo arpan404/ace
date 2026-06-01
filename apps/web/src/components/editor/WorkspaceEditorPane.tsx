@@ -1844,37 +1844,35 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         </section>
       ) : null}
 
-      <footer className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border bg-card/80 px-2.5 text-[10.5px] text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
+      <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-background px-3 text-[10.5px] text-muted-foreground/72">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
           {props.pane.activeFilePath ? (
             <>
-              <span className="truncate font-medium text-foreground/78">
+              <span className="truncate font-medium text-foreground/74">
                 {props.pane.activeFilePath}
               </span>
               {activeFileSizeBytes !== null ? (
-                <span className="shrink-0 rounded-md bg-foreground/6 px-1.5 py-px text-foreground/72">
+                <span className="shrink-0 border-l border-border/65 pl-2 font-mono text-foreground/58">
                   {formatFileSize(activeFileSizeBytes)}
                 </span>
               ) : null}
               {activeFileDirty ? (
-                <span className="shrink-0 rounded-md bg-amber-500/12 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
+                <span className="shrink-0 border-l border-border/65 pl-2 text-[9.5px] font-medium text-amber-500">
                   Modified
                 </span>
               ) : null}
               {activeFileCommentCount > 0 ? (
-                <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-primary uppercase">
+                <span className="shrink-0 border-l border-border/65 pl-2 text-[9.5px] font-medium text-foreground/68">
                   {activeFileCommentCount} comments
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="rounded-md bg-foreground/6 px-1.5 py-px text-foreground/72">
-              Ready
-            </span>
+            <span className="text-foreground/58">Ready</span>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 text-foreground/58">
           {actionError ? (
             <Tooltip>
               <TooltipTrigger
@@ -1914,12 +1912,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             </Tooltip>
           ) : null}
           {props.pane.activeFilePath && !isPreviewMode ? (
-            <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
-              {cursorLabel}
-            </span>
+            <span className="font-mono text-foreground/58">{cursorLabel}</span>
           ) : null}
           {activeLanguageId && !isPreviewMode ? (
-            <span className="rounded-md bg-foreground/5 px-1.5 py-px text-foreground/65">
+            <span className="border-l border-border/65 pl-2 font-mono text-foreground/58">
               {activeLanguageId}
             </span>
           ) : null}
@@ -1929,7 +1925,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                 render={
                   <button
                     type="button"
-                    className="rounded-md px-1.5 py-px text-foreground/75 transition-[background-color,color] hover:bg-accent hover:text-foreground"
+                    className="border-l border-border/65 pl-2 text-foreground/62 transition-colors hover:text-foreground"
                     onClick={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
@@ -1955,7 +1951,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             <Button
               type="button"
               variant="ghost"
-              className="h-auto rounded-md px-1.5 py-px text-foreground/72 hover:text-foreground"
+              className="h-5 rounded px-1.5 text-[10.5px] text-foreground/62 hover:bg-foreground/6 hover:text-foreground"
               onClick={() => props.onDiscardDraft(props.pane.activeFilePath!)}
               aria-label="Revert changes"
             >
@@ -1966,7 +1962,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             <Button
               type="button"
               variant="ghost"
-              className="h-auto rounded-md bg-foreground/10 px-1.5 py-px font-medium text-foreground hover:bg-foreground/14"
+              className="h-5 rounded bg-foreground/8 px-1.5 text-[10.5px] font-medium text-foreground/82 hover:bg-foreground/12 hover:text-foreground"
               onClick={handleSave}
               disabled={props.savingFilePath === props.pane.activeFilePath}
               aria-label="Save file"
