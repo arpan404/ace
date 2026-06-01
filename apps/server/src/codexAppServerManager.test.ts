@@ -1320,6 +1320,8 @@ describe("collab child conversation routing", () => {
         item: {
           type: "collabAgentToolCall",
           id: "call_collab_1",
+          agentName: "Dewey",
+          subagentType: "explorer",
           receiverThreadIds: ["child_provider_1"],
         },
         threadId: "provider_parent",
@@ -1350,6 +1352,11 @@ describe("collab child conversation routing", () => {
           ace: expect.objectContaining({
             parentTurnId: "turn_parent",
             childProviderThreadId: "child_provider_1",
+            subagent: {
+              id: "child_provider_1",
+              name: "Dewey",
+              type: "explorer",
+            },
           }),
         }),
       }),

@@ -41,7 +41,10 @@ function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThre
   if (entries.some((entry) => entry.status === "failed" || entry.tone === "error")) {
     return "failed";
   }
-  if (entries.some((entry) => entry.status === "inProgress")) {
+  const latestStatus = entries
+    .filter((entry) => entry.status)
+    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.status;
+  if (latestStatus === "inProgress") {
     return "running";
   }
   return "completed";

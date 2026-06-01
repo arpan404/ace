@@ -36,6 +36,9 @@ export function EnvironmentMiniPanel(props: {
     props.workspaceChangeStat !== null &&
     (props.workspaceChangeStat.additions > 0 || props.workspaceChangeStat.deletions > 0);
   const workspaceChangeStat = props.workspaceChangeStat;
+  const activeSubagentThreads = props.subagentThreads.filter(
+    (thread) => thread.status === "running",
+  );
 
   return (
     <aside className="pointer-events-auto relative z-30 mr-3 mt-3 hidden max-h-[calc(100%-1.5rem)] w-72 shrink-0 self-start overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
@@ -102,11 +105,11 @@ export function EnvironmentMiniPanel(props: {
         </div>
       ) : null}
 
-      {props.subagentThreads.length > 0 ? (
+      {activeSubagentThreads.length > 0 ? (
         <div className="mt-3 border-t border-border/60 pt-2.5">
           <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">Subagents</div>
           <div className="space-y-1">
-            {props.subagentThreads.map((thread) => (
+            {activeSubagentThreads.map((thread) => (
               <button
                 key={thread.id}
                 type="button"

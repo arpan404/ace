@@ -474,10 +474,20 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       undefined,
     name:
       asTrimmedString(subagent?.name) ??
+      asTrimmedString(subagent?.displayName) ??
+      asTrimmedString(subagent?.display_name) ??
       asTrimmedString(data?.agentName) ??
       asTrimmedString(data?.agent_name) ??
+      asTrimmedString(data?.name) ??
       asTrimmedString(item?.agentName) ??
       asTrimmedString(item?.agent_name) ??
+      asTrimmedString(item?.name) ??
+      asTrimmedString(input?.agentName) ??
+      asTrimmedString(input?.agent_name) ??
+      asTrimmedString(input?.name) ??
+      asTrimmedString(args?.agentName) ??
+      asTrimmedString(args?.agent_name) ??
+      asTrimmedString(args?.name) ??
       undefined,
     model:
       asTrimmedString(subagent?.model) ??

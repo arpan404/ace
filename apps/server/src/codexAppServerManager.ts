@@ -83,6 +83,11 @@ interface CodexRuntimeModelInfo {
   readonly isDefault: boolean;
 }
 
+interface CodexCollabReceiverRoute {
+  readonly parentTurnId: TurnId;
+  readonly subagent?: Record<string, unknown>;
+}
+
 interface CodexUserInputAnswer {
   answers: string[];
 }
@@ -95,7 +100,7 @@ interface CodexSessionContext {
   pending: Map<PendingRequestKey, PendingRequest>;
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
-  collabReceiverTurns: Map<string, TurnId>;
+  collabReceiverTurns: Map<string, CodexCollabReceiverRoute>;
   modelsBySlug: Map<string, CodexRuntimeModelInfo>;
   nextRequestId: number;
   stopping: boolean;
@@ -1595,7 +1600,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(rawRoute.turnId ? { turnId: rawRoute.turnId } : {}),
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       textDelta,
-      payload: this.withChildConversationRoute(notification.params, childParentTurnId),
+      payload: this.withChildConversationRoute(context, notification.params, childParentTurnId),
     });
 
     if (notification.method === "thread/started") {
@@ -1720,7 +1725,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       requestId,
       requestKind,
-      payload: this.withChildConversationRoute(request.params, childParentTurnId),
+      payload: this.withChildConversationRoute(context, request.params, childParentTurnId),
     });
 
     if (requestKind) {
@@ -2217,10 +2222,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!providerConversationId) {
       return undefined;
     }
-    return context.collabReceiverTurns.get(providerConversationId);
+    return context.collabReceiverTurns.get(providerConversationId)?.parentTurnId;
   }
 
-  private withChildConversationRoute(params: unknown, parentTurnId: TurnId | undefined): unknown {
+  private withChildConversationRoute(
+    context: CodexSessionContext,
+    params: unknown,
+    parentTurnId: TurnId | undefined,
+  ): unknown {
     if (!parentTurnId) {
       return params;
     }
@@ -2228,13 +2237,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!record) {
       return params;
     }
+    const providerConversationId = this.readProviderConversationId(params);
     const existingAce = this.readObject(record, "ace");
+    const route = providerConversationId
+      ? context.collabReceiverTurns.get(providerConversationId)
+      : undefined;
     return {
       ...record,
       ace: {
         ...existingAce,
         parentTurnId,
-        childProviderThreadId: this.readProviderConversationId(params),
+        childProviderThreadId: providerConversationId,
+        ...(route?.subagent ? { subagent: route.subagent } : {}),
       },
     };
   }
@@ -2248,6 +2262,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
     const payload = this.readObject(params);
+    if (!payload) {
+      return;
+    }
     const item = this.readObject(payload, "item") ?? payload;
     const itemType = this.readString(item, "type") ?? this.readString(item, "kind");
     if (itemType !== "collabAgentToolCall") {
@@ -2258,9 +2275,65 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readArray(item, "receiverThreadIds")
         ?.map((value) => (typeof value === "string" ? value : null))
         .filter((value): value is string => value !== null) ?? [];
+    const subagent = this.readCodexCollabSubagent(payload, item);
     for (const receiverThreadId of receiverThreadIds) {
-      context.collabReceiverTurns.set(receiverThreadId, parentTurnId);
+      context.collabReceiverTurns.set(receiverThreadId, {
+        parentTurnId,
+        ...(subagent ? { subagent: { ...subagent, id: receiverThreadId } } : {}),
+      });
     }
+  }
+
+  private readCodexCollabSubagent(
+    payload: Record<string, unknown>,
+    item: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    const input = this.readObject(payload, "input") ?? this.readObject(item, "input");
+    const args = this.readObject(payload, "arguments") ?? this.readObject(item, "arguments");
+    const subagent =
+      this.readObject(payload, "subagent") ??
+      this.readObject(item, "subagent") ??
+      this.readObject(input, "subagent") ??
+      this.readObject(args, "subagent");
+    const type =
+      this.readString(subagent, "type") ??
+      this.readString(payload, "subagentType") ??
+      this.readString(payload, "subagent_type") ??
+      this.readString(item, "subagentType") ??
+      this.readString(item, "subagent_type") ??
+      this.readString(input, "subagentType") ??
+      this.readString(input, "subagent_type") ??
+      this.readString(args, "subagentType") ??
+      this.readString(args, "subagent_type");
+    const name =
+      this.readString(subagent, "name") ??
+      this.readString(subagent, "displayName") ??
+      this.readString(payload, "agentName") ??
+      this.readString(payload, "agent_name") ??
+      this.readString(payload, "name") ??
+      this.readString(item, "agentName") ??
+      this.readString(item, "agent_name") ??
+      this.readString(item, "name") ??
+      this.readString(input, "agentName") ??
+      this.readString(input, "agent_name") ??
+      this.readString(input, "name") ??
+      this.readString(args, "agentName") ??
+      this.readString(args, "agent_name") ??
+      this.readString(args, "name");
+    const model =
+      this.readString(subagent, "model") ??
+      this.readString(payload, "model") ??
+      this.readString(item, "model") ??
+      this.readString(input, "model") ??
+      this.readString(args, "model");
+    if (!type && !name && !model) {
+      return undefined;
+    }
+    return {
+      ...(type ? { type } : {}),
+      ...(name ? { name } : {}),
+      ...(model ? { model } : {}),
+    };
   }
 
   private shouldApplyActiveTurnTerminalNotification(
