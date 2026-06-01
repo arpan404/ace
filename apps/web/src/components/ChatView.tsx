@@ -502,6 +502,7 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onNewTerminal: () => void;
   onActiveTerminalChange: (terminalId: string) => void;
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
+  onSplitRatiosChange: (groupId: string, ratios: number[]) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onCloseTerminal: (terminalId: string) => void;
   onToggleTerminal: () => void;
@@ -521,6 +522,7 @@ function ConnectedRetainedThreadTerminalDrawers({
   onNewTerminal,
   onActiveTerminalChange,
   onMoveTerminal,
+  onSplitRatiosChange,
   onAutoTerminalTitleChange,
   onCloseTerminal,
   onToggleTerminal,
@@ -542,6 +544,7 @@ function ConnectedRetainedThreadTerminalDrawers({
           terminalGroups: terminalDrawerState.terminalGroups,
           runningTerminalIds: terminalDrawerState.runningTerminalIds,
           autoTerminalTitlesById: terminalDrawerState.autoTerminalTitlesById,
+          splitRatiosByGroupId: terminalDrawerState.splitRatiosByGroupId,
           focusRequestId,
           interactive,
           onNewTerminal,
@@ -549,6 +552,7 @@ function ConnectedRetainedThreadTerminalDrawers({
           toggleShortcutLabel,
           onActiveTerminalChange,
           onMoveTerminal,
+          onSplitRatiosChange,
           onAutoTerminalTitleChange,
           onCloseTerminal,
           onToggleTerminal,
@@ -1380,9 +1384,13 @@ function useChatViewComponent({
   );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
+  const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
+  const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
+    (s) => s.setTerminalGroupSplitRatios,
+  );
   const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
 
@@ -5407,6 +5415,12 @@ function useChatViewComponent({
     storeNewTerminal(activeThreadId, terminalId);
     setTerminalFocusRequestId((value) => value + 1);
   }, [activeThreadId, setTerminalFocusRequestId, storeNewTerminal]);
+  const createSplitTerminal = useCallback(() => {
+    if (!activeThreadId) return;
+    const terminalId = `terminal-${randomUUID()}`;
+    storeSplitTerminal(activeThreadId, terminalId);
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [activeThreadId, setTerminalFocusRequestId, storeSplitTerminal]);
   const activateTerminal = useCallback(
     (terminalId: string) => {
       if (!activeThreadId) return;
@@ -5421,6 +5435,13 @@ function useChatViewComponent({
       storeMoveTerminal(activeThreadId, terminalId, targetGroupId, targetIndex);
     },
     [activeThreadId, storeMoveTerminal],
+  );
+  const setTerminalGroupSplitRatios = useCallback(
+    (groupId: string, ratios: number[]) => {
+      if (!activeThreadId) return;
+      storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
+    },
+    [activeThreadId, storeSetTerminalGroupSplitRatios],
   );
   const readActiveTerminalState = useCallback(() => {
     if (!activeThreadId) {
@@ -6318,6 +6339,16 @@ function useChatViewComponent({
         return;
       }
 
+      if (command === "terminal.split") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!terminalState.terminalOpen) {
+          setTerminalOpen(true);
+        }
+        createSplitTerminal();
+        return;
+      }
+
       if (command === "rightPanel.review.open") {
         event.preventDefault();
         event.stopPropagation();
@@ -6483,6 +6514,7 @@ function useChatViewComponent({
     openBrowser,
     closeTerminal,
     createNewTerminal,
+    createSplitTerminal,
     setTerminalOpen,
     runProjectScript,
     keybindings,
@@ -9059,6 +9091,7 @@ function useChatViewComponent({
           toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
           onActiveTerminalChange={activateTerminal}
           onMoveTerminal={moveTerminal}
+          onSplitRatiosChange={setTerminalGroupSplitRatios}
           onAutoTerminalTitleChange={setTerminalAutoTitle}
           onCloseTerminal={closeTerminal}
           onToggleTerminal={toggleTerminalVisibility}
