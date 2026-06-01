@@ -13,6 +13,7 @@ function ScrollArea({
   scrollFade = false,
   scrollbarGutter = false,
   hideScrollbars = false,
+  verticalScrollbarSide = "end",
   ...props
 }: ScrollAreaPrimitive.Root.Props & {
   viewportProps?: ScrollAreaPrimitive.Viewport.Props;
@@ -20,6 +21,7 @@ function ScrollArea({
   scrollFade?: boolean;
   scrollbarGutter?: boolean;
   hideScrollbars?: boolean;
+  verticalScrollbarSide?: "start" | "end";
 }) {
   const { className: viewportClassName, ...rootViewportProps } = viewportProps ?? {};
 
@@ -43,7 +45,14 @@ function ScrollArea({
       </ScrollAreaPrimitive.Viewport>
       {!hideScrollbars && (
         <>
-          <ScrollBar orientation="vertical" />
+          <ScrollBar
+            orientation="vertical"
+            className={
+              verticalScrollbarSide === "start"
+                ? "![inset-inline-end:auto] ![inset-inline-start:0] !right-auto !left-0"
+                : undefined
+            }
+          />
           <ScrollBar orientation="horizontal" />
           <ScrollAreaPrimitive.Corner data-slot="scroll-area-corner" />
         </>

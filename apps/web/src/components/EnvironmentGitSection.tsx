@@ -287,7 +287,7 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
 }
 
 const gitCardRowClassName =
-  "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
+  "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
 
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
@@ -955,7 +955,7 @@ function useEnvironmentGitSection({
             <div className="px-2 text-[11px] text-muted-foreground">Refreshing...</div>
           ) : null}
           <Menu>
-            <div className="flex min-h-8 w-full overflow-hidden rounded-lg">
+            <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
               <button
                 type="button"
                 className={cn(
@@ -979,13 +979,13 @@ function useEnvironmentGitSection({
             <MenuPopup
               align="start"
               side="left"
-              className="w-72 rounded-2xl shadow-2xl shadow-black/25"
+              className="w-72 shadow-2xl shadow-black/25"
               listClassName="p-3"
               sideOffset={12}
             >
               <MenuGroup>
                 <MenuItem
-                  className="min-h-10 gap-2 rounded-xl px-2 text-[14px]"
+                  className="min-h-10 gap-2 px-2 text-[14px]"
                   disabled={isGitActionRunning || quickAction.disabled}
                   title={quickActionDisabledReason ?? undefined}
                   onClick={runQuickAction}
@@ -1006,7 +1006,7 @@ function useEnvironmentGitSection({
                   return (
                     <MenuItem
                       key={`${item.id}-${item.label}`}
-                      className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
+                      className="min-h-9 gap-2 px-2 text-[13px]"
                       disabled={item.disabled}
                       title={disabledReason ?? undefined}
                       onClick={() => {
@@ -1022,7 +1022,7 @@ function useEnvironmentGitSection({
               <MenuSeparator className="mx-2 my-2" />
               <MenuGroup>
                 <MenuItem
-                  className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
+                  className="min-h-9 gap-2 px-2 text-[13px]"
                   onClick={() => {
                     dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
                   }}

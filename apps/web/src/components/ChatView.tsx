@@ -8469,40 +8469,22 @@ function useChatViewComponent({
               ) : null}
               <div className="flex min-w-0 flex-1 items-center overflow-hidden">
                 <ChatHeader
-                  activeThreadId={activeThread.id}
                   activeThreadTitle={activeThread.title}
                   activeProjectId={activeProject?.id ?? null}
                   activeProjectName={activeProject?.name}
                   isGitRepo={isGitRepo}
-                  activeProjectScripts={activeProject?.scripts}
-                  preferredScriptId={
-                    activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-                  }
-                  keybindings={keybindings}
                   terminalAvailable={activeProject !== undefined}
                   terminalOpen={terminalState.terminalOpen}
                   terminalToggleShortcutLabel={terminalToggleShortcutLabel}
                   environmentPanelOpen={environmentPanelOpen}
                   rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
-                  gitCwd={gitCwd}
-                  activePlanProgress={activePlanProgress}
-                  isAgentWorking={isWorking}
-                  workspaceChangeStat={workspaceChangeStat}
                   rightSidePanelOpen={rightSidePanelOpen}
-                  workspaceMode={headerWorkspaceMode}
-                  onRunProjectScript={(script) => {
-                    void runProjectScript(script);
-                  }}
-                  onAddProjectScript={saveProjectScript}
-                  onUpdateProjectScript={updateProjectScript}
-                  onDeleteProjectScript={deleteProjectScript}
                   onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
                   onToggleEnvironmentPanel={() => {
                     setEnvironmentPanelOpen((open) => !open);
                   }}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
-                  onWorkspaceModeChange={onWorkspaceModeChange}
                   reliabilitySlot={
                     reliabilityUxEnabled ? (
                       <ConnectionHealthPill
@@ -8786,11 +8768,13 @@ function useChatViewComponent({
           {environmentPanelOpen && !rightSidePanelOpen ? (
             <EnvironmentMiniPanel
               activeProjectScripts={activeProject?.scripts}
+              activePlanProgress={activePlanProgress}
               activeSubagentThreadId={activeSubagentThreadId}
               activeThreadId={activeThread.id}
               branchToolbarProps={branchToolbarProps}
               gitCwd={gitCwd}
               isGitRepo={isGitRepo}
+              isAgentWorking={isWorking}
               keybindings={keybindings}
               preferredScriptId={
                 activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
@@ -8800,6 +8784,7 @@ function useChatViewComponent({
               workspaceMode={headerWorkspaceMode}
               onAddProjectScript={saveProjectScript}
               onDeleteProjectScript={deleteProjectScript}
+              onOpenDiffPanel={onOpenRightSidePanelDiff}
               onRunProjectScript={(script) => {
                 void runProjectScript(script);
               }}

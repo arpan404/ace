@@ -1,6 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
-import { EllipsisIcon } from "lucide-react";
+import { EllipsisIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -88,9 +88,11 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           }}
         >
           <MenuRadioItem value="approval-required">
+            <ShieldCheckIcon className={RUNTIME_MODE_META["approval-required"].iconClassName} />
             {RUNTIME_MODE_META["approval-required"].label}
           </MenuRadioItem>
           <MenuRadioItem value="full-access">
+            <ShieldAlertIcon className={RUNTIME_MODE_META["full-access"].iconClassName} />
             {RUNTIME_MODE_META["full-access"].label}
           </MenuRadioItem>
         </MenuRadioGroup>

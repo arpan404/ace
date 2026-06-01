@@ -12,8 +12,8 @@ import {
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
-  LockIcon,
-  LockOpenIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -96,11 +96,13 @@ function RuntimeModeButton(props: {
         }
       >
         {props.runtimeMode === "full-access" ? (
-          <LockOpenIcon
+          <ShieldAlertIcon
             className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
           />
         ) : (
-          <LockIcon className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)} />
+          <ShieldCheckIcon
+            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
+          />
         )}
         <span className={props.compact ? "sr-only" : "sr-only sm:not-sr-only"}>
           {RUNTIME_MODE_META[props.runtimeMode].label}

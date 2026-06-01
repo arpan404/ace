@@ -1,11 +1,12 @@
 import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { type ComponentProps } from "react";
-import { BotIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
+import { BotIcon, ListTodoIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import type { SubagentThread } from "./SubagentThreadsPanel";
+import type { ActivePlanProgressState } from "../../session-logic";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 function formatDiffCount(value: number): string {
@@ -14,14 +15,17 @@ function formatDiffCount(value: number): string {
 
 export function EnvironmentMiniPanel(props: {
   activeProjectScripts: ProjectScript[] | undefined;
+  activePlanProgress: ActivePlanProgressState | null;
   activeSubagentThreadId: string | null;
   activeThreadId: ThreadId;
   branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
   gitCwd: string | null;
   isGitRepo: boolean;
+  isAgentWorking: boolean;
   keybindings: ResolvedKeybindingsConfig;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onOpenDiffPanel: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onSelectSubagentThread: (threadId: string) => void;
   onSubagentPanelOpen: () => void;
@@ -39,9 +43,21 @@ export function EnvironmentMiniPanel(props: {
   const activeSubagentThreads = props.subagentThreads.filter(
     (thread) => thread.status === "running",
   );
+  const activeTodoProgress =
+    props.isAgentWorking &&
+    props.activePlanProgress &&
+    props.activePlanProgress.currentIndex !== null
+      ? {
+          currentIndex: props.activePlanProgress.currentIndex,
+          total: props.activePlanProgress.total,
+        }
+      : null;
+  const todoProgressWidth = activeTodoProgress
+    ? Math.max(2, String(activeTodoProgress.total).length)
+    : 2;
 
   return (
-    <aside className="pointer-events-auto relative z-30 mr-3 mt-3 hidden max-h-[calc(100%-1.5rem)] w-72 shrink-0 self-start overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
+    <aside className="pointer-events-auto absolute top-3 right-3 z-30 hidden max-h-[calc(100%-1.5rem)] w-72 overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-medium text-muted-foreground">Environment</h2>
         <button
@@ -54,7 +70,12 @@ export function EnvironmentMiniPanel(props: {
       </div>
 
       <div className="space-y-1">
-        <div className="flex min-h-8 items-center gap-2 rounded-lg px-2 py-1 text-[13px]">
+        <button
+          type="button"
+          className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
+          disabled={!props.isGitRepo}
+          onClick={props.onOpenDiffPanel}
+        >
           <SlidersHorizontalIcon className="size-3.5 text-muted-foreground" />
           <span className="min-w-0 flex-1">Changes</span>
           {hasChanges && workspaceChangeStat ? (
@@ -73,7 +94,17 @@ export function EnvironmentMiniPanel(props: {
           ) : (
             <span className="text-[12px] text-muted-foreground">Clean</span>
           )}
-        </div>
+        </button>
+        {activeTodoProgress ? (
+          <div className="flex min-h-8 items-center gap-2 rounded-lg px-2 py-1 text-[13px]">
+            <ListTodoIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1">Todo</span>
+            <span className="font-medium tabular-nums text-foreground">
+              {String(activeTodoProgress.currentIndex).padStart(todoProgressWidth, "0")}/
+              {String(activeTodoProgress.total).padStart(todoProgressWidth, "0")}
+            </span>
+          </div>
+        ) : null}
         {props.branchToolbarProps ? (
           <BranchToolbar {...props.branchToolbarProps} presentation="environment" />
         ) : null}
