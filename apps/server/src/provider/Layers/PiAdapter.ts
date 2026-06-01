@@ -55,7 +55,9 @@ const PI_PLAN_MODE_PROMPT_PREAMBLE = [
   "When you are ready to propose a plan, place the plan markdown between these exact markers:",
   "<!-- ACE_PROPOSED_PLAN_START -->",
   "<!-- ACE_PROPOSED_PLAN_END -->",
-  "Inside the markers, start with a top-level markdown heading and then list short actionable steps.",
+  "Inside the markers, use normal markdown with spaces between words.",
+  "Start with one top-level heading, then a blank line, then one numbered step per line.",
+  "Use indented bullet lines for substeps. Do not compress prose into a single paragraph.",
 ].join("\n");
 
 type PiAvailableCommand = {

@@ -75,6 +75,31 @@ describe("stripDisplayedPlanMarkdown", () => {
       ),
     ).toBe("1. Define SLOs.\n2. Add observability.");
   });
+
+  it("keeps a compact heading-only plan visible when expanded", () => {
+    expect(
+      stripDisplayedPlanMarkdown(
+        "<!--ACE_PROPOSED_PLAN_START\n>#Implementation plan: Gather baselines. 1. Define SLOs. 2. Add observability.",
+      ),
+    ).toBe("# Implementation plan: Gather baselines. 1. Define SLOs. 2. Add observability.");
+  });
+
+  it("repairs Pi compact prose into readable markdown sections and bullets", () => {
+    expect(
+      stripDisplayedPlanMarkdown(
+        "ProposedPlan: ImproveRobustnessandScalabilityforAce1. Auditcurrentarchitectureandbottlenecks-Inventoryservices(apps/server, apps/web, packages)andexternaldependencies(codexapp-server, DBs, caches).-Collectruntimemetrics, logs, andincidenthistoryforthelast3months.-Runloadprofilescenarios(startup, bursttraffic, long-runningsessions)andrecordresourceusageandfailuremodes.2. Hardenprovidersessionlifecycle(codexapp-server)-Addrobuststart/stop/retrylogicforcodexapp-serverprocesseswithexponentialbackoffandjitter.",
+      ),
+    ).toBe(
+      [
+        "1. Audit current architecture and bottlenecks",
+        "   - Inventory services(apps/server, apps/web, packages) and external dependencies(codex app-server, DBs, caches).",
+        "   - Collect runtime metrics, logs, and incident history for the last 3 months.",
+        "   - Run load profile scenarios(startup, burst traffic, long-running sessions) and record resource usage and failure modes.",
+        "2. Harden provider session lifecycle(codex app-server)",
+        "   - Add robust start/stop/retry logic for codex app-server processes with exponential backoff and jitter.",
+      ].join("\n"),
+    );
+  });
 });
 
 describe("resolvePlanFollowUpSubmission", () => {
