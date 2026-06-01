@@ -281,14 +281,6 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
 const gitCardRowClassName =
   "flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
 
-const gitCardIconClassName = "size-4 shrink-0 text-muted-foreground";
-
-const gitDiffCountFormatter = new Intl.NumberFormat();
-
-function formatGitDiffCount(value: number): string {
-  return gitDiffCountFormatter.format(value);
-}
-
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
   if (quickAction.kind === "open_pr") return <GitHubIcon className={iconClassName} />;
@@ -927,11 +919,6 @@ function useEnvironmentGitSection({
   );
 
   if (!gitCwd) return null;
-  const changedFileCount = gitStatusForActions?.workingTree.files.length ?? 0;
-  const insertions = gitStatusForActions?.workingTree.insertions ?? 0;
-  const deletions = gitStatusForActions?.workingTree.deletions ?? 0;
-  const hasDiffStats = insertions > 0 || deletions > 0;
-  const cardBranchLabel = gitStatusForActions?.branch ?? "(detached HEAD)";
 
   return (
     <>
@@ -962,40 +949,6 @@ function useEnvironmentGitSection({
             <div className="px-2 text-[11px] text-muted-foreground">Refreshing...</div>
           ) : null}
           <div className="rounded-2xl border border-border/60 bg-muted/25 p-2">
-            <div className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 py-2">
-              <GitCommitIcon className={gitCardIconClassName} />
-              <span className="min-w-0 flex-1 text-[13px] leading-none text-foreground">
-                Changes
-              </span>
-              {hasDiffStats ? (
-                <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold tabular-nums">
-                  {insertions > 0 ? (
-                    <span className="text-success">+{formatGitDiffCount(insertions)}</span>
-                  ) : null}
-                  {deletions > 0 ? (
-                    <span className="text-destructive">-{formatGitDiffCount(deletions)}</span>
-                  ) : null}
-                </span>
-              ) : (
-                <span className="shrink-0 text-[12px] text-muted-foreground">
-                  {changedFileCount === 0 ? "Clean" : `${changedFileCount} files`}
-                </span>
-              )}
-            </div>
-            <div className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 py-2">
-              <GitBranchPlusIcon className={gitCardIconClassName} />
-              <span className="min-w-0 flex-1 truncate text-[13px] leading-none text-foreground">
-                {cardBranchLabel}
-              </span>
-              {gitStatusForActions && gitStatusForActions.aheadCount > 0 ? (
-                <span className="text-[11px] text-muted-foreground">
-                  +{gitStatusForActions.aheadCount}
-                </span>
-              ) : null}
-              {gitStatusForActions && gitStatusForActions.behindCount > 0 ? (
-                <span className="text-[11px] text-warning">-{gitStatusForActions.behindCount}</span>
-              ) : null}
-            </div>
             {quickActionDisabledReason ? (
               <Popover>
                 <PopoverTrigger

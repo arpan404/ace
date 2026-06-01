@@ -199,7 +199,6 @@ import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import type { DiffReviewCommentInput } from "./DiffPanel";
-import BranchToolbar from "./BranchToolbar";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -8579,12 +8578,10 @@ function useChatViewComponent({
               activeProjectScripts={activeProject?.scripts}
               activeSubagentThreadId={activeSubagentThreadId}
               activeThreadId={activeThread.id}
-              currentBranchName={activeThreadBranchName}
+              branchToolbarProps={branchToolbarProps}
               gitCwd={gitCwd}
               isGitRepo={isGitRepo}
               keybindings={keybindings}
-              localEnvironmentIcon={activeEnvironmentIcon}
-              localEnvironmentLabel={activeRemoteHost?.name ?? "Local"}
               preferredScriptId={
                 activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
               }
@@ -8712,13 +8709,7 @@ function useChatViewComponent({
                       }
                       resolvedTheme={resolvedTheme}
                       showFloatingDock={showRightPanelChatDock}
-                      floatingDockFooter={
-                        showRightPanelChatDock && branchToolbarProps ? (
-                          <div className="mx-auto w-full max-w-208 rounded-md bg-background/95 backdrop-blur-sm">
-                            <BranchToolbar {...branchToolbarProps} />
-                          </div>
-                        ) : null
-                      }
+                      floatingDockFooter={null}
                       floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
                       onComposerHeightChange={scheduleStickToBottom}
                       onPreviewExpandedImage={onExpandTimelineImage}
@@ -8749,7 +8740,6 @@ function useChatViewComponent({
                     />
 
                     <ChatConversationExtras
-                      branchToolbarProps={branchToolbarProps}
                       gitHubIssueDialogProps={gitHubIssueDialogProps}
                       pullRequestDialogKey={pullRequestDialogState?.key ?? null}
                       pullRequestDialogProps={pullRequestDialogProps}

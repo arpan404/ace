@@ -1,11 +1,11 @@
 import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
-import { BotIcon, FolderIcon, LaptopIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
+import { type ComponentProps } from "react";
+import { BotIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
 
+import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import { ProjectGlyphIcon } from "../ProjectAvatar";
 import type { SubagentThread } from "./SubagentThreadsPanel";
-import type { Project } from "~/types";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 function formatDiffCount(value: number): string {
@@ -16,12 +16,10 @@ export function EnvironmentMiniPanel(props: {
   activeProjectScripts: ProjectScript[] | undefined;
   activeSubagentThreadId: string | null;
   activeThreadId: ThreadId;
-  currentBranchName: string | null;
+  branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
   gitCwd: string | null;
   isGitRepo: boolean;
   keybindings: ResolvedKeybindingsConfig;
-  localEnvironmentIcon?: Project["icon"];
-  localEnvironmentLabel: string;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -38,11 +36,6 @@ export function EnvironmentMiniPanel(props: {
     props.workspaceChangeStat !== null &&
     (props.workspaceChangeStat.additions > 0 || props.workspaceChangeStat.deletions > 0);
   const workspaceChangeStat = props.workspaceChangeStat;
-  const localIcon = props.localEnvironmentIcon ? (
-    <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-4 opacity-80" />
-  ) : (
-    <LaptopIcon className="size-4 text-muted-foreground" />
-  );
 
   return (
     <aside className="pointer-events-auto absolute top-6 right-6 z-30 hidden w-80 max-w-[calc(100%-3rem)] rounded-3xl border border-border/70 bg-popover/90 p-4 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
@@ -78,14 +71,9 @@ export function EnvironmentMiniPanel(props: {
             <span className="text-xs text-muted-foreground">Clean</span>
           )}
         </div>
-        <div className="flex min-h-9 items-center gap-3 rounded-lg px-2 py-1.5 text-[15px]">
-          {localIcon}
-          <span className="min-w-0 flex-1 truncate">{props.localEnvironmentLabel}</span>
-        </div>
-        <div className="flex min-h-9 items-center gap-3 rounded-lg px-2 py-1.5 text-[15px]">
-          <FolderIcon className="size-4 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{props.currentBranchName ?? "No branch"}</span>
-        </div>
+        {props.branchToolbarProps ? (
+          <BranchToolbar {...props.branchToolbarProps} presentation="environment" />
+        ) : null}
       </div>
 
       {props.isGitRepo ? (

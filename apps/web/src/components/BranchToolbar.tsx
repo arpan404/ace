@@ -55,6 +55,7 @@ interface BranchToolbarProps {
   currentBranchName: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  presentation?: "footer" | "environment";
   localEnvironmentLabel?: string;
   localEnvironmentIcon?: Project["icon"];
   runtimeMode?: RuntimeMode;
@@ -68,6 +69,7 @@ export default function BranchToolbar({
   currentBranchName,
   onEnvModeChange,
   envLocked,
+  presentation = "footer",
   localEnvironmentLabel = "Local",
   localEnvironmentIcon = null,
   runtimeMode,
@@ -156,6 +158,7 @@ export default function BranchToolbar({
 
   if (!activeThreadId || !activeProject) return null;
   const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
+  const isEnvironmentPresentation = presentation === "environment";
   const envModeItems = [
     { value: "local", label: localEnvironmentLabel },
     { value: "worktree", label: "New worktree" },
@@ -165,6 +168,107 @@ export default function BranchToolbar({
   ) : (
     <FolderIcon className="size-3 opacity-60" />
   );
+  const environmentModeRowClassName =
+    "flex min-h-9 w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[15px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
+  const environmentModeIcon =
+    effectiveEnvMode === "worktree" ? (
+      <GitForkIcon className="size-4 text-muted-foreground" />
+    ) : localEnvironmentIcon ? (
+      <ProjectGlyphIcon icon={localEnvironmentIcon} className="size-4 opacity-80" />
+    ) : (
+      <FolderIcon className="size-4 text-muted-foreground" />
+    );
+
+  if (isEnvironmentPresentation) {
+    return (
+      <div className="space-y-1">
+        {envLocked || activeWorktreePath ? (
+          <div className={environmentModeRowClassName}>
+            {activeWorktreePath ? (
+              <GitForkIcon className="size-4 text-muted-foreground" />
+            ) : (
+              environmentModeIcon
+            )}
+            <span className="min-w-0 flex-1 truncate">
+              {activeWorktreePath ? "Worktree" : localEnvironmentLabel}
+            </span>
+          </div>
+        ) : (
+          <Select
+            value={effectiveEnvMode}
+            onValueChange={(value) => handleEnvModeSelect(value as EnvMode)}
+            items={envModeItems}
+          >
+            <SelectTrigger variant="ghost" size="default" className={environmentModeRowClassName}>
+              {environmentModeIcon}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup align="start" side="left">
+              <SelectItem value="local">
+                <span className="inline-flex items-center gap-2">
+                  {localEnvironmentIcon ? (
+                    <ProjectGlyphIcon icon={localEnvironmentIcon} className="size-4 opacity-80" />
+                  ) : (
+                    <FolderIcon className="size-4" />
+                  )}
+                  {localEnvironmentLabel}
+                </span>
+              </SelectItem>
+              <SelectItem value="worktree">
+                <span className="inline-flex items-center gap-2">
+                  <GitForkIcon className="size-4" />
+                  New worktree
+                </span>
+              </SelectItem>
+            </SelectPopup>
+          </Select>
+        )}
+
+        <BranchToolbarBranchSelector
+          activeProjectCwd={activeProject.cwd}
+          activeThreadBranch={activeThreadBranch}
+          activeWorktreePath={activeWorktreePath}
+          branchCwd={branchCwd}
+          effectiveEnvMode={effectiveEnvMode}
+          envLocked={envLocked}
+          presentation="environment"
+          onSetThreadBranch={setThreadBranch}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+
+        {runtimeMode && onRuntimeModeChange ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className={environmentModeRowClassName}
+                  onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
+                  aria-label={runtimeModeMeta?.title}
+                  data-chat-branch-runtime-mode={runtimeMode}
+                />
+              }
+            >
+              {runtimeMode === "full-access" ? (
+                <LockOpenIcon
+                  className={`size-4 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
+                />
+              ) : (
+                <LockIcon
+                  className={`size-4 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
+                />
+              )}
+              <span className="min-w-0 flex-1 truncate">{runtimeModeMeta?.label ?? "Access"}</span>
+            </TooltipTrigger>
+            {runtimeModeMeta?.title ? (
+              <TooltipPopup side="left">{runtimeModeMeta.title}</TooltipPopup>
+            ) : null}
+          </Tooltip>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">

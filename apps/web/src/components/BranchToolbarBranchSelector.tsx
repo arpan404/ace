@@ -1,7 +1,7 @@
 import type { GitBranch } from "@ace/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, GitForkIcon } from "lucide-react";
 import {
   type CSSProperties,
   useCallback,
@@ -50,6 +50,7 @@ interface BranchToolbarBranchSelectorProps {
   branchCwd: string | null;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
+  presentation?: "toolbar" | "environment";
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -336,6 +337,7 @@ export function BranchToolbarBranchSelector({
   branchCwd,
   effectiveEnvMode,
   envLocked,
+  presentation = "toolbar",
   onSetThreadBranch,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -484,6 +486,7 @@ export function BranchToolbarBranchSelector({
     effectiveEnvMode,
     resolvedActiveBranch,
   });
+  const isEnvironmentPresentation = presentation === "environment";
 
   return (
     <Combobox
@@ -502,14 +505,35 @@ export function BranchToolbarBranchSelector({
       value={resolvedActiveBranch}
     >
       <ComboboxTrigger
-        render={<Button variant="ghost" size="xs" />}
-        className="text-muted-foreground/70 hover:text-foreground/80"
+        render={<Button variant="ghost" size={isEnvironmentPresentation ? "default" : "xs"} />}
+        className={
+          isEnvironmentPresentation
+            ? "min-h-9 w-full justify-start gap-3 rounded-lg px-2 py-1.5 text-[15px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
+            : "text-muted-foreground/70 hover:text-foreground/80"
+        }
         disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
       >
-        <span className="max-w-[240px] truncate">{triggerLabel}</span>
-        <ChevronDownIcon />
+        {isEnvironmentPresentation ? (
+          <GitForkIcon className="size-4 text-muted-foreground" />
+        ) : null}
+        <span
+          className={
+            isEnvironmentPresentation
+              ? "min-w-0 flex-1 truncate text-left"
+              : "max-w-[240px] truncate"
+          }
+        >
+          {triggerLabel}
+        </span>
+        <ChevronDownIcon
+          className={isEnvironmentPresentation ? "size-4 text-muted-foreground" : undefined}
+        />
       </ComboboxTrigger>
-      <ComboboxPopup align="end" side="top" className="w-80">
+      <ComboboxPopup
+        align={isEnvironmentPresentation ? "start" : "end"}
+        side={isEnvironmentPresentation ? "left" : "top"}
+        className="w-80"
+      >
         <div className="border-b p-1">
           <ComboboxInput
             className="[&_input]:font-sans rounded-md"
