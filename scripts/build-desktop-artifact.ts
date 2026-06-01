@@ -16,15 +16,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import {
-  APPLE_TEAM_ID_ENV,
-  MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP_ENV,
-  MAC_WEBAUTHN_RUNTIME_CONFIG_FILE,
-  MAC_WEBAUTHN_TEAM_ID_ENV,
-  normalizeMacTeamId,
-  resolveMacWebAuthnKeychainAccessGroup,
-} from "@ace/shared/macWebAuthn";
-
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 
@@ -467,8 +458,6 @@ function resolveDesktopRuntimeDependencies(
 
 const DESKTOP_APP_ID = "com.ace.ace";
 const DEFAULT_DESKTOP_UPDATE_REPOSITORY = "arpan404/ace";
-const MAC_ENTITLEMENTS_FILE = "entitlements.mac.plist";
-const MAC_INHERIT_ENTITLEMENTS_FILE = "entitlements.mac.inherit.plist";
 const MAC_SIGN_IGNORE_RESOURCE_PATTERNS = [
   "\\.asar$",
   "\\.bin$",
@@ -477,99 +466,6 @@ const MAC_SIGN_IGNORE_RESOURCE_PATTERNS = [
   "\\.nib$",
   "\\.pak$",
 ];
-
-function xmlEscape(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
-
-function resolveMacSigningTeamIdFromEnv(env: NodeJS.ProcessEnv): string | null {
-  const explicit =
-    normalizeMacTeamId(env[MAC_WEBAUTHN_TEAM_ID_ENV]) ?? normalizeMacTeamId(env[APPLE_TEAM_ID_ENV]);
-  if (explicit) {
-    return explicit;
-  }
-
-  const cscName = env.CSC_NAME?.trim();
-  const cscNameTeamId = cscName?.match(/\(([A-Z0-9]{10})\)\s*$/i)?.[1];
-  return normalizeMacTeamId(cscNameTeamId);
-}
-
-function resolveBuildMacWebAuthnKeychainAccessGroup(): string | undefined {
-  return (
-    resolveMacWebAuthnKeychainAccessGroup({
-      appBundleId: DESKTOP_APP_ID,
-      env: process.env,
-      teamId: resolveMacSigningTeamIdFromEnv(process.env),
-    }) ?? undefined
-  );
-}
-
-function createMacEntitlementsPlist(keychainAccessGroup: string): string {
-  const escapedKeychainAccessGroup = xmlEscape(keychainAccessGroup);
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-  <true/>
-  <key>keychain-access-groups</key>
-  <array>
-    <string>${escapedKeychainAccessGroup}</string>
-  </array>
-</dict>
-</plist>
-`;
-}
-
-function createMacInheritedEntitlementsPlist(): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-  <true/>
-</dict>
-</plist>
-`;
-}
-
-function stageMacWebAuthnResources(
-  stageResourcesDir: string,
-  keychainAccessGroup: string | undefined,
-) {
-  return Effect.gen(function* () {
-    if (!keychainAccessGroup) {
-      return;
-    }
-
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const runtimeConfigJson = yield* encodeJsonString({
-      macWebAuthnKeychainAccessGroup: keychainAccessGroup,
-    });
-    yield* fs.writeFileString(
-      path.join(stageResourcesDir, MAC_WEBAUTHN_RUNTIME_CONFIG_FILE),
-      `${runtimeConfigJson}\n`,
-    );
-    yield* fs.writeFileString(
-      path.join(stageResourcesDir, MAC_ENTITLEMENTS_FILE),
-      createMacEntitlementsPlist(keychainAccessGroup),
-    );
-    yield* fs.writeFileString(
-      path.join(stageResourcesDir, MAC_INHERIT_ENTITLEMENTS_FILE),
-      createMacInheritedEntitlementsPlist(),
-    );
-  });
-}
 
 function resolveGitHubPublishConfig():
   | {
@@ -603,7 +499,6 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   signed: boolean,
   mockUpdates: boolean,
   mockUpdateServerPort: string | undefined,
-  macWebAuthnKeychainAccessGroup: string | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -646,12 +541,6 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
       signIgnore: MAC_SIGN_IGNORE_RESOURCE_PATTERNS,
-      ...(macWebAuthnKeychainAccessGroup
-        ? {
-            entitlements: `apps/desktop/resources/${MAC_ENTITLEMENTS_FILE}`,
-            entitlementsInherit: `apps/desktop/resources/${MAC_INHERIT_ENTITLEMENTS_FILE}`,
-          }
-        : {}),
       ...(timestamp ? { timestamp } : {}),
       ...(notarize === "false" ? { notarize: false } : {}),
     };
@@ -756,13 +645,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const appVersion = options.version ?? serverPackageJson.version;
   const commitHash = resolveGitCommitHash(repoRoot);
-  const macWebAuthnKeychainAccessGroup =
-    options.platform === "mac" ? resolveBuildMacWebAuthnKeychainAccessGroup() : undefined;
-  if (options.platform === "mac" && options.signed && !macWebAuthnKeychainAccessGroup) {
-    return yield* new BuildScriptError({
-      message: `Signed macOS builds require ${MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP_ENV}, ${MAC_WEBAUTHN_TEAM_ID_ENV}, or ${APPLE_TEAM_ID_ENV} so the in-app browser can enable WebAuthn passkeys.`,
-    });
-  }
   const stageDependencies = {
     ...resolvedServerDependencies,
     ...resolvedDesktopRuntimeDependencies,
@@ -819,7 +701,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
 
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
-  yield* stageMacWebAuthnResources(stageResourcesDir, macWebAuthnKeychainAccessGroup);
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
@@ -840,7 +721,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
-      macWebAuthnKeychainAccessGroup,
     ),
     dependencies: stageDependencies,
     ...(Object.keys(stageDependencyOverrides).length > 0
