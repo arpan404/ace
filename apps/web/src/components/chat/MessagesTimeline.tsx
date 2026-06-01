@@ -532,7 +532,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return null;
   }, [rows]);
-  const shouldShowAssistantTurnActions = !activeTurnInProgress && !isWorking;
   const assistantFooterByPlacementRowId = useMemo(() => {
     const footerByRowId = new Map<string, AssistantTurnFooterModel>();
     for (let index = 0; index < rows.length; index += 1) {
@@ -545,6 +544,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
+      const shouldShowAssistantTurnActions =
+        !row.message.streaming &&
+        row.message.completedAt !== undefined &&
+        row.message.completedAt !== null;
       const copyText = shouldShowAssistantTurnActions
         ? collectVisibleAssistantTurnCopyText(rows, index)
         : null;
@@ -595,7 +598,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     latestForkableAssistantMessageId,
     onForkConversation,
     rows,
-    shouldShowAssistantTurnActions,
     supportsForkConversation,
     timestampFormat,
   ]);

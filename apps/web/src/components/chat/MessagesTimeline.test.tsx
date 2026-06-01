@@ -3400,6 +3400,54 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
+  it("shows assistant copy and fork actions for completed responses when global working state is stale", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-complete-actions-visible",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-complete-actions-visible"),
+              role: "assistant",
+              text: "Completed assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Completed assistant response.");
+    expect(markup).toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).toContain('aria-label="Copy message"');
+    expect(markup).toContain('aria-label="Fork conversation"');
+  });
+
   it("does not require a provider slash command to render the fork action", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
