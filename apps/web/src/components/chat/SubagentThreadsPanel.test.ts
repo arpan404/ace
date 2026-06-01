@@ -84,6 +84,41 @@ describe("deriveSubagentThreads", () => {
     expect(threads[0]?.label).toBe("Pauli");
   });
 
+  it("generates a stable named persona for generic subagent identities", () => {
+    const first = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "generic-created",
+          label: "Reasoning",
+          subagentId: "child-provider-thread-99",
+          subagentType: "codex subagent",
+        }),
+      ],
+      "codex",
+    );
+    const second = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "generic-created-again",
+          label: "Reasoning",
+          subagentId: "child-provider-thread-99",
+          subagentType: "codex subagent",
+        }),
+      ],
+      "codex",
+    );
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.label).toBe(second[0]?.label);
+    expect(first[0]?.label).toMatch(/ Agent$/);
+    expect(first[0]?.label).not.toBe("Codex Subagent");
+    expect(first[0]?.persona).toMatchObject({
+      initials: expect.any(String),
+      name: first[0]?.label,
+    });
+  });
+
   it("marks subagent threads completed when the latest status is completed", () => {
     const threads = deriveSubagentThreads([
       workEntry({

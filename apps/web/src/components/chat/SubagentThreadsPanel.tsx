@@ -1,11 +1,19 @@
 import { BotIcon } from "lucide-react";
-import { useMemo } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import type { ProviderKind } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
+import { deriveTimelineEntries } from "../../session-logic";
 import { cn } from "../../lib/utils";
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
-import { SimpleWorkEntryRow } from "./MessagesTimeline";
+import { ScrollArea } from "../ui/scroll-area";
+import { MessagesTimeline } from "./MessagesTimeline";
 
 export interface SubagentThread {
   readonly id: string;
@@ -305,10 +313,23 @@ export function SubagentThreadsPanel(props: {
 
 export function SubagentWorkspacePanel(props: {
   activeThreadId: string | null;
+  timelineProps: ComponentProps<typeof MessagesTimeline>;
   threads: ReadonlyArray<SubagentThread>;
 }) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
+  const onToggleWorkGroup = useCallback((groupId: string) => {
+    setExpandedWorkGroups((existing) => ({
+      ...existing,
+      [groupId]: !existing[groupId],
+    }));
+  }, []);
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
+  const timelineEntries = useMemo(
+    () => deriveTimelineEntries([], [], activeThread?.entries ?? []),
+    [activeThread?.entries],
+  );
 
   if (!activeThread) {
     return (
@@ -320,8 +341,11 @@ export function SubagentWorkspacePanel(props: {
     );
   }
 
-  const taskEntry = activeThread.entries.find((entry) => entry.intentText || entry.detail);
-  const taskText = taskEntry?.intentText ?? taskEntry?.detail ?? null;
+  const activeThreadStartedAt =
+    activeThread.entries.find((entry) => entry.status === "inProgress")?.createdAt ??
+    activeThread.entries[0]?.createdAt ??
+    null;
+  const isSubagentWorking = activeThread.status === "running";
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
@@ -350,26 +374,34 @@ export function SubagentWorkspacePanel(props: {
           {statusLabel(activeThread.status)}
         </span>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-6 py-8">
-          {taskText ? (
-            <div className="ml-auto max-w-3xl rounded-2xl bg-muted px-5 py-4 text-sm leading-6 text-foreground">
-              {taskText}
-            </div>
-          ) : null}
-          <div className="mt-2 text-sm text-muted-foreground">
-            {activeThread.status === "running" ? "Working" : statusLabel(activeThread.status)}
-          </div>
-          <div className="border-t border-border/70" />
-          <ol className="space-y-4">
-            {activeThread.entries.map((entry) => (
-              <li key={entry.id}>
-                <SimpleWorkEntryRow workEntry={entry} />
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
+      <ScrollArea
+        className="min-h-0 flex-1 px-3 py-3 sm:px-5 sm:py-4"
+        viewportRef={scrollContainerRef}
+      >
+        <MessagesTimeline
+          key={activeThread.id}
+          {...props.timelineProps}
+          activeTurnInProgress={isSubagentWorking}
+          activeTurnStartedAt={activeThreadStartedAt}
+          backgroundMarkdownPrewarm={props.timelineProps.backgroundMarkdownPrewarm}
+          completionDividerBeforeEntryId={null}
+          completionSummary={null}
+          expandedWorkGroups={expandedWorkGroups}
+          getScrollContainer={() => scrollContainerRef.current}
+          hasMessages={timelineEntries.length > 0}
+          hideCompletedWorkMessages={props.timelineProps.hideCompletedWorkMessages}
+          isWorking={isSubagentWorking}
+          liveTimers={props.timelineProps.liveTimers}
+          onForkConversation={null}
+          onStartConversationFromMessage={null}
+          onToggleWorkGroup={onToggleWorkGroup}
+          revertTurnCountByAssistantMessageId={undefined}
+          revertTurnCountByUserMessageId={new Map()}
+          stuckTurnSnapshot={undefined}
+          timelineEntries={timelineEntries}
+          turnDiffSummaryByAssistantMessageId={new Map()}
+        />
+      </ScrollArea>
     </section>
   );
 }
