@@ -129,9 +129,9 @@ function EnvironmentModeMenu(props: {
       <MenuPopup
         align="start"
         side="left"
-        className="w-80 rounded-2xl"
+        className="w-80 rounded-2xl shadow-2xl shadow-black/25"
         listClassName="p-2"
-        sideOffset={6}
+        sideOffset={12}
       >
         <MenuGroupLabel className="px-2 pb-2 pt-1 text-[15px] font-normal normal-case text-muted-foreground">
           Continue in
@@ -159,7 +159,11 @@ function EnvironmentModeMenu(props: {
             <GaugeIcon className="size-4 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">Usage remaining</span>
           </MenuSubTrigger>
-          <MenuSubPopup className="w-64 rounded-2xl" listClassName="p-2">
+          <MenuSubPopup
+            className="w-64 rounded-2xl shadow-2xl shadow-black/25"
+            listClassName="p-2"
+            sideOffset={8}
+          >
             <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
               Usage remaining
             </MenuGroupLabel>
