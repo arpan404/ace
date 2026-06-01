@@ -38,7 +38,7 @@ export function EnvironmentMiniPanel(props: {
   const workspaceChangeStat = props.workspaceChangeStat;
 
   return (
-    <aside className="pointer-events-auto absolute top-6 right-6 z-30 hidden w-80 max-w-[calc(100%-3rem)] rounded-3xl border border-border/70 bg-popover/90 p-4 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
+    <aside className="pointer-events-auto relative z-30 mr-4 mt-4 hidden max-h-[calc(100%-2rem)] w-80 shrink-0 self-start overflow-y-auto rounded-3xl border border-border/70 bg-popover/90 p-4 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-[15px] font-medium text-muted-foreground">Environment</h2>
         <button

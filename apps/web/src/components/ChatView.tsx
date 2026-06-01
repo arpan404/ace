@@ -8573,35 +8573,6 @@ function useChatViewComponent({
         ) : null}
         {/* Main content area with optional plan sidebar */}
         <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          {environmentPanelOpen && !rightSidePanelOpen ? (
-            <EnvironmentMiniPanel
-              activeProjectScripts={activeProject?.scripts}
-              activeSubagentThreadId={activeSubagentThreadId}
-              activeThreadId={activeThread.id}
-              branchToolbarProps={branchToolbarProps}
-              gitCwd={gitCwd}
-              isGitRepo={isGitRepo}
-              keybindings={keybindings}
-              preferredScriptId={
-                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-              }
-              subagentThreads={subagentThreads}
-              workspaceChangeStat={workspaceChangeStat}
-              workspaceMode={headerWorkspaceMode}
-              onAddProjectScript={saveProjectScript}
-              onDeleteProjectScript={deleteProjectScript}
-              onRunProjectScript={(script) => {
-                void runProjectScript(script);
-              }}
-              onSelectSubagentThread={setActiveSubagentThreadId}
-              onSubagentPanelOpen={() => {
-                setRightSidePanelMode("subagent");
-                setRightSidePanelVisible(true);
-              }}
-              onUpdateProjectScript={updateProjectScript}
-              onWorkspaceModeChange={onWorkspaceModeChange}
-            />
-          ) : null}
           {/* Chat column */}
           <div
             ref={workspaceViewportRef}
@@ -8829,6 +8800,36 @@ function useChatViewComponent({
             </>
           </div>
           {/* end chat column */}
+
+          {environmentPanelOpen && !rightSidePanelOpen ? (
+            <EnvironmentMiniPanel
+              activeProjectScripts={activeProject?.scripts}
+              activeSubagentThreadId={activeSubagentThreadId}
+              activeThreadId={activeThread.id}
+              branchToolbarProps={branchToolbarProps}
+              gitCwd={gitCwd}
+              isGitRepo={isGitRepo}
+              keybindings={keybindings}
+              preferredScriptId={
+                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+              }
+              subagentThreads={subagentThreads}
+              workspaceChangeStat={workspaceChangeStat}
+              workspaceMode={headerWorkspaceMode}
+              onAddProjectScript={saveProjectScript}
+              onDeleteProjectScript={deleteProjectScript}
+              onRunProjectScript={(script) => {
+                void runProjectScript(script);
+              }}
+              onSelectSubagentThread={setActiveSubagentThreadId}
+              onSubagentPanelOpen={() => {
+                setRightSidePanelMode("subagent");
+                setRightSidePanelVisible(true);
+              }}
+              onUpdateProjectScript={updateProjectScript}
+              onWorkspaceModeChange={onWorkspaceModeChange}
+            />
+          ) : null}
 
           <AnimatePresence initial={false}>
             {activeRightSidePanelMode ? (
