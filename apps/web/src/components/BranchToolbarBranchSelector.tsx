@@ -85,6 +85,7 @@ function BranchToolbarPickerList(props: {
   filteredBranchPickerItems: string[];
   onCheckoutPullRequestRequest: ((reference: string) => void) | undefined;
   onComposerFocusRequest: (() => void) | undefined;
+  itemClassName?: string;
   prReference: string | null;
   selectBranch: (branch: GitBranch) => void;
   setBranchListRef: (element: HTMLDivElement | null) => void;
@@ -103,6 +104,7 @@ function BranchToolbarPickerList(props: {
       return (
         <ComboboxItem
           hideIndicator
+          className={props.itemClassName}
           key={itemValue}
           index={index}
           value={itemValue}
@@ -126,6 +128,7 @@ function BranchToolbarPickerList(props: {
       return (
         <ComboboxItem
           hideIndicator
+          className={props.itemClassName}
           key={itemValue}
           index={index}
           value={itemValue}
@@ -154,6 +157,7 @@ function BranchToolbarPickerList(props: {
     return (
       <ComboboxItem
         hideIndicator
+        className={props.itemClassName}
         key={itemValue}
         index={index}
         value={itemValue}
@@ -532,11 +536,24 @@ export function BranchToolbarBranchSelector({
       <ComboboxPopup
         align={isEnvironmentPresentation ? "start" : "end"}
         side={isEnvironmentPresentation ? "left" : "top"}
-        className="w-80"
+        sideOffset={isEnvironmentPresentation ? 12 : 4}
+        className={
+          isEnvironmentPresentation
+            ? "w-80 overflow-hidden rounded-2xl border-border/70 bg-popover/96 shadow-2xl shadow-black/25 supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
+            : "w-80"
+        }
       >
-        <div className="border-b p-1">
+        <div
+          className={
+            isEnvironmentPresentation ? "border-border/45 border-b px-2 pt-2 pb-2" : "border-b p-1"
+          }
+        >
           <ComboboxInput
-            className="[&_input]:font-sans rounded-md"
+            className={
+              isEnvironmentPresentation
+                ? "[&_input]:font-sans rounded-xl border-border/50 bg-background/45 text-[15px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
+                : "[&_input]:font-sans rounded-md"
+            }
             inputClassName="ring-0"
             placeholder="Search branches..."
             showTrigger={false}
@@ -565,6 +582,9 @@ export function BranchToolbarBranchSelector({
           shouldVirtualizeBranchList={shouldVirtualizeBranchList}
           trimmedBranchQuery={trimmedBranchQuery}
           virtualBranchRows={virtualBranchRows}
+          {...(isEnvironmentPresentation
+            ? { itemClassName: "min-h-10 rounded-xl px-2 text-[15px] data-selected:bg-accent/45" }
+            : {})}
         />
       </ComboboxPopup>
     </Combobox>
