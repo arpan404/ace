@@ -66,12 +66,12 @@
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.1",
     "dotenv": "^17.4.2",
-    "oxfmt": "^0.47.0",
-    "oxlint": "^1.62.0",
-    "turbo": "^2.9.8",
-    "vitest": "^4.1.5"
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
+    "turbo": "^2.9.16",
+    "vitest": "^4.1.8"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.0-beta.43"

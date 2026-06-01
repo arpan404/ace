@@ -326,7 +326,7 @@ jobs:
           rm -f release-assets/latest-arm64.yml
 
       - name: Publish ace release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ needs.preflight.outputs.ref }}
@@ -350,7 +350,7 @@ jobs:
     steps:
       - id: app_token
         name: Mint release app token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
