@@ -14,6 +14,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ThreadId, TurnId } from "@ace/contracts";
 import { IconLayoutSidebarRightFilled } from "@tabler/icons-react";
 import {
+  BotIcon,
   Code2Icon,
   DiffIcon,
   GlobeIcon,
@@ -34,10 +35,11 @@ import type { DiffReviewCommentInput } from "../DiffPanel";
 import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import type { SubagentThread } from "./SubagentThreadsPanel";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
-type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
+type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary";
 
 function LocalDiffLoadingFallback() {
   return (
@@ -321,6 +323,7 @@ export function RightSidePanelTabStrip(props: {
   fullscreenShortcutLabel: string | null;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
+  activeSubagentThreadId: string | null;
   floatingChatOpen: boolean;
   onBrowserTabClose: (tabId: string) => void;
   onBrowserTabReorder: (draggedTabId: string, targetTabId: string) => void;
@@ -329,10 +332,12 @@ export function RightSidePanelTabStrip(props: {
   onEditorClose: () => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
+  onSelectSubagentThread: (threadId: string) => void;
   onTogglePanelVisibility: () => void;
   onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
   panelToggleShortcutLabel: string | null;
+  subagentThreads: ReadonlyArray<SubagentThread>;
 }) {
   const { onBrowserTabReorder } = props;
   const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
@@ -426,6 +431,49 @@ export function RightSidePanelTabStrip(props: {
             Summary
           </TooltipPopup>
         </Tooltip>
+        {props.subagentThreads.length > 0 ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            {props.subagentThreads.map((thread) => (
+              <Tooltip key={thread.id}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className={tabClassName(
+                        props.activeMode === "subagent" &&
+                          props.activeSubagentThreadId === thread.id,
+                      )}
+                      aria-pressed={
+                        props.activeMode === "subagent" &&
+                        props.activeSubagentThreadId === thread.id
+                      }
+                      onClick={() => {
+                        props.onSelectSubagentThread(thread.id);
+                        props.onSelectMode("subagent");
+                      }}
+                    />
+                  }
+                >
+                  <BotIcon
+                    className={cn(
+                      "size-4.5 shrink-0",
+                      thread.status === "failed"
+                        ? "text-destructive"
+                        : thread.status === "completed"
+                          ? "text-emerald-500"
+                          : "text-sky-500",
+                    )}
+                  />
+                  <span className="truncate">{thread.label}</span>
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="start">
+                  {thread.label}
+                </TooltipPopup>
+              </Tooltip>
+            ))}
+          </>
+        ) : null}
         {props.reviewOpen ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />

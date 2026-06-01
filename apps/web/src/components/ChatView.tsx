@@ -217,7 +217,7 @@ import {
   type InAppBrowserMode,
 } from "./InAppBrowser";
 import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
-import { SubagentThreadsPanel } from "./chat/SubagentThreadsPanel";
+import { SubagentWorkspacePanel, deriveSubagentThreads } from "./chat/SubagentThreadsPanel";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
 import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
@@ -2636,6 +2636,43 @@ function useChatViewComponent({
   const timelineMessages = handoffTimeline.messages;
   const timelineProposedPlans = handoffTimeline.proposedPlans;
   const timelineWorkEntries = handoffTimeline.workEntries;
+  const subagentThreads = useMemo(
+    () => deriveSubagentThreads(timelineWorkEntries),
+    [timelineWorkEntries],
+  );
+  const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    if (subagentThreads.length === 0) {
+      if (activeSubagentThreadId !== null) {
+        setActiveSubagentThreadId(null);
+      }
+      return;
+    }
+    if (
+      !activeSubagentThreadId ||
+      !subagentThreads.some((thread) => thread.id === activeSubagentThreadId)
+    ) {
+      setActiveSubagentThreadId(subagentThreads[0]?.id ?? null);
+    }
+  }, [activeSubagentThreadId, subagentThreads]);
+  useEffect(() => {
+    if (
+      subagentThreads.length > 0 &&
+      rightSidePanelEnabled &&
+      rightSidePanelMode === null &&
+      activeThreadId !== null
+    ) {
+      setRightSidePanelMode("subagent");
+      setRightSidePanelVisible(true);
+    }
+  }, [
+    activeThreadId,
+    rightSidePanelEnabled,
+    rightSidePanelMode,
+    setRightSidePanelMode,
+    setRightSidePanelVisible,
+    subagentThreads.length,
+  ]);
   const activeThreadMessageIds = useMemo(
     () => new Set(activeThreadMessages.map((message) => message.id)),
     [activeThreadMessages],
@@ -4334,6 +4371,10 @@ function useChatViewComponent({
       }
       if (mode === "diff") {
         onOpenRightSidePanelDiff();
+        return;
+      }
+      if (mode === "subagent") {
+        setRightSidePanelMode("subagent");
         return;
       }
       onOpenRightSidePanelEditor();
@@ -8324,6 +8365,7 @@ function useChatViewComponent({
         fullscreenShortcutLabel={rightSidePanelFullscreenShortcutLabel}
         reviewShortcutLabel={reviewPanelShortcutLabel}
         reviewOpen={rightSidePanelReviewOpen}
+        activeSubagentThreadId={activeSubagentThreadId}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
         onBrowserTabClose={onCloseRightSidePanelBrowserTab}
         onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
@@ -8332,12 +8374,14 @@ function useChatViewComponent({
         onEditorClose={onCloseRightSidePanelEditor}
         onNewBrowserTab={onOpenRightSidePanelBrowserTab}
         onSelectMode={onSelectRightSidePanelMode}
+        onSelectSubagentThread={setActiveSubagentThreadId}
         onTogglePanelVisibility={onToggleRightSidePanel}
         onToggleFloatingChat={() => {
           onToggleRightSidePanelFloatingChat();
         }}
         onToggleFullscreen={onToggleRightSidePanelFullscreen}
         panelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
+        subagentThreads={subagentThreads}
       />
     ) : null;
 
@@ -8847,35 +8891,35 @@ function useChatViewComponent({
                           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                         >
                           {activeRightSidePanelMode === "summary" ? (
-                            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                              <div className="min-h-0 flex-1 overflow-hidden">
-                                <PlanSummaryPanel
-                                  activePlan={activePlan}
-                                  activeProposedPlan={sidebarProposedPlan}
-                                  generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
-                                  activeProvider={activeThread?.session?.provider ?? null}
-                                  markdownCwd={gitCwd ?? undefined}
-                                  onOpenDiffPanel={
-                                    isGitRepo ? () => setRightSidePanelMode("diff") : null
-                                  }
-                                  onRegenerateSummary={handleRegenerateSummary}
-                                  onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                                  onOpenFilePath={
-                                    canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
-                                  }
-                                  enableLocalFileLinks={canOpenLocalMarkdownFiles}
-                                  workspaceDiffSummary={workspaceDiffSummary}
-                                  workspaceRoot={activeProject?.cwd ?? undefined}
-                                />
-                              </div>
-                              <SubagentThreadsPanel workEntries={timelineWorkEntries} />
-                            </div>
+                            <PlanSummaryPanel
+                              activePlan={activePlan}
+                              activeProposedPlan={sidebarProposedPlan}
+                              generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                              activeProvider={activeThread?.session?.provider ?? null}
+                              markdownCwd={gitCwd ?? undefined}
+                              onOpenDiffPanel={
+                                isGitRepo ? () => setRightSidePanelMode("diff") : null
+                              }
+                              onRegenerateSummary={handleRegenerateSummary}
+                              onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                              onOpenFilePath={
+                                canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                              }
+                              enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                              workspaceDiffSummary={workspaceDiffSummary}
+                              workspaceRoot={activeProject?.cwd ?? undefined}
+                            />
                           ) : activeRightSidePanelMode === "diff" ? (
                             <LocalDiffPanel
                               threadId={activeThread.id}
                               diffState={localDiffState}
                               onAddReviewComment={addDiffReviewComment}
                               onDiffStateChange={setLocalDiffState}
+                            />
+                          ) : activeRightSidePanelMode === "subagent" ? (
+                            <SubagentWorkspacePanel
+                              activeThreadId={activeSubagentThreadId}
+                              threads={subagentThreads}
                             />
                           ) : activeRightSidePanelMode === "editor" ? (
                             <Suspense

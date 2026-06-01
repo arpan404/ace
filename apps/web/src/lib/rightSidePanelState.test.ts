@@ -26,12 +26,12 @@ describe("rightSidePanelState", () => {
     setLocalStorageItem(
       keys.lastNonDiffMode,
       "browser",
-      Schema.Literals(["browser", "editor", "summary"]),
+      Schema.Literals(["browser", "editor", "subagent", "summary"]),
     );
     setLocalStorageItem(
       keys.mode,
       "diff",
-      Schema.NullOr(Schema.Literals(["browser", "diff", "editor", "summary"])),
+      Schema.NullOr(Schema.Literals(["browser", "diff", "editor", "subagent", "summary"])),
     );
     setLocalStorageItem(keys.reviewOpen, true, Schema.Boolean);
     setLocalStorageItem(keys.visible, false, Schema.Boolean);
@@ -45,12 +45,15 @@ describe("rightSidePanelState", () => {
     expect(getLocalStorageItem(keys.editorOpen, Schema.Boolean)).toBe(null);
     expect(getLocalStorageItem(keys.fullscreen, Schema.Boolean)).toBe(null);
     expect(
-      getLocalStorageItem(keys.lastNonDiffMode, Schema.Literals(["browser", "editor", "summary"])),
+      getLocalStorageItem(
+        keys.lastNonDiffMode,
+        Schema.Literals(["browser", "editor", "subagent", "summary"]),
+      ),
     ).toBe(null);
     expect(
       getLocalStorageItem(
         keys.mode,
-        Schema.NullOr(Schema.Literals(["browser", "diff", "editor", "summary"])),
+        Schema.NullOr(Schema.Literals(["browser", "diff", "editor", "subagent", "summary"])),
       ),
     ).toBe(null);
     expect(getLocalStorageItem(keys.reviewOpen, Schema.Boolean)).toBe(null);

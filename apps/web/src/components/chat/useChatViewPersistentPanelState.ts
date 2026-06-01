@@ -198,7 +198,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   const [rightSidePanelLastNonDiffMode, setRightSidePanelLastNonDiffMode] = useLocalStorage(
     rightSidePanelLastNonDiffModeStorageKey,
     "summary" satisfies Exclude<RightSidePanelMode, "diff">,
-    Schema.Literals(["browser", "editor", "summary"]),
+    Schema.Literals(["browser", "editor", "subagent", "summary"]),
   );
   const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
     rightSidePanelDiffOpenStorageKey,
