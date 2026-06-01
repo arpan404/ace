@@ -107,11 +107,21 @@ jobs:
             platform: linux
             target: AppImage
             arch: x64
+          - label: Linux arm64
+            runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: arm64
           - label: Windows x64
             runner: windows-2022
             platform: win
             target: nsis
             arch: x64
+          - label: Windows arm64
+            runner: windows-2022
+            platform: win
+            target: nsis
+            arch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -226,6 +236,18 @@ jobs:
             fi
           fi
 
+          if [[ "${{ matrix.platform }}" == "linux" && "${{ matrix.arch }}" != "x64" ]]; then
+            if [[ -f release-publish/latest-linux.yml ]]; then
+              mv release-publish/latest-linux.yml "release-publish/latest-linux-${{ matrix.arch }}.yml"
+            fi
+          fi
+
+          if [[ "${{ matrix.platform }}" == "win" && "${{ matrix.arch }}" != "x64" ]]; then
+            if [[ -f release-publish/latest.yml ]]; then
+              mv release-publish/latest.yml "release-publish/latest-${{ matrix.arch }}.yml"
+            fi
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -295,6 +317,13 @@ jobs:
             release-assets/latest-mac.yml \
             release-assets/latest-mac-x64.yml
           rm -f release-assets/latest-mac-x64.yml
+
+      - name: Merge Windows updater manifests
+        run: |
+          node scripts/merge-windows-update-manifests.ts \
+            release-assets/latest.yml \
+            release-assets/latest-arm64.yml
+          rm -f release-assets/latest-arm64.yml
 
       - name: Publish ace release
         uses: softprops/action-gh-release@v2
