@@ -5,7 +5,7 @@ function normalizeProposedPlanMarkdownForDisplay(planMarkdown: string): string {
   return planMarkdown
     .replace(ACE_PROPOSED_PLAN_MARKER_LINE_REGEX, "")
     .replace(/^>\s*(#{1,6})/gm, "$1")
-    .replace(/^(#{1,6})(?=\S)/gm, "$1 ")
+    .replace(/^(#{1,6})(?=[^\s#])/gm, "$1 ")
     .replace(/(?<!\d)(\d+)\.(?=\S)/g, "$1. ")
     .replace(/([,:;])(?=\S)/g, "$1 ")
     .trim();

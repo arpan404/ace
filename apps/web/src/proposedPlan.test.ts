@@ -15,6 +15,12 @@ describe("proposedPlanTitle", () => {
     expect(proposedPlanTitle("# Integrate RPC\n\nBody")).toBe("Integrate RPC");
   });
 
+  it("normalizes provider plan markers before reading the title", () => {
+    expect(
+      proposedPlanTitle("<!--ACE_PROPOSED_PLAN_START\n>#Proposed Plan\n\n1.Define SLOs."),
+    ).toBe("Proposed Plan");
+  });
+
   it("returns null when the plan has no heading", () => {
     expect(proposedPlanTitle("- step 1")).toBeNull();
   });
@@ -60,6 +66,14 @@ describe("stripDisplayedPlanMarkdown", () => {
     expect(stripDisplayedPlanMarkdown("# Integrate RPC\n\n## Scope\n\n- step 1\n")).toBe(
       "## Scope\n\n- step 1",
     );
+  });
+
+  it("removes provider plan markers and repairs compact markdown spacing for display", () => {
+    expect(
+      stripDisplayedPlanMarkdown(
+        "<!--ACE_PROPOSED_PLAN_START\n>#Proposed Plan\n\n1.Define SLOs.\n2.Add observability.\n<!--ACE_PROPOSED_PLAN_END",
+      ),
+    ).toBe("1. Define SLOs.\n2. Add observability.");
   });
 });
 

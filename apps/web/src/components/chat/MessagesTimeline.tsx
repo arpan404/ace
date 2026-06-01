@@ -3244,7 +3244,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
   return (
-    <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
+    <div className="max-w-3xl">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}

@@ -8,7 +8,14 @@ import {
   stripDisplayedPlanMarkdown,
 } from "../../proposedPlan";
 import ChatMarkdown from "../ChatMarkdown";
-import { EllipsisIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ClipboardListIcon,
+  DownloadIcon,
+  EllipsisIcon,
+  SaveIcon,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -121,18 +128,21 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   return (
-    <div className="border-border/50 border-l pl-4 pr-1 py-1" data-proposed-plan-thread="true">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.18em] text-emerald-500/70 uppercase">
-            <span className="relative flex size-1.5">
-              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500/70" />
+    <div
+      className="min-w-0 overflow-hidden border-border/20 border-y bg-background/20"
+      data-proposed-plan-thread="true"
+    >
+      <div className="flex min-w-0 items-center gap-2 border-border/15 border-b px-2.5 py-1.5">
+        <ClipboardListIcon className="size-3.5 shrink-0 text-muted-foreground/58" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/72 uppercase">
+              Plan
             </span>
-            Plan
-          </p>
-          <p className="mt-1.5 truncate text-[13px] font-medium tracking-tight text-foreground">
-            {title}
-          </p>
+            <span className="min-w-0 truncate text-[12px] leading-4 font-medium text-foreground/86">
+              {title}
+            </span>
+          </div>
         </div>
         <Menu>
           <MenuTrigger
@@ -140,22 +150,26 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               <Button
                 aria-label="Plan actions"
                 size="icon-xs"
-                variant="outline"
-                className="border-border"
+                variant="ghost"
+                className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
               />
             }
           >
-            <EllipsisIcon aria-hidden="true" className="size-4" />
+            <EllipsisIcon aria-hidden="true" className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end">
-            <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
+            <MenuItem onClick={handleDownload}>
+              <DownloadIcon aria-hidden="true" className="size-3.5" />
+              Download as markdown
+            </MenuItem>
             <MenuItem onClick={openSaveDialog} disabled={!workspaceRoot || isSavingToWorkspace}>
+              <SaveIcon aria-hidden="true" className="size-3.5" />
               Save to workspace
             </MenuItem>
           </MenuPopup>
         </Menu>
       </div>
-      <div className="mt-3">
+      <div className="px-3 py-2">
         <div className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}>
           {canCollapse && !expanded ? (
             <ChatMarkdown
@@ -179,17 +193,23 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             />
           )}
           {canCollapse && !expanded ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-background via-background/90 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-background via-background/95 to-transparent" />
           ) : null}
         </div>
         {canCollapse ? (
-          <div className="mt-3 flex justify-start">
+          <div className="mt-2.5 flex justify-start">
             <Button
-              size="sm"
-              variant="outline"
+              size="xs"
+              variant="ghost"
+              className="h-6 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/68 hover:bg-foreground/[0.045] hover:text-foreground"
               data-scroll-anchor-ignore
               onClick={() => setExpanded((value) => !value)}
             >
+              {expanded ? (
+                <ChevronDownIcon aria-hidden="true" className="mr-1 size-3" />
+              ) : (
+                <ChevronRightIcon aria-hidden="true" className="mr-1 size-3" />
+              )}
               {expanded ? "Collapse plan" : "Expand plan"}
             </Button>
           </div>
