@@ -15,7 +15,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.2.3",
+      "version": "0.2.8",
       "dependencies": {
         "effect": "catalog:",
         "electron": "41.5.0",
@@ -32,7 +32,7 @@
     },
     "apps/marketing": {
       "name": "@ace/marketing",
-      "version": "0.2.3",
+      "version": "0.2.8",
       "dependencies": {
         "astro": "^6.2.1",
         "gsap": "^3.15.0",
@@ -44,7 +44,7 @@
     },
     "apps/mobile": {
       "name": "@ace/mobile",
-      "version": "0.2.3",
+      "version": "0.2.8",
       "dependencies": {
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",
@@ -56,7 +56,7 @@
         "expo-camera": "~17.0.10",
         "expo-constants": "~18.0.13",
         "expo-glass-effect": "~0.1.10",
-        "expo-linking": "~8.0.12",
+        "expo-linking": "~56.0.13",
         "expo-notifications": "~0.32.17",
         "expo-router": "~6.0.23",
         "expo-secure-store": "~15.0.8",
@@ -81,7 +81,7 @@
     },
     "apps/relay": {
       "name": "@ace/relay",
-      "version": "0.2.3",
+      "version": "0.2.8",
       "devDependencies": {
         "@types/node": "catalog:",
         "typescript": "catalog:",
@@ -89,7 +89,7 @@
     },
     "apps/server": {
       "name": "ace",
-      "version": "0.2.3",
+      "version": "0.2.8",
       "bin": {
         "ace": "./dist/bin.mjs",
       },
@@ -126,7 +126,7 @@
     },
     "apps/web": {
       "name": "@ace/web",
-      "version": "0.2.3",
+      "version": "0.2.8",
       "dependencies": {
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",
@@ -2020,7 +2020,7 @@
 
     "expo-keep-awake": ["expo-keep-awake@15.0.8", "", { "peerDependencies": { "expo": "*", "react": "*" } }, "sha512-YK9M1VrnoH1vLJiQzChZgzDvVimVoriibiDIFLbQMpjYBnvyfUeHJcin/Gx1a+XgupNXy92EQJLgI/9ZuXajYQ=="],
 
-    "expo-linking": ["expo-linking@8.0.12", "", { "dependencies": { "expo-constants": "~18.0.13", "invariant": "^2.2.4" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-FpXeIpFgZuxihwT9lBo86YD3y6LphBuAhN680MMxm/Y7fmsc57vimn2d3vFu68VI0+Z9w457t494mu2wvlgWTQ=="],
+    "expo-linking": ["expo-linking@56.0.13", "", { "dependencies": { "expo-constants": "~56.0.16", "invariant": "^2.2.4" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-38YrpTh6xdiDxmYSDIUffDqev1hIcEggw2fZ3IZhNp2DVLF1xvqsbO6hJD1fuBKN8P34B3Ggc9Yy26fkqdfCOA=="],
 
     "expo-modules-autolinking": ["expo-modules-autolinking@3.0.25", "", { "dependencies": { "@expo/spawn-async": "^1.7.2", "chalk": "^4.1.0", "commander": "^7.2.0", "require-from-string": "^2.0.2", "resolve-from": "^5.0.0" }, "bin": { "expo-modules-autolinking": "bin/expo-modules-autolinking.js" } }, "sha512-YmHWctJlwvOuLZccg3cOXvSiXVJrPMKl7g2YR0YHWoGL9v2RvcmgaPJWPSLVW+voNEgEPsbo5UmUrAqbnYcBeg=="],
 
@@ -3676,6 +3676,8 @@
 
     "electron/@types/node": ["@types/node@24.12.0", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-GYDxsZi3ChgmckRT9HPU0WEhKLP08ev/Yfcq2AstjrDASOYCSXeyjDsHg4v5t4jOj7cyDX3vmprafKlWIG9MXQ=="],
 
+    "expo-linking/expo-constants": ["expo-constants@56.0.16", "", { "dependencies": { "@expo/env": "~2.3.0" }, "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-6tsiN+gmTUPp/atyA+uY9Tg8VOdXdmb4s/3TVGolfn6A/oCAraw1pcPZX5XllyD+xUguxB6eBSFAT8494hZVMA=="],
+
     "expo-modules-autolinking/commander": ["commander@7.2.0", "", {}, "sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw=="],
 
     "expo-router/semver": ["semver@7.6.3", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-oVekP1cKtI+CTDvHWYFUcMtsK/00wmAEfyqKfNdARm8u1wNVhSgaX7A8d4UuIlUI5e84iEwOhs7ZPYRmzU9U6A=="],
@@ -4065,6 +4067,8 @@
     "d3-sankey/d3-shape/d3-path": ["d3-path@1.0.9", "", {}, "sha512-VLaYcn81dtHVTjEHd8B+pbe9yHWpXKZUC87PzoFmsFrJqgFwDe/qxfp5MlfsfM1V5E/iVt0MmEbWQ7FVIXh/bg=="],
 
     "electron/@types/node/undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
+
+    "expo-linking/expo-constants/@expo/env": ["@expo/env@2.3.0", "", { "dependencies": { "chalk": "^4.0.0", "debug": "^4.3.4", "getenv": "^2.0.0" } }, "sha512-9HnnIbzwTTdbwSjNLXTk0fPm9ZwMJ7c1/31tsni8HZ8Q62KzYCyspahH+V365vg5J6lr001DzNwBxVWSaYCQLg=="],
 
     "express/accepts/negotiator": ["negotiator@1.0.0", "", {}, "sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg=="],
 
