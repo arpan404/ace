@@ -8,7 +8,6 @@ import type {
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ChevronDownIcon,
   CloudUploadIcon,
   GitBranchPlusIcon,
   GitCommitIcon,
@@ -44,25 +43,20 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
 import {
-  HEADER_ACTION_CONTROL_CLASS_NAME,
   HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME,
   HEADER_ACTION_DIALOG_HEADER_CLASS_NAME,
   HEADER_ACTION_DIALOG_PANEL_CLASS_NAME,
   HEADER_ACTION_DIALOG_POPUP_CLASS_NAME,
-  HEADER_ACTION_DIVIDER_CLASS_NAME,
   HEADER_ACTION_FIELD_CARD_CLASS_NAME,
   HEADER_ACTION_FIELD_CONTROL_CLASS_NAME,
   HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
-  HEADER_ACTION_GROUP_CLASS_NAME,
   HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
-  TopBarCluster,
 } from "~/components/thread/TopBarCluster";
 import {
   gitBranchesQueryOptions,
@@ -74,7 +68,7 @@ import {
   invalidateGitStatusQuery,
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
-import { newCommandId, randomUUID } from "~/lib/utils";
+import { cn, newCommandId, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { resolveEditorStateScopeId, useEditorStateStore } from "~/editorStateStore";
@@ -287,8 +281,16 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
   return <GitHubIcon />;
 }
 
-const gitMenuItemClassName =
-  "min-h-8 rounded-lg px-2.5 text-[13px] data-highlighted:bg-accent data-highlighted:text-foreground hover:bg-accent hover:text-foreground";
+const gitCardRowClassName =
+  "flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
+
+const gitCardIconClassName = "size-4 shrink-0 text-muted-foreground";
+
+const gitDiffCountFormatter = new Intl.NumberFormat();
+
+function formatGitDiffCount(value: number): string {
+  return gitDiffCountFormatter.format(value);
+}
 
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
@@ -925,77 +927,80 @@ function useGitActionsControlComponent({
   );
 
   if (!gitCwd) return null;
+  const changedFileCount = gitStatusForActions?.workingTree.files.length ?? 0;
+  const insertions = gitStatusForActions?.workingTree.insertions ?? 0;
+  const deletions = gitStatusForActions?.workingTree.deletions ?? 0;
+  const hasDiffStats = insertions > 0 || deletions > 0;
+  const cardBranchLabel = gitStatusForActions?.branch ?? "(detached HEAD)";
+  const triggerLabel = isRepo ? "Commit or push" : "Initialize Git";
 
   return (
     <>
       {!isRepo ? (
-        <TopBarCluster
-          aria-label="Git actions"
-          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
+        <Popover
+          onOpenChange={(open) => {
+            if (open) void invalidateGitStatusQuery(queryClient, gitCwd);
+          }}
         >
           <Tooltip>
             <TooltipTrigger
               render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
-                  disabled={initMutation.isPending}
-                  onClick={() => initMutation.mutate()}
-                  aria-label={initMutation.isPending ? "Initializing Git" : "Initialize Git"}
-                />
+                <PopoverTrigger
+                  render={
+                    <Button
+                      aria-label={triggerLabel}
+                      size="icon-xs"
+                      variant="ghost"
+                      className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
+                      disabled={initMutation.isPending}
+                    />
+                  }
+                >
+                  {initMutation.isPending ? (
+                    <LoaderCircleIcon className="size-4 animate-spin" />
+                  ) : (
+                    <GitBranchPlusIcon className="size-4" />
+                  )}
+                </PopoverTrigger>
               }
-            >
-              {initMutation.isPending ? (
-                <LoaderCircleIcon className="size-4 animate-spin" />
-              ) : (
-                <GitBranchPlusIcon className="size-4" />
-              )}
-            </TooltipTrigger>
+            />
             <TooltipPopup side="bottom" align="end">
               {initMutation.isPending ? "Initializing Git..." : "Initialize Git"}
             </TooltipPopup>
           </Tooltip>
-        </TopBarCluster>
+          <PopoverPopup
+            align="end"
+            side="bottom"
+            className="w-72 border-border/65 bg-popover/96 p-0"
+          >
+            <div className="space-y-2">
+              <div className="px-0.5 text-[12px] font-medium tracking-wide text-muted-foreground uppercase">
+                Git
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-muted/25 p-2">
+                <button
+                  type="button"
+                  className={gitCardRowClassName}
+                  disabled={initMutation.isPending}
+                  onClick={() => initMutation.mutate()}
+                >
+                  {initMutation.isPending ? (
+                    <LoaderCircleIcon className="size-4 animate-spin" />
+                  ) : (
+                    <GitBranchPlusIcon className="size-4" />
+                  )}
+                  <span>{initMutation.isPending ? "Initializing Git" : "Initialize Git"}</span>
+                </button>
+              </div>
+              {gitStatusError ? (
+                <p className="px-2 text-xs leading-5 text-destructive">{gitStatusError.message}</p>
+              ) : null}
+            </div>
+          </PopoverPopup>
+        </Popover>
       ) : (
-        <TopBarCluster
-          aria-label="Git actions"
-          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
-        >
-          {quickActionDisabledReason ? (
-            <Popover>
-              <PopoverTrigger
-                openOnHover
-                render={
-                  <Button
-                    aria-disabled="true"
-                    className={`${HEADER_ACTION_CONTROL_CLASS_NAME} cursor-not-allowed opacity-64`}
-                    size="xs"
-                    variant="ghost"
-                  />
-                }
-              >
-                <GitQuickActionIcon quickAction={quickAction} />
-                <span className="sr-only md:not-sr-only md:ml-0.5">{quickAction.label}</span>
-              </PopoverTrigger>
-              <PopoverPopup tooltipStyle side="bottom" align="start">
-                {quickActionDisabledReason}
-              </PopoverPopup>
-            </Popover>
-          ) : (
-            <Button
-              variant="ghost"
-              size="xs"
-              className={HEADER_ACTION_CONTROL_CLASS_NAME}
-              disabled={isGitActionRunning || quickAction.disabled}
-              onClick={runQuickAction}
-            >
-              <GitQuickActionIcon quickAction={quickAction} />
-              <span className="sr-only md:not-sr-only md:ml-0.5">{quickAction.label}</span>
-            </Button>
-          )}
-          <div className={HEADER_ACTION_DIVIDER_CLASS_NAME} aria-hidden="true" />
-          <Menu
+        <>
+          <Popover
             onOpenChange={(open) => {
               if (open) void invalidateGitStatusQuery(queryClient, gitCwd);
             }}
@@ -1003,120 +1008,198 @@ function useGitActionsControlComponent({
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <MenuTrigger
+                  <PopoverTrigger
                     render={
                       <Button
-                        aria-label="More Git actions"
+                        aria-label={triggerLabel}
                         size="icon-xs"
                         variant="ghost"
                         className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
+                        disabled={isGitActionRunning}
                       />
                     }
-                    disabled={isGitActionRunning}
                   >
-                    <ChevronDownIcon aria-hidden="true" className="size-4" />
-                  </MenuTrigger>
+                    <GitQuickActionIcon quickAction={quickAction} />
+                  </PopoverTrigger>
                 }
               />
               <TooltipPopup side="bottom" align="end" className="max-w-xs">
-                More Git actions: commit, push, create PR, and related options.
+                {triggerLabel}
               </TooltipPopup>
             </Tooltip>
-            <MenuPopup align="end" className="min-w-64 border-border/65 bg-popover/96 p-0">
-              <div className="border-b border-border/40 px-2.5 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                    Git actions
+            <PopoverPopup
+              align="end"
+              side="bottom"
+              className="w-80 border-border/65 bg-popover/96 p-0"
+            >
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3 px-0.5">
+                  <div className="text-[12px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Git
                   </div>
-                  {gitStatusForActions?.branch ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <div className="max-w-32 truncate rounded-md bg-muted/45 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                            {gitStatusForActions.branch}
-                          </div>
-                        }
-                      />
-                      <TooltipPopup side="top" align="end" className="max-w-80 whitespace-pre-wrap">
-                        {gitStatusForActions.branch}
-                      </TooltipPopup>
-                    </Tooltip>
+                  {isGitStatusOutOfSync ? (
+                    <span className="text-[11px] text-muted-foreground">Refreshing...</span>
                   ) : null}
                 </div>
-              </div>
-              {gitActionMenuItems.map((item) => {
-                const disabledReason = getMenuActionDisabledReason({
-                  item,
-                  gitStatus: gitStatusForActions,
-                  isBusy: isGitActionRunning,
-                  hasOriginRemote,
-                });
-                if (item.disabled && disabledReason) {
-                  return (
-                    <Popover key={`${item.id}-${item.label}`}>
+                <div className="rounded-2xl border border-border/60 bg-muted/25 p-2">
+                  <div className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 py-2">
+                    <GitCommitIcon className={gitCardIconClassName} />
+                    <span className="min-w-0 flex-1 text-[13px] leading-none text-foreground">
+                      Changes
+                    </span>
+                    {hasDiffStats ? (
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold tabular-nums">
+                        {insertions > 0 ? (
+                          <span className="text-success">+{formatGitDiffCount(insertions)}</span>
+                        ) : null}
+                        {deletions > 0 ? (
+                          <span className="text-destructive">-{formatGitDiffCount(deletions)}</span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 text-[12px] text-muted-foreground">
+                        {changedFileCount === 0 ? "Clean" : `${changedFileCount} files`}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 py-2">
+                    <GitBranchPlusIcon className={gitCardIconClassName} />
+                    <span className="min-w-0 flex-1 truncate text-[13px] leading-none text-foreground">
+                      {cardBranchLabel}
+                    </span>
+                    {gitStatusForActions && gitStatusForActions.aheadCount > 0 ? (
+                      <span className="text-[11px] text-muted-foreground">
+                        +{gitStatusForActions.aheadCount}
+                      </span>
+                    ) : null}
+                    {gitStatusForActions && gitStatusForActions.behindCount > 0 ? (
+                      <span className="text-[11px] text-warning">
+                        -{gitStatusForActions.behindCount}
+                      </span>
+                    ) : null}
+                  </div>
+                  {quickActionDisabledReason ? (
+                    <Popover>
                       <PopoverTrigger
                         openOnHover
-                        nativeButton={false}
-                        render={<span className="block w-max cursor-not-allowed" />}
+                        render={
+                          <button
+                            type="button"
+                            aria-disabled="true"
+                            className={cn(gitCardRowClassName, "cursor-not-allowed opacity-64")}
+                          />
+                        }
                       >
-                        <MenuItem className={`${gitMenuItemClassName} w-full`} disabled>
-                          <GitActionItemIcon icon={item.icon} />
-                          {item.label}
-                        </MenuItem>
+                        <GitQuickActionIcon quickAction={quickAction} />
+                        <span className="min-w-0 flex-1">Commit or push</span>
+                        <span className="shrink-0 text-[12px] text-muted-foreground">
+                          {quickAction.label}
+                        </span>
                       </PopoverTrigger>
-                      <PopoverPopup tooltipStyle side="left" align="center">
-                        {disabledReason}
+                      <PopoverPopup tooltipStyle side="left" align="center" className="max-w-64">
+                        {quickActionDisabledReason}
                       </PopoverPopup>
                     </Popover>
-                  );
-                }
+                  ) : (
+                    <button
+                      type="button"
+                      className={gitCardRowClassName}
+                      disabled={isGitActionRunning || quickAction.disabled}
+                      onClick={runQuickAction}
+                    >
+                      <GitQuickActionIcon quickAction={quickAction} />
+                      <span className="min-w-0 flex-1">Commit or push</span>
+                      <span className="shrink-0 text-[12px] text-muted-foreground">
+                        {quickAction.label}
+                      </span>
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {gitActionMenuItems.map((item) => {
+                    const disabledReason = getMenuActionDisabledReason({
+                      item,
+                      gitStatus: gitStatusForActions,
+                      isBusy: isGitActionRunning,
+                      hasOriginRemote,
+                    });
+                    if (item.disabled && disabledReason) {
+                      return (
+                        <Popover key={`${item.id}-${item.label}`}>
+                          <PopoverTrigger
+                            openOnHover
+                            render={
+                              <button
+                                type="button"
+                                aria-disabled="true"
+                                className={cn(gitCardRowClassName, "cursor-not-allowed opacity-45")}
+                              />
+                            }
+                          >
+                            <GitActionItemIcon icon={item.icon} />
+                            <span>{item.label}</span>
+                          </PopoverTrigger>
+                          <PopoverPopup
+                            tooltipStyle
+                            side="left"
+                            align="center"
+                            className="max-w-64"
+                          >
+                            {disabledReason}
+                          </PopoverPopup>
+                        </Popover>
+                      );
+                    }
 
-                return (
-                  <MenuItem
-                    key={`${item.id}-${item.label}`}
-                    className={gitMenuItemClassName}
-                    disabled={item.disabled}
+                    return (
+                      <button
+                        key={`${item.id}-${item.label}`}
+                        type="button"
+                        className={gitCardRowClassName}
+                        disabled={item.disabled}
+                        onClick={() => {
+                          openDialogForMenuItem(item);
+                        }}
+                      >
+                        <GitActionItemIcon icon={item.icon} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className={gitCardRowClassName}
                     onClick={() => {
-                      openDialogForMenuItem(item);
+                      dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
                     }}
                   >
-                    <GitActionItemIcon icon={item.icon} />
-                    {item.label}
-                  </MenuItem>
-                );
-              })}
-              <MenuItem
-                className={gitMenuItemClassName}
-                onClick={() => {
-                  dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
-                }}
-              >
-                <KeyRoundIcon />
-                SSH key passphrase
-              </MenuItem>
-              {gitStatusForActions?.branch === null && (
-                <p className="px-2 py-1.5 text-xs text-warning">
-                  Detached HEAD: create and checkout a branch to enable push and PR actions.
-                </p>
-              )}
-              {gitStatusForActions &&
+                    <KeyRoundIcon />
+                    <span>SSH key passphrase</span>
+                  </button>
+                </div>
+                {gitStatusForActions?.branch === null ? (
+                  <p className="px-2 text-xs leading-5 text-warning">
+                    Detached HEAD: create and checkout a branch to enable push and PR actions.
+                  </p>
+                ) : null}
+                {gitStatusForActions &&
                 gitStatusForActions.branch !== null &&
                 !gitStatusForActions.hasWorkingTreeChanges &&
                 gitStatusForActions.behindCount > 0 &&
-                gitStatusForActions.aheadCount === 0 && (
-                  <p className="px-2 py-1.5 text-xs text-warning">
+                gitStatusForActions.aheadCount === 0 ? (
+                  <p className="px-2 text-xs leading-5 text-warning">
                     Behind upstream. Pull/rebase first.
                   </p>
-                )}
-              {isGitStatusOutOfSync && (
-                <p className="px-2 py-1.5 text-xs text-muted-foreground">Refreshing git status…</p>
-              )}
-              {gitStatusError && (
-                <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError.message}</p>
-              )}
-            </MenuPopup>
-          </Menu>
-        </TopBarCluster>
+                ) : null}
+                {gitStatusError ? (
+                  <p className="px-2 text-xs leading-5 text-destructive">
+                    {gitStatusError.message}
+                  </p>
+                ) : null}
+              </div>
+            </PopoverPopup>
+          </Popover>
+        </>
       )}
 
       <Dialog
