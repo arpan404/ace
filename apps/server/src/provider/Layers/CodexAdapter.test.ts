@@ -465,6 +465,50 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("preserves Codex child conversation metadata on assistant deltas", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-child-agent-delta"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "item/agentMessage/delta",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-child"),
+        itemId: asItemId("msg_child_1"),
+        textDelta: "child output",
+        payload: {
+          threadId: "child_provider_1",
+          turnId: "turn-child",
+          itemId: "msg_child_1",
+          delta: "child output",
+          ace: {
+            parentTurnId: "turn-parent",
+            childProviderThreadId: "child_provider_1",
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "content.delta");
+      if (firstEvent.value.type !== "content.delta") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.streamKind, "assistant_text");
+      assert.equal(firstEvent.value.payload.delta, "child output");
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
+    }),
+  );
+
   it.effect("maps image generation completions to assistant image output", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

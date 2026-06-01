@@ -1350,6 +1350,7 @@ function mapToRuntimeEvents(
         payload: {
           streamKind: contentStreamKindFromMethod(event.method),
           delta,
+          ...(payload ? { data: payload } : {}),
           ...(typeof payload?.contentIndex === "number"
             ? { contentIndex: payload.contentIndex }
             : {}),

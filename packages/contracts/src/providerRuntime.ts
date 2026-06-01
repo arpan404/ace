@@ -440,6 +440,7 @@ const ContentDeltaPayload = Schema.Struct({
   delta: Schema.String,
   contentIndex: Schema.optional(Schema.Int),
   summaryIndex: Schema.optional(Schema.Int),
+  data: Schema.optional(Schema.Unknown),
 });
 export type ContentDeltaPayload = typeof ContentDeltaPayload.Type;
 
