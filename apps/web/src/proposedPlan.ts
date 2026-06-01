@@ -5,10 +5,12 @@ const COMPACT_PLAN_WORDS = new Map(
     "ace",
     "active",
     "add",
+    "admission",
     "against",
     "after",
     "alerts",
     "allow",
+    "allows",
     "already",
     "and",
     "app",
@@ -19,16 +21,20 @@ const COMPACT_PLAN_WORDS = new Map(
     "audit",
     "autoscaling",
     "available",
+    "avoid",
     "backed",
     "backlog",
     "backoff",
+    "backpressure",
     "baselines",
     "bottlenecks",
+    "both",
     "breaker",
     "burst",
     "caches",
     "can",
     "cascading",
+    "centralized",
     "checks",
     "circuit",
     "client",
@@ -38,10 +44,13 @@ const COMPACT_PLAN_WORDS = new Map(
     "common",
     "communications",
     "compatible",
+    "consider",
     "concurrency",
+    "concurrent",
     "connections",
     "containerization",
     "containerize",
+    "correlation",
     "cpu",
     "crash",
     "current",
@@ -54,16 +63,22 @@ const COMPACT_PLAN_WORDS = new Map(
     "dependencies",
     "deployment",
     "deterministic",
+    "depth",
     "domain",
     "dropped",
     "durable",
     "e",
+    "endpoints",
+    "ensure",
     "ephemeral",
     "event",
     "events",
+    "exponential",
+    "export",
     "external",
     "failure",
     "failures",
+    "failed",
     "file",
     "for",
     "g",
@@ -74,13 +89,16 @@ const COMPACT_PLAN_WORDS = new Map(
     "health",
     "heartbeat",
     "high",
+    "history",
     "horizontally",
     "idempotent",
+    "ids",
     "if",
     "implement",
     "implementation",
     "improve",
     "incident",
+    "instance",
     "integrate",
     "inventory",
     "is",
@@ -88,13 +106,16 @@ const COMPACT_PLAN_WORDS = new Map(
     "journal",
     "json",
     "kafka",
+    "last",
     "latency",
+    "latencies",
     "layer",
     "least",
     "lifecycle",
     "lightweight",
     "limit",
     "limits",
+    "lengths",
     "load",
     "logging",
     "logic",
@@ -102,6 +123,7 @@ const COMPACT_PLAN_WORDS = new Map(
     "long",
     "losing",
     "make",
+    "machine",
     "map",
     "memory",
     "messages",
@@ -109,17 +131,23 @@ const COMPACT_PLAN_WORDS = new Map(
     "metrics",
     "minimal",
     "model",
+    "modes",
     "monitoring",
     "months",
     "move",
     "multi",
+    "multiple",
+    "multiplexing",
     "noisy",
+    "not",
     "observability",
     "once",
+    "on",
     "open",
     "optimize",
     "or",
     "orchestration",
+    "operations",
     "packages",
     "per",
     "persistence",
@@ -128,17 +156,23 @@ const COMPACT_PLAN_WORDS = new Map(
     "ping",
     "plan",
     "policies",
+    "pooling",
+    "points",
     "possible",
     "prepare",
     "proactive",
     "probes",
     "process",
+    "processor",
     "processes",
     "processing",
     "profile",
     "prometheus",
     "protect",
+    "protocol",
     "provider",
+    "providers",
+    "queue",
     "readiness",
     "reattachments",
     "reconnect",
@@ -154,12 +188,14 @@ const COMPACT_PLAN_WORDS = new Map(
     "resume",
     "retry",
     "review",
+    "rpcs",
     "robust",
     "robustness",
     "run",
     "running",
     "runtime",
     "safe",
+    "same",
     "scalability",
     "scale",
     "scenarios",
@@ -173,11 +209,14 @@ const COMPACT_PLAN_WORDS = new Map(
     "slow",
     "slo",
     "slos",
+    "so",
+    "socket",
     "spike",
     "startup",
     "state",
     "stateless",
     "sticky",
+    "start",
     "stop",
     "store",
     "stores",
@@ -194,6 +233,7 @@ const COMPACT_PLAN_WORDS = new Map(
     "tokens",
     "traffic",
     "turns",
+    "turn",
     "unavailable",
     "usage",
     "use",
@@ -214,10 +254,10 @@ const COMPACT_PLAN_WORD_MAX_LENGTH = Math.max(
 function normalizeProposedPlanMarkdownForDisplay(planMarkdown: string): string {
   return repairCompactPiPlanMarkdown(
     planMarkdown
-    .replace(ACE_PROPOSED_PLAN_MARKER_LINE_REGEX, "")
-    .replace(/^>\s*(#{1,6})/gm, "$1")
-    .replace(/^(#{1,6})(?=[^\s#])/gm, "$1 ")
-    .replace(/(?<!\d)(\d+)\.(?=\S)/g, "$1. ")
+      .replace(ACE_PROPOSED_PLAN_MARKER_LINE_REGEX, "")
+      .replace(/^>\s*(#{1,6})/gm, "$1")
+      .replace(/^(#{1,6})(?=[^\s#])/gm, "$1 ")
+      .replace(/(?<!\d)(\d+)\.(?=\S)/g, "$1. ")
       .replace(/([,:;])(?=\S)/g, "$1 "),
   ).trim();
 }
@@ -225,7 +265,13 @@ function normalizeProposedPlanMarkdownForDisplay(planMarkdown: string): string {
 export function proposedPlanTitle(planMarkdown: string): string | null {
   const displayMarkdown = normalizeProposedPlanMarkdownForDisplay(planMarkdown);
   const heading = displayMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
-  return heading && heading.length > 0 ? heading : null;
+  return heading && heading.length > 0 ? cleanProposedPlanTitle(heading) : null;
+}
+
+function cleanProposedPlanTitle(title: string): string {
+  const normalized = title.replace(/^#+\s*/, "").trim();
+  const prefixedPlanTitle = /^(?:Proposed|Implementation)\s+Plan\s*:\s*(.+)$/i.exec(normalized);
+  return prefixedPlanTitle?.[1]?.trim() || normalized;
 }
 
 export function stripDisplayedPlanMarkdown(planMarkdown: string): string {
@@ -255,13 +301,20 @@ function hasVisiblePlanLine(line: string): boolean {
 function repairCompactPiPlanMarkdown(markdown: string): string {
   return markdown
     .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[A-Za-z]{10,}/g, repairCompactAlphaRun)
-    .replace(/\b(Proposed|Implementation)\s+Plan\s*:/i, "# $1 Plan:")
+    .replace(/[A-Za-z]{6,}/g, repairCompactAlphaRun)
+    .replace(/^\s*#?\s*(Proposed|Implementation)\s+Plan\s*:/i, "# $1 Plan:")
+    .replace(/\bcodexapp-server\b/gi, "codex app-server")
+    .replace(/([a-z])(\d+)([A-Za-z])/g, "$1 $2 $3")
+    .replace(/([A-Za-z])\(/g, "$1 (")
+    .replace(/\)(?=[A-Za-z])/g, ") ")
+    .replace(/([.!?])\s*(\d+)\.\s+/g, "$1\n\n$2. ")
     .replace(/\b([A-Za-z)][A-Za-z)\]]*)\s*(\d+)\.\s+/g, "$1\n\n$2. ")
     .replace(/([.)])\s*[-–]\s*(?=[A-Z])/g, "$1\n   - ")
     .replace(/([a-z])[-–]\s*(?=[A-Z])/g, "$1\n   - ")
     .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\bdomain Event\b/g, "domain event")
+    .replace(/\borchestration\.domain event\b/g, "orchestration domain event")
+    .replace(/\bWeb Socket\b/g, "WebSocket")
     .trim();
 }
 
@@ -288,7 +341,9 @@ function repairCompactAlphaRun(run: string): string {
     .join(" ")
     .replace(/\bDb(s?)\b/g, "DB$1")
     .replace(/\bCpu\b/g, "CPU")
+    .replace(/\bIds\b/g, "IDs")
     .replace(/\bJson\b/g, "JSON")
+    .replace(/\bRpc(s?)\b/g, "RPC$1")
     .replace(/\bSlo(s?)\b/g, "SLO$1")
     .replace(/\bWeb socket\b/gi, "WebSocket")
     .replace(/\bCodex app\b/gi, "codex app");
@@ -379,7 +434,7 @@ function sanitizePlanFileSegment(input: string): string {
 }
 
 export function buildPlanImplementationPrompt(planMarkdown: string): string {
-  return `PLEASE IMPLEMENT THIS PLAN:\n${planMarkdown.trim()}`;
+  return `PLEASE IMPLEMENT THIS PLAN:\n${normalizeProposedPlanMarkdownForDisplay(planMarkdown)}`;
 }
 
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {
@@ -414,7 +469,7 @@ export function buildProposedPlanMarkdownFilename(planMarkdown: string): string 
 }
 
 export function normalizePlanMarkdownForExport(planMarkdown: string): string {
-  return `${planMarkdown.trimEnd()}\n`;
+  return `${normalizeProposedPlanMarkdownForDisplay(planMarkdown)}\n`;
 }
 
 export function downloadPlanAsTextFile(filename: string, contents: string): void {
