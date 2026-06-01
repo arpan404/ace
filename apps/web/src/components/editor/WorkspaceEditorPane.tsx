@@ -651,6 +651,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     EMPTY_WORKSPACE_FIND_MATCH_SUMMARY,
   );
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
+  const selectionCommentInputRef = useRef<HTMLInputElement | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
   const diagnosticsUnavailableRetryAtRef = useRef(0);
@@ -1034,6 +1035,18 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     }
     openWorkspaceFind({ replace: false, seed: editor.getFindSeed() });
   }, [editorMountVersion, openWorkspaceFind, props.active, props.findRequestToken]);
+
+  useEffect(() => {
+    if (!selectionActionsExpanded || !activeSelection) {
+      return;
+    }
+    const animationFrame = window.requestAnimationFrame(() => {
+      selectionCommentInputRef.current?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [activeSelection, selectionActionsExpanded]);
 
   useEffect(() => {
     syncRequestIdRef.current += 1;
@@ -1740,6 +1753,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                 ) : (
                   <div className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl">
                     <input
+                      ref={selectionCommentInputRef}
+                      autoFocus
                       value={commentDraft}
                       onChange={(event) =>
                         dispatchSelectionState({

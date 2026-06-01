@@ -769,6 +769,32 @@ function buildCombinedAgentNotesPrompt(
   return sections.join("\n\n");
 }
 
+function formatQueuedWorkspaceContextDetail(entry: QueuedWorkspaceContext): string {
+  const prompt = entry.prompt.trim();
+  const reviewPrefix = `Review the working tree changes in ${entry.context.relativePath}`;
+  if (prompt === `${reviewPrefix}.` || prompt.startsWith(`${reviewPrefix}. `)) {
+    return "Working tree changes";
+  }
+  if (entry.context.text.trim().length === 0) {
+    return "Whole file";
+  }
+  const startLine = entry.context.range.startLine + 1;
+  const endLine = entry.context.range.endLine + 1;
+  return startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}-${endLine}`;
+}
+
+function formatQueuedWorkspaceContextKind(entry: QueuedWorkspaceContext): string {
+  const prompt = entry.prompt.trim();
+  const reviewPrefix = `Review the working tree changes in ${entry.context.relativePath}`;
+  if (prompt === `${reviewPrefix}.` || prompt.startsWith(`${reviewPrefix}. `)) {
+    return "Review";
+  }
+  if (entry.context.text.trim().length === 0) {
+    return "File";
+  }
+  return "Selection";
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -2285,6 +2311,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [submitAgentNotePrompt],
   );
+  const handleUpdateQueuedContextPrompt = useCallback((entryId: string, prompt: string) => {
+    setQueuedWorkspaceContexts((current) =>
+      current.map((entry) => (entry.id === entryId ? { ...entry, prompt } : entry)),
+    );
+  }, []);
   const handleSendCodeComment = useCallback(
     async (comment: WorkspaceCodeComment) => {
       const sent = await submitAgentNotePrompt({
@@ -4095,11 +4126,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                     <div className="py-1.5">
                       <div className="flex h-6 items-center gap-1.5 px-3 text-[10px] text-muted-foreground/65">
                         <MessageSquareTextIcon className="size-3" />
-                        <span className="min-w-0 flex-1 truncate">Agent context</span>
+                        <span className="min-w-0 flex-1 truncate">Review notes</span>
                         {inputProps.onSubmitAgentNote ? (
                           <button
                             type="button"
-                            className="rounded-md border border-border/60 bg-background/55 px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-muted-foreground/76 transition-colors hover:bg-foreground/6 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                             onClick={() => {
                               void handleSendAllAgentNotes();
                             }}
@@ -4109,18 +4140,35 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                           </button>
                         ) : null}
                       </div>
-                      <div className="space-y-1.5 px-1">
+                      <div className="space-y-1 px-1">
                         {queuedWorkspaceContexts.map((entry) => (
                           <div
                             key={entry.id}
-                            className="rounded-md border border-primary/18 bg-primary/5 p-2"
+                            className="rounded-md border border-border/45 bg-background/45 px-2 py-1.5"
                           >
-                            <p className="truncate text-[11px] font-semibold text-foreground">
-                              {entry.context.relativePath}
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <CircleDotIcon className="size-2.5 shrink-0 text-muted-foreground/52" />
+                              <p className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium text-foreground/86">
+                                {entry.context.relativePath}
+                              </p>
+                              <span className="shrink-0 rounded border border-border/45 px-1 py-px text-[8.5px] font-medium text-muted-foreground/58 uppercase">
+                                {formatQueuedWorkspaceContextKind(entry)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground/62">
+                              {formatQueuedWorkspaceContextDetail(entry)}
                             </p>
-                            <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[10px] text-muted-foreground">
-                              {entry.prompt}
-                            </p>
+                            <textarea
+                              className="mt-1.5 min-h-7 w-full resize-none rounded border border-border/45 bg-background/48 px-2 py-1 text-[10.5px] leading-4 text-foreground/82 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/28 disabled:opacity-60"
+                              aria-label={`Review note for ${entry.context.relativePath}`}
+                              value={entry.prompt}
+                              onChange={(event) =>
+                                handleUpdateQueuedContextPrompt(entry.id, event.currentTarget.value)
+                              }
+                              disabled={agentNoteSubmissionBusy}
+                              rows={2}
+                              placeholder="Tell the agent what to check"
+                            />
                           </div>
                         ))}
                         {unresolvedCodeComments.map((comment) => (
@@ -4147,7 +4195,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
                     <MessageSquareTextIcon className="size-3.5 text-muted-foreground/74" />
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                      Agent Notes
+                      Review Notes
                     </span>
                     {inputProps.onSubmitAgentNote &&
                     (queuedWorkspaceContexts.length > 0 || unresolvedCodeComments.length > 0) ? (
@@ -4169,30 +4217,48 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   {queuedWorkspaceContexts.length === 0 && openCodeCommentCount === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
                       <MessageSquareTextIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
-                      Select code to queue context or add a file/range comment.
+                      Add a diff comment or queue a file/range for review.
                     </div>
                   ) : (
-                    <div className="space-y-2 p-2">
+                    <div className="space-y-1.5 p-2">
                       {queuedWorkspaceContexts.map((entry) => (
                         <div
                           key={entry.id}
-                          className="overflow-hidden rounded-xl border border-primary/20 bg-primary/6"
+                          className="overflow-hidden rounded-lg border border-border/50 bg-background/56"
                         >
-                          <div className="flex items-start gap-2 p-2">
-                            <CircleDotIcon className="mt-0.5 size-3.5 text-primary" />
+                          <div className="flex items-start gap-2 px-2 py-1.5">
+                            <CircleDotIcon className="mt-1 size-3 text-muted-foreground/58" />
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-[11px] font-semibold text-foreground">
-                                {entry.context.relativePath}:{entry.context.range.startLine + 1}-
-                                {entry.context.range.endLine + 1}
+                              <p className="truncate font-mono text-[10.5px] font-medium text-foreground/88">
+                                {entry.context.relativePath}
                               </p>
-                              <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[10px] text-muted-foreground">
-                                {entry.prompt}
-                              </p>
-                              <div className="mt-2 flex flex-wrap items-center gap-1">
+                              <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                                <span className="shrink-0 rounded border border-border/45 px-1 py-px text-[8.5px] font-medium text-muted-foreground/58 uppercase">
+                                  {formatQueuedWorkspaceContextKind(entry)}
+                                </span>
+                                <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/62">
+                                  {formatQueuedWorkspaceContextDetail(entry)}
+                                </p>
+                              </div>
+                              <textarea
+                                className="mt-1.5 min-h-14 w-full resize-y rounded-md border border-border/50 bg-background/50 px-2 py-1.5 text-[11px] leading-4 text-foreground/84 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/30 disabled:opacity-60"
+                                aria-label={`Review note for ${entry.context.relativePath}`}
+                                value={entry.prompt}
+                                onChange={(event) =>
+                                  handleUpdateQueuedContextPrompt(
+                                    entry.id,
+                                    event.currentTarget.value,
+                                  )
+                                }
+                                disabled={agentNoteSubmissionBusy}
+                                rows={3}
+                                placeholder="Tell the agent what to check"
+                              />
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1">
                                 {inputProps.onSubmitAgentNote ? (
                                   <button
                                     type="button"
-                                    className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground/78 hover:bg-foreground/6 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                                     onClick={() => {
                                       void handleSendQueuedContext(entry);
                                     }}
@@ -4203,7 +4269,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 ) : null}
                                 <button
                                   type="button"
-                                  className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
                                   onClick={() =>
                                     setQueuedWorkspaceContexts((current) =>
                                       current.filter((item) => item.id !== entry.id),
@@ -4477,6 +4543,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           <div className="flex h-full min-h-0 flex-col">
             {selectedReviewFilePath ? (
               <WorkspaceReviewPane
+                codeComments={codeComments}
                 connectionUrl={inputProps.connectionUrl}
                 cwd={props.gitCwd}
                 filePath={selectedReviewFilePath}

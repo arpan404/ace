@@ -20,6 +20,7 @@ import { gitWorkingTreeDiffQueryOptions } from "~/lib/gitReactQuery";
 import WorkspaceReviewDiff from "./WorkspaceReviewDiff";
 
 interface WorkspaceReviewPaneProps {
+  readonly codeComments: readonly WorkspaceCodeComment[];
   readonly connectionUrl?: string | null | undefined;
   readonly cwd: string | null;
   readonly filePath: string;
@@ -226,6 +227,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
         ) : fileDiff ? (
           <div className="min-h-full bg-background">
             <WorkspaceReviewDiff
+              codeComments={props.codeComments}
               cwd={props.cwd}
               fileDiff={fileDiff}
               filePath={props.filePath}

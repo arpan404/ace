@@ -1,6 +1,6 @@
 import type { ChangeContent, ContextContent, FileDiffMetadata, Hunk } from "@pierre/diffs";
 import { ArrowUpRightIcon, MessageSquarePlusIcon, XIcon } from "lucide-react";
-import { Fragment, memo, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createPlainWorkspaceShikiHtmlLines,
@@ -13,8 +13,10 @@ import {
 import { cn } from "~/lib/utils";
 
 type WorkspaceReviewDiffRenderMode = "stacked" | "split";
+type WorkspaceReviewCommentAnchor = "left" | "right" | "unified";
 
 interface WorkspaceReviewDiffProps {
+  readonly codeComments: readonly WorkspaceCodeComment[];
   readonly cwd: string | null;
   readonly fileDiff: FileDiffMetadata;
   readonly filePath: string;
@@ -31,29 +33,30 @@ interface WorkspaceReviewDiffHighlights {
 
 interface WorkspaceReviewDiffLineProps {
   readonly activeCommentTargetId: string | null;
-  readonly commentDraft: string;
+  readonly comments: readonly WorkspaceCodeComment[];
   readonly commentTarget: WorkspaceReviewDiffCommentTarget | null;
   readonly html: string | undefined;
   readonly kind: "addition" | "context" | "deletion" | "empty";
   readonly lineNumber: number | null;
-  readonly onCancelComment: () => void;
-  readonly onCommentDraftChange: (draft: string) => void;
-  readonly onOpenComment: (target: WorkspaceReviewDiffCommentTarget) => void;
-  readonly onSubmitComment: () => void;
+  readonly onOpenComment: (
+    target: WorkspaceReviewDiffCommentTarget,
+    anchorElement: HTMLElement,
+  ) => void;
   readonly wordWrap: boolean;
 }
 
 interface WorkspaceReviewDiffSplitLineProps {
   readonly activeCommentTargetId: string | null;
-  readonly commentDraft: string;
+  readonly leftComments: readonly WorkspaceCodeComment[];
   readonly leftCommentTarget: WorkspaceReviewDiffCommentTarget | null;
   readonly leftHtml: string | undefined;
   readonly leftKind: WorkspaceReviewDiffLineProps["kind"];
   readonly leftLineNumber: number | null;
-  readonly onCancelComment: () => void;
-  readonly onCommentDraftChange: (draft: string) => void;
-  readonly onOpenComment: (target: WorkspaceReviewDiffCommentTarget) => void;
-  readonly onSubmitComment: () => void;
+  readonly onOpenComment: (
+    target: WorkspaceReviewDiffCommentTarget,
+    anchorElement: HTMLElement,
+  ) => void;
+  readonly rightComments: readonly WorkspaceCodeComment[];
   readonly rightCommentTarget: WorkspaceReviewDiffCommentTarget | null;
   readonly rightHtml: string | undefined;
   readonly rightKind: WorkspaceReviewDiffLineProps["kind"];
@@ -62,33 +65,62 @@ interface WorkspaceReviewDiffSplitLineProps {
 }
 
 interface WorkspaceReviewDiffCommentTarget {
+  readonly anchor: WorkspaceReviewCommentAnchor;
   readonly code: string;
   readonly id: string;
   readonly lineNumber: number;
   readonly relativePath: string;
 }
 
+interface WorkspaceReviewDiffCommentPopoverPosition {
+  readonly left: number;
+  readonly top: number;
+}
+
 interface WorkspaceReviewDiffRenderProps {
   readonly activeCommentTargetId: string | null;
-  readonly commentDraft: string;
+  readonly commentsByLineKey: ReadonlyMap<string, readonly WorkspaceCodeComment[]>;
   readonly fileDiff: FileDiffMetadata;
   readonly filePath: string;
   readonly highlightedLines: WorkspaceReviewDiffHighlights;
-  readonly onCancelComment: () => void;
-  readonly onCommentDraftChange: (draft: string) => void;
-  readonly onOpenComment: (target: WorkspaceReviewDiffCommentTarget) => void;
-  readonly onSubmitComment: () => void;
+  readonly onOpenComment: (
+    target: WorkspaceReviewDiffCommentTarget,
+    anchorElement: HTMLElement,
+  ) => void;
   readonly previousFilePath: string;
   readonly wordWrap: boolean;
 }
 
 function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [highlightedLines, setHighlightedLines] = useState<WorkspaceReviewDiffHighlights>(() => ({
     additions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.additionLines),
     deletions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.deletionLines),
   }));
   const [commentTarget, setCommentTarget] = useState<WorkspaceReviewDiffCommentTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
+  const [commentPopoverPosition, setCommentPopoverPosition] =
+    useState<WorkspaceReviewDiffCommentPopoverPosition | null>(null);
+
+  const commentsByLineKey = useMemo(() => {
+    const next = new Map<string, WorkspaceCodeComment[]>();
+    for (const comment of props.codeComments) {
+      if (comment.status === "resolved") {
+        continue;
+      }
+      const key = createWorkspaceReviewDiffLineCommentKey(
+        comment.relativePath,
+        comment.range.startLine + 1,
+      );
+      const comments = next.get(key);
+      if (comments) {
+        comments.push(comment);
+      } else {
+        next.set(key, [comment]);
+      }
+    }
+    return next;
+  }, [props.codeComments]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +158,33 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
       }`,
     [props.fileDiff.cacheKey, props.filePath, props.renderMode, props.wordWrap],
   );
+  const openCommentPopover = (
+    target: WorkspaceReviewDiffCommentTarget,
+    anchorElement: HTMLElement,
+  ) => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      setCommentTarget(target);
+      setCommentPopoverPosition({ left: 56, top: 44 });
+      return;
+    }
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const popoverWidth = Math.min(390, Math.max(260, containerRect.width - 24));
+    const maxLeft = window.innerWidth - popoverWidth - 12;
+    setCommentTarget(target);
+    setCommentPopoverPosition({
+      left: Math.max(12, Math.min(maxLeft, anchorRect.left + 56)),
+      top: Math.max(12, Math.min(window.innerHeight - 56, anchorRect.top - 8)),
+    });
+  };
+
+  const closeCommentPopover = () => {
+    setCommentDraft("");
+    setCommentTarget(null);
+    setCommentPopoverPosition(null);
+  };
+
   const submitComment = () => {
     const body = commentDraft.trim();
     if (!body || !commentTarget || !props.cwd || !props.onAddCodeComment) {
@@ -150,19 +209,15 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
         },
       }),
     );
-    setCommentDraft("");
-    setCommentTarget(null);
-  };
-  const cancelComment = () => {
-    setCommentDraft("");
-    setCommentTarget(null);
+    closeCommentPopover();
   };
 
   return (
     <div
       key={renderKey}
+      ref={scrollContainerRef}
       className={cn(
-        "h-full min-h-0 overflow-auto bg-background font-mono text-[12.5px] leading-[1.65]",
+        "relative h-full min-h-0 overflow-auto bg-background font-mono text-[12.5px] leading-[1.65]",
         props.wordWrap ? "overflow-x-hidden" : "overflow-x-auto",
       )}
     >
@@ -170,33 +225,38 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
         {props.renderMode === "split" ? (
           <WorkspaceReviewSplitDiff
             activeCommentTargetId={commentTarget?.id ?? null}
-            commentDraft={commentDraft}
+            commentsByLineKey={commentsByLineKey}
             fileDiff={props.fileDiff}
             filePath={props.filePath}
             highlightedLines={highlightedLines}
-            onCancelComment={cancelComment}
-            onCommentDraftChange={setCommentDraft}
-            onOpenComment={setCommentTarget}
-            onSubmitComment={submitComment}
+            onOpenComment={openCommentPopover}
             previousFilePath={props.fileDiff.prevName ?? props.filePath}
             wordWrap={props.wordWrap}
           />
         ) : (
           <WorkspaceReviewUnifiedDiff
             activeCommentTargetId={commentTarget?.id ?? null}
-            commentDraft={commentDraft}
+            commentsByLineKey={commentsByLineKey}
             fileDiff={props.fileDiff}
             filePath={props.filePath}
             highlightedLines={highlightedLines}
-            onCancelComment={cancelComment}
-            onCommentDraftChange={setCommentDraft}
-            onOpenComment={setCommentTarget}
-            onSubmitComment={submitComment}
+            onOpenComment={openCommentPopover}
             previousFilePath={props.fileDiff.prevName ?? props.filePath}
             wordWrap={props.wordWrap}
           />
         )}
       </div>
+      {commentTarget && commentPopoverPosition ? (
+        <WorkspaceReviewDiffCommentPopover
+          commentDraft={commentDraft}
+          commentTarget={commentTarget}
+          left={commentPopoverPosition.left}
+          onCancelComment={closeCommentPopover}
+          onCommentDraftChange={setCommentDraft}
+          onSubmitComment={submitComment}
+          top={commentPopoverPosition.top}
+        />
+      ) : null}
     </div>
   );
 }
@@ -273,8 +333,13 @@ function renderUnifiedContextContent(input: {
       <WorkspaceReviewDiffLine
         key={`${input.key}:${index}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
-        commentDraft={input.props.commentDraft}
+        comments={getWorkspaceReviewDiffLineComments(
+          input.props.commentsByLineKey,
+          input.props.filePath,
+          lineNumber,
+        )}
         commentTarget={createWorkspaceReviewDiffCommentTarget({
+          anchor: "unified",
           code: stripWorkspaceReviewDiffLineEnding(rawLine),
           lineNumber,
           relativePath: input.props.filePath,
@@ -283,10 +348,7 @@ function renderUnifiedContextContent(input: {
         html={input.props.highlightedLines.additions[additionIndex]}
         kind="context"
         lineNumber={lineNumber}
-        onCancelComment={input.props.onCancelComment}
-        onCommentDraftChange={input.props.onCommentDraftChange}
         onOpenComment={input.props.onOpenComment}
-        onSubmitComment={input.props.onSubmitComment}
         wordWrap={input.props.wordWrap}
       />
     );
@@ -308,8 +370,13 @@ function renderUnifiedChangeContent(input: {
       <WorkspaceReviewDiffLine
         key={`${input.key}:deletion:${index}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
-        commentDraft={input.props.commentDraft}
+        comments={getWorkspaceReviewDiffLineComments(
+          input.props.commentsByLineKey,
+          input.props.previousFilePath,
+          lineNumber,
+        )}
         commentTarget={createWorkspaceReviewDiffCommentTarget({
+          anchor: "unified",
           code: stripWorkspaceReviewDiffLineEnding(rawLine),
           lineNumber,
           relativePath: input.props.previousFilePath,
@@ -318,10 +385,7 @@ function renderUnifiedChangeContent(input: {
         html={input.props.highlightedLines.deletions[deletionIndex]}
         kind="deletion"
         lineNumber={lineNumber}
-        onCancelComment={input.props.onCancelComment}
-        onCommentDraftChange={input.props.onCommentDraftChange}
         onOpenComment={input.props.onOpenComment}
-        onSubmitComment={input.props.onSubmitComment}
         wordWrap={input.props.wordWrap}
       />,
     );
@@ -334,8 +398,13 @@ function renderUnifiedChangeContent(input: {
       <WorkspaceReviewDiffLine
         key={`${input.key}:addition:${index}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
-        commentDraft={input.props.commentDraft}
+        comments={getWorkspaceReviewDiffLineComments(
+          input.props.commentsByLineKey,
+          input.props.filePath,
+          lineNumber,
+        )}
         commentTarget={createWorkspaceReviewDiffCommentTarget({
+          anchor: "unified",
           code: stripWorkspaceReviewDiffLineEnding(rawLine),
           lineNumber,
           relativePath: input.props.filePath,
@@ -344,10 +413,7 @@ function renderUnifiedChangeContent(input: {
         html={input.props.highlightedLines.additions[additionIndex]}
         kind="addition"
         lineNumber={lineNumber}
-        onCancelComment={input.props.onCancelComment}
-        onCommentDraftChange={input.props.onCommentDraftChange}
         onOpenComment={input.props.onOpenComment}
-        onSubmitComment={input.props.onSubmitComment}
         wordWrap={input.props.wordWrap}
       />,
     );
@@ -370,8 +436,13 @@ function renderSplitContextContent(input: {
       <WorkspaceReviewDiffSplitLine
         key={`${input.key}:${index}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
-        commentDraft={input.props.commentDraft}
+        leftComments={getWorkspaceReviewDiffLineComments(
+          input.props.commentsByLineKey,
+          input.props.previousFilePath,
+          deletionLineNumber,
+        )}
         leftCommentTarget={createWorkspaceReviewDiffCommentTarget({
+          anchor: "left",
           code: stripWorkspaceReviewDiffLineEnding(
             input.props.fileDiff.deletionLines[deletionIndex] ?? "",
           ),
@@ -382,11 +453,14 @@ function renderSplitContextContent(input: {
         leftHtml={input.props.highlightedLines.deletions[deletionIndex]}
         leftKind="context"
         leftLineNumber={deletionLineNumber}
-        onCancelComment={input.props.onCancelComment}
-        onCommentDraftChange={input.props.onCommentDraftChange}
         onOpenComment={input.props.onOpenComment}
-        onSubmitComment={input.props.onSubmitComment}
+        rightComments={getWorkspaceReviewDiffLineComments(
+          input.props.commentsByLineKey,
+          input.props.filePath,
+          additionLineNumber,
+        )}
         rightCommentTarget={createWorkspaceReviewDiffCommentTarget({
+          anchor: "right",
           code: stripWorkspaceReviewDiffLineEnding(
             input.props.fileDiff.additionLines[additionIndex] ?? "",
           ),
@@ -425,11 +499,20 @@ function renderSplitChangeContent(input: {
       <WorkspaceReviewDiffSplitLine
         key={`${input.key}:${index}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
-        commentDraft={input.props.commentDraft}
+        leftComments={
+          deletionLineNumber === null
+            ? []
+            : getWorkspaceReviewDiffLineComments(
+                input.props.commentsByLineKey,
+                input.props.previousFilePath,
+                deletionLineNumber,
+              )
+        }
         leftCommentTarget={
           deletionLineNumber === null
             ? null
             : createWorkspaceReviewDiffCommentTarget({
+                anchor: "left",
                 code: stripWorkspaceReviewDiffLineEnding(
                   input.props.fileDiff.deletionLines[deletionIndex] ?? "",
                 ),
@@ -441,14 +524,21 @@ function renderSplitChangeContent(input: {
         leftHtml={hasDeletion ? input.props.highlightedLines.deletions[deletionIndex] : undefined}
         leftKind={hasDeletion ? "deletion" : "empty"}
         leftLineNumber={deletionLineNumber}
-        onCancelComment={input.props.onCancelComment}
-        onCommentDraftChange={input.props.onCommentDraftChange}
         onOpenComment={input.props.onOpenComment}
-        onSubmitComment={input.props.onSubmitComment}
+        rightComments={
+          additionLineNumber === null
+            ? []
+            : getWorkspaceReviewDiffLineComments(
+                input.props.commentsByLineKey,
+                input.props.filePath,
+                additionLineNumber,
+              )
+        }
         rightCommentTarget={
           additionLineNumber === null
             ? null
             : createWorkspaceReviewDiffCommentTarget({
+                anchor: "right",
                 code: stripWorkspaceReviewDiffLineEnding(
                   input.props.fileDiff.additionLines[additionIndex] ?? "",
                 ),
@@ -507,61 +597,73 @@ function WorkspaceReviewDiffLine(props: WorkspaceReviewDiffLineProps) {
       <div
         className={cn(
           "group/review-line grid min-h-[1.65em] grid-cols-[3.75rem_minmax(0,1fr)_2rem]",
+          commentOpen && "outline outline-1 -outline-offset-1 outline-foreground/18",
           getWorkspaceReviewDiffLineClasses(props.kind),
         )}
       >
-        <div
+        <button
+          type="button"
           className={cn(
-            "select-none border-r border-border/42 pr-3 text-right text-muted-foreground/58",
+            "select-none border-r border-border/42 pr-3 text-right text-muted-foreground/58 transition-colors hover:bg-muted/20 hover:text-foreground",
             props.kind === "addition" && "border-r-success/24 text-success",
             props.kind === "deletion" && "border-r-destructive/24 text-destructive",
+            !props.commentTarget && "pointer-events-none",
           )}
+          aria-label={props.commentTarget ? `Comment on line ${props.lineNumber}` : undefined}
+          onClick={(event) => {
+            if (!props.commentTarget) {
+              return;
+            }
+            props.onOpenComment(props.commentTarget, event.currentTarget);
+          }}
         >
           {props.lineNumber ?? ""}
-        </div>
+        </button>
         <WorkspaceReviewDiffCode html={props.html} kind={props.kind} wordWrap={props.wordWrap} />
         <WorkspaceReviewDiffCommentButton
           commentTarget={props.commentTarget}
           onOpenComment={props.onOpenComment}
         />
       </div>
-      {props.commentTarget && commentOpen ? (
-        <WorkspaceReviewDiffCommentForm
-          commentDraft={props.commentDraft}
-          commentTarget={props.commentTarget}
-          onCancelComment={props.onCancelComment}
-          onCommentDraftChange={props.onCommentDraftChange}
-          onSubmitComment={props.onSubmitComment}
-        />
+      {props.comments.length > 0 ? (
+        <WorkspaceReviewDiffInlineComments comments={props.comments} split={false} />
       ) : null}
     </Fragment>
   );
 }
 
 function WorkspaceReviewDiffSplitLine(props: WorkspaceReviewDiffSplitLineProps) {
-  const activeCommentTarget =
-    props.leftCommentTarget?.id === props.activeCommentTargetId
-      ? props.leftCommentTarget
-      : props.rightCommentTarget?.id === props.activeCommentTargetId
-        ? props.rightCommentTarget
-        : null;
+  const leftCommentOpen = props.leftCommentTarget?.id === props.activeCommentTargetId;
+  const rightCommentOpen = props.rightCommentTarget?.id === props.activeCommentTargetId;
   return (
     <Fragment>
       <div className="grid min-h-[1.65em] grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div
           className={cn(
             "group/review-line grid grid-cols-[3.75rem_minmax(0,1fr)_2rem] border-r border-border/48",
+            leftCommentOpen && "outline outline-1 -outline-offset-1 outline-foreground/18",
             getWorkspaceReviewDiffLineClasses(props.leftKind),
           )}
         >
-          <div
+          <button
+            type="button"
             className={cn(
-              "select-none border-r border-border/42 pr-3 text-right text-muted-foreground/58",
+              "select-none border-r border-border/42 pr-3 text-right text-muted-foreground/58 transition-colors hover:bg-muted/20 hover:text-foreground",
               props.leftKind === "deletion" && "border-r-destructive/24 text-destructive",
+              !props.leftCommentTarget && "pointer-events-none",
             )}
+            aria-label={
+              props.leftCommentTarget ? `Comment on old line ${props.leftLineNumber}` : undefined
+            }
+            onClick={(event) => {
+              if (!props.leftCommentTarget) {
+                return;
+              }
+              props.onOpenComment(props.leftCommentTarget, event.currentTarget);
+            }}
           >
             {props.leftLineNumber ?? ""}
-          </div>
+          </button>
           <WorkspaceReviewDiffCode
             html={props.leftHtml}
             kind={props.leftKind}
@@ -575,17 +677,29 @@ function WorkspaceReviewDiffSplitLine(props: WorkspaceReviewDiffSplitLineProps) 
         <div
           className={cn(
             "group/review-line grid grid-cols-[3.75rem_minmax(0,1fr)_2rem]",
+            rightCommentOpen && "outline outline-1 -outline-offset-1 outline-foreground/18",
             getWorkspaceReviewDiffLineClasses(props.rightKind),
           )}
         >
-          <div
+          <button
+            type="button"
             className={cn(
-              "select-none border-r border-border/42 pr-3 text-right text-muted-foreground/58",
+              "select-none border-r border-border/42 pr-3 text-right text-muted-foreground/58 transition-colors hover:bg-muted/20 hover:text-foreground",
               props.rightKind === "addition" && "border-r-success/24 text-success",
+              !props.rightCommentTarget && "pointer-events-none",
             )}
+            aria-label={
+              props.rightCommentTarget ? `Comment on new line ${props.rightLineNumber}` : undefined
+            }
+            onClick={(event) => {
+              if (!props.rightCommentTarget) {
+                return;
+              }
+              props.onOpenComment(props.rightCommentTarget, event.currentTarget);
+            }}
           >
             {props.rightLineNumber ?? ""}
-          </div>
+          </button>
           <WorkspaceReviewDiffCode
             html={props.rightHtml}
             kind={props.rightKind}
@@ -597,15 +711,11 @@ function WorkspaceReviewDiffSplitLine(props: WorkspaceReviewDiffSplitLineProps) 
           />
         </div>
       </div>
-      {activeCommentTarget ? (
-        <WorkspaceReviewDiffCommentForm
-          commentDraft={props.commentDraft}
-          commentTarget={activeCommentTarget}
-          onCancelComment={props.onCancelComment}
-          onCommentDraftChange={props.onCommentDraftChange}
-          onSubmitComment={props.onSubmitComment}
-          split
-        />
+      {props.leftComments.length > 0 || props.rightComments.length > 0 ? (
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <WorkspaceReviewDiffInlineComments comments={props.leftComments} split />
+          <WorkspaceReviewDiffInlineComments comments={props.rightComments} split />
+        </div>
       ) : null}
     </Fragment>
   );
@@ -613,7 +723,10 @@ function WorkspaceReviewDiffSplitLine(props: WorkspaceReviewDiffSplitLineProps) 
 
 function WorkspaceReviewDiffCommentButton(props: {
   readonly commentTarget: WorkspaceReviewDiffCommentTarget | null;
-  readonly onOpenComment: (target: WorkspaceReviewDiffCommentTarget) => void;
+  readonly onOpenComment: (
+    target: WorkspaceReviewDiffCommentTarget,
+    anchorElement: HTMLElement,
+  ) => void;
 }) {
   if (!props.commentTarget) {
     return <div />;
@@ -624,9 +737,10 @@ function WorkspaceReviewDiffCommentButton(props: {
       type="button"
       className="flex size-6 items-center justify-center self-center justify-self-center rounded-md text-muted-foreground/0 transition-colors hover:bg-muted/35 hover:text-foreground group-hover/review-line:text-muted-foreground/58"
       aria-label="Add diff comment"
-      onClick={() => {
+      onClick={(event) => {
+        event.stopPropagation();
         if (props.commentTarget) {
-          props.onOpenComment(props.commentTarget);
+          props.onOpenComment(props.commentTarget, event.currentTarget);
         }
       }}
     >
@@ -635,68 +749,109 @@ function WorkspaceReviewDiffCommentButton(props: {
   );
 }
 
-function WorkspaceReviewDiffCommentForm(props: {
+function WorkspaceReviewDiffCommentPopover(props: {
   readonly commentDraft: string;
   readonly commentTarget: WorkspaceReviewDiffCommentTarget;
+  readonly left: number;
   readonly onCancelComment: () => void;
   readonly onCommentDraftChange: (draft: string) => void;
   readonly onSubmitComment: () => void;
-  readonly split?: boolean;
+  readonly top: number;
 }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [props.commentTarget.id]);
+
   return (
     <form
-      className={cn(
-        "grid border-y border-border/55 bg-muted/10",
-        props.split
-          ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-          : "grid-cols-[3.75rem_minmax(0,1fr)]",
-      )}
+      className="fixed z-50 flex h-11 w-[min(390px,calc(100vw-1.5rem))] items-center gap-2 rounded-full border border-foreground/16 bg-background/96 px-2 ring-1 ring-background/80 shadow-[0_18px_42px_rgba(0,0,0,0.22)] backdrop-blur-xl"
+      style={{ left: props.left, top: props.top }}
       onSubmit={(event) => {
         event.preventDefault();
         props.onSubmitComment();
       }}
     >
-      <div className={props.split ? "hidden" : undefined} />
-      <div
-        className={cn(
-          "flex min-w-0 items-center gap-2 px-3 py-2",
-          props.split && "col-span-2 pl-[3.75rem]",
-        )}
+      <span
+        className="max-w-28 shrink-0 truncate rounded-full bg-muted/50 px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground/78"
+        title={`${props.commentTarget.relativePath}:${props.commentTarget.lineNumber}`}
       >
-        <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground/58">
-          {props.commentTarget.relativePath}:{props.commentTarget.lineNumber}
-        </span>
-        <input
-          autoFocus
-          className="h-7 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-foreground/35"
-          placeholder="Comment for the agent"
-          value={props.commentDraft}
-          onChange={(event) => props.onCommentDraftChange(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              props.onCancelComment();
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/62 hover:bg-muted/35 hover:text-foreground"
-          aria-label="Cancel comment"
-          onClick={props.onCancelComment}
-        >
-          <XIcon className="size-3.5" />
-        </button>
-        <button
-          type="submit"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-          aria-label="Add comment"
-          disabled={props.commentDraft.trim().length === 0}
-        >
-          <ArrowUpRightIcon className="size-3.5" />
-        </button>
-      </div>
+        L{props.commentTarget.lineNumber}
+      </span>
+      <input
+        ref={inputRef}
+        autoFocus
+        className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-[12.5px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
+        placeholder="Comment for the agent"
+        value={props.commentDraft}
+        onChange={(event) => props.onCommentDraftChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancelComment();
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/62 hover:bg-muted/35 hover:text-foreground"
+        aria-label="Cancel comment"
+        onClick={props.onCancelComment}
+      >
+        <XIcon className="size-3.5" />
+      </button>
+      <button
+        type="submit"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-colors hover:bg-foreground/88 disabled:pointer-events-none disabled:opacity-35"
+        aria-label="Add comment"
+        disabled={props.commentDraft.trim().length === 0}
+      >
+        <ArrowUpRightIcon className="size-3.5" />
+      </button>
     </form>
+  );
+}
+
+function WorkspaceReviewDiffInlineComments(props: {
+  readonly comments: readonly WorkspaceCodeComment[];
+  readonly split: boolean;
+}) {
+  if (props.comments.length === 0) {
+    return props.split ? <div /> : null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "border-y border-border/35 bg-muted/8",
+        props.split ? "border-r border-border/35 pl-[3.75rem]" : "pl-[3.75rem]",
+      )}
+    >
+      <div className="space-y-1 px-3 py-1.5">
+        {props.comments.map((comment) => (
+          <div
+            key={comment.id}
+            className="flex min-w-0 items-start gap-2 rounded-md border border-border/45 bg-background/52 px-2 py-1.5"
+          >
+            <MessageSquarePlusIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground/62" />
+            <p className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-[11px] leading-4 text-foreground/80">
+              {comment.body}
+            </p>
+            {comment.status === "queued" ? (
+              <span className="shrink-0 rounded border border-border/45 px-1 py-px font-sans text-[8.5px] font-medium text-muted-foreground/58 uppercase">
+                queued
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -742,13 +897,29 @@ function stripWorkspaceReviewDiffLineEnding(line: string): string {
   return line.replace(/\r?\n$/, "");
 }
 
+function createWorkspaceReviewDiffLineCommentKey(relativePath: string, lineNumber: number): string {
+  return `${relativePath}:${lineNumber}`;
+}
+
+function getWorkspaceReviewDiffLineComments(
+  commentsByLineKey: ReadonlyMap<string, readonly WorkspaceCodeComment[]>,
+  relativePath: string,
+  lineNumber: number,
+): readonly WorkspaceCodeComment[] {
+  return (
+    commentsByLineKey.get(createWorkspaceReviewDiffLineCommentKey(relativePath, lineNumber)) ?? []
+  );
+}
+
 function createWorkspaceReviewDiffCommentTarget(input: {
+  readonly anchor: WorkspaceReviewCommentAnchor;
   readonly code: string;
   readonly lineNumber: number;
   readonly relativePath: string;
   readonly side: "addition" | "deletion";
 }): WorkspaceReviewDiffCommentTarget {
   return {
+    anchor: input.anchor,
     code: input.code,
     id: `${input.side}:${input.relativePath}:${input.lineNumber}`,
     lineNumber: input.lineNumber,
