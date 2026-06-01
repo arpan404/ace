@@ -9,6 +9,7 @@ type MessagesContainerProps = ComponentProps<"div">;
 
 export const ChatMessagesPane = memo(function ChatMessagesPane({
   loadingNotice,
+  messagesScrollbarClassName,
   messagesContainerRef,
   messagesTimelineProps,
   onMessagesClickCapture,
@@ -25,6 +26,7 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
   timelineKey,
 }: {
   loadingNotice?: ReactNode;
+  messagesScrollbarClassName?: string | undefined;
   messagesContainerRef: Ref<HTMLDivElement>;
   messagesTimelineProps: ComponentProps<typeof MessagesTimeline>;
   onMessagesClickCapture: MessagesContainerProps["onClickCapture"];
@@ -44,6 +46,7 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollArea
         className="flex-1 px-3 py-3 sm:px-5 sm:py-4"
+        verticalScrollbarClassName={messagesScrollbarClassName}
         viewportRef={messagesContainerRef}
         viewportProps={{
           onScroll: onMessagesScroll,

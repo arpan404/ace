@@ -309,6 +309,7 @@ import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import {
   useConnectionServerConfig,
   resolveThreadOriginConnectionUrl,
@@ -8175,9 +8176,18 @@ function useChatViewComponent({
     () => (isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null),
     [isThreadHistoryLoading],
   );
+  const environmentPanelCanUseInlineLayout = useMediaQuery(
+    "(min-width: 1280px) and (min-height: 760px)",
+  );
+  const environmentPanelVisible = environmentPanelOpen && !rightSidePanelOpen;
+  const environmentPanelInlineOpen = environmentPanelVisible && environmentPanelCanUseInlineLayout;
+  const environmentPanelLayoutMode = environmentPanelInlineOpen ? "inline" : "popover";
   const chatMessagesPaneProps = useMemo(
     () => ({
       loadingNotice,
+      messagesScrollbarClassName: environmentPanelInlineOpen
+        ? "lg:z-40 lg:translate-x-[calc(18rem+0.75rem)]"
+        : undefined,
       messagesContainerRef: setMessagesScrollContainerRef,
       messagesTimelineProps,
       onMessagesClickCapture,
@@ -8196,6 +8206,7 @@ function useChatViewComponent({
     [
       activeThreadHistoryLoaded,
       activeThreadIdValue,
+      environmentPanelInlineOpen,
       loadingNotice,
       messagesTimelineProps,
       onMessagesClickCapture,
@@ -8536,11 +8547,20 @@ function useChatViewComponent({
           />
         ) : null}
         {/* Main content area with optional plan sidebar */}
-        <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          ref={chatViewportRef}
+          className={cn(
+            "relative flex min-h-0 min-w-0 flex-1 overflow-hidden",
+            environmentPanelInlineOpen && "lg:overflow-visible",
+          )}
+        >
           {/* Chat column */}
           <div
             ref={workspaceViewportRef}
-            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            className={cn(
+              "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+              environmentPanelInlineOpen && "lg:overflow-visible",
+            )}
           >
             <>
               {workspaceMode === "editor" && !editorHostedInRightPanel ? (
@@ -8583,7 +8603,12 @@ function useChatViewComponent({
                       : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                   )}
                 >
-                  <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                  <div
+                    className={cn(
+                      "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                      environmentPanelInlineOpen && "lg:overflow-visible",
+                    )}
+                  >
                     {/* Messages Wrapper */}
                     <ChatMessagesPane {...chatMessagesPaneProps} />
 
@@ -8765,7 +8790,7 @@ function useChatViewComponent({
           </div>
           {/* end chat column */}
 
-          {environmentPanelOpen && !rightSidePanelOpen ? (
+          {environmentPanelVisible ? (
             <EnvironmentMiniPanel
               activeProjectScripts={activeProject?.scripts}
               activePlanProgress={activePlanProgress}
@@ -8776,6 +8801,7 @@ function useChatViewComponent({
               isGitRepo={isGitRepo}
               isAgentWorking={isWorking}
               keybindings={keybindings}
+              layoutMode={environmentPanelLayoutMode}
               preferredScriptId={
                 activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
               }

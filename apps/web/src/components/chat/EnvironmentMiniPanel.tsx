@@ -7,6 +7,7 @@ import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import type { SubagentThread } from "./SubagentThreadsPanel";
 import type { ActivePlanProgressState } from "../../session-logic";
+import { cn } from "~/lib/utils";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 function formatDiffCount(value: number): string {
@@ -23,6 +24,7 @@ export function EnvironmentMiniPanel(props: {
   isGitRepo: boolean;
   isAgentWorking: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  layoutMode: "inline" | "popover";
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onOpenDiffPanel: () => void;
@@ -57,7 +59,14 @@ export function EnvironmentMiniPanel(props: {
     : 2;
 
   return (
-    <aside className="pointer-events-auto absolute top-3 right-3 z-30 hidden max-h-[calc(100%-1.5rem)] w-72 overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl lg:block">
+    <aside
+      className={cn(
+        "pointer-events-auto z-30 max-h-[calc(100%-1.5rem)] w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl shadow-black/10 backdrop-blur-xl",
+        props.layoutMode === "inline"
+          ? "relative mt-3 mr-3 shrink-0 self-start"
+          : "absolute top-3 right-3",
+      )}
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-medium text-muted-foreground">Environment</h2>
         <button
