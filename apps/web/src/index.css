@@ -142,7 +142,10 @@ html.native-window-resizing *::after {
   contain: layout paint style;
 }
 
-[data-slot="sidebar-content"] [data-slot="sidebar-menu-item"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-item"] {
+  contain: layout paint style;
+}
+
 [data-slot="sidebar-content"] [data-slot="sidebar-menu-sub-item"] {
   contain: layout paint style;
   content-visibility: auto;
