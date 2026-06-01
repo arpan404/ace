@@ -512,13 +512,13 @@ export function BranchToolbarBranchSelector({
         render={<Button variant="ghost" size={isEnvironmentPresentation ? "default" : "xs"} />}
         className={
           isEnvironmentPresentation
-            ? "min-h-9 w-full justify-start gap-3 rounded-lg px-2 py-1.5 text-[15px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
+            ? "min-h-8 w-full justify-start gap-2 rounded-lg px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
             : "text-muted-foreground/70 hover:text-foreground/80"
         }
         disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
       >
         {isEnvironmentPresentation ? (
-          <GitForkIcon className="size-4 text-muted-foreground" />
+          <GitForkIcon className="size-3.5 text-muted-foreground" />
         ) : null}
         <span
           className={
@@ -530,7 +530,7 @@ export function BranchToolbarBranchSelector({
           {triggerLabel}
         </span>
         <ChevronDownIcon
-          className={isEnvironmentPresentation ? "size-4 text-muted-foreground" : undefined}
+          className={isEnvironmentPresentation ? "size-3.5 text-muted-foreground" : undefined}
         />
       </ComboboxTrigger>
       <ComboboxPopup
@@ -539,7 +539,7 @@ export function BranchToolbarBranchSelector({
         sideOffset={isEnvironmentPresentation ? 12 : 4}
         className={
           isEnvironmentPresentation
-            ? "w-80 overflow-hidden rounded-2xl border-border/70 bg-popover/96 shadow-2xl shadow-black/25 supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
+            ? "w-72 overflow-hidden rounded-2xl border-border/70 bg-popover/96 shadow-2xl shadow-black/25 supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
             : "w-80"
         }
       >
@@ -551,7 +551,7 @@ export function BranchToolbarBranchSelector({
           <ComboboxInput
             className={
               isEnvironmentPresentation
-                ? "[&_input]:font-sans rounded-xl border-border/50 bg-background/45 text-[15px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
+                ? "[&_input]:font-sans rounded-xl border-border/50 bg-background/45 text-[13px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
                 : "[&_input]:font-sans rounded-md"
             }
             inputClassName="ring-0"
@@ -583,7 +583,7 @@ export function BranchToolbarBranchSelector({
           trimmedBranchQuery={trimmedBranchQuery}
           virtualBranchRows={virtualBranchRows}
           {...(isEnvironmentPresentation
-            ? { itemClassName: "min-h-10 rounded-xl px-2 text-[15px] data-selected:bg-accent/45" }
+            ? { itemClassName: "min-h-9 rounded-xl px-2 text-[13px] data-selected:bg-accent/45" }
             : {})}
         />
       </ComboboxPopup>

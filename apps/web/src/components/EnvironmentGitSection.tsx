@@ -287,7 +287,7 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
 }
 
 const gitCardRowClassName =
-  "flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
+  "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
 
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
@@ -940,9 +940,9 @@ function useEnvironmentGitSection({
               onClick={() => initMutation.mutate()}
             >
               {initMutation.isPending ? (
-                <LoaderCircleIcon className="size-4 animate-spin" />
+                <LoaderCircleIcon className="size-3.5 animate-spin" />
               ) : (
-                <GitBranchPlusIcon className="size-4" />
+                <GitBranchPlusIcon className="size-3.5" />
               )}
               <span>{initMutation.isPending ? "Initializing Git" : "Initialize Git"}</span>
             </button>
@@ -966,7 +966,7 @@ function useEnvironmentGitSection({
               >
                 <GitQuickActionIcon quickAction={quickAction} />
                 <span className="min-w-0 flex-1 truncate">Commit or push</span>
-                <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+                <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
                   <span className="max-w-32 truncate">{quickAction.label}</span>
                   <ChevronDownIcon className="size-3.5" />
                 </span>
@@ -974,13 +974,13 @@ function useEnvironmentGitSection({
               <MenuPopup
                 align="start"
                 side="left"
-                className="w-72 rounded-2xl shadow-2xl shadow-black/25"
+                className="w-64 rounded-2xl shadow-2xl shadow-black/25"
                 listClassName="p-2"
                 sideOffset={12}
               >
                 <MenuGroup>
                   <MenuItem
-                    className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+                    className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
                     disabled={isGitActionRunning || quickAction.disabled}
                     title={quickActionDisabledReason ?? undefined}
                     onClick={runQuickAction}
@@ -1001,7 +1001,7 @@ function useEnvironmentGitSection({
                     return (
                       <MenuItem
                         key={`${item.id}-${item.label}`}
-                        className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+                        className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
                         disabled={item.disabled}
                         title={disabledReason ?? undefined}
                         onClick={() => {
@@ -1017,7 +1017,7 @@ function useEnvironmentGitSection({
                 <MenuSeparator className="mx-2 my-2" />
                 <MenuGroup>
                   <MenuItem
-                    className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+                    className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
                     onClick={() => {
                       dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
                     }}

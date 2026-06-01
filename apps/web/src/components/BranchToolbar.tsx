@@ -101,12 +101,12 @@ function EnvironmentModeMenu(props: {
   const label = isLocal ? props.localEnvironmentLabel : "Worktree";
   const icon = isLocal ? (
     props.localEnvironmentIcon ? (
-      <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-4 opacity-80" />
+      <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-3.5 opacity-80" />
     ) : (
-      <LaptopIcon className="size-4 text-muted-foreground" />
+      <LaptopIcon className="size-3.5 text-muted-foreground" />
     )
   ) : (
-    <GitForkIcon className="size-4 text-muted-foreground" />
+    <GitForkIcon className="size-3.5 text-muted-foreground" />
   );
 
   if (props.envLocked) {
@@ -125,42 +125,42 @@ function EnvironmentModeMenu(props: {
       >
         {icon}
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronDownIcon className="size-4 text-muted-foreground" />
+        <ChevronDownIcon className="size-3.5 text-muted-foreground" />
       </MenuTrigger>
       <MenuPopup
         align="start"
         side="left"
-        className="w-80 rounded-2xl shadow-2xl shadow-black/25"
+        className="w-72 rounded-2xl shadow-2xl shadow-black/25"
         listClassName="p-2"
         sideOffset={12}
       >
         <MenuGroup>
-          <MenuGroupLabel className="px-2 pb-2 pt-1 text-[15px] font-normal normal-case text-muted-foreground">
+          <MenuGroupLabel className="px-2 pb-1.5 pt-1 text-[13px] font-normal normal-case text-muted-foreground">
             Continue in
           </MenuGroupLabel>
           <MenuItem
-            className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+            className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
             onClick={() => props.onEnvModeSelect("local")}
           >
-            <LaptopIcon className="size-4 text-muted-foreground" />
+            <LaptopIcon className="size-3.5 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">Work locally</span>
-            {isLocal ? <CheckIcon className="size-4 text-muted-foreground" /> : null}
+            {isLocal ? <CheckIcon className="size-3.5 text-muted-foreground" /> : null}
           </MenuItem>
-          <MenuItem className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
-            <CloudIcon className="size-4 text-muted-foreground" />
+          <MenuItem className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
+            <CloudIcon className="size-3.5 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">Connect Codex web</span>
-            <ExternalLinkIcon className="size-4 text-muted-foreground" />
+            <ExternalLinkIcon className="size-3.5 text-muted-foreground" />
           </MenuItem>
-          <MenuItem disabled className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
-            <CloudOffIcon className="size-4 text-muted-foreground" />
+          <MenuItem disabled className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
+            <CloudOffIcon className="size-3.5 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">Send to cloud</span>
           </MenuItem>
         </MenuGroup>
         <MenuSeparator className="mx-2 my-2" />
         <MenuGroup>
           <MenuSub>
-            <MenuSubTrigger className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
-              <GaugeIcon className="size-4 text-muted-foreground" />
+            <MenuSubTrigger className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
+              <GaugeIcon className="size-3.5 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">Usage remaining</span>
             </MenuSubTrigger>
             <MenuSubPopup
@@ -172,10 +172,10 @@ function EnvironmentModeMenu(props: {
                 <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
                   Usage remaining
                 </MenuGroupLabel>
-                <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
+                <MenuItem disabled className="min-h-8 rounded-xl px-2 text-[13px]">
                   <span className="min-w-0 flex-1 truncate">Local usage is unlimited</span>
                 </MenuItem>
-                <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
+                <MenuItem disabled className="min-h-8 rounded-xl px-2 text-[13px]">
                   <span className="min-w-0 flex-1 truncate">Cloud usage unavailable</span>
                 </MenuItem>
               </MenuGroup>
@@ -185,11 +185,11 @@ function EnvironmentModeMenu(props: {
         <MenuSeparator className="mx-2 my-2" />
         <MenuGroup>
           <MenuItem
-            className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+            className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
             disabled={!isLocal}
             onClick={() => props.onEnvModeSelect("worktree")}
           >
-            <ArrowLeftRightIcon className="size-4 text-muted-foreground" />
+            <ArrowLeftRightIcon className="size-3.5 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">Handoff to worktree</span>
           </MenuItem>
         </MenuGroup>
@@ -303,7 +303,7 @@ export default function BranchToolbar({
     <FolderIcon className="size-3 opacity-60" />
   );
   const environmentModeRowClassName =
-    "flex min-h-9 w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[15px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
+    "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
   if (isEnvironmentPresentation) {
     return (
       <div className="space-y-1">
@@ -344,11 +344,11 @@ export default function BranchToolbar({
             >
               {runtimeMode === "full-access" ? (
                 <LockOpenIcon
-                  className={`size-4 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
+                  className={`size-3.5 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
                 />
               ) : (
                 <LockIcon
-                  className={`size-4 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
+                  className={`size-3.5 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
                 />
               )}
               <span className="min-w-0 flex-1 truncate">{runtimeModeMeta?.label ?? "Access"}</span>
