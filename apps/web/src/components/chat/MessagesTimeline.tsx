@@ -3610,7 +3610,7 @@ const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
   );
 });
 
-const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
+export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
   variant?: "nested" | "standalone";

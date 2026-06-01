@@ -1,7 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { deriveSubagentThreads } from "./SubagentThreadsPanel";
 import type { WorkLogEntry } from "../../session-logic/types";
+import type { deriveSubagentThreads as deriveSubagentThreadsType } from "./SubagentThreadsPanel";
+
+let deriveSubagentThreads: typeof deriveSubagentThreadsType;
+
+beforeAll(async () => {
+  vi.stubGlobal("window", {
+    matchMedia: vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+  vi.stubGlobal("document", {
+    documentElement: {
+      classList: {
+        add: vi.fn(),
+        remove: vi.fn(),
+        toggle: vi.fn(),
+      },
+    },
+  });
+  vi.stubGlobal("localStorage", {
+    getItem: vi.fn(() => null),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  });
+  ({ deriveSubagentThreads } = await import("./SubagentThreadsPanel"));
+});
 
 function workEntry(input: Partial<WorkLogEntry> & Pick<WorkLogEntry, "id">): WorkLogEntry {
   return {

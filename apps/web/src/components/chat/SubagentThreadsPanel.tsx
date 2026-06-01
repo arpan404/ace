@@ -1,18 +1,11 @@
-import {
-  BotIcon,
-  CheckCircle2Icon,
-  Clock3Icon,
-  MessageSquareIcon,
-  SearchIcon,
-  TerminalSquareIcon,
-  WrenchIcon,
-} from "lucide-react";
+import { BotIcon, CheckCircle2Icon, Clock3Icon, MessageSquareIcon } from "lucide-react";
 import { useMemo } from "react";
 import type { ProviderKind } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
 import { cn } from "../../lib/utils";
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
+import { SimpleWorkEntryRow } from "./MessagesTimeline";
 
 export interface SubagentThread {
   readonly id: string;
@@ -40,6 +33,9 @@ function subagentThreadKey(entry: WorkLogEntry): string | null {
 function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThread["status"] {
   if (entries.some((entry) => entry.status === "failed" || entry.tone === "error")) {
     return "failed";
+  }
+  if (entries.some((entry) => entry.status === "completed")) {
+    return "completed";
   }
   const latestStatus = entries
     .filter((entry) => entry.status)
@@ -164,33 +160,6 @@ export function SubagentThreadsPanel(props: {
   );
 }
 
-function entryIcon(entry: WorkLogEntry) {
-  const text = `${entry.label} ${entry.toolTitle ?? ""}`.toLowerCase();
-  if (entry.command || entry.itemType === "command_execution") {
-    return TerminalSquareIcon;
-  }
-  if (/\b(search|grep|find|rg|ripgrep)\b/.test(text)) {
-    return SearchIcon;
-  }
-  if (entry.tone === "thinking") {
-    return MessageSquareIcon;
-  }
-  return WrenchIcon;
-}
-
-function entryTitle(entry: WorkLogEntry): string {
-  if (entry.intentText) {
-    return "Subagent task";
-  }
-  if (entry.command) {
-    return `Ran ${entry.command}`;
-  }
-  if (entry.tone === "thinking") {
-    return "Reasoning";
-  }
-  return entry.toolTitle ?? entry.label;
-}
-
 function statusLabel(status: SubagentThread["status"]): string {
   if (status === "running") {
     return "Running";
@@ -253,29 +222,12 @@ export function SubagentWorkspacePanel(props: {
             {activeThread.status === "running" ? "Working" : statusLabel(activeThread.status)}
           </div>
           <div className="border-t border-border/70" />
-          <ol className="space-y-5">
-            {activeThread.entries.map((entry) => {
-              const Icon = entryIcon(entry);
-              const title = entryTitle(entry);
-              const detail = entry.intentText
-                ? entry.detail
-                : (entry.detail ?? entry.terminalOutput);
-              return (
-                <li key={entry.id} className="grid grid-cols-[22px_1fr] gap-3">
-                  <div className="pt-0.5 text-muted-foreground">
-                    <Icon className="size-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="break-words text-sm leading-6 text-foreground">{title}</div>
-                    {detail ? (
-                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
-                        {detail}
-                      </p>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
+          <ol className="space-y-4">
+            {activeThread.entries.map((entry) => (
+              <li key={entry.id}>
+                <SimpleWorkEntryRow workEntry={entry} />
+              </li>
+            ))}
           </ol>
         </div>
       </div>

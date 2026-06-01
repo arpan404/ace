@@ -2658,24 +2658,6 @@ function useChatViewComponent({
       setActiveSubagentThreadId(subagentThreads[0]?.id ?? null);
     }
   }, [activeSubagentThreadId, subagentThreads]);
-  useEffect(() => {
-    if (
-      subagentThreads.length > 0 &&
-      rightSidePanelEnabled &&
-      rightSidePanelMode === null &&
-      activeThreadId !== null
-    ) {
-      setRightSidePanelMode("subagent");
-      setRightSidePanelVisible(true);
-    }
-  }, [
-    activeThreadId,
-    rightSidePanelEnabled,
-    rightSidePanelMode,
-    setRightSidePanelMode,
-    setRightSidePanelVisible,
-    subagentThreads.length,
-  ]);
   const activeThreadMessageIds = useMemo(
     () => new Set(activeThreadMessages.map((message) => message.id)),
     [activeThreadMessages],
