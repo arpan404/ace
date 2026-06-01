@@ -325,7 +325,7 @@ function DetachedEditorWindowContent(props: {
   return (
     <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <Suspense
-        fallback={<DetachedWindowMessage title="Loading editor" description="Starting Monaco..." />}
+        fallback={<DetachedWindowMessage title="Loading editor" description="Starting editor..." />}
       >
         <DetachedThreadWorkspaceEditor
           availableEditors={availableEditors}

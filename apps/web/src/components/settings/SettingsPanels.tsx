@@ -2222,7 +2222,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           <SettingsSection title="Workspace editor">
             <SettingsRow
               title="Editor suggestions"
-              description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
+              description="Keep workspace completion helpers off by default to reduce noisy or unwanted code insertions."
               resetAction={
                 settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions ? (
                   <SettingResetButton

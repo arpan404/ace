@@ -7,7 +7,13 @@ import type {
   ThreadId,
   WorkspaceEditorLocation,
 } from "@ace/contracts";
-import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
+import {
+  IconFiles,
+  IconGitCompare,
+  IconLayoutSidebar,
+  IconLayoutSidebarFilled,
+  IconSearch,
+} from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -20,21 +26,16 @@ import {
   Code2Icon,
   ExternalLinkIcon,
   FilePlus2Icon,
-  FolderTreeIcon,
   FolderPlusIcon,
   GitBranchIcon,
   GitForkIcon,
   HashIcon,
   ListTreeIcon,
   MessageSquareTextIcon,
-  PanelLeftCloseIcon,
-  PanelLeftOpenIcon,
   SearchIcon,
 } from "lucide-react";
 import {
   memo,
-  lazy,
-  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
@@ -53,7 +54,6 @@ import {
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
-import { useAppearancePrefs } from "~/appearancePrefs";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
@@ -62,11 +62,15 @@ import {
   createWorkspaceEditorOptions,
 } from "~/lib/editor/workspaceEditorOptions";
 import {
-  mergeWorkspaceSearchEntries,
-  searchWorkspaceEntriesLocally,
-  shouldRunWorkspaceRemoteSearch,
-} from "~/lib/editor/workspaceEntrySearch";
-import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
+  buildWorkspaceCodeSearchQueries,
+  createWorkspaceCodeSearchResult,
+  groupWorkspaceCodeSearchResults,
+  highlightWorkspaceCodeSearchText,
+  sortWorkspaceCodeSearchResults,
+  type WorkspaceCodeSearchResult,
+} from "~/lib/editor/workspaceCodeSearch";
+import { searchWorkspaceEntriesLocally } from "~/lib/editor/workspaceEntrySearch";
+import { resolveWorkspaceLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import {
   buildWorkspaceCodeCommentPrompt,
   countOpenWorkspaceCodeComments,
@@ -76,13 +80,8 @@ import {
 } from "~/lib/editor/workspaceDesigner";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
-import {
-  projectListTreeQueryOptions,
-  projectQueryKeys,
-  projectSearchEntriesQueryOptions,
-} from "~/lib/projectReactQuery";
+import { projectListTreeQueryOptions, projectQueryKeys } from "~/lib/projectReactQuery";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
-import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
@@ -111,6 +110,8 @@ import WorkspaceEditorPane, {
   type WorkspaceEditorProblemNavigationTarget,
   type WorkspaceEditorSymbolNavigationTarget,
 } from "./WorkspaceEditorPane";
+import WorkspaceDiffEditor from "./WorkspaceDiffEditor";
+import WorkspaceReviewPane from "./WorkspaceReviewPane";
 import {
   WorkspaceCommandPalette,
   type WorkspaceCommandAction,
@@ -120,13 +121,10 @@ import {
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
+const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 80;
+const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 48;
+const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
-const LazyMonacoDiffEditor = lazy(() =>
-  import("@monaco-editor/react").then((module) => ({
-    default: module.DiffEditor,
-  })),
-);
-
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -235,7 +233,14 @@ type ExplorerRenderRow =
       state: ExplorerInlineEntryState;
     };
 
-type WorkspaceSidebarMode = "explorer" | "source-control" | "outline" | "problems" | "notes";
+type WorkspaceSidebarMode =
+  | "explorer"
+  | "search"
+  | "review"
+  | "source-control"
+  | "outline"
+  | "problems"
+  | "notes";
 
 interface QueuedWorkspaceContext {
   readonly context: WorkspaceSelectionContext;
@@ -251,6 +256,7 @@ interface WorkspaceAgentNoteSubmission {
 
 type ThreadWorkspaceEditorUiState = {
   treeSearch: string;
+  codeSearchQuery: string;
   sidebarMode: WorkspaceSidebarMode;
   commandPaletteOpen: boolean;
   commandPaletteMode: WorkspaceCommandPaletteMode;
@@ -260,6 +266,7 @@ type ThreadWorkspaceEditorUiState = {
   inlineEntryState: ExplorerInlineEntryState | null;
   dragTargetParentPath: string | null;
   saveConflict: SaveConflictState | null;
+  selectedReviewFilePath: string | null;
   problemReportsByPaneId: Record<
     string,
     { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
@@ -277,6 +284,7 @@ type ThreadWorkspaceEditorUiState = {
 
 type ThreadWorkspaceEditorUiAction =
   | { type: "set-tree-search"; treeSearch: string }
+  | { type: "set-code-search-query"; codeSearchQuery: string }
   | { type: "set-sidebar-mode"; sidebarMode: WorkspaceSidebarMode }
   | { type: "set-command-palette-open"; commandPaletteOpen: boolean }
   | { type: "set-command-palette-mode"; commandPaletteMode: WorkspaceCommandPaletteMode }
@@ -302,6 +310,10 @@ type ThreadWorkspaceEditorUiAction =
         | SaveConflictState
         | null
         | ((current: SaveConflictState | null) => SaveConflictState | null);
+    }
+  | {
+      type: "set-selected-review-file-path";
+      selectedReviewFilePath: string | null | ((current: string | null) => string | null);
     }
   | {
       type: "set-problem-reports-by-pane-id";
@@ -359,6 +371,7 @@ type ThreadWorkspaceEditorUiAction =
 
 const EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE: ThreadWorkspaceEditorUiState = {
   treeSearch: "",
+  codeSearchQuery: "",
   sidebarMode: "explorer",
   commandPaletteOpen: false,
   commandPaletteMode: "commands",
@@ -368,6 +381,7 @@ const EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE: ThreadWorkspaceEditorUiState = {
   inlineEntryState: null,
   dragTargetParentPath: null,
   saveConflict: null,
+  selectedReviewFilePath: null,
   problemReportsByPaneId: {},
   symbolReportsByPaneId: {},
   problemNavigationTarget: null,
@@ -384,6 +398,8 @@ function threadWorkspaceEditorUiStateReducer(
   switch (action.type) {
     case "set-tree-search":
       return { ...state, treeSearch: action.treeSearch };
+    case "set-code-search-query":
+      return { ...state, codeSearchQuery: action.codeSearchQuery };
     case "set-sidebar-mode":
       return { ...state, sidebarMode: action.sidebarMode };
     case "set-command-palette-open":
@@ -418,6 +434,15 @@ function threadWorkspaceEditorUiStateReducer(
           ? action.saveConflict(state.saveConflict)
           : action.saveConflict;
       return saveConflict === state.saveConflict ? state : { ...state, saveConflict };
+    }
+    case "set-selected-review-file-path": {
+      const selectedReviewFilePath =
+        typeof action.selectedReviewFilePath === "function"
+          ? action.selectedReviewFilePath(state.selectedReviewFilePath)
+          : action.selectedReviewFilePath;
+      return selectedReviewFilePath === state.selectedReviewFilePath
+        ? state
+        : { ...state, selectedReviewFilePath };
     }
     case "set-problem-reports-by-pane-id": {
       const problemReportsByPaneId =
@@ -744,11 +769,37 @@ function buildCombinedAgentNotesPrompt(
   return sections.join("\n\n");
 }
 
+function formatQueuedWorkspaceContextDetail(entry: QueuedWorkspaceContext): string {
+  const prompt = entry.prompt.trim();
+  const reviewPrefix = `Review the working tree changes in ${entry.context.relativePath}`;
+  if (prompt === `${reviewPrefix}.` || prompt.startsWith(`${reviewPrefix}. `)) {
+    return "Working tree changes";
+  }
+  if (entry.context.text.trim().length === 0) {
+    return "Whole file";
+  }
+  const startLine = entry.context.range.startLine + 1;
+  const endLine = entry.context.range.endLine + 1;
+  return startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}-${endLine}`;
+}
+
+function formatQueuedWorkspaceContextKind(entry: QueuedWorkspaceContext): string {
+  const prompt = entry.prompt.trim();
+  const reviewPrefix = `Review the working tree changes in ${entry.context.relativePath}`;
+  if (prompt === `${reviewPrefix}.` || prompt.startsWith(`${reviewPrefix}. `)) {
+    return "Review";
+  }
+  if (entry.context.text.trim().length === 0) {
+    return "File";
+  }
+  return "Selection";
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
-  if (target.closest(".monaco-editor")) {
+  if (target.closest(".cm-editor")) {
     return false;
   }
   return (
@@ -767,6 +818,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   onFocusEntry: (path: string) => void;
   onHoverDropTarget: (targetParentPath: string | null) => void;
   onOpenFile: (filePath: string, openInNewPane: boolean) => void;
+  onRevealDirectoryFromSearch: (directoryPath: string) => void;
   onOpenRowContextMenu: (entry: ProjectEntry, position: { x: number; y: number }) => void;
   onSelectEntry: (path: string) => void;
   onToggleDirectory: (directoryPath: string) => void;
@@ -804,6 +856,10 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       onClick={(event) => {
         props.onSelectEntry(props.row.entry.path);
         if (props.row.kind === "directory") {
+          if (props.searchMode) {
+            props.onRevealDirectoryFromSearch(props.row.entry.path);
+            return;
+          }
           props.onToggleDirectory(props.row.entry.path);
           return;
         }
@@ -957,42 +1013,6 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
   );
 });
 
-function WorkspaceActivityButton(props: {
-  active: boolean;
-  badge?: number;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={props.label}
-            className={cn(
-              "relative my-0.5 flex size-8 items-center justify-center rounded-lg outline-none transition-colors focus-visible:outline-none focus-visible:ring-0",
-              props.active
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
-            )}
-            onClick={props.onClick}
-          />
-        }
-      >
-        {props.icon}
-        {props.badge && props.badge > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-card bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground shadow-sm">
-            {props.badge > 9 ? "9+" : props.badge}
-          </span>
-        ) : null}
-      </TooltipTrigger>
-      <TooltipPopup side="right">{props.label}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
 function useThreadWorkspaceEditorComponent(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
   branch?: string | null;
@@ -1040,7 +1060,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [detachedEditorConnectionUrl, detachedEditorThreadId, onEditorDetached]);
 
   const { resolvedTheme } = useTheme();
-  const { themePreset } = useAppearancePrefs();
   const { updateSettings } = useUpdateSettings();
   const editorLineNumbers = useSetting("editorLineNumbers");
   const editorMinimap = useSetting("editorMinimap");
@@ -1074,6 +1093,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const {
     treeSearch,
+    codeSearchQuery,
     sidebarMode,
     commandPaletteOpen,
     commandPaletteMode,
@@ -1083,6 +1103,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     inlineEntryState,
     dragTargetParentPath,
     saveConflict,
+    selectedReviewFilePath,
     problemReportsByPaneId,
     symbolReportsByPaneId,
     problemNavigationTarget,
@@ -1094,8 +1115,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const setTreeSearch = useCallback((treeSearch: string) => {
     dispatchUiState({ type: "set-tree-search", treeSearch });
   }, []);
+  const setCodeSearchQuery = useCallback((codeSearchQuery: string) => {
+    dispatchUiState({ type: "set-code-search-query", codeSearchQuery });
+  }, []);
   const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
+  }, []);
+  const setSelectedReviewFilePath = useCallback((selectedReviewFilePath: string | null) => {
+    dispatchUiState({ type: "set-selected-review-file-path", selectedReviewFilePath });
   }, []);
   const setCommandPaletteOpen = useCallback((commandPaletteOpen: boolean) => {
     dispatchUiState({ type: "set-command-palette-open", commandPaletteOpen });
@@ -1218,6 +1245,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [],
   );
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
+  const deferredCodeSearchQuery = useDeferredValue(codeSearchQuery.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
@@ -1490,14 +1518,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
-  const monacoTheme = useMemo(
-    () =>
-      ensureMonacoConfigured({
-        resolvedTheme,
-        themePreset,
-      }),
-    [resolvedTheme, themePreset],
-  );
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -1577,16 +1597,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   });
   const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd, inputProps.connectionUrl));
   const searchMode = deferredTreeSearch.length > 0;
-  const remoteSearchEnabled = shouldRunWorkspaceRemoteSearch(deferredTreeSearch);
-  const workspaceSearchQuery = useQuery(
-    projectSearchEntriesQueryOptions({
-      connectionUrl: inputProps.connectionUrl,
-      cwd: props.gitCwd,
-      enabled: remoteSearchEnabled,
-      limit: WORKSPACE_SEARCH_RESULT_LIMIT,
-      query: deferredTreeSearch,
-    }),
-  );
   const treeEntries = workspaceTreeQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
   const localSearchEntries = useMemo(
     () =>
@@ -1595,22 +1605,120 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         : EMPTY_PROJECT_ENTRIES,
     [deferredTreeSearch, searchMode, treeEntries],
   );
-  const remoteSearchEntries =
-    remoteSearchEnabled && !workspaceSearchQuery.isPlaceholderData
-      ? (workspaceSearchQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES)
-      : EMPTY_PROJECT_ENTRIES;
   const searchEntries = useMemo(
-    () =>
-      mergeWorkspaceSearchEntries(
-        localSearchEntries,
-        remoteSearchEntries,
-        WORKSPACE_SEARCH_RESULT_LIMIT,
-      ),
-    [localSearchEntries, remoteSearchEntries],
+    () => localSearchEntries.slice(0, WORKSPACE_SEARCH_RESULT_LIMIT),
+    [localSearchEntries],
   );
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
+  );
+  const codeSearchResultsQuery = useQuery({
+    queryKey: [
+      "workspace",
+      "code-search",
+      inputProps.connectionUrl ?? null,
+      props.gitCwd,
+      deferredCodeSearchQuery,
+    ],
+    queryFn: async (): Promise<readonly WorkspaceCodeSearchResult[]> => {
+      if (!api || !props.gitCwd) {
+        throw new Error("Workspace code search is unavailable.");
+      }
+
+      const searchQueries = buildWorkspaceCodeSearchQueries(deferredCodeSearchQuery);
+      const candidateEntriesByPath = new Map<string, ProjectEntry>();
+      for (const entry of searchWorkspaceEntriesLocally(
+        treeEntries.filter((candidate) => candidate.kind === "file"),
+        deferredCodeSearchQuery,
+      ).slice(0, WORKSPACE_CODE_SEARCH_REMOTE_LIMIT)) {
+        candidateEntriesByPath.set(entry.path, entry);
+      }
+
+      const remoteResults = await Promise.all(
+        searchQueries.map((query) =>
+          api.projects
+            .searchEntries(
+              withRpcRouteConnection(
+                {
+                  cwd: props.gitCwd!,
+                  limit: WORKSPACE_CODE_SEARCH_REMOTE_LIMIT,
+                  query,
+                },
+                inputProps.connectionUrl,
+              ),
+            )
+            .catch(() => ({ entries: [], truncated: false })),
+        ),
+      );
+
+      for (const result of remoteResults) {
+        for (const entry of result.entries) {
+          if (entry.kind === "file") {
+            candidateEntriesByPath.set(entry.path, entry);
+          }
+        }
+      }
+
+      const candidateEntries = Array.from(candidateEntriesByPath.values()).slice(
+        0,
+        WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES,
+      );
+      const results: WorkspaceCodeSearchResult[] = [];
+      for (
+        let startIndex = 0;
+        startIndex < candidateEntries.length;
+        startIndex += WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE
+      ) {
+        const batchEntries = candidateEntries.slice(
+          startIndex,
+          startIndex + WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE,
+        );
+        const batchFiles = await Promise.all(
+          batchEntries.map((entry) =>
+            api.projects
+              .readFile(
+                withRpcRouteConnection(
+                  {
+                    cwd: props.gitCwd!,
+                    relativePath: entry.path,
+                  },
+                  inputProps.connectionUrl,
+                ),
+              )
+              .then((file) => ({ entry, file }))
+              .catch(() => null),
+          ),
+        );
+
+        for (const batchFile of batchFiles) {
+          if (!batchFile) {
+            continue;
+          }
+          const result = createWorkspaceCodeSearchResult({
+            contents: batchFile.file.contents,
+            entry: batchFile.entry,
+            query: deferredCodeSearchQuery,
+          });
+          if (result) {
+            results.push(result);
+          }
+        }
+      }
+
+      return sortWorkspaceCodeSearchResults(results).slice(0, 80);
+    },
+    enabled:
+      sidebarMode === "search" &&
+      Boolean(api) &&
+      props.gitCwd !== null &&
+      deferredCodeSearchQuery.length >= 2,
+    staleTime: 20_000,
+    placeholderData: (previous) => previous ?? [],
+  });
+  const codeSearchResultGroups = useMemo(
+    () => groupWorkspaceCodeSearchResults(codeSearchResultsQuery.data ?? []),
+    [codeSearchResultsQuery.data],
   );
 
   useEffect(() => {
@@ -1903,7 +2011,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           prompt,
         },
       ]);
-      setSidebarMode("notes");
+      setSidebarMode("review");
       setExplorerOpen(props.threadId, true);
       toastManager.add({
         description: `${context.relativePath}:${context.range.startLine + 1}-${context.range.endLine + 1}`,
@@ -1911,7 +2019,34 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         type: "success",
       });
     },
-    [props.threadId, setExplorerOpen],
+    [props.threadId, setExplorerOpen, setSidebarMode],
+  );
+  const queueWorkspaceFileContext = useCallback(
+    (relativePath: string, prompt: string) => {
+      const cwd = props.gitCwd ?? props.lspCwd;
+      if (!cwd) {
+        return;
+      }
+      queueWorkspaceSelectionContext(
+        {
+          cwd,
+          diagnostics: [],
+          kind: "workspace-selection",
+          languageId: resolveWorkspaceLanguageFromFilePath(relativePath) ?? null,
+          range: {
+            relativePath,
+            startLine: 0,
+            startColumn: 0,
+            endLine: 0,
+            endColumn: 0,
+          },
+          relativePath,
+          text: "",
+        },
+        prompt,
+      );
+    },
+    [props.gitCwd, props.lspCwd, queueWorkspaceSelectionContext],
   );
   const handlePaneProblemsChange = useCallback(
     (
@@ -2002,6 +2137,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       if (!targetPaneId) {
         return;
       }
+      setSelectedReviewFilePath(null);
       setActivePane(props.threadId, targetPaneId);
       openFile(props.threadId, report.relativePath, targetPaneId);
       const location: WorkspaceEditorLocation = {
@@ -2016,7 +2152,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         location,
       });
     },
-    [activePane?.id, openFile, panesById, props.threadId, setActivePane],
+    [activePane?.id, openFile, panesById, props.threadId, setActivePane, setSelectedReviewFilePath],
   );
   const handleOpenSymbol = useCallback(
     (report: WorkspaceSymbolReport) => {
@@ -2025,6 +2161,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       if (!targetPaneId) {
         return;
       }
+      setSelectedReviewFilePath(null);
       setActivePane(props.threadId, targetPaneId);
       openFile(props.threadId, report.relativePath, targetPaneId);
       const location: WorkspaceEditorLocation = {
@@ -2039,7 +2176,38 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         location,
       });
     },
-    [activePane?.id, openFile, panesById, props.threadId, setActivePane],
+    [activePane?.id, openFile, panesById, props.threadId, setActivePane, setSelectedReviewFilePath],
+  );
+  const handleOpenCodeSearchResult = useCallback(
+    (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
+      const targetPaneId = activePane?.id ?? panes[0]?.id;
+      if (!targetPaneId) {
+        return;
+      }
+      setSelectedReviewFilePath(null);
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, result.entry.path, targetPaneId);
+      const line = Math.max(0, (lineNumber ?? result.snippets[0]?.lineNumber ?? 1) - 1);
+      setSymbolNavigationTarget({
+        id: Date.now(),
+        location: {
+          endColumn: 0,
+          endLine: line,
+          relativePath: result.entry.path,
+          startColumn: 0,
+          startLine: line,
+        },
+      });
+    },
+    [
+      activePane?.id,
+      openFile,
+      panes,
+      props.threadId,
+      setActivePane,
+      setSelectedReviewFilePath,
+      setSymbolNavigationTarget,
+    ],
   );
   const toggleOutlineId = useCallback((id: string) => {
     setCollapsedOutlineIds((current) => {
@@ -2080,6 +2248,37 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [agentNoteSubmissionBusy, inputProps],
   );
+  const handleQueueCodeSearchResult = useCallback(
+    (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
+      const line = lineNumber ?? result.snippets[0]?.lineNumber;
+      queueWorkspaceFileContext(
+        result.entry.path,
+        line
+          ? `Use ${result.entry.path}:${line} as context for the next agent step.`
+          : `Use ${result.entry.path} as context for the next agent step.`,
+      );
+    },
+    [queueWorkspaceFileContext],
+  );
+  const handleSendCodeSearchResultToAgent = useCallback(
+    async (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
+      const line = lineNumber ?? result.snippets[0]?.lineNumber;
+      const sent = await submitAgentNotePrompt({
+        mode: "send",
+        prompt: line
+          ? `Inspect ${result.entry.path}:${line} and explain how it relates to the current task.`
+          : `Inspect ${result.entry.path} and explain how it relates to the current task.`,
+      });
+      if (sent) {
+        toastManager.add({
+          title: "Sent to agent",
+          description: result.entry.path,
+          type: "success",
+        });
+      }
+    },
+    [submitAgentNotePrompt],
+  );
   const handleAddAndSendCodeComment = useCallback(
     async (comment: WorkspaceCodeComment) => {
       addCodeComment(props.threadId, comment);
@@ -2112,6 +2311,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [submitAgentNotePrompt],
   );
+  const handleUpdateQueuedContextPrompt = useCallback((entryId: string, prompt: string) => {
+    setQueuedWorkspaceContexts((current) =>
+      current.map((entry) => (entry.id === entryId ? { ...entry, prompt } : entry)),
+    );
+  }, []);
   const handleSendCodeComment = useCallback(
     async (comment: WorkspaceCodeComment) => {
       const sent = await submitAgentNotePrompt({
@@ -2180,10 +2384,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const explorerPending =
     workspaceTreeQuery.isPending ||
-    (searchMode &&
-      remoteSearchEnabled &&
-      workspaceSearchQuery.isPending &&
-      localSearchEntries.length === 0);
+    (searchMode && workspaceTreeQuery.isFetching && treeEntries.length === 0);
 
   const rowVirtualizer = useVirtualizer({
     count: explorerRows.length,
@@ -2398,6 +2599,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
 
   const handleOpenFile = useCallback(
     (filePath: string, openInNewPane: boolean) => {
+      setSelectedReviewFilePath(null);
       if (openInNewPane) {
         handleSplitPane(activePane?.id, filePath);
         if (panes.length >= MAX_THREAD_EDITOR_PANES) {
@@ -2407,7 +2609,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
       openFile(props.threadId, filePath, activePane?.id);
     },
-    [activePane?.id, handleSplitPane, openFile, panes.length, props.threadId],
+    [
+      activePane?.id,
+      handleSplitPane,
+      openFile,
+      panes.length,
+      props.threadId,
+      setSelectedReviewFilePath,
+    ],
   );
   const openCommandPalette = useCallback((mode: WorkspaceCommandPaletteMode) => {
     setCommandPaletteMode(mode);
@@ -2456,6 +2665,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       },
       {
         id: "search-text",
+        description: "Search files and code like an agent would.",
+        icon: "search",
+        label: "Search Codebase",
+        run: () => {
+          setSidebarMode("search");
+          setExplorerOpen(props.threadId, true);
+        },
+      },
+      {
+        id: "find-active-editor",
         description: "Open find in the active editor.",
         icon: "search",
         label: "Find in Active Editor",
@@ -2466,9 +2685,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         id: "source-control",
         description: `${changedFiles.length} changed files.`,
         icon: "git",
-        label: "Open Source Control",
+        label: "Open Review",
         run: () => {
-          setSidebarMode("source-control");
+          setSidebarMode("review");
           setExplorerOpen(props.threadId, true);
         },
       },
@@ -2486,7 +2705,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               cwd: props.gitCwd,
               diagnostics: [],
               kind: "workspace-selection",
-              languageId: resolveMonacoLanguageFromFilePath(activePane.activeFilePath) ?? null,
+              languageId: resolveWorkspaceLanguageFromFilePath(activePane.activeFilePath) ?? null,
               range: {
                 relativePath: activePane.activeFilePath,
                 startLine: 0,
@@ -2534,6 +2753,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       queueWorkspaceSelectionContext,
       requestFindInActiveEditor,
       setExplorerOpen,
+      setSidebarMode,
     ],
   );
   const handleOpenFileInPane = useCallback(
@@ -2608,6 +2828,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       toggleDirectory(props.threadId, directoryPath);
     },
     [props.threadId, toggleDirectory],
+  );
+  const handleExplorerRevealDirectoryFromSearch = useCallback(
+    (directoryPath: string) => {
+      const directoriesToExpand = collectAncestorDirectories(directoryPath).concat(directoryPath);
+      expandDirectories(props.threadId, directoriesToExpand);
+      setSelectedEntryPath(directoryPath);
+      setTreeSearch("");
+      window.requestAnimationFrame(() => focusExplorerEntry(directoryPath));
+    },
+    [expandDirectories, focusExplorerEntry, props.threadId, setTreeSearch],
   );
   const handleInlineExplorerValueChange = useCallback((value: string) => {
     setInlineEntryState((current) => (current ? { ...current, value } : current));
@@ -3348,190 +3578,186 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         className="grid min-h-0 min-w-0 flex-1 bg-background"
         style={{
           gridTemplateColumns: explorerOpen
-            ? `52px minmax(220px, ${treeWidth}px) 4px minmax(0, 1fr)`
-            : "52px minmax(0, 1fr)",
+            ? `minmax(240px, ${treeWidth}px) 4px minmax(0, 1fr)`
+            : "minmax(0, 1fr)",
         }}
       >
-        <nav className="flex min-h-0 flex-col items-center border-r border-border bg-card/80 py-2">
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "explorer"}
-            icon={<FolderTreeIcon className="size-4" />}
-            label="Explorer"
-            onClick={() => {
-              setSidebarMode("explorer");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "source-control"}
-            badge={changedFiles.length}
-            icon={<GitBranchIcon className="size-4" />}
-            label="Source Control"
-            onClick={() => {
-              setSidebarMode("source-control");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "outline"}
-            icon={<ListTreeIcon className="size-4" />}
-            label="Outline"
-            onClick={() => {
-              setSidebarMode("outline");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <WorkspaceActivityButton
-            active={explorerOpen && sidebarMode === "problems"}
-            badge={workspaceProblems.length}
-            icon={<CircleAlertIcon className="size-4" />}
-            label="Problems"
-            onClick={() => {
-              setSidebarMode("problems");
-              setExplorerOpen(props.threadId, true);
-            }}
-          />
-          <div className="mt-auto">
-            <WorkspaceActivityButton
-              active={false}
-              icon={
-                explorerOpen ? (
-                  <PanelLeftCloseIcon className="size-4.5" />
-                ) : (
-                  <PanelLeftOpenIcon className="size-4.5" />
-                )
-              }
-              label={explorerOpen ? "Collapse sidebar" : "Open sidebar"}
-              onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
-            />
-          </div>
-        </nav>
         {explorerOpen ? (
           <>
-            <aside className="flex min-h-0 min-w-0 flex-col border-r border-border bg-card/68 text-foreground">
-              <div className="flex h-12 items-center gap-2 border-b border-border bg-card/80 px-3">
-                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-                  {activeWorktreePath ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-background/70 px-2.5 py-1 text-[10.5px] font-medium text-foreground/76">
-                            <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
-                            <span>Worktree</span>
-                          </span>
-                        }
-                      />
-                      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
-                        {activeWorktreePath}
-                      </TooltipPopup>
-                    </Tooltip>
-                  ) : null}
-                </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  {canDetachEditor ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                            onClick={() => void detachEditor()}
-                            aria-label="Detach editor"
+            <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/60 bg-[color-mix(in_srgb,var(--background)_97%,var(--muted)_3%)] text-foreground">
+              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/45 bg-background/30 px-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
+                    {(
+                      [
+                        ["explorer", "Files"],
+                        ["search", "Search"],
+                        ["review", "Review"],
+                      ] as const
+                    ).map(([mode, label]) => {
+                      const active =
+                        sidebarMode === mode ||
+                        (mode === "review" &&
+                          (sidebarMode === "source-control" ||
+                            sidebarMode === "problems" ||
+                            sidebarMode === "notes"));
+                      const iconClassName = cn(
+                        "size-4 transition-colors",
+                        active ? "text-foreground" : "text-muted-foreground/58",
+                      );
+                      const icon =
+                        mode === "explorer" ? (
+                          <IconFiles className={iconClassName} stroke={1.8} />
+                        ) : mode === "search" ? (
+                          <IconSearch className={iconClassName} stroke={1.9} />
+                        ) : (
+                          <IconGitCompare className={iconClassName} stroke={1.8} />
+                        );
+
+                      return (
+                        <Tooltip key={mode}>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                className={cn(
+                                  "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45",
+                                  active
+                                    ? "text-foreground"
+                                    : "text-muted-foreground/58 hover:text-foreground",
+                                )}
+                                onClick={() => setSidebarMode(mode)}
+                                aria-label={label}
+                                aria-pressed={active}
+                              />
+                            }
                           >
-                            <ExternalLinkIcon className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <TooltipPopup side="bottom">Detach editor</TooltipPopup>
-                    </Tooltip>
+                            {icon}
+                          </TooltipTrigger>
+                          <TooltipPopup side="bottom">{label}</TooltipPopup>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                  <div className="min-w-0 flex-1" />
+                  {sidebarMode === "explorer" ? (
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      {activeWorktreePath ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-transparent text-muted-foreground/58 transition-colors hover:text-foreground">
+                                <GitForkIcon className="size-4" />
+                              </span>
+                            }
+                          />
+                          <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                            {activeWorktreePath}
+                          </TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      {canDetachEditor ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                                onClick={() => void detachEditor()}
+                                aria-label="Detach editor"
+                              >
+                                <ExternalLinkIcon className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                              onClick={() =>
+                                startInlineEntry({
+                                  kind: "create-file",
+                                  parentPath:
+                                    focusedExplorerEntry?.kind === "directory"
+                                      ? focusedExplorerEntry.path
+                                      : (focusedExplorerEntry?.parentPath ?? null),
+                                  value: "",
+                                })
+                              }
+                              aria-label="New file"
+                            />
+                          }
+                        >
+                          <FilePlus2Icon className="size-4" />
+                        </TooltipTrigger>
+                        <TooltipPopup side="bottom">New file</TooltipPopup>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                              onClick={() =>
+                                startInlineEntry({
+                                  kind: "create-folder",
+                                  parentPath:
+                                    focusedExplorerEntry?.kind === "directory"
+                                      ? focusedExplorerEntry.path
+                                      : (focusedExplorerEntry?.parentPath ?? null),
+                                  value: "",
+                                })
+                              }
+                              aria-label="New folder"
+                            />
+                          }
+                        >
+                          <FolderPlusIcon className="size-4" />
+                        </TooltipTrigger>
+                        <TooltipPopup side="bottom">New folder</TooltipPopup>
+                      </Tooltip>
+                    </div>
                   ) : null}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                          onClick={() =>
-                            startInlineEntry({
-                              kind: "create-file",
-                              parentPath:
-                                focusedExplorerEntry?.kind === "directory"
-                                  ? focusedExplorerEntry.path
-                                  : (focusedExplorerEntry?.parentPath ?? null),
-                              value: "",
-                            })
-                          }
-                          aria-label="New file"
-                        />
-                      }
-                    >
-                      <FilePlus2Icon className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="bottom">New file</TooltipPopup>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-7 shrink-0 rounded-lg text-muted-foreground/76 hover:bg-accent hover:text-foreground"
-                          onClick={() =>
-                            startInlineEntry({
-                              kind: "create-folder",
-                              parentPath:
-                                focusedExplorerEntry?.kind === "directory"
-                                  ? focusedExplorerEntry.path
-                                  : (focusedExplorerEntry?.parentPath ?? null),
-                              value: "",
-                            })
-                          }
-                          aria-label="New folder"
-                        />
-                      }
-                    >
-                      <FolderPlusIcon className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="bottom">New folder</TooltipPopup>
-                  </Tooltip>
                 </div>
               </div>
               {sidebarMode === "explorer" ? (
                 <>
-                  <div className="border-b border-border/70 bg-background/35 p-2.5">
+                  <div className="border-b border-border/40 px-2 py-2">
                     <div className="relative">
-                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
                       <Input
                         ref={treeSearchInputRef}
                         nativeInput
                         value={treeSearch}
                         onChange={(event) => setTreeSearch(event.target.value)}
-                        placeholder="Search files or content"
-                        className="h-8 rounded-lg border-border/60 bg-background/82 pl-7 text-[12px] shadow-none focus-within:border-primary/45 focus-within:bg-background"
+                        placeholder="Search files"
+                        className="h-8 rounded-lg border-border/45 bg-background/54 pl-8 text-[12px] shadow-none placeholder:text-muted-foreground/42 focus-within:border-primary/40 focus-within:bg-background/86"
                         size="sm"
                         type="search"
                       />
                     </div>
                   </div>
-                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
-                    <ChevronDownIcon
-                      className="size-3.5 shrink-0 text-muted-foreground/74"
-                      strokeWidth={2}
-                    />
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                      {searchMode ? "Search results" : "Files"}
-                    </span>
-                    {workspaceTreeQuery.data?.truncated ? (
-                      <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
-                        Partial index
+                  {searchMode || workspaceTreeQuery.data?.truncated ? (
+                    <div className="flex h-6 items-center gap-1.5 border-b border-border/35 px-3 text-[10px] text-muted-foreground/70">
+                      <span className="min-w-0 flex-1 truncate">
+                        {searchMode ? "Matches" : "Indexed files"}
                       </span>
-                    ) : null}
-                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground/76">
-                      {searchMode ? explorerRows.length : workspaceFileCount}
-                    </span>
-                  </div>
+                      {workspaceTreeQuery.data?.truncated ? (
+                        <span className="shrink-0 font-medium text-amber-600">partial</span>
+                      ) : null}
+                      <span className="shrink-0 tabular-nums">
+                        {searchMode ? explorerRows.length : workspaceFileCount}
+                      </span>
+                    </div>
+                  ) : null}
                   <div
                     ref={treeScrollRef}
                     role="presentation"
@@ -3609,6 +3835,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                   onFocusEntry={setSelectedEntryPath}
                                   onHoverDropTarget={setDragTargetParentPath}
                                   onOpenFile={handleOpenFile}
+                                  onRevealDirectoryFromSearch={
+                                    handleExplorerRevealDirectoryFromSearch
+                                  }
                                   onOpenRowContextMenu={handleExplorerRowContextMenu}
                                   onSelectEntry={setSelectedEntryPath}
                                   onToggleDirectory={handleExplorerToggleDirectory}
@@ -3636,36 +3865,206 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                     )}
                   </div>
                 </>
-              ) : sidebarMode === "source-control" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
-                    <GitBranchIcon className="size-3.5 text-muted-foreground/74" />
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                      Source Control
-                    </span>
-                    <span className="text-[10px] text-muted-foreground/76">
-                      {changedFiles.length}
-                    </span>
-                  </div>
-                  {changedFiles.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      <GitBranchIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
-                      No working tree changes.
+              ) : sidebarMode === "search" ? (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="border-b border-border/40 px-2 py-2">
+                    <div className="relative">
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                      <Input
+                        nativeInput
+                        value={codeSearchQuery}
+                        onChange={(event) => setCodeSearchQuery(event.target.value)}
+                        placeholder="Search code"
+                        className="h-8 rounded-lg border-border/45 bg-background/54 pl-8 text-[12px] shadow-none placeholder:text-muted-foreground/42 focus-within:border-primary/40 focus-within:bg-background/86"
+                        size="sm"
+                        type="search"
+                      />
                     </div>
-                  ) : (
-                    <div className="py-1.5">
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
+                    {deferredCodeSearchQuery.length < 2 ? null : codeSearchResultsQuery.isPending ||
+                      codeSearchResultsQuery.isFetching ? (
+                      <div className="space-y-2 p-2">
+                        {Array.from({ length: 7 }, (_, index) => (
+                          <div
+                            key={`code-search-pending-${index}`}
+                            className="space-y-1 rounded-lg border border-border/50 bg-background/55 p-2"
+                          >
+                            <div className="h-3 w-3/4 rounded bg-foreground/6" />
+                            <div className="h-3 w-full rounded bg-foreground/4" />
+                            <div className="h-3 w-5/6 rounded bg-foreground/4" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : codeSearchResultsQuery.isError ? (
+                      <div className="px-3 py-4 text-[11px] text-destructive">
+                        Code search failed.
+                      </div>
+                    ) : (codeSearchResultsQuery.data?.length ?? 0) === 0 ? (
+                      <div className="px-3 py-4 text-[11px] text-muted-foreground/72">
+                        No matches
+                      </div>
+                    ) : (
+                      <div className="space-y-2 py-0.5">
+                        {codeSearchResultGroups.map((group) => (
+                          <section key={group.id} className="space-y-1.5">
+                            <div className="px-3 pt-1 text-[10px] font-medium text-muted-foreground/62">
+                              {group.label}
+                            </div>
+                            {group.results.map((result) => (
+                              <div
+                                key={result.entry.path}
+                                className="group/result mx-1 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/45"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                                    onClick={() => handleOpenCodeSearchResult(result)}
+                                  >
+                                    <VscodeEntryIcon
+                                      pathValue={result.entry.path}
+                                      kind="file"
+                                      theme={resolvedTheme}
+                                      className="size-[15px]"
+                                    />
+                                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/95">
+                                      {result.entry.path}
+                                    </span>
+                                    <span className="rounded-sm bg-info/10 px-1.5 py-px text-[9px] font-medium text-info-foreground">
+                                      {result.matchCount || "path"}
+                                    </span>
+                                  </button>
+                                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/result:opacity-100 focus-within:opacity-100">
+                                    <Tooltip>
+                                      <TooltipTrigger
+                                        render={
+                                          <button
+                                            type="button"
+                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                            onClick={() =>
+                                              handleSplitPane(activePane?.id, result.entry.path)
+                                            }
+                                            aria-label="Open to side"
+                                          />
+                                        }
+                                      >
+                                        <ExternalLinkIcon className="size-3" />
+                                      </TooltipTrigger>
+                                      <TooltipPopup side="bottom">Open to side</TooltipPopup>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger
+                                        render={
+                                          <button
+                                            type="button"
+                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                            onClick={() => {
+                                              void handleSendCodeSearchResultToAgent(result);
+                                            }}
+                                            aria-label="Send to agent"
+                                          />
+                                        }
+                                      >
+                                        <MessageSquareTextIcon className="size-3" />
+                                      </TooltipTrigger>
+                                      <TooltipPopup side="bottom">Send to agent</TooltipPopup>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger
+                                        render={
+                                          <button
+                                            type="button"
+                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                            onClick={() => handleQueueCodeSearchResult(result)}
+                                            aria-label="Queue as context"
+                                          />
+                                        }
+                                      >
+                                        <ClipboardListIcon className="size-3" />
+                                      </TooltipTrigger>
+                                      <TooltipPopup side="bottom">Queue as context</TooltipPopup>
+                                    </Tooltip>
+                                  </div>
+                                </div>
+                                {result.snippets.length > 0 ? (
+                                  <div className="mt-1 space-y-0.5 pl-5">
+                                    {result.snippets.map((snippet) => (
+                                      <button
+                                        key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
+                                        type="button"
+                                        className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-background/65 hover:text-foreground"
+                                        onClick={() =>
+                                          handleOpenCodeSearchResult(result, snippet.lineNumber)
+                                        }
+                                      >
+                                        <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/65">
+                                          {snippet.lineNumber}
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate font-mono">
+                                          {highlightWorkspaceCodeSearchText(
+                                            snippet.text || " ",
+                                            deferredCodeSearchQuery,
+                                          ).map((part, index) => (
+                                            <span
+                                              key={`${index}:${part.text}`}
+                                              className={
+                                                part.highlight
+                                                  ? "rounded-sm bg-primary/18 text-foreground"
+                                                  : undefined
+                                              }
+                                            >
+                                              {part.text}
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/62">
+                                    Path match
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </section>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : sidebarMode === "review" ||
+                sidebarMode === "source-control" ||
+                sidebarMode === "problems" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                  {changedFiles.length === 0 &&
+                  workspaceProblems.length === 0 &&
+                  queuedWorkspaceContexts.length === 0 &&
+                  openCodeCommentCount === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-muted-foreground/62">
+                      Clean working tree
+                    </div>
+                  ) : null}
+                  {changedFiles.length > 0 ? (
+                    <div className="border-b border-border/45 pb-1.5">
+                      <div className="flex h-6 items-center gap-1.5 px-3 text-[10px] text-muted-foreground/65">
+                        <GitBranchIcon className="size-3" />
+                        <span className="min-w-0 flex-1 truncate">Changes</span>
+                        <span className="tabular-nums">{changedFiles.length}</span>
+                      </div>
                       {changedFiles.map((file) => (
                         <button
                           key={file.path}
                           type="button"
-                          className="group mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] text-muted-foreground/90 transition-colors hover:bg-accent hover:text-foreground"
-                          onClick={() => handleOpenFile(file.path, false)}
+                          className="group mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-muted-foreground/88 transition-colors hover:bg-accent/55 hover:text-foreground"
+                          onClick={() => setSelectedReviewFilePath(file.path)}
                         >
                           <VscodeEntryIcon
                             pathValue={file.path}
                             kind="file"
                             theme={resolvedTheme}
-                            className="size-4"
+                            className="size-[15px]"
                           />
                           <span className="min-w-0 flex-1 truncate font-medium">{file.path}</span>
                           {file.status ? (
@@ -3687,14 +4086,116 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                         </button>
                       ))}
                     </div>
-                  )}
+                  ) : null}
+                  {workspaceProblems.length > 0 ? (
+                    <div className="border-b border-border/45 py-1.5">
+                      <div className="flex h-6 items-center gap-1.5 px-3 text-[10px] text-muted-foreground/65">
+                        <CircleAlertIcon className="size-3" />
+                        <span className="min-w-0 flex-1 truncate">Problems</span>
+                        <span className="tabular-nums">{workspaceProblems.length}</span>
+                      </div>
+                      {workspaceProblems.map((report) => (
+                        <button
+                          key={`${report.paneId}:${report.relativePath}:${report.problem.owner}:${report.problem.startLineNumber}:${report.problem.startColumn}:${report.problem.message}`}
+                          type="button"
+                          className="group mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-accent/55"
+                          onClick={() => handleOpenProblem(report)}
+                        >
+                          <span
+                            className={cn(
+                              "mt-0.5 inline-flex min-w-[3.7rem] justify-center rounded px-1 py-px text-[9px] font-semibold uppercase",
+                              problemSeverityClass(report.problem.severity),
+                            )}
+                          >
+                            {problemSeverityLabel(report.problem.severity)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-foreground">
+                              {report.problem.message}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground/78">
+                              {report.relativePath}:{report.problem.startLineNumber}:
+                              {report.problem.startColumn}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {queuedWorkspaceContexts.length > 0 || openCodeCommentCount > 0 ? (
+                    <div className="py-1.5">
+                      <div className="flex h-6 items-center gap-1.5 px-3 text-[10px] text-muted-foreground/65">
+                        <MessageSquareTextIcon className="size-3" />
+                        <span className="min-w-0 flex-1 truncate">Review notes</span>
+                        {inputProps.onSubmitAgentNote ? (
+                          <button
+                            type="button"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-muted-foreground/76 transition-colors hover:bg-foreground/6 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => {
+                              void handleSendAllAgentNotes();
+                            }}
+                            disabled={agentNoteSubmissionBusy}
+                          >
+                            {agentNoteSubmissionBusy ? "Sending..." : "Send all"}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="space-y-1 px-1">
+                        {queuedWorkspaceContexts.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className="rounded-md border border-border/45 bg-background/45 px-2 py-1.5"
+                          >
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <CircleDotIcon className="size-2.5 shrink-0 text-muted-foreground/52" />
+                              <p className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium text-foreground/86">
+                                {entry.context.relativePath}
+                              </p>
+                              <span className="shrink-0 rounded border border-border/45 px-1 py-px text-[8.5px] font-medium text-muted-foreground/58 uppercase">
+                                {formatQueuedWorkspaceContextKind(entry)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground/62">
+                              {formatQueuedWorkspaceContextDetail(entry)}
+                            </p>
+                            <textarea
+                              className="mt-1.5 min-h-7 w-full resize-none rounded border border-border/45 bg-background/48 px-2 py-1 text-[10.5px] leading-4 text-foreground/82 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/28 disabled:opacity-60"
+                              aria-label={`Review note for ${entry.context.relativePath}`}
+                              value={entry.prompt}
+                              onChange={(event) =>
+                                handleUpdateQueuedContextPrompt(entry.id, event.currentTarget.value)
+                              }
+                              disabled={agentNoteSubmissionBusy}
+                              rows={2}
+                              placeholder="Tell the agent what to check"
+                            />
+                          </div>
+                        ))}
+                        {unresolvedCodeComments.map((comment) => (
+                          <button
+                            key={comment.id}
+                            type="button"
+                            className="block w-full rounded-md border border-border/50 bg-background/48 p-2 text-left transition-colors hover:bg-accent/45"
+                            onClick={() => handleOpenFile(comment.relativePath, false)}
+                          >
+                            <span className="block truncate text-[11px] font-semibold text-foreground">
+                              {formatWorkspaceCodeCommentTitle(comment)}
+                            </span>
+                            <span className="mt-1 line-clamp-2 block text-[10px] text-muted-foreground">
+                              {comment.body}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : sidebarMode === "notes" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
                     <MessageSquareTextIcon className="size-3.5 text-muted-foreground/74" />
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                      Agent Notes
+                      Review Notes
                     </span>
                     {inputProps.onSubmitAgentNote &&
                     (queuedWorkspaceContexts.length > 0 || unresolvedCodeComments.length > 0) ? (
@@ -3716,30 +4217,48 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   {queuedWorkspaceContexts.length === 0 && openCodeCommentCount === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
                       <MessageSquareTextIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
-                      Select code to queue context or add a file/range comment.
+                      Add a diff comment or queue a file/range for review.
                     </div>
                   ) : (
-                    <div className="space-y-2 p-2">
+                    <div className="space-y-1.5 p-2">
                       {queuedWorkspaceContexts.map((entry) => (
                         <div
                           key={entry.id}
-                          className="overflow-hidden rounded-xl border border-primary/20 bg-primary/6"
+                          className="overflow-hidden rounded-lg border border-border/50 bg-background/56"
                         >
-                          <div className="flex items-start gap-2 p-2">
-                            <CircleDotIcon className="mt-0.5 size-3.5 text-primary" />
+                          <div className="flex items-start gap-2 px-2 py-1.5">
+                            <CircleDotIcon className="mt-1 size-3 text-muted-foreground/58" />
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-[11px] font-semibold text-foreground">
-                                {entry.context.relativePath}:{entry.context.range.startLine + 1}-
-                                {entry.context.range.endLine + 1}
+                              <p className="truncate font-mono text-[10.5px] font-medium text-foreground/88">
+                                {entry.context.relativePath}
                               </p>
-                              <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[10px] text-muted-foreground">
-                                {entry.prompt}
-                              </p>
-                              <div className="mt-2 flex flex-wrap items-center gap-1">
+                              <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                                <span className="shrink-0 rounded border border-border/45 px-1 py-px text-[8.5px] font-medium text-muted-foreground/58 uppercase">
+                                  {formatQueuedWorkspaceContextKind(entry)}
+                                </span>
+                                <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/62">
+                                  {formatQueuedWorkspaceContextDetail(entry)}
+                                </p>
+                              </div>
+                              <textarea
+                                className="mt-1.5 min-h-14 w-full resize-y rounded-md border border-border/50 bg-background/50 px-2 py-1.5 text-[11px] leading-4 text-foreground/84 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/30 disabled:opacity-60"
+                                aria-label={`Review note for ${entry.context.relativePath}`}
+                                value={entry.prompt}
+                                onChange={(event) =>
+                                  handleUpdateQueuedContextPrompt(
+                                    entry.id,
+                                    event.currentTarget.value,
+                                  )
+                                }
+                                disabled={agentNoteSubmissionBusy}
+                                rows={3}
+                                placeholder="Tell the agent what to check"
+                              />
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1">
                                 {inputProps.onSubmitAgentNote ? (
                                   <button
                                     type="button"
-                                    className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground/78 hover:bg-foreground/6 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                                     onClick={() => {
                                       void handleSendQueuedContext(entry);
                                     }}
@@ -3750,7 +4269,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 ) : null}
                                 <button
                                   type="button"
-                                  className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
                                   onClick={() =>
                                     setQueuedWorkspaceContexts((current) =>
                                       current.filter((item) => item.id !== entry.id),
@@ -4022,166 +4541,196 @@ function useThreadWorkspaceEditorComponent(inputProps: {
 
         <section className="min-h-0 min-w-0 overflow-hidden bg-background">
           <div className="flex h-full min-h-0 flex-col">
-            <div ref={editorGridRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {layoutRows.map((row, rowIndex) => (
-                <div key={row.id} className="contents">
-                  <div
-                    className="flex min-h-0 min-w-0"
-                    style={{
-                      flexBasis: 0,
-                      flexGrow: normalizedRowRatios[rowIndex] ?? 1,
-                      minHeight: 0,
-                    }}
-                  >
+            {selectedReviewFilePath ? (
+              <WorkspaceReviewPane
+                codeComments={codeComments}
+                connectionUrl={inputProps.connectionUrl}
+                cwd={props.gitCwd}
+                filePath={selectedReviewFilePath}
+                onAddCodeComment={handleAddCodeComment}
+                onAskAgent={(filePath) =>
+                  void submitAgentNotePrompt({
+                    mode: "send",
+                    prompt: `Review the working tree changes in ${filePath}. Call out risks, missing tests, and whether the change matches the current task.`,
+                  })
+                }
+                onClose={() => setSelectedReviewFilePath(null)}
+                onOpenFile={(filePath) => handleOpenFile(filePath, false)}
+                onOpenToSide={(filePath) => {
+                  setSelectedReviewFilePath(null);
+                  handleSplitPane(activePane?.id, filePath, "right");
+                }}
+                onQueueContext={(filePath) =>
+                  queueWorkspaceFileContext(
+                    filePath,
+                    `Review the working tree changes in ${filePath}.`,
+                  )
+                }
+                resolvedTheme={resolvedTheme}
+              />
+            ) : (
+              <div ref={editorGridRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                {layoutRows.map((row, rowIndex) => (
+                  <div key={row.id} className="contents">
                     <div
-                      ref={(node) => {
-                        rowGroupRefs.current.set(row.id, node);
+                      className="flex min-h-0 min-w-0"
+                      style={{
+                        flexBasis: 0,
+                        flexGrow: normalizedRowRatios[rowIndex] ?? 1,
+                        minHeight: 0,
                       }}
-                      className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
                     >
-                      {row.panes.map((pane, paneIndex) => (
-                        <div
-                          key={pane.id}
-                          className="flex min-h-0 min-w-0"
-                          style={{
-                            flexBasis: 0,
-                            flexGrow: row.paneRatios[paneIndex] ?? 1,
-                            minWidth: 0,
-                          }}
-                        >
-                          <WorkspaceEditorPane
-                            active={pane.id === activePaneId}
-                            canClosePane={panes.length > 1}
-                            canReopenClosedTab={hasRecentlyClosedFiles}
-                            canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
-                            chromeActions={
-                              rowIndex === 0 && paneIndex === row.panes.length - 1 ? (
-                                <>
-                                  <Tooltip>
-                                    <TooltipTrigger
-                                      render={
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="icon-xs"
-                                          className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
-                                          onClick={() =>
-                                            setExplorerOpen(props.threadId, !explorerOpen)
-                                          }
-                                          aria-label={
-                                            explorerOpen
-                                              ? "Collapse workspace explorer"
-                                              : "Expand workspace explorer"
-                                          }
-                                        />
-                                      }
-                                    >
-                                      {explorerOpen ? (
-                                        <IconLayoutSidebarFilled className="size-3.5" />
-                                      ) : (
-                                        <IconLayoutSidebar className="size-3.5" />
-                                      )}
-                                    </TooltipTrigger>
-                                    <TooltipPopup side="bottom">
-                                      {explorerOpen
-                                        ? "Collapse workspace explorer"
-                                        : "Expand workspace explorer"}
-                                    </TooltipPopup>
-                                  </Tooltip>
-                                </>
-                              ) : undefined
-                            }
-                            connectionUrl={inputProps.connectionUrl}
-                            codeComments={codeComments}
-                            diagnosticsCwd={diagnosticsCwd}
-                            dirtyFilePaths={activeDirtyPaths}
-                            draftsByFilePath={draftsByFilePath}
-                            editorOptions={editorOptions}
-                            gitCwd={props.gitCwd}
-                            onAddCodeComment={handleAddCodeComment}
-                            onAddCodeCommentAndSend={handleAddAndSendCodeComment}
-                            onCloseFile={(paneId, filePath) =>
-                              closeFile(props.threadId, filePath, paneId)
-                            }
-                            onCloseOtherTabs={(paneId, filePath) =>
-                              closeOtherFiles(props.threadId, filePath, paneId)
-                            }
-                            onClosePane={(paneId) => closePane(props.threadId, paneId)}
-                            onCloseTabsToRight={(paneId, filePath) =>
-                              closeFilesToRight(props.threadId, filePath, paneId)
-                            }
-                            onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
-                            onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
-                            onHydrateFile={handleHydrateFile}
-                            onMoveFile={(input) => moveFile(props.threadId, input)}
-                            onOpenFileInPane={handleOpenFileInPane}
-                            onOpenFileToSide={handleOpenFileToSide}
-                            onProblemsChange={handlePaneProblemsChange}
-                            onSymbolsChange={handlePaneSymbolsChange}
-                            onQueueSelectionContext={queueWorkspaceSelectionContext}
-                            onReopenClosedTab={handleReopenClosedTab}
-                            onRetryActiveFile={handleRetryActiveFile}
-                            onSaveFile={handleSaveFile}
-                            onSetActiveFile={(paneId, filePath) =>
-                              setActiveFile(props.threadId, filePath, paneId)
-                            }
-                            onSplitPane={(paneId) => handleSplitPane(paneId, undefined, "right")}
-                            onSplitPaneDown={(paneId) => handleSplitPane(paneId, undefined, "down")}
-                            onUpdateDraft={(filePath, contents) =>
-                              updateDraft(props.threadId, filePath, contents)
-                            }
-                            monacoTheme={monacoTheme}
-                            pane={pane}
-                            paneIndex={paneIndex}
-                            problemNavigationTarget={problemNavigationTarget}
-                            resolvedTheme={resolvedTheme}
-                            savingFilePath={
-                              saveMutation.isPending
-                                ? (saveMutation.variables?.relativePath ?? null)
-                                : null
-                            }
-                            symbolNavigationTarget={symbolNavigationTarget}
-                            findRequestToken={pane.id === activePaneId ? findRequestToken : 0}
-                          />
-                          {paneIndex < row.panes.length - 1 ? (
-                            <div
-                              aria-label={`Resize between editor windows ${paneIndex + 1} and ${paneIndex + 2}`}
-                              role="separator"
-                              aria-orientation="vertical"
-                              className="group relative z-10 -mx-px flex w-2 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
-                              onPointerDown={handlePaneResizeStart(
-                                row.id,
-                                paneIndex,
-                                row.paneRatios,
-                              )}
-                              onPointerMove={handlePaneResizeMove}
-                              onPointerUp={handlePaneResizeEnd}
-                              onPointerCancel={handlePaneResizeEnd}
-                            >
-                              <div className="h-full w-px bg-border/55 transition-colors group-hover:bg-foreground/30" />
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
+                      <div
+                        ref={(node) => {
+                          rowGroupRefs.current.set(row.id, node);
+                        }}
+                        className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                      >
+                        {row.panes.map((pane, paneIndex) => (
+                          <div
+                            key={pane.id}
+                            className="flex min-h-0 min-w-0"
+                            style={{
+                              flexBasis: 0,
+                              flexGrow: row.paneRatios[paneIndex] ?? 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            <WorkspaceEditorPane
+                              active={pane.id === activePaneId}
+                              canClosePane={panes.length > 1}
+                              canReopenClosedTab={hasRecentlyClosedFiles}
+                              canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
+                              chromeActions={
+                                rowIndex === 0 && paneIndex === row.panes.length - 1 ? (
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger
+                                        render={
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
+                                            onClick={() =>
+                                              setExplorerOpen(props.threadId, !explorerOpen)
+                                            }
+                                            aria-label={
+                                              explorerOpen
+                                                ? "Collapse workspace explorer"
+                                                : "Expand workspace explorer"
+                                            }
+                                          />
+                                        }
+                                      >
+                                        {explorerOpen ? (
+                                          <IconLayoutSidebarFilled className="size-3.5" />
+                                        ) : (
+                                          <IconLayoutSidebar className="size-3.5" />
+                                        )}
+                                      </TooltipTrigger>
+                                      <TooltipPopup side="bottom">
+                                        {explorerOpen
+                                          ? "Collapse workspace explorer"
+                                          : "Expand workspace explorer"}
+                                      </TooltipPopup>
+                                    </Tooltip>
+                                  </>
+                                ) : undefined
+                              }
+                              connectionUrl={inputProps.connectionUrl}
+                              codeComments={codeComments}
+                              diagnosticsCwd={diagnosticsCwd}
+                              dirtyFilePaths={activeDirtyPaths}
+                              draftsByFilePath={draftsByFilePath}
+                              editorOptions={editorOptions}
+                              gitCwd={props.gitCwd}
+                              onAddCodeComment={handleAddCodeComment}
+                              onAddCodeCommentAndSend={handleAddAndSendCodeComment}
+                              onCloseFile={(paneId, filePath) =>
+                                closeFile(props.threadId, filePath, paneId)
+                              }
+                              onCloseOtherTabs={(paneId, filePath) =>
+                                closeOtherFiles(props.threadId, filePath, paneId)
+                              }
+                              onClosePane={(paneId) => closePane(props.threadId, paneId)}
+                              onCloseTabsToRight={(paneId, filePath) =>
+                                closeFilesToRight(props.threadId, filePath, paneId)
+                              }
+                              onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
+                              onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
+                              onHydrateFile={handleHydrateFile}
+                              onMoveFile={(input) => moveFile(props.threadId, input)}
+                              onOpenFileInPane={handleOpenFileInPane}
+                              onOpenFileToSide={handleOpenFileToSide}
+                              onProblemsChange={handlePaneProblemsChange}
+                              onSymbolsChange={handlePaneSymbolsChange}
+                              onQueueSelectionContext={queueWorkspaceSelectionContext}
+                              onReopenClosedTab={handleReopenClosedTab}
+                              onRetryActiveFile={handleRetryActiveFile}
+                              onSaveFile={handleSaveFile}
+                              onSetActiveFile={(paneId, filePath) =>
+                                setActiveFile(props.threadId, filePath, paneId)
+                              }
+                              onSplitPane={(paneId) => handleSplitPane(paneId, undefined, "right")}
+                              onSplitPaneDown={(paneId) =>
+                                handleSplitPane(paneId, undefined, "down")
+                              }
+                              onUpdateDraft={(filePath, contents) =>
+                                updateDraft(props.threadId, filePath, contents)
+                              }
+                              pane={pane}
+                              paneIndex={paneIndex}
+                              problemNavigationTarget={problemNavigationTarget}
+                              resolvedTheme={resolvedTheme}
+                              savingFilePath={
+                                saveMutation.isPending
+                                  ? (saveMutation.variables?.relativePath ?? null)
+                                  : null
+                              }
+                              symbolNavigationTarget={symbolNavigationTarget}
+                              findRequestToken={pane.id === activePaneId ? findRequestToken : 0}
+                            />
+                            {paneIndex < row.panes.length - 1 ? (
+                              <div
+                                aria-label={`Resize between editor windows ${paneIndex + 1} and ${paneIndex + 2}`}
+                                role="separator"
+                                aria-orientation="vertical"
+                                className="group relative z-10 -mx-px flex w-2 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
+                                onPointerDown={handlePaneResizeStart(
+                                  row.id,
+                                  paneIndex,
+                                  row.paneRatios,
+                                )}
+                                onPointerMove={handlePaneResizeMove}
+                                onPointerUp={handlePaneResizeEnd}
+                                onPointerCancel={handlePaneResizeEnd}
+                              >
+                                <div className="h-full w-px bg-border/55 transition-colors group-hover:bg-foreground/30" />
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
                     </div>
+                    {rowIndex < layoutRows.length - 1 ? (
+                      <div
+                        aria-label={`Resize between editor rows ${rowIndex + 1} and ${rowIndex + 2}`}
+                        role="separator"
+                        aria-orientation="horizontal"
+                        className="group relative z-10 -my-px flex h-2 shrink-0 cursor-row-resize items-center justify-center touch-none select-none"
+                        onPointerDown={handleRowResizeStart(rowIndex)}
+                        onPointerMove={handleRowResizeMove}
+                        onPointerUp={handleRowResizeEnd}
+                        onPointerCancel={handleRowResizeEnd}
+                      >
+                        <div className="h-px w-full bg-border/55 transition-colors group-hover:bg-foreground/30" />
+                      </div>
+                    ) : null}
                   </div>
-                  {rowIndex < layoutRows.length - 1 ? (
-                    <div
-                      aria-label={`Resize between editor rows ${rowIndex + 1} and ${rowIndex + 2}`}
-                      role="separator"
-                      aria-orientation="horizontal"
-                      className="group relative z-10 -my-px flex h-2 shrink-0 cursor-row-resize items-center justify-center touch-none select-none"
-                      onPointerDown={handleRowResizeStart(rowIndex)}
-                      onPointerMove={handleRowResizeMove}
-                      onPointerUp={handleRowResizeEnd}
-                      onPointerCancel={handleRowResizeEnd}
-                    >
-                      <div className="h-px w-full bg-border/55 transition-colors group-hover:bg-foreground/30" />
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -4211,22 +4760,17 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           <DialogPanel className="space-y-3">
             {saveConflict ? (
               <div className="overflow-hidden rounded-md">
-                <Suspense
-                  fallback={
-                    <div
-                      className="h-[420px] w-full animate-pulse rounded-md bg-muted/15"
-                      aria-hidden
-                    />
+                <WorkspaceDiffEditor
+                  activeFilePath={saveConflict.relativePath}
+                  height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
+                  languageId={
+                    resolveWorkspaceLanguageFromFilePath(saveConflict.relativePath) ?? null
                   }
-                >
-                  <LazyMonacoDiffEditor
-                    height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
-                    original={saveConflict.currentContents}
-                    modified={saveConflict.localContents}
-                    theme={monacoTheme}
-                    options={diffEditorOptions}
-                  />
-                </Suspense>
+                  original={saveConflict.currentContents}
+                  modified={saveConflict.localContents}
+                  options={diffEditorOptions}
+                  resolvedTheme={resolvedTheme}
+                />
               </div>
             ) : null}
           </DialogPanel>

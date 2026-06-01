@@ -17,10 +17,12 @@ import { ThreadId } from "@ace/contracts";
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "ace-checkpoint-store-test-",
 });
+
 const GitCoreTestLayer = GitCoreLive.pipe(
   Layer.provide(ServerConfigLayer),
   Layer.provide(NodeServices.layer),
 );
+
 const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
   Layer.provide(GitCoreTestLayer),
   Layer.provide(NodeServices.layer),

@@ -3678,7 +3678,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               type="button"
               className={cn(
                 "group/work-detail flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-                isNested ? "text-[12px]" : "text-[13px]",
+                isNested ? "text-[12px]" : "text-[12.5px]",
                 workEntry.tone === "thinking" && "tracking-[0.01em]",
                 !hasExpandableDetail && "cursor-default hover:text-muted-foreground/70",
               )}
@@ -3853,7 +3853,7 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
             type="button"
             className={cn(
               "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-              isNested ? "text-[12px]" : "text-[13px]",
+              isNested ? "text-[12px]" : "text-[12.5px]",
               !hasExpandableOutput && "cursor-default hover:text-muted-foreground/70",
             )}
             onClick={() => {
