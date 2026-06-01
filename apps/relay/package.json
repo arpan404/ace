@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run src/server.ts",
     "start": "bun run src/server.ts",
-    "typecheck": "bun x tsc --noEmit"
+    "typecheck": "node node_modules/.bin/tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "catalog:",

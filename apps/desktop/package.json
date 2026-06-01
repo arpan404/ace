@@ -5,12 +5,12 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "bun run --parallel dev:bundle dev:electron",
-    "dev:bundle": "tsdown --watch",
+    "dev:bundle": "node node_modules/.bin/tsdown --watch",
     "dev:electron": "bun run scripts/dev-electron.mjs",
-    "build": "tsdown",
+    "build": "node node_modules/.bin/tsdown",
     "start": "bun run scripts/start-electron.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "typecheck": "node node_modules/.bin/tsc --noEmit",
+    "test": "node node_modules/.bin/vitest run --passWithNoTests",
     "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {

@@ -114,9 +114,9 @@
     }
   },
   "scripts": {
-    "prepare": "effect-language-service patch",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "prepare": "node node_modules/.bin/effect-language-service patch",
+    "typecheck": "node node_modules/.bin/tsc --noEmit",
+    "test": "node node_modules/.bin/vitest run"
   },
   "dependencies": {
     "@ace/contracts": "workspace:*",
