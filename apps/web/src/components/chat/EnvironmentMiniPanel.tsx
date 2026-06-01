@@ -1,7 +1,7 @@
 import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { BotIcon, FolderIcon, LaptopIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
 
-import GitActionsControl from "../GitActionsControl";
+import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { ProjectGlyphIcon } from "../ProjectAvatar";
 import type { SubagentThread } from "./SubagentThreadsPanel";
@@ -90,10 +90,9 @@ export function EnvironmentMiniPanel(props: {
 
       {props.isGitRepo ? (
         <div className="mt-1">
-          <GitActionsControl
+          <EnvironmentGitSection
             activeThreadId={props.activeThreadId}
             gitCwd={props.gitCwd}
-            presentation="panel"
             workspaceMode={props.workspaceMode}
             onWorkspaceModeChange={props.onWorkspaceModeChange}
           />
