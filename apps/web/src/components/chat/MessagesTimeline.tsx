@@ -47,10 +47,14 @@ import {
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
   Clock3Icon,
   EyeIcon,
+  FileDiffIcon,
   GlobeIcon,
   HammerIcon,
+  RotateCcwIcon,
   SplitIcon,
   type LucideIcon,
   PlugIcon,
@@ -3161,6 +3165,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           className="h-5 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/62 hover:bg-foreground/[0.045] hover:text-foreground"
           onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
         >
+          <FileDiffIcon aria-hidden="true" className="mr-1 size-3.5" />
           View diff
         </Button>
         {hasRightActions && (
@@ -3180,7 +3185,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                     />
                   }
                 >
-                  <Undo2Icon aria-hidden="true" className="size-3" />
+                  <RotateCcwIcon aria-hidden="true" className="size-3" />
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.revertActionTitle}
@@ -3202,13 +3207,11 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                     />
                   }
                 >
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className={cn(
-                      "size-3 transition-transform",
-                      !props.allDirectoriesExpanded && "-rotate-90",
-                    )}
-                  />
+                  {props.allDirectoriesExpanded ? (
+                    <ChevronsDownUpIcon aria-hidden="true" className="size-3" />
+                  ) : (
+                    <ChevronsUpDownIcon aria-hidden="true" className="size-3" />
+                  )}
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
