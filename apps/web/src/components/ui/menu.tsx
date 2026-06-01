@@ -282,6 +282,7 @@ function MenuSubTrigger({
 
 function MenuSubPopup({
   className,
+  listClassName,
   sideOffset = 0,
   alignOffset,
   align = "start",
@@ -291,6 +292,7 @@ function MenuSubPopup({
   align?: MenuPrimitive.Positioner.Props["align"];
   sideOffset?: MenuPrimitive.Positioner.Props["sideOffset"];
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
+  listClassName?: string;
   listMaxHeight?: string;
 }) {
   const defaultAlignOffset = align !== "center" ? -5 : undefined;
@@ -303,6 +305,7 @@ function MenuSubPopup({
       data-slot="menu-sub-content"
       side="inline-end"
       sideOffset={sideOffset}
+      {...(listClassName !== undefined ? { listClassName } : {})}
       {...(listMaxHeight !== undefined ? { listMaxHeight } : {})}
       {...props}
     />
@@ -319,5 +322,8 @@ export {
   MenuRadioItem,
   MenuGroupLabel,
   MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuSubPopup,
   MenuShortcut,
 };

@@ -1,5 +1,18 @@
 import { type RuntimeMode, type ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon } from "lucide-react";
+import {
+  ArrowLeftRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CloudIcon,
+  CloudOffIcon,
+  ExternalLinkIcon,
+  FolderIcon,
+  GaugeIcon,
+  GitForkIcon,
+  LaptopIcon,
+  LockIcon,
+  LockOpenIcon,
+} from "lucide-react";
 import { useCallback } from "react";
 
 import { runAsyncTask } from "../lib/async";
@@ -16,6 +29,17 @@ import {
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
 import { Button } from "./ui/button";
+import {
+  Menu,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import type { Project } from "../types";
@@ -62,6 +86,103 @@ interface BranchToolbarProps {
   onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
+}
+
+function EnvironmentModeMenu(props: {
+  effectiveEnvMode: EnvMode;
+  envLocked: boolean;
+  localEnvironmentIcon: Project["icon"];
+  localEnvironmentLabel: string;
+  onEnvModeSelect: (mode: EnvMode) => void;
+  rowClassName: string;
+}) {
+  const isLocal = props.effectiveEnvMode === "local";
+  const label = isLocal ? props.localEnvironmentLabel : "Worktree";
+  const icon = isLocal ? (
+    props.localEnvironmentIcon ? (
+      <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-4 opacity-80" />
+    ) : (
+      <LaptopIcon className="size-4 text-muted-foreground" />
+    )
+  ) : (
+    <GitForkIcon className="size-4 text-muted-foreground" />
+  );
+
+  if (props.envLocked) {
+    return (
+      <div className={props.rowClassName}>
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </div>
+    );
+  }
+
+  return (
+    <Menu>
+      <MenuTrigger
+        className={`${props.rowClassName} data-popup-open:bg-accent data-popup-open:text-accent-foreground`}
+      >
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <ChevronDownIcon className="size-4 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup
+        align="start"
+        side="left"
+        className="w-80 rounded-2xl"
+        listClassName="p-2"
+        sideOffset={6}
+      >
+        <MenuGroupLabel className="px-2 pb-2 pt-1 text-[15px] font-normal normal-case text-muted-foreground">
+          Continue in
+        </MenuGroupLabel>
+        <MenuItem
+          className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+          onClick={() => props.onEnvModeSelect("local")}
+        >
+          <LaptopIcon className="size-4 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">Work locally</span>
+          {isLocal ? <CheckIcon className="size-4 text-muted-foreground" /> : null}
+        </MenuItem>
+        <MenuItem className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
+          <CloudIcon className="size-4 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">Connect Codex web</span>
+          <ExternalLinkIcon className="size-4 text-muted-foreground" />
+        </MenuItem>
+        <MenuItem disabled className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
+          <CloudOffIcon className="size-4 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">Send to cloud</span>
+        </MenuItem>
+        <MenuSeparator className="mx-2 my-2" />
+        <MenuSub>
+          <MenuSubTrigger className="min-h-10 gap-3 rounded-xl px-2 text-[15px]">
+            <GaugeIcon className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Usage remaining</span>
+          </MenuSubTrigger>
+          <MenuSubPopup className="w-64 rounded-2xl" listClassName="p-2">
+            <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
+              Usage remaining
+            </MenuGroupLabel>
+            <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">Local usage is unlimited</span>
+            </MenuItem>
+            <MenuItem disabled className="min-h-9 rounded-xl px-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">Cloud usage unavailable</span>
+            </MenuItem>
+          </MenuSubPopup>
+        </MenuSub>
+        <MenuSeparator className="mx-2 my-2" />
+        <MenuItem
+          className="min-h-10 gap-3 rounded-xl px-2 text-[15px]"
+          disabled={!isLocal}
+          onClick={() => props.onEnvModeSelect("worktree")}
+        >
+          <ArrowLeftRightIcon className="size-4 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">Handoff to worktree</span>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
 }
 
 export default function BranchToolbar({
@@ -170,59 +291,17 @@ export default function BranchToolbar({
   );
   const environmentModeRowClassName =
     "flex min-h-9 w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[15px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
-  const environmentModeIcon =
-    effectiveEnvMode === "worktree" ? (
-      <GitForkIcon className="size-4 text-muted-foreground" />
-    ) : localEnvironmentIcon ? (
-      <ProjectGlyphIcon icon={localEnvironmentIcon} className="size-4 opacity-80" />
-    ) : (
-      <FolderIcon className="size-4 text-muted-foreground" />
-    );
-
   if (isEnvironmentPresentation) {
     return (
       <div className="space-y-1">
-        {envLocked || activeWorktreePath ? (
-          <div className={environmentModeRowClassName}>
-            {activeWorktreePath ? (
-              <GitForkIcon className="size-4 text-muted-foreground" />
-            ) : (
-              environmentModeIcon
-            )}
-            <span className="min-w-0 flex-1 truncate">
-              {activeWorktreePath ? "Worktree" : localEnvironmentLabel}
-            </span>
-          </div>
-        ) : (
-          <Select
-            value={effectiveEnvMode}
-            onValueChange={(value) => handleEnvModeSelect(value as EnvMode)}
-            items={envModeItems}
-          >
-            <SelectTrigger variant="ghost" size="default" className={environmentModeRowClassName}>
-              {environmentModeIcon}
-              <SelectValue />
-            </SelectTrigger>
-            <SelectPopup align="start" side="left">
-              <SelectItem value="local">
-                <span className="inline-flex items-center gap-2">
-                  {localEnvironmentIcon ? (
-                    <ProjectGlyphIcon icon={localEnvironmentIcon} className="size-4 opacity-80" />
-                  ) : (
-                    <FolderIcon className="size-4" />
-                  )}
-                  {localEnvironmentLabel}
-                </span>
-              </SelectItem>
-              <SelectItem value="worktree">
-                <span className="inline-flex items-center gap-2">
-                  <GitForkIcon className="size-4" />
-                  New worktree
-                </span>
-              </SelectItem>
-            </SelectPopup>
-          </Select>
-        )}
+        <EnvironmentModeMenu
+          effectiveEnvMode={activeWorktreePath ? "worktree" : effectiveEnvMode}
+          envLocked={envLocked}
+          localEnvironmentIcon={localEnvironmentIcon}
+          localEnvironmentLabel={activeWorktreePath ? "Worktree" : localEnvironmentLabel}
+          rowClassName={environmentModeRowClassName}
+          onEnvModeSelect={handleEnvModeSelect}
+        />
 
         <BranchToolbarBranchSelector
           activeProjectCwd={activeProject.cwd}
