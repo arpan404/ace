@@ -958,22 +958,19 @@ function useEnvironmentGitSection({
           ) : null}
           <div className="rounded-2xl border border-border/60 bg-muted/25 p-2">
             <Menu>
-              <div className="flex min-h-9 w-full items-center rounded-lg bg-accent/35 text-[13px] leading-none text-foreground transition-colors focus-within:ring-1 focus-within:ring-ring/40 hover:bg-accent/55">
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-l-lg px-2.5 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-                  disabled={isGitActionRunning || quickAction.disabled}
-                  title={quickActionDisabledReason ?? undefined}
-                  onClick={runQuickAction}
-                >
-                  <GitQuickActionIcon quickAction={quickAction} />
-                  <span className="min-w-0 flex-1 truncate">Commit or push</span>
-                </button>
-                <MenuTrigger className="flex shrink-0 items-center gap-1.5 rounded-r-lg px-2.5 py-2 text-muted-foreground transition-colors hover:text-foreground data-popup-open:bg-accent data-popup-open:text-accent-foreground">
-                  <span className="max-w-32 truncate text-[12px]">{quickAction.label}</span>
+              <MenuTrigger
+                className={cn(
+                  gitCardRowClassName,
+                  "data-popup-open:bg-accent data-popup-open:text-accent-foreground",
+                )}
+              >
+                <GitQuickActionIcon quickAction={quickAction} />
+                <span className="min-w-0 flex-1 truncate">Commit or push</span>
+                <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+                  <span className="max-w-32 truncate">{quickAction.label}</span>
                   <ChevronDownIcon className="size-3.5" />
-                </MenuTrigger>
-              </div>
+                </span>
+              </MenuTrigger>
               <MenuPopup
                 align="start"
                 side="left"
