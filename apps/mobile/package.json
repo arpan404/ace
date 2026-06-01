@@ -23,7 +23,7 @@
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
     "expo-glass-effect": "~0.1.10",
-    "expo-linking": "~8.0.12",
+    "expo-linking": "~56.0.13",
     "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.23",
     "expo-secure-store": "~15.0.8",
