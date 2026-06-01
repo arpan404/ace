@@ -970,6 +970,56 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["t1-done", "t2-done"]);
   });
 
+  it("derives Codex child conversation ids as subagent metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "child-reasoning",
+        turnId: "turn-child",
+        kind: "reasoning.completed",
+        summary: "Thought",
+        payload: {
+          itemType: "reasoning",
+          detail: "Checking build and test health.",
+          data: {
+            ace: {
+              parentTurnId: "turn-parent",
+              childProviderThreadId: "child_provider_1",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "collab-call",
+        turnId: "turn-parent",
+        kind: "tool.completed",
+        summary: "Subagent",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent",
+          data: {
+            item: {
+              type: "collabAgentToolCall",
+              receiverThreadIds: ["child_provider_2"],
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      subagentId: "child_provider_1",
+      subagentType: "codex subagent",
+    });
+    expect(entries[1]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagentId: "child_provider_2",
+      subagentType: "codex subagent",
+    });
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

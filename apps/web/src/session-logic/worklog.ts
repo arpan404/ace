@@ -445,9 +445,18 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const args = asRecord(data?.arguments);
   const item = asRecord(data?.item);
   const result = asRecord(data?.result);
+  const receiverThreadId = firstTrimmedString(item?.receiverThreadIds);
+  const childProviderThreadId =
+    asTrimmedString(ace?.childProviderThreadId) ??
+    asTrimmedString(data?.childProviderThreadId) ??
+    asTrimmedString(data?.child_provider_thread_id) ??
+    asTrimmedString(item?.childProviderThreadId) ??
+    asTrimmedString(item?.child_provider_thread_id) ??
+    receiverThreadId;
   return {
     id:
       asTrimmedString(subagent?.id) ??
+      childProviderThreadId ??
       asTrimmedString(data?.agentId) ??
       asTrimmedString(data?.agent_id) ??
       asTrimmedString(result?.agentId) ??
@@ -461,6 +470,7 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       asTrimmedString(input?.subagent_type) ??
       asTrimmedString(args?.subagentType) ??
       asTrimmedString(args?.subagent_type) ??
+      (childProviderThreadId ? "codex subagent" : undefined) ??
       undefined,
     name:
       asTrimmedString(subagent?.name) ??
@@ -476,6 +486,19 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       asTrimmedString(args?.model) ??
       undefined,
   };
+}
+
+function firstTrimmedString(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return asTrimmedString(value);
+  }
+  for (const item of value) {
+    const normalized = asTrimmedString(item);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
 }
 
 function shouldPreservePreviousToolLabel(
