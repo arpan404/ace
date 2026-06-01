@@ -54,7 +54,6 @@ import {
   FileDiffIcon,
   GlobeIcon,
   HammerIcon,
-  RotateCcwIcon,
   SplitIcon,
   type LucideIcon,
   PlugIcon,
@@ -123,7 +122,7 @@ const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
-const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = true;
+const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
@@ -3185,7 +3184,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                     />
                   }
                 >
-                  <RotateCcwIcon aria-hidden="true" className="size-3" />
+                  <Undo2Icon aria-hidden="true" className="size-3" />
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.revertActionTitle}
@@ -3245,7 +3244,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
   return (
-    <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
+    <div className="max-w-3xl">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}
