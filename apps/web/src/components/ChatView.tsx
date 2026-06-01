@@ -8221,8 +8221,6 @@ function useChatViewComponent({
           envLocked,
           localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
           localEnvironmentIcon: activeEnvironmentIcon,
-          runtimeMode,
-          onRuntimeModeChange: handleRuntimeModeChange,
           onComposerFocusRequest: scheduleComposerFocus,
           ...(canCheckoutPullRequestIntoThread
             ? { onCheckoutPullRequestRequest: openPullRequestDialog }

@@ -11,6 +11,7 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
+import { RUNTIME_MODE_META } from "./runtimeModeControl";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
@@ -77,6 +78,22 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             {props.interactionModeDisabledReason}
           </div>
         ) : null}
+        <MenuDivider />
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Access</div>
+        <MenuRadioGroup
+          value={props.runtimeMode}
+          onValueChange={(value) => {
+            if (!value || value === props.runtimeMode) return;
+            props.onRuntimeModeChange(value as RuntimeMode);
+          }}
+        >
+          <MenuRadioItem value="approval-required">
+            {RUNTIME_MODE_META["approval-required"].label}
+          </MenuRadioItem>
+          <MenuRadioItem value="full-access">
+            {RUNTIME_MODE_META["full-access"].label}
+          </MenuRadioItem>
+        </MenuRadioGroup>
       </MenuPopup>
     </Menu>
   );

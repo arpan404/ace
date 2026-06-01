@@ -4007,7 +4007,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows the runtime access mode beside Local in the bottom toolbar", async () => {
+  it("shows the runtime access mode in the composer input", async () => {
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-runtime-mode-target" as MessageId,
       targetText: "runtime mode label target",
@@ -4032,8 +4032,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForElement(
-        () => document.querySelector('[data-chat-branch-runtime-mode="approval-required"]'),
-        "Unable to find runtime mode control in branch toolbar.",
+        () => document.querySelector('[data-chat-composer-runtime-mode="approval-required"]'),
+        "Unable to find runtime mode control in composer input.",
       );
       const bodyText = document.body.textContent ?? "";
       expect(bodyText).toContain("Supervised");

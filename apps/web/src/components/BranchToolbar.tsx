@@ -1,4 +1,4 @@
-import { type RuntimeMode, type ThreadId } from "@ace/contracts";
+import { type ThreadId } from "@ace/contracts";
 import {
   ArrowLeftRightIcon,
   CheckIcon,
@@ -10,8 +10,6 @@ import {
   GaugeIcon,
   GitForkIcon,
   LaptopIcon,
-  LockIcon,
-  LockOpenIcon,
 } from "lucide-react";
 import { useCallback } from "react";
 
@@ -28,7 +26,6 @@ import {
 } from "../lib/git/branchToolbar";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
-import { Button } from "./ui/button";
 import {
   Menu,
   MenuGroup,
@@ -42,38 +39,7 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import type { Project } from "../types";
-
-function nextAccessMode(mode: RuntimeMode): RuntimeMode {
-  switch (mode) {
-    case "approval-required":
-      return "full-access";
-    case "full-access":
-    default:
-      return "approval-required";
-  }
-}
-
-const ACCESS_MODE_META: Record<
-  RuntimeMode,
-  { label: string; title: string; textClassName: string; iconClassName: string }
-> = {
-  "approval-required": {
-    label: "Supervised",
-    title: "Supervised — click to switch to Full access",
-    textClassName:
-      "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300",
-    iconClassName: "text-emerald-600 dark:text-emerald-400",
-  },
-  "full-access": {
-    label: "Full access",
-    title: "Full access — click to switch to Supervised",
-    textClassName:
-      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
-    iconClassName: "text-amber-600 dark:text-amber-400",
-  },
-};
 
 interface BranchToolbarProps {
   threadId: ThreadId;
@@ -83,8 +49,6 @@ interface BranchToolbarProps {
   presentation?: "footer" | "environment";
   localEnvironmentLabel?: string;
   localEnvironmentIcon?: Project["icon"];
-  runtimeMode?: RuntimeMode;
-  onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -206,8 +170,6 @@ export default function BranchToolbar({
   presentation = "footer",
   localEnvironmentLabel = "Local",
   localEnvironmentIcon = null,
-  runtimeMode,
-  onRuntimeModeChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -291,7 +253,6 @@ export default function BranchToolbar({
   );
 
   if (!activeThreadId || !activeProject) return null;
-  const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
   const isEnvironmentPresentation = presentation === "environment";
   const envModeItems = [
     { value: "local", label: localEnvironmentLabel },
@@ -328,36 +289,6 @@ export default function BranchToolbar({
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
         />
-
-        {runtimeMode && onRuntimeModeChange ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className={environmentModeRowClassName}
-                  onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
-                  aria-label={runtimeModeMeta?.title}
-                  data-chat-branch-runtime-mode={runtimeMode}
-                />
-              }
-            >
-              {runtimeMode === "full-access" ? (
-                <LockOpenIcon
-                  className={`size-3.5 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
-                />
-              ) : (
-                <LockIcon
-                  className={`size-3.5 ${runtimeModeMeta?.iconClassName ?? "text-muted-foreground"}`}
-                />
-              )}
-              <span className="min-w-0 flex-1 truncate">{runtimeModeMeta?.label ?? "Access"}</span>
-            </TooltipTrigger>
-            {runtimeModeMeta?.title ? (
-              <TooltipPopup side="left">{runtimeModeMeta.title}</TooltipPopup>
-            ) : null}
-          </Tooltip>
-        ) : null}
       </div>
     );
   }
@@ -417,39 +348,6 @@ export default function BranchToolbar({
             </SelectPopup>
           </Select>
         )}
-        {runtimeMode && onRuntimeModeChange ? (
-          <>
-            <span className="mx-0.5 h-3 w-px bg-border/50" />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className={`gap-1.5 rounded-md text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 ${runtimeModeMeta?.textClassName ?? "text-muted-foreground hover:text-foreground"}`}
-                    onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
-                    aria-label={runtimeModeMeta?.title}
-                    data-chat-branch-runtime-mode={runtimeMode}
-                  />
-                }
-              >
-                {runtimeMode === "full-access" ? (
-                  <LockOpenIcon
-                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                  />
-                ) : (
-                  <LockIcon
-                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                  />
-                )}
-                {runtimeModeMeta?.label ?? "Access"}
-              </TooltipTrigger>
-              {runtimeModeMeta?.title ? (
-                <TooltipPopup side="top">{runtimeModeMeta.title}</TooltipPopup>
-              ) : null}
-            </Tooltip>
-          </>
-        ) : null}
       </div>
 
       <BranchToolbarBranchSelector

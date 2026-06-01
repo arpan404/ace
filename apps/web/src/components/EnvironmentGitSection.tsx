@@ -512,6 +512,8 @@ function useEnvironmentGitSection({
       resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch, hasOriginRemote),
     [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
   );
+  const gitActionMenuBranchLabel =
+    gitStatusForActions?.branch ?? activeServerThread?.branch ?? currentBranch;
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
     : null;
@@ -955,29 +957,47 @@ function useEnvironmentGitSection({
             <div className="px-2 text-[11px] text-muted-foreground">Refreshing...</div>
           ) : null}
           <Menu>
-            <MenuTrigger
-              className={cn(
-                gitCardRowClassName,
-                "data-popup-open:bg-accent data-popup-open:text-accent-foreground",
-              )}
-            >
-              <GitQuickActionIcon quickAction={quickAction} />
-              <span className="min-w-0 flex-1 truncate">Commit or push</span>
-              <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
-                <span className="max-w-32 truncate">{quickAction.label}</span>
+            <div className="flex min-h-8 w-full overflow-hidden rounded-lg">
+              <button
+                type="button"
+                className={cn(
+                  gitCardRowClassName,
+                  "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1 hover:bg-accent",
+                )}
+                disabled={isGitActionRunning || quickAction.disabled}
+                title={quickActionDisabledReason ?? undefined}
+                onClick={runQuickAction}
+              >
+                <GitQuickActionIcon quickAction={quickAction} />
+                <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
+              </button>
+              <MenuTrigger
+                className="flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 data-popup-open:bg-accent data-popup-open:text-accent-foreground"
+                aria-label="Open git actions"
+              >
                 <ChevronDownIcon className="size-3.5" />
-              </span>
-            </MenuTrigger>
+              </MenuTrigger>
+            </div>
             <MenuPopup
               align="start"
               side="left"
-              className="w-64 rounded-2xl shadow-2xl shadow-black/25"
-              listClassName="p-2"
+              className="w-72 rounded-2xl shadow-2xl shadow-black/25"
+              listClassName="p-3"
               sideOffset={12}
             >
+              {gitActionMenuBranchLabel ? (
+                <div className="flex min-h-8 items-center px-2 pb-2">
+                  <span
+                    className="min-w-0 truncate rounded-lg bg-accent/50 px-2 py-1 text-[12px] text-muted-foreground"
+                    title={gitActionMenuBranchLabel}
+                  >
+                    {gitActionMenuBranchLabel}
+                  </span>
+                </div>
+              ) : null}
               <MenuGroup>
                 <MenuItem
-                  className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
+                  className="min-h-10 gap-2 rounded-xl px-2 text-[14px]"
                   disabled={isGitActionRunning || quickAction.disabled}
                   title={quickActionDisabledReason ?? undefined}
                   onClick={runQuickAction}
