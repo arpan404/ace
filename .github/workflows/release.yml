@@ -326,7 +326,7 @@ jobs:
           rm -f release-assets/latest-arm64.yml
 
       - name: Publish ace release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ needs.preflight.outputs.ref }}
