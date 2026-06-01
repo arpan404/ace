@@ -651,7 +651,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [findMatchSummary, setFindMatchSummary] = useState<WorkspaceFindMatchSummary>(
     EMPTY_WORKSPACE_FIND_MATCH_SUMMARY,
   );
-  const commentPlaceholder = useWorkspaceCommentPlaceholder("code");
+  const commentPlaceholder = useWorkspaceCommentPlaceholder("code", activeSelection?.id ?? null);
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
   const selectionCommentInputRef = useRef<HTMLInputElement | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);

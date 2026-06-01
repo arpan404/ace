@@ -360,13 +360,18 @@ function useDiffPanelComponent({
   const { resolvedTheme } = useTheme();
   const diffWordWrapSetting = useSetting("diffWordWrap");
   const timestampFormat = useSetting("timestampFormat");
-  const commentPlaceholder = useWorkspaceCommentPlaceholder("diff");
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
   const [collapsedFileKeys, setCollapsedFileKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [activeCommentFileKey, setActiveCommentFileKey] = useState<string | null>(null);
   const [activeReviewLineSelection, setActiveReviewLineSelection] =
     useState<ActiveReviewLineSelection | null>(null);
+  const commentPlaceholder = useWorkspaceCommentPlaceholder(
+    "diff",
+    activeReviewLineSelection
+      ? `${activeReviewLineSelection.fileKey}:${activeReviewLineSelection.lineRange.startSide}:${activeReviewLineSelection.lineRange.startLine}:${activeReviewLineSelection.lineRange.endSide}:${activeReviewLineSelection.lineRange.endLine}`
+      : null,
+  );
   const [reviewCommentPopoverPosition, setReviewCommentPopoverPosition] =
     useState<ReviewCommentPopoverPosition | null>(null);
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");

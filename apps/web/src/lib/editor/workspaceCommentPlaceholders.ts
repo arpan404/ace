@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useRef } from "react";
 
 export type WorkspaceCommentPlaceholderContext = "general" | "code" | "diff" | "design";
 
@@ -153,40 +153,40 @@ export const WORKSPACE_COMMENT_PLACEHOLDERS_BY_CONTEXT = {
   general: WORKSPACE_COMMENT_PLACEHOLDERS,
 } as const satisfies Record<WorkspaceCommentPlaceholderContext, readonly string[]>;
 
-export const WORKSPACE_COMMENT_PLACEHOLDER_INTERVAL_MS = 8_000;
-
 export function getWorkspaceCommentPlaceholder(
   options: {
     context?: WorkspaceCommentPlaceholderContext;
-    intervalMs?: number;
     timestampMs?: number;
   } = {},
 ): string {
   const context = options.context ?? "general";
   const placeholders = WORKSPACE_COMMENT_PLACEHOLDERS_BY_CONTEXT[context];
-  const intervalMs = options.intervalMs ?? WORKSPACE_COMMENT_PLACEHOLDER_INTERVAL_MS;
   const timestampMs = options.timestampMs ?? Date.now();
-  const bucket = Math.floor(timestampMs / Math.max(1, intervalMs));
-  return placeholders[bucket % placeholders.length]!;
+  const index = Math.abs(Math.trunc(timestampMs)) % placeholders.length;
+  return placeholders[index]!;
 }
 
 export function useWorkspaceCommentPlaceholder(
   context: WorkspaceCommentPlaceholderContext = "general",
-  intervalMs = WORKSPACE_COMMENT_PLACEHOLDER_INTERVAL_MS,
+  sessionKey: string | number | null | undefined = null,
 ): string {
-  const [placeholder, setPlaceholder] = useState(() =>
-    getWorkspaceCommentPlaceholder({ context, intervalMs }),
-  );
+  const placeholderRef = useRef<{
+    context: WorkspaceCommentPlaceholderContext;
+    placeholder: string;
+    sessionKey: string | number | null | undefined;
+  } | null>(null);
 
-  useEffect(() => {
-    const updatePlaceholder = () =>
-      setPlaceholder(getWorkspaceCommentPlaceholder({ context, intervalMs }));
-    updatePlaceholder();
-    const intervalId = window.setInterval(updatePlaceholder, intervalMs);
-    return () => {
-      window.clearInterval(intervalId);
+  if (
+    !placeholderRef.current ||
+    placeholderRef.current.context !== context ||
+    placeholderRef.current.sessionKey !== sessionKey
+  ) {
+    placeholderRef.current = {
+      context,
+      placeholder: getWorkspaceCommentPlaceholder({ context }),
+      sessionKey,
     };
-  }, [context, intervalMs]);
+  }
 
-  return placeholder;
+  return placeholderRef.current.placeholder;
 }

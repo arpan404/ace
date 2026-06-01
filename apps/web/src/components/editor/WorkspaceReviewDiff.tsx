@@ -760,7 +760,7 @@ function WorkspaceReviewDiffCommentPopover(props: {
   readonly onSubmitComment: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const commentPlaceholder = useWorkspaceCommentPlaceholder("diff");
+  const commentPlaceholder = useWorkspaceCommentPlaceholder("diff", props.commentTarget.id);
 
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {

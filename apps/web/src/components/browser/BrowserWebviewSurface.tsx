@@ -1617,7 +1617,10 @@ function useBrowserTabWebviewComponent(props: {
     loadFailure,
   } = designOverlayState;
   const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
-  const commentPlaceholder = useWorkspaceCommentPlaceholder("design");
+  const commentPlaceholder = useWorkspaceCommentPlaceholder(
+    "design",
+    designDraft?.capture.requestId ?? null,
+  );
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);

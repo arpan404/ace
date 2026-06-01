@@ -17,17 +17,16 @@ describe("workspaceCommentPlaceholders", () => {
     }
   });
 
-  it("rotates deterministically by interval", () => {
-    expect(getWorkspaceCommentPlaceholder({ intervalMs: 1000, timestampMs: 0 })).toBe(
+  it("selects deterministically from a timestamp seed", () => {
+    expect(getWorkspaceCommentPlaceholder({ timestampMs: 0 })).toBe(
       WORKSPACE_COMMENT_PLACEHOLDERS_BY_CONTEXT.general[0],
     );
-    expect(getWorkspaceCommentPlaceholder({ intervalMs: 1000, timestampMs: 1000 })).toBe(
+    expect(getWorkspaceCommentPlaceholder({ timestampMs: 1 })).toBe(
       WORKSPACE_COMMENT_PLACEHOLDERS_BY_CONTEXT.general[1],
     );
     expect(
       getWorkspaceCommentPlaceholder({
         context: "diff",
-        intervalMs: 1000,
         timestampMs: 40_000,
       }),
     ).toBe(WORKSPACE_COMMENT_PLACEHOLDERS_BY_CONTEXT.diff[0]);
