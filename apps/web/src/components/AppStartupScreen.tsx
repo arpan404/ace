@@ -1,7 +1,6 @@
 import { LazyMotion, domAnimation, m } from "motion/react";
 import type { AppStartupState } from "../appStartup";
 import { APP_VERSION } from "../branding";
-import { APP_LOGO_SVG_MARKUP } from "../brandLogo";
 
 type AppStartupScreenProps = {
   readonly state: AppStartupState;
@@ -19,20 +18,6 @@ export function AppStartupScreen(_props: AppStartupScreenProps) {
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="relative flex flex-col items-center justify-center"
         >
-          <m.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
-            className="relative mb-5 size-20"
-          >
-            {/* Safe: logo markup is bundled from a local static SVG asset. */}
-            <div
-              className="relative h-full w-full"
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: APP_LOGO_SVG_MARKUP }}
-            />
-          </m.div>
-
           <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
