@@ -2636,9 +2636,11 @@ function useChatViewComponent({
   const timelineMessages = handoffTimeline.messages;
   const timelineProposedPlans = handoffTimeline.proposedPlans;
   const timelineWorkEntries = handoffTimeline.workEntries;
+  const subagentProvider =
+    activeThread?.session?.provider ?? activeThread?.modelSelection.provider ?? null;
   const subagentThreads = useMemo(
-    () => deriveSubagentThreads(timelineWorkEntries),
-    [timelineWorkEntries],
+    () => deriveSubagentThreads(timelineWorkEntries, subagentProvider),
+    [subagentProvider, timelineWorkEntries],
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
   const [environmentPanelOpen, setEnvironmentPanelOpen] = useState(true);

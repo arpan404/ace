@@ -8,9 +8,11 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { useMemo } from "react";
+import type { ProviderKind } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
 import { cn } from "../../lib/utils";
+import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
 
 export interface SubagentThread {
   readonly id: string;
@@ -45,7 +47,10 @@ function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThre
   return "completed";
 }
 
-export function deriveSubagentThreads(entries: ReadonlyArray<WorkLogEntry>): SubagentThread[] {
+export function deriveSubagentThreads(
+  entries: ReadonlyArray<WorkLogEntry>,
+  provider?: ProviderKind | null,
+): SubagentThread[] {
   const grouped = new Map<string, WorkLogEntry[]>();
   for (const entry of entries) {
     const key = subagentThreadKey(entry);
@@ -62,16 +67,11 @@ export function deriveSubagentThreads(entries: ReadonlyArray<WorkLogEntry>): Sub
 
   return [...grouped.entries()]
     .map(([id, group]) => {
-      const first = group[0];
-      const label =
-        formatSubagentLabel(first?.subagentName) ??
-        formatSubagentLabel(first?.subagentType) ??
-        formatSubagentLabel(id) ??
-        "Subagent";
+      const identity = resolveSubagentIdentity({ entries: group, fallbackId: id, provider });
       return {
         id,
-        label,
-        ...(first?.subagentModel ? { model: first.subagentModel } : {}),
+        label: identity.label,
+        ...(identity.model ? { model: identity.model } : {}),
         status: resolveThreadStatus(group),
         entries: group.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
       };
@@ -93,8 +93,14 @@ function StatusIcon(props: { status: SubagentThread["status"] }) {
   return <CheckCircle2Icon className="size-3.5 text-emerald-500" />;
 }
 
-export function SubagentThreadsPanel(props: { workEntries: ReadonlyArray<WorkLogEntry> }) {
-  const threads = useMemo(() => deriveSubagentThreads(props.workEntries), [props.workEntries]);
+export function SubagentThreadsPanel(props: {
+  provider?: ProviderKind | null;
+  workEntries: ReadonlyArray<WorkLogEntry>;
+}) {
+  const threads = useMemo(
+    () => deriveSubagentThreads(props.workEntries, props.provider),
+    [props.provider, props.workEntries],
+  );
 
   if (threads.length === 0) {
     return null;
