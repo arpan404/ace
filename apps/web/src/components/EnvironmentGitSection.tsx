@@ -512,8 +512,6 @@ function useEnvironmentGitSection({
       resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch, hasOriginRemote),
     [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
   );
-  const gitActionMenuBranchLabel =
-    gitStatusForActions?.branch ?? activeServerThread?.branch ?? currentBranch;
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
     : null;
@@ -985,16 +983,6 @@ function useEnvironmentGitSection({
               listClassName="p-3"
               sideOffset={12}
             >
-              {gitActionMenuBranchLabel ? (
-                <div className="flex min-h-8 items-center px-2 pb-2">
-                  <span
-                    className="min-w-0 truncate rounded-lg bg-accent/50 px-2 py-1 text-[12px] text-muted-foreground"
-                    title={gitActionMenuBranchLabel}
-                  >
-                    {gitActionMenuBranchLabel}
-                  </span>
-                </div>
-              ) : null}
               <MenuGroup>
                 <MenuItem
                   className="min-h-10 gap-2 rounded-xl px-2 text-[14px]"

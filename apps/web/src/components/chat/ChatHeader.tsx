@@ -5,7 +5,7 @@ import {
   type ThreadId,
 } from "@ace/contracts";
 import { IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
-import { SlidersHorizontalIcon } from "lucide-react";
+import { BlocksIcon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -216,7 +216,7 @@ export const ChatHeader = memo(function ChatHeader({
                 />
               }
             >
-              <SlidersHorizontalIcon className="size-[18px]" />
+              <BlocksIcon className="size-[18px]" />
             </TooltipTrigger>
             <TooltipPopup side="bottom" align="end">
               Environment
