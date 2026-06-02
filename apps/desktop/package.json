@@ -1,6 +1,6 @@
 {
   "name": "@ace/desktop",
-  "version": "0.2.8",
+  "version": "v0.2.8",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {

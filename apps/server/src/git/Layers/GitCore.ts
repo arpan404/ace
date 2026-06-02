@@ -16,6 +16,7 @@ import {
   Semaphore,
   Stream,
 } from "effect";
+import { execFileSync } from "node:child_process";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { GitCommandError, type GitWorkingTreeFileStatus } from "@ace/contracts";
@@ -387,6 +388,11 @@ interface SshAskPassConfig {
   readonly env: NodeJS.ProcessEnv;
 }
 
+interface GitSshPassphraseSettings {
+  readonly globalPassphrase: string | null;
+  readonly projectPassphraseByRoot: ReadonlyMap<string, string>;
+}
+
 interface TraceTailReader {
   readonly readTraceDelta: Effect.Effect<void, never>;
   readonly finalizeTrace2Monitor: Effect.Effect<void, never>;
@@ -697,6 +703,72 @@ const createSshAskPassConfig = Effect.fn("createSshAskPassConfig")(function* (
   };
 });
 
+function normalizeProjectRootPath(pathService: Path.Path, value: string): string {
+  return pathService.resolve(value.trim());
+}
+
+function isPathInsideRoot(pathService: Path.Path, cwd: string, root: string): boolean {
+  const relative = pathService.relative(root, cwd);
+  return relative === "" || (!relative.startsWith("..") && !pathService.isAbsolute(relative));
+}
+
+function parseWorktreeListMainPath(stdout: string): string | null {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("worktree ")) {
+      continue;
+    }
+    const worktreePath = trimmed.slice("worktree ".length).trim();
+    return worktreePath.length > 0 ? worktreePath : null;
+  }
+  return null;
+}
+
+function resolveGitMainWorktree(cwd: string): string | null {
+  try {
+    const stdout = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+    });
+    return parseWorktreeListMainPath(stdout);
+  } catch {
+    return null;
+  }
+}
+
+export function resolveProjectGitSshKeyPassphrase(
+  settings: GitSshPassphraseSettings,
+  pathService: Path.Path,
+  cwd: string,
+): string | null {
+  const normalizedCwd = normalizeProjectRootPath(pathService, cwd);
+  const candidateRoots = [normalizedCwd];
+  const mainWorktree = resolveGitMainWorktree(normalizedCwd);
+  if (mainWorktree) {
+    candidateRoots.push(normalizeProjectRootPath(pathService, mainWorktree));
+  }
+
+  for (const candidateRoot of candidateRoots) {
+    const exactPassphrase = settings.projectPassphraseByRoot.get(candidateRoot);
+    if (exactPassphrase) {
+      return exactPassphrase;
+    }
+  }
+
+  let bestMatch: { root: string; passphrase: string } | null = null;
+  for (const [root, passphrase] of settings.projectPassphraseByRoot) {
+    if (!isPathInsideRoot(pathService, normalizedCwd, root)) {
+      continue;
+    }
+    if (!bestMatch || root.length > bestMatch.root.length) {
+      bestMatch = { root, passphrase };
+    }
+  }
+
+  return bestMatch?.passphrase ?? settings.globalPassphrase;
+}
+
 const collectOutput = Effect.fn("collectOutput")(function* <E>(
   input: Pick<ExecuteGitInput, "operation" | "cwd" | "args">,
   stream: Stream.Stream<Uint8Array, E>,
@@ -773,13 +845,15 @@ const collectOutput = Effect.fn("collectOutput")(function* <E>(
 
 export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   executeOverride?: GitCoreShape["execute"];
-  readGitSshKeyPassphrase?: () => Effect.Effect<string | null>;
+  readGitSshKeyPassphrase?: (cwd: string) => Effect.Effect<string | null>;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const { settingsPath, worktreesDir } = yield* ServerConfig;
 
-  const readPersistedGitSshKeyPassphrase = Effect.fn("readGitSshKeyPassphrase")(function* () {
+  const readPersistedGitSshKeyPassphrase = Effect.fn("readGitSshKeyPassphrase")(function* (
+    cwd: string,
+  ) {
     return yield* fileSystem.readFileString(settingsPath).pipe(
       Effect.flatMap((raw) =>
         Effect.try({
@@ -788,11 +862,39 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         }),
       ),
       Effect.map((settings) => {
-        const passphrase =
+        const globalPassphrase =
           settings && typeof settings.gitSshKeyPassphrase === "string"
             ? settings.gitSshKeyPassphrase.trim()
             : "";
-        return passphrase.length > 0 ? passphrase : null;
+        const projectPassphraseByRoot = new Map<string, string>();
+        const rawProjectPassphrases =
+          settings &&
+          settings.gitSshKeyPassphraseByProjectRoot &&
+          typeof settings.gitSshKeyPassphraseByProjectRoot === "object" &&
+          !Array.isArray(settings.gitSshKeyPassphraseByProjectRoot)
+            ? (settings.gitSshKeyPassphraseByProjectRoot as Record<string, unknown>)
+            : {};
+
+        for (const [projectRoot, passphrase] of Object.entries(rawProjectPassphrases)) {
+          const normalizedProjectRoot = projectRoot.trim();
+          const normalizedPassphrase = typeof passphrase === "string" ? passphrase.trim() : "";
+          if (normalizedProjectRoot.length === 0 || normalizedPassphrase.length === 0) {
+            continue;
+          }
+          projectPassphraseByRoot.set(
+            normalizeProjectRootPath(path, normalizedProjectRoot),
+            normalizedPassphrase,
+          );
+        }
+
+        return resolveProjectGitSshKeyPassphrase(
+          {
+            globalPassphrase: globalPassphrase.length > 0 ? globalPassphrase : null,
+            projectPassphraseByRoot,
+          },
+          path,
+          cwd,
+        );
       }),
       Effect.catch(() => Effect.succeed(null)),
     );
@@ -822,7 +924,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
           Effect.mapError(toGitCommandError(commandInput, "failed to create trace2 monitor.")),
         );
         const sshAskPassConfig = yield* createSshAskPassConfig(
-          yield* readGitSshKeyPassphrase(),
+          yield* readGitSshKeyPassphrase(commandInput.cwd),
         ).pipe(
           Effect.provideService(Path.Path, path),
           Effect.provideService(FileSystem.FileSystem, fileSystem),

@@ -44,6 +44,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       assert.deepEqual(
         decodePatch({
+          gitSshKeyPassphrase: "global-passphrase",
+          gitSshKeyPassphraseByProjectRoot: {
+            "/tmp/project-a": "project-passphrase",
+          },
           remoteRelay: {
             enabled: false,
           },
@@ -55,6 +59,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         }),
         {
+          gitSshKeyPassphrase: "global-passphrase",
+          gitSshKeyPassphraseByProjectRoot: {
+            "/tmp/project-a": "project-passphrase",
+          },
           remoteRelay: {
             enabled: false,
           },

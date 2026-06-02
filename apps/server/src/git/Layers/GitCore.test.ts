@@ -3,10 +3,10 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import { Effect, FileSystem, Layer, Path, PlatformError, Scope } from "effect";
 import { describe, expect, vi } from "vitest";
 
-import { GitCoreLive, makeGitCore } from "./GitCore.ts";
+import { GitCoreLive, makeGitCore, resolveProjectGitSshKeyPassphrase } from "./GitCore.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitCommandError } from "@ace/contracts";
 import { type ProcessRunResult, runProcess } from "../../processRunner.ts";
@@ -231,6 +231,24 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(askPassLog).toContain("first=correct horse battery staple");
         expect(askPassLog).toContain("first_code=0");
         expect(askPassLog).toContain("second_code=1");
+      }),
+    );
+
+    it.effect("prefers a project SSH key passphrase override over the global passphrase", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const pathService = yield* Path.Path;
+
+        expect(
+          resolveProjectGitSshKeyPassphrase(
+            {
+              globalPassphrase: "global passphrase",
+              projectPassphraseByRoot: new Map([[pathService.resolve(tmp), "project passphrase"]]),
+            },
+            pathService,
+            tmp,
+          ),
+        ).toBe("project passphrase");
       }),
     );
   });
