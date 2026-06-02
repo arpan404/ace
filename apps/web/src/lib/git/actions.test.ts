@@ -255,15 +255,20 @@ describe("when: branch is clean, ahead, and has no open PR", () => {
 });
 
 describe("when: branch is clean, up to date, and has no open PR", () => {
-  it("resolveQuickAction returns disabled no-action state", () => {
+  it("resolveQuickAction creates a PR for a pushed feature branch", () => {
     const quick = resolveQuickAction(
       status({ aheadCount: 0, behindCount: 0, hasWorkingTreeChanges: false, pr: null }),
       false,
     );
-    assert.deepInclude(quick, { kind: "show_hint", label: "Commit", disabled: true });
+    assert.deepInclude(quick, {
+      kind: "run_action",
+      action: "create_pr",
+      label: "Create PR",
+      disabled: false,
+    });
   });
 
-  it("buildMenuItems disables commit, push, and create PR", () => {
+  it("buildMenuItems enables create PR for a pushed feature branch", () => {
     const items = buildMenuItems(status({ aheadCount: 0, behindCount: 0, pr: null }), false);
     assert.deepEqual(items, [
       {
@@ -285,12 +290,33 @@ describe("when: branch is clean, up to date, and has no open PR", () => {
       {
         id: "pr",
         label: "Create PR",
-        disabled: true,
+        disabled: false,
         icon: "pr",
         kind: "open_dialog",
         dialogAction: "create_pr",
       },
     ]);
+  });
+
+  it("keeps create PR disabled on a synchronized default branch", () => {
+    const quick = resolveQuickAction(
+      status({ branch: "main", aheadCount: 0, behindCount: 0, pr: null }),
+      false,
+      true,
+    );
+    assert.deepInclude(quick, { kind: "show_hint", label: "Commit", disabled: true });
+
+    const items = buildMenuItems(
+      status({ branch: "main", aheadCount: 0, behindCount: 0, pr: null }),
+      false,
+      true,
+      true,
+    );
+    assert.deepInclude(items[2], {
+      id: "pr",
+      label: "Create PR",
+      disabled: true,
+    });
   });
 });
 

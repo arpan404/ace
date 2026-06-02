@@ -72,6 +72,7 @@ export function buildMenuItems(
   gitStatus: GitStatusResult | null,
   isBusy: boolean,
   hasOriginRemote = true,
+  isDefaultBranch = false,
 ): GitActionMenuItem[] {
   if (!gitStatus) return [];
 
@@ -88,14 +89,16 @@ export function buildMenuItems(
     !isBehind &&
     gitStatus.aheadCount > 0 &&
     (gitStatus.hasUpstream || canPushWithoutUpstream);
+  const canCreatePrFromPushedBranch = gitStatus.hasUpstream && !isDefaultBranch;
+  const canCreatePrFromLocalCommits =
+    gitStatus.aheadCount > 0 && (gitStatus.hasUpstream || canPushWithoutUpstream);
   const canCreatePr =
     !isBusy &&
     hasBranch &&
     !hasChanges &&
     !hasOpenPr &&
-    gitStatus.aheadCount > 0 &&
     !isBehind &&
-    (gitStatus.hasUpstream || canPushWithoutUpstream);
+    (canCreatePrFromPushedBranch || canCreatePrFromLocalCommits);
   const canOpenPr = !isBusy && hasOpenPr;
 
   return [
@@ -251,6 +254,15 @@ export function resolveQuickAction(
 
   if (hasOpenPr && gitStatus.hasUpstream) {
     return { label: "View PR", disabled: false, kind: "open_pr" };
+  }
+
+  if (!isDefaultBranch) {
+    return {
+      label: "Create PR",
+      disabled: false,
+      kind: "run_action",
+      action: "create_pr",
+    };
   }
 
   return {
