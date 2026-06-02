@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   commandForProjectScript,
+  formatProjectScriptEnvFile,
   formatProjectScriptEnv,
   nextProjectScriptId,
+  normalizeProjectScriptEnvFilePath,
   parseProjectScriptEnv,
   primaryProjectScript,
   projectScriptCwd,
@@ -82,10 +84,21 @@ describe("projectScripts helpers", () => {
       B: "two",
     });
     expect(formatProjectScriptEnv(env)).toBe("A=one=still-value\nB=two");
+    expect(formatProjectScriptEnvFile(env)).toBe("A=one=still-value\nB=two\n");
   });
 
   it("rejects invalid project script env keys", () => {
     expect(() => parseProjectScriptEnv("1BAD=value")).toThrow(/must start/);
+  });
+
+  it("normalizes relative env file paths", () => {
+    expect(normalizeProjectScriptEnvFilePath(" ./.env.local ")).toBe(".env.local");
+    expect(normalizeProjectScriptEnvFilePath("config\\dev.env")).toBe("config/dev.env");
+  });
+
+  it("rejects unsafe env file paths", () => {
+    expect(() => normalizeProjectScriptEnvFilePath("/tmp/.env")).toThrow(/relative/);
+    expect(() => normalizeProjectScriptEnvFilePath("../.env")).toThrow(/escape/);
   });
 
   it("prefers the worktree path for script cwd resolution", () => {

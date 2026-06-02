@@ -704,6 +704,7 @@ function projectScriptsEqual(
         leftScript.command === rightScript.command &&
         leftScript.icon === rightScript.icon &&
         leftScript.runOnWorktreeCreate === rightScript.runOnWorktreeCreate &&
+        leftScript.envFilePath === rightScript.envFilePath &&
         recordsEqual(leftScript.env ?? {}, rightScript.env ?? {})
       );
     })

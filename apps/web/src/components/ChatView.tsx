@@ -155,6 +155,8 @@ import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybinding
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   commandForProjectScript,
+  DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  formatProjectScriptEnvFile,
   nextProjectScriptId,
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -349,8 +351,13 @@ const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
   ENVIRONMENT_MINI_PANEL_WIDTH_PX + ENVIRONMENT_MINI_PANEL_GAP_PX;
 const ENVIRONMENT_POPOVER_INTERACTIVE_LAYER_SELECTOR = [
+  '[data-slot="alert-dialog-content"]',
+  '[data-slot="alert-dialog-overlay"]',
   '[data-slot="combobox-positioner"]',
   '[data-slot="combobox-popup"]',
+  '[data-slot="dialog-backdrop"]',
+  '[data-slot="dialog-popup"]',
+  '[data-slot="dialog-viewport"]',
   '[data-slot="menu-positioner"]',
   '[data-slot="menu-popup"]',
   '[data-slot="popover-positioner"]',
@@ -6100,6 +6107,27 @@ function useChatViewComponent({
           ...(options?.env ?? {}),
         },
       });
+      const envFilePath =
+        script.envFilePath ??
+        (script.runOnWorktreeCreate ? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH : null);
+      if (envFilePath && options?.worktreePath) {
+        let envFileContents = formatProjectScriptEnvFile(script.env);
+        try {
+          const sourceEnvFile = await api.projects.readFile({
+            cwd: activeProject.cwd,
+            relativePath: envFilePath,
+          });
+          envFileContents = sourceEnvFile.contents;
+        } catch {
+          // If the source env file does not exist, fall back to the configured setup env values.
+        }
+        await api.projects.writeFile({
+          cwd: targetCwd,
+          relativePath: envFilePath,
+          contents: envFileContents,
+          overwrite: true,
+        });
+      }
       const openTerminalInput: TerminalOpenInput = shouldCreateNewTerminal
         ? {
             threadId: activeThreadId,
@@ -8838,15 +8866,22 @@ function useChatViewComponent({
       const panelWidth = 288;
       const panelMargin = 12;
       const fallbackTop = 64;
-      const fallbackLeft = Math.max(panelMargin, window.innerWidth - panelWidth - panelMargin);
+      const workspaceRect = workspaceViewportRef.current?.getBoundingClientRect() ?? null;
+      const viewportMaxLeft = window.innerWidth - panelWidth - panelMargin;
+      const chatMaxLeft = workspaceRect ? workspaceRect.right - panelWidth - panelMargin : null;
+      const chatMinLeft = workspaceRect ? workspaceRect.left + panelMargin : panelMargin;
+      const chatHasRoom =
+        workspaceRect !== null && workspaceRect.width >= panelWidth + panelMargin * 2;
+      const maxLeft = chatHasRoom && chatMaxLeft !== null ? chatMaxLeft : viewportMaxLeft;
+      const minLeft = chatHasRoom ? chatMinLeft : panelMargin;
+      const fallbackLeft = Math.max(minLeft, Math.min(viewportMaxLeft, maxLeft));
       if (!triggerRect) {
         setEnvironmentPanelPopoverStyle({ left: fallbackLeft, top: fallbackTop });
         return;
       }
 
       const preferredLeft = triggerRect.left;
-      const maxLeft = window.innerWidth - panelWidth - panelMargin;
-      const left = Math.max(panelMargin, Math.min(preferredLeft, maxLeft));
+      const left = Math.max(minLeft, Math.min(preferredLeft, maxLeft));
       const top = Math.max(panelMargin, triggerRect.bottom + 8);
       setEnvironmentPanelPopoverStyle({ left, top });
     };
@@ -8858,7 +8893,7 @@ function useChatViewComponent({
       window.removeEventListener("resize", updatePopoverPosition);
       window.removeEventListener("scroll", updatePopoverPosition, true);
     };
-  }, [environmentPanelPopoverOpen]);
+  }, [environmentPanelPopoverOpen, rightSidePanelOpen, rightSidePanelWidth]);
   useEffect(() => {
     if (!environmentPanelPopoverOpen) {
       return;

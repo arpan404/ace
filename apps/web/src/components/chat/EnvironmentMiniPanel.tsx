@@ -182,9 +182,9 @@ export const EnvironmentMiniPanel = forwardRef<
         </div>
       ) : null}
 
-      {props.activeProjectScripts && props.activeProjectScripts.length > 0 ? (
+      {props.activeProjectScripts ? (
         <div className="mt-3 border-t border-border/60 pt-2.5">
-          <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">Tasks</div>
+          <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">Actions</div>
           <ProjectScriptsControl
             scripts={props.activeProjectScripts}
             keybindings={props.keybindings}

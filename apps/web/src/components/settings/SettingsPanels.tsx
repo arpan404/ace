@@ -69,8 +69,10 @@ import {
 } from "../../lib/desktopCliInstallReactQuery";
 import { gitBranchesQueryOptions } from "../../lib/gitReactQuery";
 import {
+  DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
   formatProjectScriptEnv,
   nextProjectScriptId,
+  normalizeProjectScriptEnvFilePath,
   parseProjectScriptEnv,
   setupProjectScript,
 } from "../../projectScripts";
@@ -3313,14 +3315,18 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
   const setupScript = useMemo(() => setupProjectScript(project.scripts), [project.scripts]);
   const [command, setCommand] = useState(() => setupScript?.command ?? "");
   const [envText, setEnvText] = useState(() => formatProjectScriptEnv(setupScript?.env));
+  const [envFilePath, setEnvFilePath] = useState(
+    () => setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  );
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setCommand(setupScript?.command ?? "");
     setEnvText(formatProjectScriptEnv(setupScript?.env));
+    setEnvFilePath(setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH);
     setValidationError(null);
-  }, [setupScript?.command, setupScript?.env]);
+  }, [setupScript?.command, setupScript?.env, setupScript?.envFilePath]);
 
   const saveSetup = useCallback(async () => {
     const api = readNativeApi();
@@ -3340,6 +3346,13 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       setValidationError(error instanceof Error ? error.message : "Invalid environment variables.");
       return;
     }
+    let normalizedEnvFilePath: string;
+    try {
+      normalizedEnvFilePath = normalizeProjectScriptEnvFilePath(envFilePath);
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Invalid environment file path.");
+      return;
+    }
 
     setSaving(true);
     setValidationError(null);
@@ -3357,6 +3370,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
         icon: setupScript?.icon ?? "configure",
         runOnWorktreeCreate: true,
         env: parsedEnv,
+        envFilePath: normalizedEnvFilePath,
       };
       const nextScripts = setupScript
         ? project.scripts.map((script) =>
@@ -3388,7 +3402,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
     } finally {
       setSaving(false);
     }
-  }, [command, envText, project.id, project.scripts, setupScript]);
+  }, [command, envFilePath, envText, project.id, project.scripts, setupScript]);
 
   const disableSetup = useCallback(async () => {
     if (!setupScript) return;
@@ -3415,6 +3429,18 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
   }, [project.id, project.scripts, setupScript]);
 
   const hasEnv = Object.keys(setupScript?.env ?? {}).length > 0;
+  const savedCommand = setupScript?.command ?? "";
+  const savedEnvText = formatProjectScriptEnv(setupScript?.env);
+  const savedEnvFilePath = setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH;
+  const setupHasUnsavedChanges =
+    command !== savedCommand || envText !== savedEnvText || envFilePath !== savedEnvFilePath;
+  const setupStatus = saving
+    ? { label: "Saving", variant: "info" as const }
+    : setupScript
+      ? setupHasUnsavedChanges
+        ? { label: "Unsaved changes", variant: "warning" as const }
+        : { label: "Saved", variant: "success" as const }
+      : { label: "Not saved", variant: "outline" as const };
 
   return (
     <div className="border-t border-border/35 py-3">
@@ -3433,6 +3459,9 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
                 {formatCountLabel(Object.keys(setupScript?.env ?? {}).length, "env var")}
               </Badge>
             ) : null}
+            <Badge variant={setupStatus.variant} size="sm" className="text-[10px]">
+              {setupStatus.label}
+            </Badge>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground/60">
             Runs after a new worktree is created. Use it for install, bootstrap, or generated files.
@@ -3450,8 +3479,14 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
               Disable
             </Button>
           ) : null}
-          <Button type="button" variant="outline" size="xs" disabled={saving} onClick={saveSetup}>
-            Save setup
+          <Button
+            type="button"
+            variant={setupHasUnsavedChanges || !setupScript ? "outline" : "ghost"}
+            size="xs"
+            disabled={saving || (Boolean(setupScript) && !setupHasUnsavedChanges)}
+            onClick={saveSetup}
+          >
+            {saving ? "Saving" : setupScript && !setupHasUnsavedChanges ? "Saved" : "Save setup"}
           </Button>
         </div>
       </div>
@@ -3466,15 +3501,32 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
             onChange={(event) => setCommand(event.target.value)}
           />
         </div>
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-medium text-muted-foreground">Environment</label>
-          <Textarea
-            value={envText}
-            placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
-            size="sm"
-            className="font-mono text-[12px]"
-            onChange={(event) => setEnvText(event.target.value)}
-          />
+        <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-muted-foreground">Env file</label>
+            <Input
+              value={envFilePath}
+              placeholder=".env"
+              className="font-mono text-[12px]"
+              onChange={(event) => setEnvFilePath(event.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground/60">
+              Copied from the project root into each new worktree before setup runs.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-muted-foreground">Environment</label>
+            <Textarea
+              value={envText}
+              placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
+              size="sm"
+              className="font-mono text-[12px]"
+              onChange={(event) => setEnvText(event.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground/60">
+              Passed to the setup command and used if the source env file is missing.
+            </p>
+          </div>
         </div>
       </div>
       {validationError ? (

@@ -49,6 +49,7 @@ export const ProjectScript = Schema.Struct({
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
   env: Schema.optional(ProjectScriptEnv),
+  envFilePath: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
