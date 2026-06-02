@@ -78,6 +78,7 @@ function escapeRegExp(value: string): string {
 }
 
 export interface InAppBrowserController {
+  activateTab: (tabId: string) => void;
   clearAgentPointers: () => void;
   closeActiveTab: () => void;
   closeTab: (tabId: string) => void;
@@ -700,6 +701,18 @@ export function resolveNextBrowserSuggestionIndex(
     return direction > 0 ? 0 : suggestionCount - 1;
   }
   return Math.max(0, Math.min(currentIndex + direction, suggestionCount - 1));
+}
+
+export type BrowserAddressBarEnterTarget =
+  | { kind: "suggestion"; suggestion: BrowserSuggestion }
+  | { kind: "draft" };
+
+export function resolveBrowserAddressBarEnterTarget(options: {
+  selectedSuggestionIndex: number;
+  suggestions: readonly BrowserSuggestion[];
+}): BrowserAddressBarEnterTarget {
+  const suggestion = options.suggestions[options.selectedSuggestionIndex];
+  return suggestion ? { kind: "suggestion", suggestion } : { kind: "draft" };
 }
 
 export function shouldShowBrowserAddressBarSuggestions(options: {
@@ -1966,6 +1979,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const moveTabSelectionEvent = useEffectEvent(moveTabSelection);
   const openDevToolsEvent = useEffectEvent(openDevTools);
   const openNewTabEvent = useEffectEvent(openNewTab);
+  const activateTabEvent = useEffectEvent(activateTab);
   const reorderTabsEvent = useEffectEvent(reorderTabs);
   const openUrlEvent = useEffectEvent(openUrl);
   const reloadEvent = useEffectEvent(reload);
@@ -1980,6 +1994,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const zoomResetEvent = useEffectEvent(zoomReset);
   const browserController = useMemo<InAppBrowserController>(
     () => ({
+      activateTab: (tabId) => activateTabEvent(tabId),
       clearAgentPointers: () => clearAgentPointersEvent(),
       closeActiveTab: () => closeActiveTabEvent(),
       closeTab: (tabId) => closeTabEvent(tabId),
@@ -2097,6 +2112,22 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         setSelectedSuggestionIndex(-1);
         return;
       }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target =
+          showAddressBarSuggestions && addressBarSuggestions.length > 0
+            ? resolveBrowserAddressBarEnterTarget({
+                selectedSuggestionIndex,
+                suggestions: addressBarSuggestions,
+              })
+            : { kind: "draft" as const };
+        if (target.kind === "suggestion") {
+          applySuggestion(target.suggestion);
+        } else {
+          openUrl(draftUrl);
+        }
+        return;
+      }
       if (!showAddressBarSuggestions || addressBarSuggestions.length === 0) {
         return;
       }
@@ -2114,19 +2145,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         );
         return;
       }
-      if (event.key === "Enter") {
-        const suggestion = addressBarSuggestions[selectedSuggestionIndex];
-        if (suggestion) {
-          event.preventDefault();
-          applySuggestion(suggestion);
-        }
-        return;
-      }
     },
     [
       addressBarSuggestions,
       applySuggestion,
       dismissAddressBarSuggestionOverlay,
+      draftUrl,
+      openUrl,
       selectedSuggestionIndex,
       showAddressBarSuggestions,
     ],

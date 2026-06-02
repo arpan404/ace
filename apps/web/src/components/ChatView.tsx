@@ -118,7 +118,7 @@ import {
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import { shouldEscalateInterruptToSessionStop } from "../lib/chat/interruptFallback";
-import { BOTTOM_PANEL_SPRING_TRANSITION, PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
+import { PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
 import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -288,6 +288,7 @@ import {
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
+import { setActiveBrowserTab } from "~/lib/browser/session";
 import {
   clearBrowserSessions,
   deleteBrowserSession,
@@ -342,6 +343,11 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
   width: { duration: 0 },
   x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
+const RIGHT_SIDE_PANEL_RESIZE_TRANSITION = {
+  opacity: { duration: 0 },
+  width: { duration: 0 },
+  x: { duration: 0 },
+} as const;
 const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
@@ -389,7 +395,8 @@ function applyResizablePanelWidth(element: HTMLElement | null, width: number): v
     return;
   }
   const widthPx = `${Math.round(width)}px`;
-  element.style.cssText += `;width:${widthPx};min-width:${widthPx};`;
+  element.style.setProperty("width", widthPx);
+  element.style.setProperty("min-width", widthPx);
 }
 
 function clearResizablePanelWidth(element: HTMLElement | null): void {
@@ -398,6 +405,20 @@ function clearResizablePanelWidth(element: HTMLElement | null): void {
   }
   element.style.removeProperty("width");
   element.style.removeProperty("min-width");
+}
+
+function applyResizablePanelHeight(element: HTMLElement | null, height: number): void {
+  if (!element) {
+    return;
+  }
+  element.style.setProperty("height", `${Math.round(height)}px`);
+}
+
+function clearResizablePanelHeight(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.style.removeProperty("height");
 }
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -770,9 +791,20 @@ interface ChatViewProps {
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 
 type BrowserPanelInstance = {
-  key: ThreadId;
+  key: string;
   inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
 };
+
+type BrowserPanelPlacement = "bottom" | "right";
+
+function resolveBrowserInstanceId(threadId: ThreadId, placement: BrowserPanelPlacement): string {
+  return `${threadId}:browser:${placement}`;
+}
+
+function resolveBrowserThreadIdFromInstanceId(instanceId: string): ThreadId {
+  const [threadId] = instanceId.split(":browser:");
+  return ThreadId.makeUnsafe(threadId ?? instanceId);
+}
 
 const RetainedBrowserInstances = memo(function RetainedBrowserInstances({
   instances,
@@ -1305,6 +1337,7 @@ function useChatViewComponent({
   const [bottomPanelMode, setBottomPanelMode] = useState<DockPanelMode | null>(null);
   const [bottomPanelBrowserOpen, setBottomPanelBrowserOpen] = useState(false);
   const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
+  const [rightSidePanelResizing, setRightSidePanelResizing] = useState(false);
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<PanelTabOrderEntry[]>(() => [
     "summary",
     ...(rightSidePanelEditorOpen ? (["editor"] as const) : []),
@@ -2524,7 +2557,12 @@ function useChatViewComponent({
       return;
     }
     lastBrowserPointerClearedTurnRef.current = key;
-    browserControllerByThreadRef.current.get(activeThread.id)?.clearAgentPointers();
+    browserControllerByThreadRef.current
+      .get(resolveBrowserInstanceId(activeThread.id, "right"))
+      ?.clearAgentPointers();
+    browserControllerByThreadRef.current
+      .get(resolveBrowserInstanceId(activeThread.id, "bottom"))
+      ?.clearAgentPointers();
   }, [
     activeLatestTurn?.completedAt,
     activeLatestTurn?.turnId,
@@ -3254,22 +3292,22 @@ function useChatViewComponent({
     [browserActionShortcutLabelOptions, keybindings],
   );
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
-  const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
-  const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
+  const browserControllerByThreadRef = useRef(new Map<string, InAppBrowserController>());
+  const browserRuntimeStateByThreadRef = useRef(new Map<string, { devToolsOpen: boolean }>());
   const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
   const browserSessionChangeHandlerByThreadRef = useRef(
-    new Map<ThreadId, (session: BrowserSessionStorage) => void>(),
+    new Map<string, (session: BrowserSessionStorage) => void>(),
   );
   const browserControllerChangeHandlerByThreadRef = useRef(
-    new Map<ThreadId, (controller: InAppBrowserController | null) => void>(),
+    new Map<string, (controller: InAppBrowserController | null) => void>(),
   );
   const browserRuntimeStateChangeHandlerByThreadRef = useRef(
-    new Map<ThreadId, (state: ActiveBrowserRuntimeState) => void>(),
+    new Map<string, (state: ActiveBrowserRuntimeState) => void>(),
   );
   const browserViewportResizeHandlerByThreadRef = useRef(
-    new Map<ThreadId, (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult>(),
+    new Map<string, (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult>(),
   );
-  const activeBrowserThreadIdRef = useRef<ThreadId | null>(activeThreadId);
+  const activeBrowserThreadIdRef = useRef<string | null>(null);
   const pendingBrowserOpenUrlRef = useRef<string | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const [chatViewportSize, setChatViewportSize] = useState({ height: 0, width: 0 });
@@ -3286,11 +3324,11 @@ function useChatViewComponent({
   const didResizeBrowserSplitDuringDragRef = useRef(false);
   const lastSyncedBrowserSplitWidthRef = useRef(browserSplitWidth);
   const [mountedBrowserInstances, setMountedBrowserInstances] = useState<
-    readonly RecentBrowserInstanceEntry<ThreadId>[]
+    readonly RecentBrowserInstanceEntry<string>[]
   >([]);
-  const previousMountedBrowserInstancesRef = useRef<
-    readonly RecentBrowserInstanceEntry<ThreadId>[]
-  >([]);
+  const previousMountedBrowserInstancesRef = useRef<readonly RecentBrowserInstanceEntry<string>[]>(
+    [],
+  );
   const workspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const workspaceEditorSplitPanelRef = useRef<HTMLDivElement | null>(null);
   const workspaceEditorSplitResizePointerIdRef = useRef<number | null>(null);
@@ -3342,7 +3380,19 @@ function useChatViewComponent({
   const rightSidePanelWidthRef = useRef(rightSidePanelWidth);
   const rightSidePanelElementRef = useRef<HTMLDivElement | null>(null);
   const bottomPanelElementRef = useRef<HTMLDivElement | null>(null);
+  const bottomPanelContentElementRef = useRef<HTMLDivElement | null>(null);
   const dockedRightSidePanelHeaderRef = useRef<HTMLDivElement | null>(null);
+  const bottomPanelResizePointerIdRef = useRef<number | null>(null);
+  const bottomPanelResizeStateRef = useRef<{
+    contentElement: HTMLElement | null;
+    handleElement: HTMLElement | null;
+    panelElement: HTMLElement | null;
+    pendingHeight: number;
+    rafId: number | null;
+    startHeight: number;
+    startY: number;
+  } | null>(null);
+  const didResizeBottomPanelDuringDragRef = useRef(false);
   const rightSidePanelResizePointerIdRef = useRef<number | null>(null);
   const rightSidePanelResizeStateRef = useRef<{
     headerElement: HTMLElement | null;
@@ -3369,16 +3419,33 @@ function useChatViewComponent({
     ? "split"
     : workspaceMode;
   const browserOpen = browserMode !== "closed";
+  const rightBrowserInstanceId = activeThreadId
+    ? resolveBrowserInstanceId(activeThreadId, "right")
+    : null;
+  const bottomBrowserInstanceId = activeThreadId
+    ? resolveBrowserInstanceId(activeThreadId, "bottom")
+    : null;
+  const rightBrowserOpen = browserOpen;
+  const anyBrowserOpen = rightBrowserOpen || bottomPanelBrowserOpen;
+  const activeBrowserInstanceIds = useMemo(
+    () =>
+      [
+        rightBrowserOpen ? rightBrowserInstanceId : null,
+        bottomPanelBrowserOpen ? bottomBrowserInstanceId : null,
+      ].filter((instanceId): instanceId is string => instanceId !== null),
+    [bottomBrowserInstanceId, bottomPanelBrowserOpen, rightBrowserInstanceId, rightBrowserOpen],
+  );
+  const primaryBrowserInstanceId = activeBrowserInstanceIds[0] ?? null;
   const cleanupBrowserInstanceState = useCallback(
-    (browserThreadId: ThreadId, options?: { resetVisibleState?: boolean }) => {
-      browserControllerByThreadRef.current.delete(browserThreadId);
-      browserRuntimeStateByThreadRef.current.delete(browserThreadId);
-      browserSessionChangeHandlerByThreadRef.current.delete(browserThreadId);
-      browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
-      browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
-      browserViewportResizeHandlerByThreadRef.current.delete(browserThreadId);
-      deleteBrowserSession(browserThreadId);
-      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+    (browserInstanceId: string, options?: { resetVisibleState?: boolean }) => {
+      browserControllerByThreadRef.current.delete(browserInstanceId);
+      browserRuntimeStateByThreadRef.current.delete(browserInstanceId);
+      browserSessionChangeHandlerByThreadRef.current.delete(browserInstanceId);
+      browserControllerChangeHandlerByThreadRef.current.delete(browserInstanceId);
+      browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserInstanceId);
+      browserViewportResizeHandlerByThreadRef.current.delete(browserInstanceId);
+      deleteBrowserSession(browserInstanceId);
+      if (activeBrowserThreadIdRef.current !== browserInstanceId) {
         return;
       }
       browserControllerRef.current = null;
@@ -3466,16 +3533,17 @@ function useChatViewComponent({
       browserControllerRef.current = null;
       return;
     }
-    activeBrowserThreadIdRef.current = activeThreadId;
-    browserControllerRef.current = activeThreadId
-      ? (browserControllerByThreadRef.current.get(activeThreadId) ?? null)
+    activeBrowserThreadIdRef.current = primaryBrowserInstanceId;
+    browserControllerRef.current = primaryBrowserInstanceId
+      ? (browserControllerByThreadRef.current.get(primaryBrowserInstanceId) ?? null)
       : null;
     setBrowserDevToolsOpen(
-      activeThreadId
-        ? (browserRuntimeStateByThreadRef.current.get(activeThreadId)?.devToolsOpen ?? false)
+      primaryBrowserInstanceId
+        ? (browserRuntimeStateByThreadRef.current.get(primaryBrowserInstanceId)?.devToolsOpen ??
+            false)
         : false,
     );
-  }, [activeThreadId, rightSidePanelInteractive, setBrowserDevToolsOpen]);
+  }, [primaryBrowserInstanceId, rightSidePanelInteractive, setBrowserDevToolsOpen]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -3485,13 +3553,23 @@ function useChatViewComponent({
       setMountedBrowserInstances([]);
       return;
     }
-    if (!browserOpen) {
+    if (!anyBrowserOpen) {
       return;
     }
     setMountedBrowserInstances((current) =>
-      touchRecentBrowserInstance(current, activeThreadId, Date.now(), Number.MAX_SAFE_INTEGER),
+      activeBrowserInstanceIds.reduce(
+        (next, browserInstanceId) =>
+          touchRecentBrowserInstance(next, browserInstanceId, Date.now(), Number.MAX_SAFE_INTEGER),
+        current,
+      ),
     );
-  }, [activeThreadId, browserOpen, resetBrowserCacheState, rightSidePanelInteractive]);
+  }, [
+    activeBrowserInstanceIds,
+    activeThreadId,
+    anyBrowserOpen,
+    resetBrowserCacheState,
+    rightSidePanelInteractive,
+  ]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -3500,7 +3578,7 @@ function useChatViewComponent({
       return;
     }
 
-    const protectedThreadId = browserOpen ? activeThreadId : null;
+    const protectedThreadId = primaryBrowserInstanceId;
     const pruneExpiredBrowserCache = () => {
       setMountedBrowserInstances((current) =>
         evictExpiredRecentBrowserInstances(
@@ -3531,7 +3609,7 @@ function useChatViewComponent({
     return () => {
       window.clearTimeout(timeoutHandle);
     };
-  }, [activeThreadId, browserOpen, mountedBrowserInstances, rightSidePanelInteractive]);
+  }, [mountedBrowserInstances, primaryBrowserInstanceId, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -3545,7 +3623,7 @@ function useChatViewComponent({
         return;
       }
       setMountedBrowserInstances((current) => {
-        const activeEntry = current.find((entry) => entry.instanceId === activeThreadId);
+        const activeEntry = current.find((entry) => entry.instanceId === primaryBrowserInstanceId);
         return activeEntry ? [activeEntry] : current.slice(0, 1);
       });
     };
@@ -3557,7 +3635,7 @@ function useChatViewComponent({
       window.removeEventListener("blur", trimBackgroundBrowserCache);
       document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
     };
-  }, [activeThreadId, rightSidePanelInteractive]);
+  }, [activeThreadId, primaryBrowserInstanceId, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive || !isElectron) {
       return;
@@ -3567,12 +3645,12 @@ function useChatViewComponent({
       if (snapshot === null || !isMemoryPressureAtLeast("high", snapshot)) {
         return;
       }
-      const protectedThreadId = browserOpen ? activeThreadId : null;
+      const protectedThreadId = primaryBrowserInstanceId;
       setMountedBrowserInstances((current) =>
         protectedThreadId ? current.filter((entry) => entry.instanceId === protectedThreadId) : [],
       );
     });
-  }, [activeThreadId, browserOpen, rightSidePanelInteractive]);
+  }, [activeThreadId, primaryBrowserInstanceId, rightSidePanelInteractive]);
   useEffect(() => {
     const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
       (entry) => entry.instanceId,
@@ -4533,22 +4611,27 @@ function useChatViewComponent({
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!activeThreadId) return;
       event.preventDefault();
-      const startY = event.clientY;
-      const startHeight = terminalState.terminalHeight;
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        const nextHeight = startHeight + (startY - moveEvent.clientY);
-        storeSetTerminalHeight(activeThreadId, clampBottomPanelHeight(nextHeight));
+      event.currentTarget.setPointerCapture(event.pointerId);
+      bottomPanelResizePointerIdRef.current = event.pointerId;
+      bottomPanelResizeStateRef.current = {
+        contentElement: bottomPanelContentElementRef.current,
+        handleElement: event.currentTarget,
+        panelElement: bottomPanelElementRef.current,
+        pendingHeight: terminalState.terminalHeight,
+        rafId: null,
+        startHeight: terminalState.terminalHeight,
+        startY: event.clientY,
       };
-      const handlePointerUp = () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerUp);
-        window.dispatchEvent(new CustomEvent(SIDEBAR_RESIZE_END_EVENT));
-      };
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp, { once: true });
+      applyResizablePanelHeight(bottomPanelElementRef.current, terminalState.terminalHeight + 48);
+      applyResizablePanelHeight(bottomPanelContentElementRef.current, terminalState.terminalHeight);
+      didResizeBottomPanelDuringDragRef.current = false;
     },
-    [activeThreadId, storeSetTerminalHeight, terminalState.terminalHeight],
+    [activeThreadId, terminalState.terminalHeight],
   );
+  const syncBottomPanelHeightEvent = useEffectEvent((nextHeight: number) => {
+    if (!activeThreadId) return;
+    storeSetTerminalHeight(activeThreadId, clampBottomPanelHeight(nextHeight));
+  });
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
     const nextOpen = !terminalState.terminalOpen;
@@ -4591,7 +4674,8 @@ function useChatViewComponent({
   }, [appendRightPanelTabOrder, setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
   const ensureBrowserBridgeController = useCallback(
     async (requestThreadId: ThreadId): Promise<InAppBrowserController> => {
-      const existingController = browserControllerByThreadRef.current.get(requestThreadId);
+      const requestBrowserInstanceId = resolveBrowserInstanceId(requestThreadId, "right");
+      const existingController = browserControllerByThreadRef.current.get(requestBrowserInstanceId);
       if (existingController) {
         return existingController;
       }
@@ -4607,7 +4691,8 @@ function useChatViewComponent({
       const controller = await waitForBrowserBridgeController({
         timeoutMs: BROWSER_BRIDGE_CONTROLLER_WAIT_MS,
         pollMs: BROWSER_BRIDGE_CONTROLLER_POLL_MS,
-        readController: () => browserControllerByThreadRef.current.get(requestThreadId) ?? null,
+        readController: () =>
+          browserControllerByThreadRef.current.get(requestBrowserInstanceId) ?? null,
       });
       if (controller) {
         return controller;
@@ -4622,7 +4707,17 @@ function useChatViewComponent({
     setBrowserDevToolsOpen(false);
     removeRightPanelTabOrder("browser");
     setRightSidePanelMode((current) => (current === "browser" ? "summary" : current));
-  }, [removeRightPanelTabOrder, setBrowserDevToolsOpen, setBrowserMode, setRightSidePanelMode]);
+    if (rightBrowserInstanceId) {
+      cleanupBrowserInstanceState(rightBrowserInstanceId);
+    }
+  }, [
+    cleanupBrowserInstanceState,
+    removeRightPanelTabOrder,
+    rightBrowserInstanceId,
+    setBrowserDevToolsOpen,
+    setBrowserMode,
+    setRightSidePanelMode,
+  ]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelVisible(false);
@@ -4814,44 +4909,58 @@ function useChatViewComponent({
   );
   const onOpenRightSidePanelBrowserTab = useCallback(() => {
     openBrowser();
-    browserControllerRef.current?.openNewTab();
-  }, [openBrowser]);
+    if (rightBrowserInstanceId) {
+      browserControllerByThreadRef.current.get(rightBrowserInstanceId)?.openNewTab();
+    }
+  }, [openBrowser, rightBrowserInstanceId]);
   const onOpenBottomPanelBrowser = useCallback(() => {
     if (!isElectron) return;
     appendBottomPanelTabOrder("browser");
-    setBrowserMode("split");
     setBottomPanelBrowserOpen(true);
     setBottomPanelMode("browser");
-  }, [appendBottomPanelTabOrder, setBrowserMode]);
+  }, [appendBottomPanelTabOrder]);
   const onOpenBottomPanelBrowserTab = useCallback(() => {
     onOpenBottomPanelBrowser();
-    browserControllerRef.current?.openNewTab();
-  }, [onOpenBottomPanelBrowser]);
+    if (bottomBrowserInstanceId) {
+      browserControllerByThreadRef.current.get(bottomBrowserInstanceId)?.openNewTab();
+    }
+  }, [bottomBrowserInstanceId, onOpenBottomPanelBrowser]);
   const onSelectRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
-      openBrowser();
-      const session = getBrowserSession(activeThreadId);
-      const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
-      if (index >= 0) {
-        browserControllerRef.current?.setActiveTabByIndex(index);
+      if (!rightBrowserInstanceId) {
+        return;
       }
+      openBrowser();
+      const session = getBrowserSession(rightBrowserInstanceId);
+      if (!session?.tabs.some((tab) => tab.id === tabId)) {
+        return;
+      }
+      setBrowserSession(rightBrowserInstanceId, setActiveBrowserTab(session, tabId));
+      browserControllerByThreadRef.current.get(rightBrowserInstanceId)?.activateTab(tabId);
     },
-    [activeThreadId, openBrowser],
+    [openBrowser, rightBrowserInstanceId],
   );
   const onSelectBottomPanelBrowserTab = useCallback(
     (tabId: string) => {
-      onOpenBottomPanelBrowser();
-      const session = getBrowserSession(activeThreadId);
-      const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
-      if (index >= 0) {
-        browserControllerRef.current?.setActiveTabByIndex(index);
+      if (!bottomBrowserInstanceId) {
+        return;
       }
+      onOpenBottomPanelBrowser();
+      const session = getBrowserSession(bottomBrowserInstanceId);
+      if (!session?.tabs.some((tab) => tab.id === tabId)) {
+        return;
+      }
+      setBrowserSession(bottomBrowserInstanceId, setActiveBrowserTab(session, tabId));
+      browserControllerByThreadRef.current.get(bottomBrowserInstanceId)?.activateTab(tabId);
     },
-    [activeThreadId, onOpenBottomPanelBrowser],
+    [bottomBrowserInstanceId, onOpenBottomPanelBrowser],
   );
   const onCloseRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
-      const session = getBrowserSession(activeThreadId);
+      if (!rightBrowserInstanceId) {
+        return;
+      }
+      const session = getBrowserSession(rightBrowserInstanceId);
       if (session?.tabs.length === 1) {
         closeBrowser();
         if (rightSidePanelMode === "browser") {
@@ -4859,18 +4968,23 @@ function useChatViewComponent({
         }
         return;
       }
-      browserControllerRef.current?.closeTab(tabId);
+      browserControllerByThreadRef.current.get(rightBrowserInstanceId)?.closeTab(tabId);
       if (rightSidePanelMode === "browser" && session?.tabs.length === 1) {
         setRightSidePanelMode("summary");
       }
     },
-    [activeThreadId, closeBrowser, rightSidePanelMode, setRightSidePanelMode],
+    [closeBrowser, rightBrowserInstanceId, rightSidePanelMode, setRightSidePanelMode],
   );
   const onReorderRightSidePanelBrowserTab = useCallback(
     (draggedTabId: string, targetTabId: string) => {
-      browserControllerRef.current?.reorderTabs(draggedTabId, targetTabId);
+      if (!rightBrowserInstanceId) {
+        return;
+      }
+      browserControllerByThreadRef.current
+        .get(rightBrowserInstanceId)
+        ?.reorderTabs(draggedTabId, targetTabId);
     },
-    [],
+    [rightBrowserInstanceId],
   );
   const onCloseRightSidePanelEditor = useCallback(() => {
     const activeEditorTabId = activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? null;
@@ -5014,8 +5128,11 @@ function useChatViewComponent({
         lastNonDiffMode: rightSidePanelLastNonDiffMode,
       }),
     );
-    setLocalDiffState((previous) => ({ ...previous, open: false }));
+    if (!bottomPanelReviewOpen) {
+      setLocalDiffState((previous) => ({ ...previous, open: false }));
+    }
   }, [
+    bottomPanelReviewOpen,
     removeRightPanelTabOrder,
     rightSidePanelLastNonDiffMode,
     setLocalDiffState,
@@ -5033,44 +5150,53 @@ function useChatViewComponent({
     setBottomPanelReviewOpen(false);
     removeBottomPanelTabOrder("diff");
     setBottomPanelMode((current) => (current === "diff" ? "terminal" : current));
-    setLocalDiffState((previous) => ({ ...previous, open: false }));
+    if (!rightSidePanelReviewOpen) {
+      setLocalDiffState((previous) => ({ ...previous, open: false }));
+    }
     setTerminalOpen(true);
-  }, [removeBottomPanelTabOrder, setLocalDiffState, setTerminalOpen]);
+  }, [removeBottomPanelTabOrder, rightSidePanelReviewOpen, setLocalDiffState, setTerminalOpen]);
   const onCloseBottomPanelBrowser = useCallback(() => {
     setBottomPanelBrowserOpen(false);
     removeBottomPanelTabOrder("browser");
     setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
     setTerminalOpen(true);
-    if (!(rightSidePanelVisible && rightSidePanelMode === "browser")) {
-      closeBrowser();
+    if (bottomBrowserInstanceId) {
+      cleanupBrowserInstanceState(bottomBrowserInstanceId);
     }
   }, [
-    closeBrowser,
+    bottomBrowserInstanceId,
+    cleanupBrowserInstanceState,
     removeBottomPanelTabOrder,
-    rightSidePanelMode,
-    rightSidePanelVisible,
     setTerminalOpen,
   ]);
   const onCloseBottomPanelBrowserTab = useCallback(
     (tabId: string) => {
-      const session = getBrowserSession(activeThreadId);
+      if (!bottomBrowserInstanceId) {
+        return;
+      }
+      const session = getBrowserSession(bottomBrowserInstanceId);
       if (session?.tabs.length === 1) {
         onCloseBottomPanelBrowser();
         return;
       }
-      browserControllerRef.current?.closeTab(tabId);
+      browserControllerByThreadRef.current.get(bottomBrowserInstanceId)?.closeTab(tabId);
       if (session?.tabs.length === 1) {
         setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
         setTerminalOpen(true);
       }
     },
-    [activeThreadId, onCloseBottomPanelBrowser, setTerminalOpen],
+    [bottomBrowserInstanceId, onCloseBottomPanelBrowser, setTerminalOpen],
   );
   const onReorderBottomPanelBrowserTab = useCallback(
     (draggedTabId: string, targetTabId: string) => {
-      browserControllerRef.current?.reorderTabs(draggedTabId, targetTabId);
+      if (!bottomBrowserInstanceId) {
+        return;
+      }
+      browserControllerByThreadRef.current
+        .get(bottomBrowserInstanceId)
+        ?.reorderTabs(draggedTabId, targetTabId);
     },
-    [],
+    [bottomBrowserInstanceId],
   );
   const onSelectBottomPanelMode = useCallback(
     (mode: DockPanelMode) => {
@@ -5115,6 +5241,86 @@ function useChatViewComponent({
     bottomPanelEditorTabs.length > 0 ||
     bottomPanelReviewOpen ||
     terminalState.terminalOpen;
+  useEffect(() => {
+    if (!bottomPanelOpen) {
+      return;
+    }
+    const handlePointerMove = (event: PointerEvent) => {
+      if (bottomPanelResizePointerIdRef.current !== event.pointerId) {
+        return;
+      }
+      const resizeState = bottomPanelResizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+      const nextHeight = clampBottomPanelHeight(
+        resizeState.startHeight + (resizeState.startY - event.clientY),
+      );
+      resizeState.pendingHeight = nextHeight;
+      if (resizeState.rafId !== null) {
+        return;
+      }
+      resizeState.rafId = window.requestAnimationFrame(() => {
+        const activeResizeState = bottomPanelResizeStateRef.current;
+        if (!activeResizeState) {
+          return;
+        }
+        activeResizeState.rafId = null;
+        applyResizablePanelHeight(
+          activeResizeState.panelElement,
+          activeResizeState.pendingHeight + 48,
+        );
+        applyResizablePanelHeight(
+          activeResizeState.contentElement,
+          activeResizeState.pendingHeight,
+        );
+      });
+      didResizeBottomPanelDuringDragRef.current = true;
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (
+        bottomPanelResizePointerIdRef.current === null ||
+        bottomPanelResizePointerIdRef.current !== event.pointerId
+      ) {
+        return;
+      }
+      const resizeState = bottomPanelResizeStateRef.current;
+      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      if (resizeState) {
+        applyResizablePanelHeight(resizeState.panelElement, resizeState.pendingHeight + 48);
+        applyResizablePanelHeight(resizeState.contentElement, resizeState.pendingHeight);
+      }
+      bottomPanelResizePointerIdRef.current = null;
+      bottomPanelResizeStateRef.current = null;
+      if (resizeState?.handleElement?.hasPointerCapture(event.pointerId)) {
+        resizeState.handleElement.releasePointerCapture(event.pointerId);
+      }
+      if (!didResizeBottomPanelDuringDragRef.current) {
+        clearResizablePanelHeight(resizeState?.panelElement ?? null);
+        clearResizablePanelHeight(resizeState?.contentElement ?? null);
+        return;
+      }
+      didResizeBottomPanelDuringDragRef.current = false;
+      syncBottomPanelHeightEvent(resizeState?.pendingHeight ?? terminalState.terminalHeight);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          clearResizablePanelHeight(resizeState?.panelElement ?? null);
+          clearResizablePanelHeight(resizeState?.contentElement ?? null);
+        });
+      });
+      window.dispatchEvent(new CustomEvent(SIDEBAR_RESIZE_END_EVENT));
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [bottomPanelOpen, terminalState.terminalHeight]);
   const onToggleBottomPanel = useCallback(() => {
     if (bottomPanelOpen) {
       setBottomPanelMode(null);
@@ -5138,33 +5344,33 @@ function useChatViewComponent({
     setRightSidePanelFloatingChatOpen((current) => !current);
   }, [rightSidePanelFullscreen, setRightSidePanelFloatingChatOpen]);
   const onBrowserSessionChange = useCallback(
-    (browserThreadId: ThreadId, session: BrowserSessionStorage) => {
-      setBrowserSession(browserThreadId, session);
+    (browserInstanceId: string, session: BrowserSessionStorage) => {
+      setBrowserSession(browserInstanceId, session);
     },
     [],
   );
   const getBrowserSessionChangeHandler = useCallback(
-    (browserThreadId: ThreadId) => {
-      const existingHandler = browserSessionChangeHandlerByThreadRef.current.get(browserThreadId);
+    (browserInstanceId: string) => {
+      const existingHandler = browserSessionChangeHandlerByThreadRef.current.get(browserInstanceId);
       if (existingHandler) {
         return existingHandler;
       }
       const handler = (session: BrowserSessionStorage) => {
-        onBrowserSessionChange(browserThreadId, session);
+        onBrowserSessionChange(browserInstanceId, session);
       };
-      browserSessionChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      browserSessionChangeHandlerByThreadRef.current.set(browserInstanceId, handler);
       return handler;
     },
     [onBrowserSessionChange],
   );
   const setBrowserController = useCallback(
-    (browserThreadId: ThreadId, controller: InAppBrowserController | null) => {
+    (browserInstanceId: string, controller: InAppBrowserController | null) => {
       if (controller) {
-        browserControllerByThreadRef.current.set(browserThreadId, controller);
+        browserControllerByThreadRef.current.set(browserInstanceId, controller);
       } else {
-        browserControllerByThreadRef.current.delete(browserThreadId);
+        browserControllerByThreadRef.current.delete(browserInstanceId);
       }
-      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+      if (activeBrowserThreadIdRef.current !== browserInstanceId) {
         return;
       }
       browserControllerRef.current = controller;
@@ -5182,9 +5388,9 @@ function useChatViewComponent({
     [setBrowserDevToolsOpen],
   );
   const handleBrowserRuntimeStateChange = useCallback(
-    (browserThreadId: ThreadId, state: { devToolsOpen: boolean }) => {
-      browserRuntimeStateByThreadRef.current.set(browserThreadId, state);
-      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+    (browserInstanceId: string, state: { devToolsOpen: boolean }) => {
+      browserRuntimeStateByThreadRef.current.set(browserInstanceId, state);
+      if (activeBrowserThreadIdRef.current !== browserInstanceId) {
         return;
       }
       setBrowserDevToolsOpen(state.devToolsOpen);
@@ -5192,31 +5398,31 @@ function useChatViewComponent({
     [setBrowserDevToolsOpen],
   );
   const getBrowserControllerChangeHandler = useCallback(
-    (browserThreadId: ThreadId) => {
+    (browserInstanceId: string) => {
       const existingHandler =
-        browserControllerChangeHandlerByThreadRef.current.get(browserThreadId);
+        browserControllerChangeHandlerByThreadRef.current.get(browserInstanceId);
       if (existingHandler) {
         return existingHandler;
       }
       const handler = (controller: InAppBrowserController | null) => {
-        setBrowserController(browserThreadId, controller);
+        setBrowserController(browserInstanceId, controller);
       };
-      browserControllerChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      browserControllerChangeHandlerByThreadRef.current.set(browserInstanceId, handler);
       return handler;
     },
     [setBrowserController],
   );
   const getBrowserRuntimeStateChangeHandler = useCallback(
-    (browserThreadId: ThreadId) => {
+    (browserInstanceId: string) => {
       const existingHandler =
-        browserRuntimeStateChangeHandlerByThreadRef.current.get(browserThreadId);
+        browserRuntimeStateChangeHandlerByThreadRef.current.get(browserInstanceId);
       if (existingHandler) {
         return existingHandler;
       }
       const handler = (state: ActiveBrowserRuntimeState) => {
-        handleBrowserRuntimeStateChange(browserThreadId, state);
+        handleBrowserRuntimeStateChange(browserInstanceId, state);
       };
-      browserRuntimeStateChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      browserRuntimeStateChangeHandlerByThreadRef.current.set(browserInstanceId, handler);
       return handler;
     },
     [handleBrowserRuntimeStateChange],
@@ -5227,14 +5433,16 @@ function useChatViewComponent({
       setRightSidePanelMode("browser");
       setBrowserMode("split");
       setRightSidePanelVisible(true);
-      const controller = browserControllerRef.current;
+      const controller = rightBrowserInstanceId
+        ? (browserControllerByThreadRef.current.get(rightBrowserInstanceId) ?? null)
+        : null;
       if (!controller) {
         pendingBrowserOpenUrlRef.current = url;
         return;
       }
       controller.openUrl(url, options);
     },
-    [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
+    [rightBrowserInstanceId, setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -5785,17 +5993,20 @@ function useChatViewComponent({
     ],
   );
   const resizeBrowserViewportForBridgeEvent = useEffectEvent(
-    (browserThreadId: ThreadId, request: BrowserViewportResizeRequest) =>
-      resizeBrowserViewportForBridge(browserThreadId, request),
+    (browserInstanceId: string, request: BrowserViewportResizeRequest) =>
+      resizeBrowserViewportForBridge(
+        resolveBrowserThreadIdFromInstanceId(browserInstanceId),
+        request,
+      ),
   );
-  const getBrowserViewportResizeHandler = useCallback((browserThreadId: ThreadId) => {
-    const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserThreadId);
+  const getBrowserViewportResizeHandler = useCallback((browserInstanceId: string) => {
+    const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserInstanceId);
     if (existingHandler) {
       return existingHandler;
     }
     const handler = (request: BrowserViewportResizeRequest) =>
-      resizeBrowserViewportForBridgeEvent(browserThreadId, request);
-    browserViewportResizeHandlerByThreadRef.current.set(browserThreadId, handler);
+      resizeBrowserViewportForBridgeEvent(browserInstanceId, request);
+    browserViewportResizeHandlerByThreadRef.current.set(browserInstanceId, handler);
     return handler;
   }, []);
 
@@ -5806,6 +6017,7 @@ function useChatViewComponent({
       }
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
+      setRightSidePanelResizing(true);
       rightSidePanelResizePointerIdRef.current = event.pointerId;
       rightSidePanelResizeStateRef.current = {
         headerElement: dockedRightSidePanelHeaderRef.current,
@@ -5914,13 +6126,17 @@ function useChatViewComponent({
       if (!didResizeRightSidePanelDuringDragRef.current) {
         clearResizablePanelWidth(resizeState?.panelElement ?? null);
         clearResizablePanelWidth(resizeState?.headerElement ?? null);
+        setRightSidePanelResizing(false);
         return;
       }
       didResizeRightSidePanelDuringDragRef.current = false;
       syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
       window.requestAnimationFrame(() => {
-        clearResizablePanelWidth(resizeState?.panelElement ?? null);
-        clearResizablePanelWidth(resizeState?.headerElement ?? null);
+        window.requestAnimationFrame(() => {
+          clearResizablePanelWidth(resizeState?.panelElement ?? null);
+          clearResizablePanelWidth(resizeState?.headerElement ?? null);
+          setRightSidePanelResizing(false);
+        });
       });
     };
     window.addEventListener("pointermove", handlePointerMove);
@@ -5959,6 +6175,20 @@ function useChatViewComponent({
         didResizeWorkspaceEditorSplitDuringDragRef.current = false;
         syncWorkspaceEditorSplitWidthEvent(workspaceEditorSplitWidthRef.current);
       }
+      const bottomPanelResizeState = bottomPanelResizeStateRef.current;
+      if (bottomPanelResizeState?.rafId !== null && bottomPanelResizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(bottomPanelResizeState.rafId);
+      }
+      clearResizablePanelHeight(bottomPanelResizeState?.panelElement ?? null);
+      clearResizablePanelHeight(bottomPanelResizeState?.contentElement ?? null);
+      bottomPanelResizePointerIdRef.current = null;
+      bottomPanelResizeStateRef.current = null;
+      if (didResizeBottomPanelDuringDragRef.current) {
+        didResizeBottomPanelDuringDragRef.current = false;
+        syncBottomPanelHeightEvent(
+          bottomPanelResizeState?.pendingHeight ?? DEFAULT_THREAD_TERMINAL_HEIGHT,
+        );
+      }
       const rightPanelResizeState = rightSidePanelResizeStateRef.current;
       if (rightPanelResizeState?.rafId !== null && rightPanelResizeState?.rafId !== undefined) {
         window.cancelAnimationFrame(rightPanelResizeState.rafId);
@@ -5967,6 +6197,7 @@ function useChatViewComponent({
       clearResizablePanelWidth(rightPanelResizeState?.headerElement ?? null);
       rightSidePanelResizePointerIdRef.current = null;
       rightSidePanelResizeStateRef.current = null;
+      setRightSidePanelResizing(false);
       if (didResizeRightSidePanelDuringDragRef.current) {
         didResizeRightSidePanelDuringDragRef.current = false;
         syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
@@ -7021,14 +7252,14 @@ function useChatViewComponent({
         !event.ctrlKey &&
         !event.altKey &&
         !event.shiftKey &&
-        browserOpen
+        anyBrowserOpen
       ) {
         browserControllerRef.current?.setDesignerModeActive(false);
       }
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
-        browserOpen,
+        browserOpen: anyBrowserOpen,
         rightPanelOpen: rightSidePanelOpen,
         rightPanelFullscreen: rightSidePanelFullscreen,
       };
@@ -7043,6 +7274,13 @@ function useChatViewComponent({
       const rightSidePanelFocused =
         activeElement !== null &&
         rightSidePanelElementRef.current?.contains(activeElement) === true;
+      const shortcutBrowserInstanceId =
+        bottomPanelFocused && bottomBrowserInstanceId
+          ? bottomBrowserInstanceId
+          : rightBrowserInstanceId;
+      const activeShortcutBrowserController = shortcutBrowserInstanceId
+        ? (browserControllerByThreadRef.current.get(shortcutBrowserInstanceId) ?? null)
+        : null;
 
       if (command === "terminal.toggle") {
         event.preventDefault();
@@ -7168,35 +7406,35 @@ function useChatViewComponent({
       if (command === "browser.back") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.goBack();
+        activeShortcutBrowserController?.goBack();
         return;
       }
 
       if (command === "browser.forward") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.goForward();
+        activeShortcutBrowserController?.goForward();
         return;
       }
 
       if (command === "browser.reload") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.reload();
+        activeShortcutBrowserController?.reload();
         return;
       }
 
       if (command === "browser.devtools") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.toggleDevTools();
+        activeShortcutBrowserController?.toggleDevTools();
         return;
       }
 
       if (command === "browser.newTab") {
         event.preventDefault();
         event.stopPropagation();
-        if (!browserOpen || !browserControllerRef.current) {
+        if (!anyBrowserOpen || !activeShortcutBrowserController) {
           if (bottomPanelFocused) {
             onOpenBottomPanelBrowserTab();
             return;
@@ -7209,49 +7447,49 @@ function useChatViewComponent({
         } else {
           openBrowser();
         }
-        browserControllerRef.current.openNewTab();
+        activeShortcutBrowserController.openNewTab();
         return;
       }
 
       if (command === "browser.closeTab") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.closeActiveTab();
+        activeShortcutBrowserController?.closeActiveTab();
         return;
       }
 
       if (command === "browser.focusAddressBar") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.focusAddressBar();
+        activeShortcutBrowserController?.focusAddressBar();
         return;
       }
 
       if (command === "browser.previousTab") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.goToPreviousTab();
+        activeShortcutBrowserController?.goToPreviousTab();
         return;
       }
 
       if (command === "browser.nextTab") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.goToNextTab();
+        activeShortcutBrowserController?.goToNextTab();
         return;
       }
 
       if (command === "browser.designer.areaComment") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.toggleDesignerTool("area-comment");
+        activeShortcutBrowserController?.toggleDesignerTool("area-comment");
         return;
       }
 
       if (command === "browser.designer.elementComment") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.toggleDesignerTool("element-comment");
+        activeShortcutBrowserController?.toggleDesignerTool("element-comment");
         return;
       }
 
@@ -7299,7 +7537,8 @@ function useChatViewComponent({
     return () => window.removeEventListener("keydown", handler);
   }, [
     activeProject,
-    browserOpen,
+    anyBrowserOpen,
+    bottomBrowserInstanceId,
     ownsGlobalSideEffects,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
@@ -7328,6 +7567,7 @@ function useChatViewComponent({
     rightSidePanelMode,
     rightSidePanelOpen,
     rightSidePanelTerminalOpen,
+    rightBrowserInstanceId,
     setBottomPanelMode,
     setTerminalFocusRequestId,
     shortcutsEnabled,
@@ -9309,14 +9549,16 @@ function useChatViewComponent({
   const browserPanel =
     isElectron && activeThreadId
       ? (() => {
-          const mountedBrowserThreadIds = mountedBrowserInstances.map((entry) => entry.instanceId);
-          const orderedBrowserThreadIds = [
-            ...(browserOpen ? [activeThreadId] : []),
-            ...mountedBrowserThreadIds.filter(
-              (browserThreadId) => browserThreadId !== activeThreadId,
+          const mountedBrowserInstanceIds = mountedBrowserInstances.map(
+            (entry) => entry.instanceId,
+          );
+          const orderedBrowserInstanceIds = [
+            ...activeBrowserInstanceIds,
+            ...mountedBrowserInstanceIds.filter(
+              (browserInstanceId) => !activeBrowserInstanceIds.includes(browserInstanceId),
             ),
           ];
-          if (orderedBrowserThreadIds.length === 0) {
+          if (orderedBrowserInstanceIds.length === 0) {
             return null;
           }
           const browserViewMode: InAppBrowserMode = browserMode === "full" ? "full" : "split";
@@ -9325,22 +9567,29 @@ function useChatViewComponent({
             splitWidth: browserSplitWidth,
             onResizeKeyDown: handleBrowserSplitResizeKeyDown,
             onResizePointerDown: handleBrowserSplitResizePointerDown,
-            instances: orderedBrowserThreadIds.map((browserThreadId) => {
-              const isActiveBrowserThread = browserThreadId === activeThreadId;
+            instances: orderedBrowserInstanceIds.map((browserInstanceId) => {
+              const browserThreadId = resolveBrowserThreadIdFromInstanceId(browserInstanceId);
+              const isRightBrowserInstance = browserInstanceId === rightBrowserInstanceId;
+              const isBottomBrowserInstance = browserInstanceId === bottomBrowserInstanceId;
+              const isVisibleBrowserInstance =
+                (isRightBrowserInstance && rightBrowserOpen) ||
+                (isBottomBrowserInstance && bottomPanelBrowserOpen);
               const browserConnectionUrl = resolveBrowserThreadConnectionUrl(browserThreadId);
               return {
-                key: browserThreadId,
+                key: browserInstanceId,
                 inAppBrowserProps: {
                   open: true,
-                  activeInstance: isActiveBrowserThread && browserOpen && rightSidePanelInteractive,
+                  activeInstance: isVisibleBrowserInstance && rightSidePanelInteractive,
                   connectionUrl: browserConnectionUrl,
-                  visible: isActiveBrowserThread && browserOpen,
+                  visible: isVisibleBrowserInstance,
                   mode: browserViewMode,
-                  onClose: closeBrowser,
-                  onBrowserSessionChange: getBrowserSessionChangeHandler(browserThreadId),
-                  onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
-                  onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
-                  onResizeViewport: getBrowserViewportResizeHandler(browserThreadId),
+                  scopeId: browserInstanceId,
+                  onClose: isBottomBrowserInstance ? onCloseBottomPanelBrowser : closeBrowser,
+                  onBrowserSessionChange: getBrowserSessionChangeHandler(browserInstanceId),
+                  onControllerChange: getBrowserControllerChangeHandler(browserInstanceId),
+                  onActiveRuntimeStateChange:
+                    getBrowserRuntimeStateChangeHandler(browserInstanceId),
+                  onResizeViewport: getBrowserViewportResizeHandler(browserInstanceId),
                   onToggleRightPanelFloatingChat: onToggleRightSidePanelFloatingChat,
                   onToggleRightPanelFullscreen: onToggleRightSidePanelFullscreen,
                   backShortcutLabel: browserBackShortcutLabel,
@@ -9349,7 +9598,6 @@ function useChatViewComponent({
                   devToolsShortcutLabel: browserDevToolsShortcutLabel,
                   forwardShortcutLabel: browserForwardShortcutLabel,
                   reloadShortcutLabel: browserReloadShortcutLabel,
-                  scopeId: browserThreadId,
                   onQueueDesignRequest: queueBrowserDesignRequest,
                 },
               };
@@ -9383,8 +9631,22 @@ function useChatViewComponent({
     : null;
   const activeBottomPanelMode =
     requestedBottomPanelMode === "browser" && !browserPanel ? null : requestedBottomPanelMode;
-  const activeRightPanelBrowserSession = useBrowserSession(browserOpen ? activeThreadId : null);
+  const activeRightPanelBrowserSession = useBrowserSession(
+    rightBrowserOpen ? rightBrowserInstanceId : null,
+  );
+  const activeBottomPanelBrowserSession = useBrowserSession(
+    bottomPanelBrowserOpen ? bottomBrowserInstanceId : null,
+  );
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
+  const activeBottomPanelBrowserTabId = activeBottomPanelBrowserSession?.activeTabId ?? null;
+  const rightBrowserPanelInstances =
+    browserPanel && rightBrowserInstanceId
+      ? browserPanel.instances.filter((instance) => instance.key === rightBrowserInstanceId)
+      : [];
+  const bottomBrowserPanelInstances =
+    browserPanel && bottomBrowserInstanceId
+      ? browserPanel.instances.filter((instance) => instance.key === bottomBrowserInstanceId)
+      : [];
   const rightPanelTerminalTabs = useMemo(
     () =>
       terminalState.terminalIds.map((terminalId) => ({
@@ -9475,8 +9737,8 @@ function useChatViewComponent({
     activeBottomPanelMode ? (
       <RightSidePanelTabStrip
         activeMode={activeBottomPanelMode}
-        activeBrowserTabId={activeRightPanelBrowserTabId}
-        browserSession={bottomPanelBrowserOpen ? activeRightPanelBrowserSession : null}
+        activeBrowserTabId={activeBottomPanelBrowserTabId}
+        browserSession={activeBottomPanelBrowserSession}
         browserAvailable={isElectron}
         browserShortcutLabel={browserNewTabShortcutLabel}
         className={className}
@@ -9870,7 +10132,9 @@ function useChatViewComponent({
           initial={{ width: 0, opacity: 0, x: 20 }}
           animate={{ width: dockedRightSidePanelWidth, opacity: 1, x: 0 }}
           exit={{ width: 0, opacity: 0, x: 20 }}
-          transition={PANEL_SPRING_TRANSITION}
+          transition={
+            rightSidePanelResizing ? RIGHT_SIDE_PANEL_RESIZE_TRANSITION : PANEL_SPRING_TRANSITION
+          }
         >
           <div className="relative h-full w-3 shrink-0" aria-hidden="true">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
@@ -10037,7 +10301,7 @@ function useChatViewComponent({
                       gitCwd={gitCwd}
                       lspCwd={activeProject?.cwd ?? null}
                       keybindings={keybindings}
-                      browserOpen={browserOpen}
+                      browserOpen={anyBrowserOpen}
                       workspaceMode={workspaceMode}
                       terminalOpen={terminalState.terminalOpen}
                       threadId={activeThread.id}
@@ -10237,7 +10501,7 @@ function useChatViewComponent({
                             gitCwd={gitCwd}
                             lspCwd={activeProject?.cwd ?? null}
                             keybindings={keybindings}
-                            browserOpen={browserOpen}
+                            browserOpen={anyBrowserOpen}
                             workspaceMode={workspaceMode}
                             terminalOpen={terminalState.terminalOpen}
                             threadId={activeThread.id}
@@ -10304,7 +10568,11 @@ function useChatViewComponent({
                     ? { width: 0, opacity: 0 }
                     : { width: 0, opacity: 0, x: 24 }
                 }
-                transition={PANEL_SPRING_TRANSITION}
+                transition={
+                  rightSidePanelResizing
+                    ? RIGHT_SIDE_PANEL_RESIZE_TRANSITION
+                    : PANEL_SPRING_TRANSITION
+                }
               >
                 {!rightSidePanelFullscreen ? (
                   <hr
@@ -10414,7 +10682,7 @@ function useChatViewComponent({
                                 gitCwd={gitCwd}
                                 lspCwd={activeProject?.cwd ?? null}
                                 keybindings={keybindings}
-                                browserOpen={browserOpen}
+                                browserOpen={anyBrowserOpen}
                                 workspaceMode="split"
                                 terminalOpen={terminalState.terminalOpen}
                                 threadId={activeThread.id}
@@ -10427,7 +10695,7 @@ function useChatViewComponent({
                         </m.div>
                       ) : null}
                     </AnimatePresence>
-                    {browserPanel && activeBottomPanelMode !== "browser" ? (
+                    {rightBrowserPanelInstances.length > 0 ? (
                       <div
                         className={cn(
                           "absolute inset-0 min-h-0 min-w-0",
@@ -10436,7 +10704,7 @@ function useChatViewComponent({
                             : "pointer-events-none invisible z-0",
                         )}
                       >
-                        <RetainedBrowserInstances instances={browserPanel.instances} />
+                        <RetainedBrowserInstances instances={rightBrowserPanelInstances} />
                       </div>
                     ) : null}
                   </div>
@@ -10454,11 +10722,16 @@ function useChatViewComponent({
             <m.div
               key="thread-bottom-dock-panel"
               ref={bottomPanelElementRef}
-              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-background shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,opacity]"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: terminalState.terminalHeight + 48, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={BOTTOM_PANEL_SPRING_TRANSITION}
+              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-background shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,transform,opacity]"
+              initial={{ height: 0, opacity: 0, y: 14 }}
+              animate={{ height: "var(--bottom-panel-height)", opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: 10 }}
+              transition={PANEL_SPRING_TRANSITION}
+              style={
+                {
+                  "--bottom-panel-height": `${terminalState.terminalHeight + 48}px`,
+                } as NonNullable<ComponentProps<typeof m.div>["style"]>
+              }
             >
               <hr
                 aria-orientation="horizontal"
@@ -10467,17 +10740,12 @@ function useChatViewComponent({
                 className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-8 before:top-0 before:h-px before:bg-transparent before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border/65 hover:after:bg-foreground/4 focus-visible:before:bg-border/75 focus-visible:after:bg-foreground/5"
                 onPointerDown={handleBottomPanelResizePointerDown}
               />
-              <m.div
-                className="flex min-h-0 flex-1 transform-gpu flex-col overflow-hidden will-change-[transform,opacity]"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={PANEL_SPRING_TRANSITION}
-              >
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="flex h-12 shrink-0 items-stretch bg-card/80 shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
                   {bottomPanelTabStripNode}
                 </div>
                 <div
+                  ref={bottomPanelContentElementRef}
                   className="min-h-0 flex-1 overflow-hidden"
                   style={{ height: `${terminalState.terminalHeight}px` }}
                 >
@@ -10555,7 +10823,7 @@ function useChatViewComponent({
                         gitCwd={gitCwd}
                         lspCwd={activeProject?.cwd ?? null}
                         keybindings={keybindings}
-                        browserOpen={browserOpen}
+                        browserOpen={anyBrowserOpen}
                         workspaceMode="split"
                         terminalOpen={terminalState.terminalOpen}
                         threadId={activeThread.id}
@@ -10564,11 +10832,12 @@ function useChatViewComponent({
                         onSubmitAgentNote={submitWorkspaceAgentNote}
                       />
                     </Suspense>
-                  ) : activeBottomPanelMode === "browser" && browserPanel ? (
-                    <RetainedBrowserInstances instances={browserPanel.instances} />
+                  ) : activeBottomPanelMode === "browser" &&
+                    bottomBrowserPanelInstances.length > 0 ? (
+                    <RetainedBrowserInstances instances={bottomBrowserPanelInstances} />
                   ) : null}
                 </div>
-              </m.div>
+              </div>
             </m.div>
           ) : null}
         </AnimatePresence>
