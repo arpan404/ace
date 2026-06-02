@@ -288,6 +288,7 @@ import {
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
+import { setActiveBrowserTab } from "~/lib/browser/session";
 import {
   clearBrowserSessions,
   deleteBrowserSession,
@@ -4829,23 +4830,31 @@ function useChatViewComponent({
   }, [onOpenBottomPanelBrowser]);
   const onSelectRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
+      if (!activeThreadId) {
+        return;
+      }
       openBrowser();
       const session = getBrowserSession(activeThreadId);
-      const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
-      if (index >= 0) {
-        browserControllerRef.current?.setActiveTabByIndex(index);
+      if (!session?.tabs.some((tab) => tab.id === tabId)) {
+        return;
       }
+      setBrowserSession(activeThreadId, setActiveBrowserTab(session, tabId));
+      browserControllerRef.current?.activateTab(tabId);
     },
     [activeThreadId, openBrowser],
   );
   const onSelectBottomPanelBrowserTab = useCallback(
     (tabId: string) => {
+      if (!activeThreadId) {
+        return;
+      }
       onOpenBottomPanelBrowser();
       const session = getBrowserSession(activeThreadId);
-      const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
-      if (index >= 0) {
-        browserControllerRef.current?.setActiveTabByIndex(index);
+      if (!session?.tabs.some((tab) => tab.id === tabId)) {
+        return;
       }
+      setBrowserSession(activeThreadId, setActiveBrowserTab(session, tabId));
+      browserControllerRef.current?.activateTab(tabId);
     },
     [activeThreadId, onOpenBottomPanelBrowser],
   );

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveBrowserAddressBarEnterTarget,
   resolveNextBrowserTabIndex,
   resolveBrowserSuggestionDraftValue,
   resolveNextBrowserSuggestionIndex,
@@ -125,6 +126,34 @@ describe("resolveNextBrowserSuggestionIndex", () => {
 
   it("returns no selection when there are no suggestions", () => {
     expect(resolveNextBrowserSuggestionIndex(0, 0, 1)).toBe(-1);
+  });
+});
+
+describe("resolveBrowserAddressBarEnterTarget", () => {
+  const suggestion = {
+    id: "address:http://localhost:5777/",
+    kind: "history" as const,
+    subtitle: "Open address",
+    title: "http://localhost:5777/",
+    url: "http://localhost:5777/",
+  };
+
+  it("submits the typed draft when suggestions are visible but none are selected", () => {
+    expect(
+      resolveBrowserAddressBarEnterTarget({
+        selectedSuggestionIndex: -1,
+        suggestions: [suggestion],
+      }),
+    ).toEqual({ kind: "draft" });
+  });
+
+  it("opens the selected suggestion after keyboard navigation", () => {
+    expect(
+      resolveBrowserAddressBarEnterTarget({
+        selectedSuggestionIndex: 0,
+        suggestions: [suggestion],
+      }),
+    ).toEqual({ kind: "suggestion", suggestion });
   });
 });
 

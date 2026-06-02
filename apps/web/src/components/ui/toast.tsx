@@ -40,6 +40,16 @@ const TOAST_ICONS = {
   warning: TriangleAlertIcon,
 } as const;
 
+const TOAST_SURFACE_CLASS_NAME =
+  "overflow-hidden rounded-lg border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_10px_30px_rgba(0,0,0,0.16)] outline outline-1 outline-background/45 backdrop-blur-xl";
+const TOAST_CONTENT_CLASS_NAME =
+  "pointer-events-auto flex items-start justify-between gap-3 overflow-hidden px-3.5 py-3 text-[13px]";
+const TOAST_TITLE_CLASS_NAME = "min-w-0 break-words font-medium leading-5 text-foreground/95";
+const TOAST_DESCRIPTION_CLASS_NAME =
+  "min-w-0 select-text break-words text-[12px] leading-4.5 text-muted-foreground/82";
+const TOAST_ACTION_CLASS_NAME =
+  "mt-0.5 h-7 shrink-0 rounded-md border-border/65 bg-background/70 px-2.5 text-[12px] font-medium text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+
 function resolveToastProgressPercent(data: ThreadToastData | undefined): number | null {
   if (typeof data?.progressPercent !== "number" || !Number.isFinite(data.progressPercent)) {
     return null;
@@ -51,7 +61,7 @@ function ToastProgressBar({ percent }: { percent: number }) {
   return (
     <progress
       aria-label={`Progress ${percent}%`}
-      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/70 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/70 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
+      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/55 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/55 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
       max={100}
       value={percent}
     />
@@ -66,7 +76,7 @@ function CopyErrorButton({ text }: { text: string }) {
       <TooltipTrigger
         render={
           <button
-            className="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
+            className="shrink-0 cursor-pointer rounded-md border border-transparent p-1 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
             onClick={() => copyToClipboard(text)}
             type="button"
             aria-label={isCopied ? "Copied" : "Copy error"}
@@ -87,7 +97,7 @@ function CopyErrorButton({ text }: { text: string }) {
 function ToastIcon({ Icon }: { Icon: (typeof TOAST_ICONS)[keyof typeof TOAST_ICONS] }) {
   return (
     <div
-      className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.045] text-muted-foreground [&>svg]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+      className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/70 text-muted-foreground in-data-[type=error]:border-destructive/25 in-data-[type=error]:bg-destructive/10 in-data-[type=info]:border-info/25 in-data-[type=info]:bg-info/10 in-data-[type=success]:border-success/25 in-data-[type=success]:bg-success/10 in-data-[type=warning]:border-warning/25 in-data-[type=warning]:bg-warning/10 [&>svg]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0"
       data-slot="toast-icon"
     >
       <Icon className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=loading]:animate-spin in-data-[type=loading]:opacity-80 in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
@@ -261,7 +271,9 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
           return (
             <Toast.Root
               className={cn(
-                "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) w-full select-none overflow-hidden rounded-lg border border-border/55 bg-popover/94 text-popover-foreground shadow-[0_18px_56px_rgba(0,0,0,0.32)] outline outline-1 outline-foreground/[0.025] backdrop-blur-xl [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) w-full select-none",
+                TOAST_SURFACE_CLASS_NAME,
+                "[transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
                 "data-[position*=left]:right-auto data-[position*=left]:left-0",
@@ -330,7 +342,8 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
               />
               <Toast.Content
                 className={cn(
-                  "pointer-events-auto flex items-start justify-between gap-2.5 overflow-hidden px-3 py-2.5 text-[13px] transition-opacity duration-250 data-expanded:opacity-100",
+                  TOAST_CONTENT_CLASS_NAME,
+                  "transition-opacity duration-250 data-expanded:opacity-100",
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
@@ -340,16 +353,13 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
 
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div className="flex items-start justify-between gap-1.5">
-                      <Toast.Title
-                        className="min-w-0 break-words font-medium leading-5 text-foreground/94"
-                        data-slot="toast-title"
-                      />
+                      <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
                       {toast.type === "error" && typeof toast.description === "string" && (
                         <CopyErrorButton text={toast.description} />
                       )}
                     </div>
                     <Toast.Description
-                      className="min-w-0 select-text break-words text-[12px] leading-4 text-muted-foreground/78"
+                      className={TOAST_DESCRIPTION_CLASS_NAME}
                       data-slot="toast-description"
                     />
                     {progressPercent !== null ? (
@@ -361,7 +371,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                   <Toast.Action
                     className={cn(
                       buttonVariants({ size: "sm", variant: "outline" }),
-                      "mt-0.5 h-6 shrink-0 border-border/55 bg-foreground/[0.045] px-2.5 text-[11px] text-foreground/90 hover:bg-foreground/[0.075]",
+                      TOAST_ACTION_CLASS_NAME,
                     )}
                     data-slot="toast-action"
                   >
@@ -417,9 +427,7 @@ function AnchoredToasts() {
               <Toast.Root
                 className={cn(
                   "relative text-balance border text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
-                  tooltipStyle
-                    ? "rounded-md bg-popover"
-                    : "overflow-hidden rounded-lg border-border/55 bg-popover/94 shadow-[0_18px_56px_rgba(0,0,0,0.32)] outline outline-1 outline-foreground/[0.025] backdrop-blur-xl",
+                  tooltipStyle ? "rounded-md bg-popover" : TOAST_SURFACE_CLASS_NAME,
                 )}
                 data-slot="toast-popup"
                 toast={toast}
@@ -429,22 +437,19 @@ function AnchoredToasts() {
                     <Toast.Title data-slot="toast-title" />
                   </Toast.Content>
                 ) : (
-                  <Toast.Content className="pointer-events-auto flex items-start justify-between gap-2.5 overflow-hidden px-3 py-2.5 text-[13px]">
+                  <Toast.Content className={TOAST_CONTENT_CLASS_NAME}>
                     <div className="flex min-w-0 flex-1 gap-2.5">
                       {Icon ? <ToastIcon Icon={Icon} /> : null}
 
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <div className="flex items-start gap-1.5">
-                          <Toast.Title
-                            className="min-w-0 break-words font-medium leading-5 text-foreground/94"
-                            data-slot="toast-title"
-                          />
+                          <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
                           {toast.type === "error" && typeof toast.description === "string" && (
                             <CopyErrorButton text={toast.description} />
                           )}
                         </div>
                         <Toast.Description
-                          className="min-w-0 select-text break-words text-[12px] leading-4 text-muted-foreground/78"
+                          className={TOAST_DESCRIPTION_CLASS_NAME}
                           data-slot="toast-description"
                         />
                         {progressPercent !== null ? (
@@ -456,7 +461,7 @@ function AnchoredToasts() {
                       <Toast.Action
                         className={cn(
                           buttonVariants({ size: "sm", variant: "outline" }),
-                          "mt-0.5 h-6 shrink-0 border-border/55 bg-foreground/[0.045] px-2.5 text-[11px] text-foreground/90 hover:bg-foreground/[0.075]",
+                          TOAST_ACTION_CLASS_NAME,
                         )}
                         data-slot="toast-action"
                       >
