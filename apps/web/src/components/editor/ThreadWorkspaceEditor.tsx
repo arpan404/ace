@@ -7,6 +7,7 @@ import type {
   ThreadId,
   WorkspaceEditorLocation,
 } from "@ace/contracts";
+import * as Schema from "effect/Schema";
 import {
   IconFiles,
   IconGitCompare,
@@ -53,6 +54,7 @@ import {
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
@@ -124,12 +126,16 @@ const WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT = 32;
 const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 48;
 const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 36;
 const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
+const WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT = 24;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
+const WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY = "ace:workspace-code-search-recents:v1";
+const WORKSPACE_CODE_SEARCH_RECENT_LIMIT = 6;
 const WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES = [
   "auth token refresh",
   "content:useMutation",
   "re:.*\\.test\\.tsx$",
 ] as const;
+const WorkspaceCodeSearchRecentsSchema = Schema.Array(Schema.String);
 const WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS =
   "h-8 rounded-md border-border/45 bg-background/62 text-[12px] shadow-none placeholder:text-muted-foreground/48 focus-within:border-primary/40 focus-within:bg-background/88 [&_[data-slot=input]]:h-full [&_[data-slot=input]]:pr-2 [&_[data-slot=input]]:pl-9 [&_[data-slot=input]]:leading-8";
 interface SaveConflictState {
@@ -1094,6 +1100,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const queryClient = useQueryClient();
   const api = readNativeApi();
+  const [recentCodeSearches, setRecentCodeSearches] = useLocalStorage(
+    WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY,
+    [],
+    WorkspaceCodeSearchRecentsSchema,
+  );
   const [uiState, dispatchUiState] = useReducer(
     threadWorkspaceEditorUiStateReducer,
     EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE,
@@ -1739,6 +1750,46 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => groupWorkspaceCodeSearchResults(codeSearchResultsQuery.data ?? []),
     [codeSearchResultsQuery.data],
   );
+  const visibleRecentCodeSearches = useMemo(
+    () =>
+      recentCodeSearches
+        .map((query) => query.trim())
+        .filter((query, index, queries) => query.length >= 2 && queries.indexOf(query) === index)
+        .slice(0, WORKSPACE_CODE_SEARCH_RECENT_LIMIT),
+    [recentCodeSearches],
+  );
+
+  useEffect(() => {
+    if (
+      sidebarMode !== "search" ||
+      deferredCodeSearchQuery.length < 2 ||
+      codeSearchResultsQuery.isPending ||
+      codeSearchResultsQuery.isFetching
+    ) {
+      return;
+    }
+
+    setRecentCodeSearches((current) => {
+      const nextQuery = deferredCodeSearchQuery.trim();
+      if (nextQuery.length < 2) {
+        return current;
+      }
+      const next = [
+        nextQuery,
+        ...current.filter((query) => query.trim().toLowerCase() !== nextQuery.toLowerCase()),
+      ].slice(0, WORKSPACE_CODE_SEARCH_RECENT_LIMIT);
+      return next.every((query, index) => query === current[index]) &&
+        next.length === current.length
+        ? current
+        : next;
+    });
+  }, [
+    codeSearchResultsQuery.isFetching,
+    codeSearchResultsQuery.isPending,
+    deferredCodeSearchQuery,
+    setRecentCodeSearches,
+    sidebarMode,
+  ]);
 
   useEffect(() => {
     if (treeEntries.length === 0) {
@@ -3912,24 +3963,63 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   ) : null}
                   <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
                     {deferredCodeSearchQuery.length < 2 ? (
-                      <div className="flex min-h-full flex-col justify-end px-2 py-3">
-                        <div className="space-y-2 rounded-md border border-border/45 bg-background/45 p-2.5 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
-                          <div className="text-[10px] font-medium text-muted-foreground/70">
-                            Examples
+                      <div className="flex min-h-full flex-col justify-end px-2.5 py-3">
+                        {visibleRecentCodeSearches.length > 0 ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <div className="px-1 text-[10px] font-medium text-muted-foreground/52">
+                                Recent searches
+                              </div>
+                              <div className="space-y-0.5">
+                                {visibleRecentCodeSearches.map((query) => (
+                                  <button
+                                    key={query}
+                                    type="button"
+                                    className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/76 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                    onClick={() => handleCodeSearchExampleClick(query)}
+                                  >
+                                    {query}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="px-1 text-[10px] font-medium text-muted-foreground/42">
+                                Examples
+                              </div>
+                              <div className="space-y-0.5">
+                                {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
+                                  <button
+                                    key={query}
+                                    type="button"
+                                    className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/56 transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                    onClick={() => handleCodeSearchExampleClick(query)}
+                                  >
+                                    {query}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
-                              <button
-                                key={query}
-                                type="button"
-                                className="rounded-md border border-border/45 bg-muted/24 px-2 py-1 font-mono text-[10px] text-foreground/78 transition-colors hover:border-border/70 hover:bg-accent/55 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
-                                onClick={() => handleCodeSearchExampleClick(query)}
-                              >
-                                {query}
-                              </button>
-                            ))}
+                        ) : (
+                          <div className="space-y-1.5">
+                            <div className="px-1 text-[10px] font-medium text-muted-foreground/52">
+                              Examples
+                            </div>
+                            <div className="space-y-0.5">
+                              {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
+                                <button
+                                  key={query}
+                                  type="button"
+                                  className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/72 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                  onClick={() => handleCodeSearchExampleClick(query)}
+                                >
+                                  {query}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     ) : codeSearchResultsQuery.isPending || codeSearchResultsQuery.isFetching ? (
                       <div className="space-y-2 p-2">
