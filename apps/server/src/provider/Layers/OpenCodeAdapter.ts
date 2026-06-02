@@ -1969,7 +1969,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               detail: toMessage(listed.error, "Failed to list OpenCode providers"),
             });
           }
-          const body = listed.data as OpenCodeConfigProvidersResponse | undefined;
+          const body = listed.data as unknown as OpenCodeConfigProvidersResponse | undefined;
           if (!body || !Array.isArray(body.providers)) {
             throw new ProviderAdapterRequestError({
               provider: PROVIDER,

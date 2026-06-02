@@ -8,6 +8,7 @@ import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { resolveProviderStatusDismissalKey } from "./providerStatusDismissal";
 
 const DISMISSED_PROVIDER_STATUS_KEYS_STORAGE_KEY = "ace:dismissed-provider-status-keys:v1";
 const MAX_DISMISSED_PROVIDER_STATUS_KEYS = 128;
@@ -65,19 +66,6 @@ function persistDismissedProviderStatusKeys(): void {
   } catch {
     // Storage is best-effort; the in-memory dismissal still applies for this session.
   }
-}
-
-export function resolveProviderStatusDismissalKey(status: ServerProvider | null): string | null {
-  if (!status || status.status === "ready" || status.status === "disabled") {
-    return null;
-  }
-  return [
-    status.provider,
-    status.providerInstanceId ?? "default",
-    status.status,
-    status.auth.status,
-    status.message ?? "",
-  ].join(":");
 }
 
 function isProviderStatusDismissed(statusKey: string | null): boolean {

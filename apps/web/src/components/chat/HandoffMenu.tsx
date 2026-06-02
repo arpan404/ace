@@ -2,7 +2,8 @@ import { PROVIDER_DISPLAY_NAMES, type ProviderKind, type ThreadHandoffMode } fro
 import { ArrowRightLeftIcon } from "lucide-react";
 import { memo } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { Button, buttonVariants } from "../ui/button";
+import { Button } from "../ui/button";
+import { buttonVariants } from "../ui/buttonVariants";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
 import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";

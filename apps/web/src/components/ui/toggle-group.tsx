@@ -7,7 +7,8 @@ import * as React from "react";
 
 import { cn } from "~/lib/utils";
 import { Separator } from "~/components/ui/separator";
-import { Toggle as ToggleComponent, type toggleVariants } from "~/components/ui/toggle";
+import { Toggle as ToggleComponent } from "~/components/ui/toggle";
+import type { toggleVariants } from "~/components/ui/toggleVariants";
 
 const ToggleGroupContext = React.createContext<VariantProps<typeof toggleVariants>>({
   size: "default",

@@ -6,35 +6,6 @@ import type { Project, ProjectIcon } from "~/types";
 
 import { ProjectFavicon } from "./ProjectFavicon";
 
-type ProjectIconOption = {
-  readonly glyph: ProjectIcon["glyph"];
-  readonly label: string;
-};
-
-type ProjectIconColorOption = {
-  readonly color: ProjectIcon["color"];
-  readonly label: string;
-  readonly swatchClassName: string;
-};
-
-export const PROJECT_ICON_OPTIONS: ReadonlyArray<ProjectIconOption> = [
-  { glyph: "folder", label: "Folder" },
-  { glyph: "terminal", label: "Terminal" },
-  { glyph: "code", label: "Code" },
-  { glyph: "flask", label: "Flask" },
-  { glyph: "rocket", label: "Rocket" },
-  { glyph: "package", label: "Package" },
-];
-
-export const PROJECT_ICON_COLOR_OPTIONS: ReadonlyArray<ProjectIconColorOption> = [
-  { color: "slate", label: "Slate", swatchClassName: "bg-slate-500" },
-  { color: "blue", label: "Blue", swatchClassName: "bg-sky-500" },
-  { color: "violet", label: "Violet", swatchClassName: "bg-violet-500" },
-  { color: "emerald", label: "Emerald", swatchClassName: "bg-emerald-500" },
-  { color: "amber", label: "Amber", swatchClassName: "bg-amber-500" },
-  { color: "rose", label: "Rose", swatchClassName: "bg-rose-500" },
-];
-
 const PROJECT_ICON_ACCENT_CLASS_NAMES: Record<ProjectIcon["color"], string> = {
   slate: "text-slate-500 dark:text-slate-300",
   blue: "text-sky-600 dark:text-sky-300",

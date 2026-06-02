@@ -303,12 +303,11 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span
-                    role="img"
-                    aria-label="Draft attachment may not persist"
-                    className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                  >
-                    <CircleAlertIcon className="size-3" />
+                  <span className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600">
+                    <CircleAlertIcon
+                      className="size-3"
+                      aria-label="Draft attachment may not persist"
+                    />
                   </span>
                 }
               />

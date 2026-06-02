@@ -53,6 +53,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { TopBarCluster } from "./thread/TopBarCluster";
 import {
   HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME,
   HEADER_ACTION_DIALOG_HEADER_CLASS_NAME,
@@ -64,8 +65,7 @@ import {
   HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
   HEADER_ACTION_GROUP_CLASS_NAME,
   HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
-  TopBarCluster,
-} from "./thread/TopBarCluster";
+} from "./thread/topBarClusterStyles";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [

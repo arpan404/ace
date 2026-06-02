@@ -10,15 +10,23 @@ export const RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY =
   "ace:chat:right-side-panel-last-non-diff-mode:v1";
 export const RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-review-open:v1";
 export const RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-editor-open:v1";
+export const RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY =
+  "ace:chat:right-side-panel-terminal-open:v1";
 export const RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY = "ace:chat:right-side-panel-fullscreen:v1";
 export const RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-diff-open:v1";
-export const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v1";
+export const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v2";
 export const RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY = "ace:chat:right-side-panel-width:v1";
 
-export type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary";
+export type RightSidePanelMode =
+  | "browser"
+  | "diff"
+  | "editor"
+  | "subagent"
+  | "summary"
+  | "terminal";
 
 export const RightSidePanelModeStorageSchema = Schema.NullOr(
-  Schema.Literals(["browser", "diff", "editor", "subagent", "summary"]),
+  Schema.Literals(["browser", "diff", "editor", "subagent", "summary", "terminal"]),
 );
 
 export function resolveThreadRightSidePanelStorageKeys(threadId: ThreadId): {
@@ -29,6 +37,7 @@ export function resolveThreadRightSidePanelStorageKeys(threadId: ThreadId): {
   lastNonDiffMode: string;
   mode: string;
   reviewOpen: string;
+  terminalOpen: string;
   visible: string;
 } {
   return {
@@ -42,6 +51,10 @@ export function resolveThreadRightSidePanelStorageKeys(threadId: ThreadId): {
     ),
     mode: resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_MODE_STORAGE_KEY, threadId),
     reviewOpen: resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY, threadId),
+    terminalOpen: resolveScopedBrowserStorageKey(
+      RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY,
+      threadId,
+    ),
     visible: resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY, threadId),
   };
 }
@@ -55,6 +68,7 @@ export function resetThreadRightSidePanelState(threadId: ThreadId): void {
   removeLocalStorageItem(keys.lastNonDiffMode);
   removeLocalStorageItem(keys.mode);
   removeLocalStorageItem(keys.reviewOpen);
+  removeLocalStorageItem(keys.terminalOpen);
   removeLocalStorageItem(keys.visible);
 }
 

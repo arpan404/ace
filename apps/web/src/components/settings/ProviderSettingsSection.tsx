@@ -26,10 +26,12 @@ import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
 import {
   PROVIDER_INSTANCE_BADGE_COLORS,
   PROVIDER_INSTANCE_BADGE_ICONS,
-  ProviderInstanceBadge,
-  ProviderInstanceBadgeIconGlyph,
   normalizeProviderInstanceBadgeColor,
   normalizeProviderInstanceBadgeIcon,
+} from "../../providerInstanceBadgeOptions";
+import {
+  ProviderInstanceBadge,
+  ProviderInstanceBadgeIconGlyph,
 } from "../../providerInstanceBadges";
 import { Button } from "../ui/button";
 import {

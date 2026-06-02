@@ -42,7 +42,7 @@ export function BrowserNewTabPanel(props: {
           </div>
         </div>
 
-        <div role="search" className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+        <search className="mx-auto flex w-full max-w-2xl flex-col gap-3">
           <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 transition-colors duration-150 focus-within:border-primary/30">
             <SearchIcon className="size-4 shrink-0 text-muted-foreground/35" />
             <Input
@@ -77,7 +77,7 @@ export function BrowserNewTabPanel(props: {
               Search
             </Button>
           </div>
-        </div>
+        </search>
       </div>
     </div>
   );
