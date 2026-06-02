@@ -4,7 +4,6 @@ import {
   ArrowDownIcon,
   ArrowRightIcon,
   ArrowUpIcon,
-  AppWindowIcon,
   BoxSelectIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
@@ -17,6 +16,7 @@ import {
   RefreshCwIcon,
   SearchIcon,
   SlidersHorizontalIcon,
+  SquareArrowOutUpRightIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -1128,7 +1128,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         }}
                         aria-label="Open browser in new window"
                       >
-                        <AppWindowIcon className="size-4" strokeWidth={1.9} />
+                        <SquareArrowOutUpRightIcon className="size-4" strokeWidth={1.9} />
                       </Button>
                     }
                   />

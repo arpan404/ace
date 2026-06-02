@@ -21,7 +21,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BoxIcon,
-  AppWindowIcon,
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -37,6 +36,7 @@ import {
   ListTreeIcon,
   MessageSquareTextIcon,
   SearchIcon,
+  SquareArrowOutUpRightIcon,
 } from "lucide-react";
 import {
   memo,
@@ -3808,7 +3808,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 onClick={() => void detachEditor()}
                                 aria-label="Detach editor"
                               >
-                                <AppWindowIcon className="size-4" strokeWidth={1.9} />
+                                <SquareArrowOutUpRightIcon className="size-4" strokeWidth={1.9} />
                               </Button>
                             }
                           />
