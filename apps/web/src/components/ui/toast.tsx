@@ -1,7 +1,7 @@
 "use client";
 
 import { Toast } from "@base-ui/react/toast";
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { useParams } from "@tanstack/react-router";
 import { ThreadId } from "@ace/contracts";
 import {
@@ -43,12 +43,12 @@ const TOAST_ICONS = {
 const TOAST_SURFACE_CLASS_NAME =
   "overflow-hidden rounded-lg border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_10px_30px_rgba(0,0,0,0.16)] outline outline-1 outline-background/45 backdrop-blur-xl";
 const TOAST_CONTENT_CLASS_NAME =
-  "pointer-events-auto flex items-start justify-between gap-2.5 overflow-hidden px-3 py-2.5 text-[12px]";
-const TOAST_TITLE_CLASS_NAME = "min-w-0 break-words font-medium leading-4 text-foreground/95";
+  "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-[11px]";
+const TOAST_TITLE_CLASS_NAME = "min-w-0 break-words font-medium leading-3.5 text-foreground/95";
 const TOAST_DESCRIPTION_CLASS_NAME =
-  "min-w-0 select-text break-words text-[11px] leading-4 text-muted-foreground/78";
+  "min-w-0 select-text break-words text-[10.5px] leading-3.5 text-muted-foreground/76";
 const TOAST_ACTION_CLASS_NAME =
-  "h-6 max-w-[9.5rem] shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-[11px] font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+  "h-6 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-[10.5px] font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
 
 function resolveToastProgressPercent(data: ThreadToastData | undefined): number | null {
   if (typeof data?.progressPercent !== "number" || !Number.isFinite(data.progressPercent)) {
@@ -97,11 +97,44 @@ function CopyErrorButton({ text }: { text: string }) {
 function ToastIcon({ Icon }: { Icon: (typeof TOAST_ICONS)[keyof typeof TOAST_ICONS] }) {
   return (
     <div
-      className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/70 text-muted-foreground in-data-[type=error]:border-destructive/25 in-data-[type=error]:bg-destructive/10 in-data-[type=info]:border-info/25 in-data-[type=info]:bg-info/10 in-data-[type=success]:border-success/25 in-data-[type=success]:bg-success/10 in-data-[type=warning]:border-warning/25 in-data-[type=warning]:bg-warning/10 [&>svg]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+      className="mt-px inline-flex size-4.5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/70 text-muted-foreground in-data-[type=error]:border-destructive/25 in-data-[type=error]:bg-destructive/10 in-data-[type=info]:border-info/25 in-data-[type=info]:bg-info/10 in-data-[type=success]:border-success/25 in-data-[type=success]:bg-success/10 in-data-[type=warning]:border-warning/25 in-data-[type=warning]:bg-warning/10 [&>svg]:size-3 [&_svg]:pointer-events-none [&_svg]:shrink-0"
       data-slot="toast-icon"
     >
       <Icon className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=loading]:animate-spin in-data-[type=loading]:opacity-80 in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
     </div>
+  );
+}
+
+function ToastMessageContent({
+  action,
+  copyErrorText,
+  Icon,
+  progressPercent,
+}: {
+  action: ReactNode;
+  copyErrorText: string | null;
+  Icon: (typeof TOAST_ICONS)[keyof typeof TOAST_ICONS] | null;
+  progressPercent: number | null;
+}) {
+  return (
+    <>
+      <div className="flex min-w-0 gap-2">
+        {Icon ? <ToastIcon Icon={Icon} /> : null}
+
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex items-start justify-between gap-1.5">
+            <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
+            {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
+          </div>
+          <Toast.Description
+            className={TOAST_DESCRIPTION_CLASS_NAME}
+            data-slot="toast-description"
+          />
+          {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
+        </div>
+      </div>
+      {action ? <div className={cn("flex justify-start", Icon && "pl-6.5")}>{action}</div> : null}
+    </>
   );
 }
 
@@ -243,7 +276,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-50 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[22rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
+          "fixed z-50 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[20rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
           // Vertical positioning
           "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
@@ -348,36 +381,28 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
               >
-                <div className="flex min-w-0 flex-1 gap-2">
-                  {Icon ? <ToastIcon Icon={Icon} /> : null}
-
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <div className="flex items-start justify-between gap-1.5">
-                      <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
-                      {toast.type === "error" && typeof toast.description === "string" && (
-                        <CopyErrorButton text={toast.description} />
-                      )}
-                    </div>
-                    <Toast.Description
-                      className={TOAST_DESCRIPTION_CLASS_NAME}
-                      data-slot="toast-description"
-                    />
-                    {progressPercent !== null ? (
-                      <ToastProgressBar percent={progressPercent} />
-                    ) : null}
-                  </div>
-                </div>
-                {toast.actionProps && (
-                  <Toast.Action
-                    className={cn(
-                      buttonVariants({ size: "sm", variant: "outline" }),
-                      TOAST_ACTION_CLASS_NAME,
-                    )}
-                    data-slot="toast-action"
-                  >
-                    {toast.actionProps.children}
-                  </Toast.Action>
-                )}
+                <ToastMessageContent
+                  action={
+                    toast.actionProps ? (
+                      <Toast.Action
+                        className={cn(
+                          buttonVariants({ size: "sm", variant: "outline" }),
+                          TOAST_ACTION_CLASS_NAME,
+                        )}
+                        data-slot="toast-action"
+                      >
+                        {toast.actionProps.children}
+                      </Toast.Action>
+                    ) : null
+                  }
+                  copyErrorText={
+                    toast.type === "error" && typeof toast.description === "string"
+                      ? toast.description
+                      : null
+                  }
+                  Icon={Icon}
+                  progressPercent={progressPercent}
+                />
               </Toast.Content>
             </Toast.Root>
           );
@@ -438,36 +463,28 @@ function AnchoredToasts() {
                   </Toast.Content>
                 ) : (
                   <Toast.Content className={TOAST_CONTENT_CLASS_NAME}>
-                    <div className="flex min-w-0 flex-1 gap-2">
-                      {Icon ? <ToastIcon Icon={Icon} /> : null}
-
-                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <div className="flex items-start gap-1.5">
-                          <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
-                          {toast.type === "error" && typeof toast.description === "string" && (
-                            <CopyErrorButton text={toast.description} />
-                          )}
-                        </div>
-                        <Toast.Description
-                          className={TOAST_DESCRIPTION_CLASS_NAME}
-                          data-slot="toast-description"
-                        />
-                        {progressPercent !== null ? (
-                          <ToastProgressBar percent={progressPercent} />
-                        ) : null}
-                      </div>
-                    </div>
-                    {toast.actionProps && (
-                      <Toast.Action
-                        className={cn(
-                          buttonVariants({ size: "sm", variant: "outline" }),
-                          TOAST_ACTION_CLASS_NAME,
-                        )}
-                        data-slot="toast-action"
-                      >
-                        {toast.actionProps.children}
-                      </Toast.Action>
-                    )}
+                    <ToastMessageContent
+                      action={
+                        toast.actionProps ? (
+                          <Toast.Action
+                            className={cn(
+                              buttonVariants({ size: "sm", variant: "outline" }),
+                              TOAST_ACTION_CLASS_NAME,
+                            )}
+                            data-slot="toast-action"
+                          >
+                            {toast.actionProps.children}
+                          </Toast.Action>
+                        ) : null
+                      }
+                      copyErrorText={
+                        toast.type === "error" && typeof toast.description === "string"
+                          ? toast.description
+                          : null
+                      }
+                      Icon={Icon}
+                      progressPercent={progressPercent}
+                    />
                   </Toast.Content>
                 )}
               </Toast.Root>

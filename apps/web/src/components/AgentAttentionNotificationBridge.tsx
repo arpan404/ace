@@ -804,13 +804,13 @@ function useAgentAttentionNotificationBridgeComponent() {
     hasPromptedForPermissionRef.current = true;
     const toastId = toastManager.add({
       type: "info",
-      title: "Enable agent notifications",
-      description: `${APP_BASE_NAME} can alert you when agent work finishes or needs input while this window is in the background.`,
+      title: "Agent notifications",
+      description: `Get alerted when ${APP_BASE_NAME} finishes or needs input.`,
       data: {
         dismissAfterVisibleMs: PERMISSION_OFFER_DISMISS_MS,
       },
       actionProps: {
-        children: "Enable notifications",
+        children: "Enable",
         onClick: () => {
           resetPermissionOfferTracking();
           hasPromptedForPermissionRef.current = true;
@@ -825,7 +825,7 @@ function useAgentAttentionNotificationBridgeComponent() {
                 toastManager.add({
                   type: "success",
                   title: "Notifications enabled",
-                  description: `${APP_BASE_NAME} will now alert you when agent work finishes or needs input in the background.`,
+                  description: `${APP_BASE_NAME} will alert you when work needs attention.`,
                 });
                 return;
               }
@@ -836,7 +836,7 @@ function useAgentAttentionNotificationBridgeComponent() {
               toastManager.add({
                 type: "warning",
                 title: "Notifications not enabled",
-                description: "Notifications remain disabled for this session.",
+                description: "You can enable them later in settings.",
               });
             })
             .catch((error) => {

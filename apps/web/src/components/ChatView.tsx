@@ -118,7 +118,7 @@ import {
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import { shouldEscalateInterruptToSessionStop } from "../lib/chat/interruptFallback";
-import { BOTTOM_PANEL_SPRING_TRANSITION, PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
+import { PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
 import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -342,6 +342,11 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
   opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
   width: { duration: 0 },
   x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+} as const;
+const RIGHT_SIDE_PANEL_RESIZE_TRANSITION = {
+  opacity: { duration: 0 },
+  width: { duration: 0 },
+  x: { duration: 0 },
 } as const;
 const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
@@ -1332,6 +1337,7 @@ function useChatViewComponent({
   const [bottomPanelMode, setBottomPanelMode] = useState<DockPanelMode | null>(null);
   const [bottomPanelBrowserOpen, setBottomPanelBrowserOpen] = useState(false);
   const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
+  const [rightSidePanelResizing, setRightSidePanelResizing] = useState(false);
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<PanelTabOrderEntry[]>(() => [
     "summary",
     ...(rightSidePanelEditorOpen ? (["editor"] as const) : []),
@@ -6011,6 +6017,7 @@ function useChatViewComponent({
       }
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
+      setRightSidePanelResizing(true);
       rightSidePanelResizePointerIdRef.current = event.pointerId;
       rightSidePanelResizeStateRef.current = {
         headerElement: dockedRightSidePanelHeaderRef.current,
@@ -6119,6 +6126,7 @@ function useChatViewComponent({
       if (!didResizeRightSidePanelDuringDragRef.current) {
         clearResizablePanelWidth(resizeState?.panelElement ?? null);
         clearResizablePanelWidth(resizeState?.headerElement ?? null);
+        setRightSidePanelResizing(false);
         return;
       }
       didResizeRightSidePanelDuringDragRef.current = false;
@@ -6127,6 +6135,7 @@ function useChatViewComponent({
         window.requestAnimationFrame(() => {
           clearResizablePanelWidth(resizeState?.panelElement ?? null);
           clearResizablePanelWidth(resizeState?.headerElement ?? null);
+          setRightSidePanelResizing(false);
         });
       });
     };
@@ -6188,6 +6197,7 @@ function useChatViewComponent({
       clearResizablePanelWidth(rightPanelResizeState?.headerElement ?? null);
       rightSidePanelResizePointerIdRef.current = null;
       rightSidePanelResizeStateRef.current = null;
+      setRightSidePanelResizing(false);
       if (didResizeRightSidePanelDuringDragRef.current) {
         didResizeRightSidePanelDuringDragRef.current = false;
         syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
@@ -10122,7 +10132,9 @@ function useChatViewComponent({
           initial={{ width: 0, opacity: 0, x: 20 }}
           animate={{ width: dockedRightSidePanelWidth, opacity: 1, x: 0 }}
           exit={{ width: 0, opacity: 0, x: 20 }}
-          transition={PANEL_SPRING_TRANSITION}
+          transition={
+            rightSidePanelResizing ? RIGHT_SIDE_PANEL_RESIZE_TRANSITION : PANEL_SPRING_TRANSITION
+          }
         >
           <div className="relative h-full w-3 shrink-0" aria-hidden="true">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
@@ -10556,7 +10568,11 @@ function useChatViewComponent({
                     ? { width: 0, opacity: 0 }
                     : { width: 0, opacity: 0, x: 24 }
                 }
-                transition={PANEL_SPRING_TRANSITION}
+                transition={
+                  rightSidePanelResizing
+                    ? RIGHT_SIDE_PANEL_RESIZE_TRANSITION
+                    : PANEL_SPRING_TRANSITION
+                }
               >
                 {!rightSidePanelFullscreen ? (
                   <hr
@@ -10706,11 +10722,16 @@ function useChatViewComponent({
             <m.div
               key="thread-bottom-dock-panel"
               ref={bottomPanelElementRef}
-              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-background shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,opacity]"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: terminalState.terminalHeight + 48, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={BOTTOM_PANEL_SPRING_TRANSITION}
+              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-background shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,transform,opacity]"
+              initial={{ height: 0, opacity: 0, y: 14 }}
+              animate={{ height: "var(--bottom-panel-height)", opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: 10 }}
+              transition={PANEL_SPRING_TRANSITION}
+              style={
+                {
+                  "--bottom-panel-height": `${terminalState.terminalHeight + 48}px`,
+                } as NonNullable<ComponentProps<typeof m.div>["style"]>
+              }
             >
               <hr
                 aria-orientation="horizontal"
@@ -10719,13 +10740,7 @@ function useChatViewComponent({
                 className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-8 before:top-0 before:h-px before:bg-transparent before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border/65 hover:after:bg-foreground/4 focus-visible:before:bg-border/75 focus-visible:after:bg-foreground/5"
                 onPointerDown={handleBottomPanelResizePointerDown}
               />
-              <m.div
-                className="flex min-h-0 flex-1 transform-gpu flex-col overflow-hidden will-change-[transform,opacity]"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={PANEL_SPRING_TRANSITION}
-              >
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="flex h-12 shrink-0 items-stretch bg-card/80 shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
                   {bottomPanelTabStripNode}
                 </div>
@@ -10822,7 +10837,7 @@ function useChatViewComponent({
                     <RetainedBrowserInstances instances={bottomBrowserPanelInstances} />
                   ) : null}
                 </div>
-              </m.div>
+              </div>
             </m.div>
           ) : null}
         </AnimatePresence>
