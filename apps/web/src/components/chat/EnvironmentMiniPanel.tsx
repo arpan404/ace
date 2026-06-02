@@ -19,6 +19,14 @@ function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function EnvironmentSectionTitle({ children }: { children: string }) {
+  return (
+    <div className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/55">
+      {children}
+    </div>
+  );
+}
+
 export const EnvironmentMiniPanel = forwardRef<
   HTMLElement,
   {
@@ -77,7 +85,7 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "pointer-events-auto z-50 max-h-[calc(100vh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl backdrop-blur-xl",
+        "pointer-events-auto z-50 max-h-[calc(100vh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-2.5 text-popover-foreground shadow-2xl backdrop-blur-xl",
         props.layoutMode === "inline" ? "absolute top-3 right-3" : "fixed",
         props.layoutMode === "inline" ? "shadow-black/10" : "shadow-black/20",
       )}
@@ -88,8 +96,8 @@ export const EnvironmentMiniPanel = forwardRef<
       transition={PANEL_SPRING_TRANSITION}
       {...(props.style ? { style: props.style } : {})}
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-[13px] font-medium text-muted-foreground">Environment</h2>
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+        <h2 className="text-[12px] font-medium text-muted-foreground">Environment</h2>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -110,63 +118,74 @@ export const EnvironmentMiniPanel = forwardRef<
       </div>
 
       <div className="space-y-1">
-        <button
-          type="button"
-          className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
-          disabled={!props.isGitRepo}
-          onClick={props.onOpenDiffPanel}
-        >
-          <SlidersHorizontalIcon className="size-3.5 text-muted-foreground" />
-          <span className="min-w-0 flex-1">Changes</span>
-          {hasChanges && workspaceChangeStat ? (
-            <span className="inline-flex items-center gap-1 font-medium tabular-nums">
-              {workspaceChangeStat.additions > 0 ? (
-                <span className="text-success">
-                  +{formatDiffCount(workspaceChangeStat.additions)}
-                </span>
-              ) : null}
-              {workspaceChangeStat.deletions > 0 ? (
-                <span className="text-destructive">
-                  -{formatDiffCount(workspaceChangeStat.deletions)}
-                </span>
-              ) : null}
-            </span>
-          ) : (
-            <span className="text-[12px] text-muted-foreground">Clean</span>
-          )}
-        </button>
-        {props.activePlanProgress ? (
+        <section>
           <button
             type="button"
-            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
-            onClick={props.onOpenSummaryPanel}
+            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
+            disabled={!props.isGitRepo}
+            onClick={props.onOpenDiffPanel}
           >
-            <ClipboardListIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1">Plan</span>
-            <span className="font-medium tabular-nums text-foreground">
-              {String(props.activePlanProgress.completed).padStart(planProgressWidth, "0")}/
-              {String(props.activePlanProgress.total).padStart(planProgressWidth, "0")}
-            </span>
+            <SlidersHorizontalIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1">Changes</span>
+            {hasChanges && workspaceChangeStat ? (
+              <span className="inline-flex items-center gap-1 font-medium tabular-nums">
+                {workspaceChangeStat.additions > 0 ? (
+                  <span className="text-success">
+                    +{formatDiffCount(workspaceChangeStat.additions)}
+                  </span>
+                ) : null}
+                {workspaceChangeStat.deletions > 0 ? (
+                  <span className="text-destructive">
+                    -{formatDiffCount(workspaceChangeStat.deletions)}
+                  </span>
+                ) : null}
+              </span>
+            ) : (
+              <span className="text-[11px] text-muted-foreground">Clean</span>
+            )}
           </button>
-        ) : null}
-        {activeTodoProgress ? (
-          <button
-            type="button"
-            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
-            onClick={props.onOpenSummaryPanel}
-          >
-            <ListTodoIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">
-              {activeTodoProgress.currentStep ?? "Todo"}
-            </span>
-            <span className="font-medium tabular-nums text-foreground">
-              {String(activeTodoProgress.currentIndex).padStart(todoProgressWidth, "0")}/
-              {String(activeTodoProgress.total).padStart(todoProgressWidth, "0")}
-            </span>
-          </button>
-        ) : null}
+        </section>
+
         {props.branchToolbarProps ? (
-          <BranchToolbar {...props.branchToolbarProps} presentation="environment" />
+          <section>
+            <BranchToolbar {...props.branchToolbarProps} presentation="environment" />
+          </section>
+        ) : null}
+
+        {props.activePlanProgress || activeTodoProgress ? (
+          <section className="space-y-1 border-t border-border/45 pt-1.5">
+            <EnvironmentSectionTitle>Activity</EnvironmentSectionTitle>
+            {props.activePlanProgress ? (
+              <button
+                type="button"
+                className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+                onClick={props.onOpenSummaryPanel}
+              >
+                <ClipboardListIcon className="size-3.5 text-muted-foreground" />
+                <span className="min-w-0 flex-1">Plan</span>
+                <span className="font-medium tabular-nums text-foreground">
+                  {String(props.activePlanProgress.completed).padStart(planProgressWidth, "0")}/
+                  {String(props.activePlanProgress.total).padStart(planProgressWidth, "0")}
+                </span>
+              </button>
+            ) : null}
+            {activeTodoProgress ? (
+              <button
+                type="button"
+                className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+                onClick={props.onOpenSummaryPanel}
+              >
+                <ListTodoIcon className="size-3.5 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">
+                  {activeTodoProgress.currentStep ?? "Todo"}
+                </span>
+                <span className="font-medium tabular-nums text-foreground">
+                  {String(activeTodoProgress.currentIndex).padStart(todoProgressWidth, "0")}/
+                  {String(activeTodoProgress.total).padStart(todoProgressWidth, "0")}
+                </span>
+              </button>
+            ) : null}
+          </section>
         ) : null}
       </div>
 
@@ -183,8 +202,8 @@ export const EnvironmentMiniPanel = forwardRef<
       ) : null}
 
       {props.activeProjectScripts ? (
-        <div className="mt-3 border-t border-border/60 pt-2.5">
-          <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">Actions</div>
+        <div className="mt-1 border-t border-border/45 pt-1.5">
+          <EnvironmentSectionTitle>Actions</EnvironmentSectionTitle>
           <ProjectScriptsControl
             scripts={props.activeProjectScripts}
             keybindings={props.keybindings}
@@ -198,14 +217,14 @@ export const EnvironmentMiniPanel = forwardRef<
       ) : null}
 
       {activeSubagentThreads.length > 0 ? (
-        <div className="mt-3 border-t border-border/60 pt-2.5">
-          <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">Subagents</div>
+        <div className="mt-1 border-t border-border/45 pt-1.5">
+          <EnvironmentSectionTitle>Subagents</EnvironmentSectionTitle>
           <div className="space-y-1">
             {activeSubagentThreads.map((thread) => (
               <button
                 key={thread.id}
                 type="button"
-                className="group/subagent flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="group/subagent flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
                 onClick={() => {
                   props.onSelectSubagentThread(thread.id);
                   props.onSubagentPanelOpen();

@@ -51,7 +51,7 @@ function ToastProgressBar({ percent }: { percent: number }) {
   return (
     <progress
       aria-label={`Progress ${percent}%`}
-      className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
+      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/70 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/70 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
       max={100}
       value={percent}
     />
@@ -81,6 +81,17 @@ function CopyErrorButton({ text }: { text: string }) {
       </TooltipTrigger>
       <TooltipPopup side="top">{isCopied ? "Copied" : "Copy error"}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+function ToastIcon({ Icon }: { Icon: (typeof TOAST_ICONS)[keyof typeof TOAST_ICONS] }) {
+  return (
+    <div
+      className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.045] text-muted-foreground [&>svg]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+      data-slot="toast-icon"
+    >
+      <Icon className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=loading]:animate-spin in-data-[type=loading]:opacity-80 in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
+    </div>
   );
 }
 
@@ -191,7 +202,7 @@ function ThreadToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
+function ToastProvider({ children, position = "bottom-right", ...props }: ToastProviderProps) {
   return (
     <Toast.Provider toastManager={toastManager} {...props}>
       {children}
@@ -222,7 +233,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-50 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-90 [--toast-header-offset:52px] [--toast-inset:--spacing(4)] sm:[--toast-inset:--spacing(8)]",
+          "fixed z-50 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[22rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
           // Vertical positioning
           "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
@@ -250,7 +261,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
           return (
             <Toast.Root
               className={cn(
-                "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) w-full select-none rounded-lg border bg-popover text-popover-foreground [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) w-full select-none overflow-hidden rounded-lg border border-border/55 bg-popover/94 text-popover-foreground shadow-[0_18px_56px_rgba(0,0,0,0.32)] outline outline-1 outline-foreground/[0.025] backdrop-blur-xl [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
                 "data-[position*=left]:right-auto data-[position*=left]:left-0",
@@ -283,7 +294,8 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                 "data-[position*=top]:data-[position*=right]:data-starting-style:transform-[translateX(calc(100%+var(--toast-inset)))_translateY(var(--toast-calc-offset-y))]",
                 "data-ending-style:opacity-0",
                 // Ending animations (direction-aware)
-                "data-ending-style:not-data-limited:not-data-swipe-direction:transform-[translateY(calc(100%+var(--toast-inset)))]",
+                "data-[position*=top]:data-ending-style:not-data-limited:not-data-swipe-direction:transform-[translateY(calc(-100%-var(--toast-inset)))]",
+                "data-[position*=bottom]:data-ending-style:not-data-limited:not-data-swipe-direction:transform-[translateY(calc(100%+var(--toast-inset)))]",
                 "data-[position*=top]:data-[position*=right]:data-ending-style:not-data-limited:not-data-swipe-direction:transform-[translateX(calc(100%+var(--toast-inset)))_translateY(var(--toast-calc-offset-y))]",
                 "data-ending-style:data-[swipe-direction=left]:transform-[translateX(calc(var(--toast-swipe-movement-x)-100%-var(--toast-inset)))_translateY(var(--toast-calc-offset-y))]",
                 "data-ending-style:data-[swipe-direction=right]:transform-[translateX(calc(var(--toast-swipe-movement-x)+100%+var(--toast-inset)))_translateY(var(--toast-calc-offset-y))]",
@@ -318,25 +330,18 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
               />
               <Toast.Content
                 className={cn(
-                  "pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-expanded:opacity-100",
+                  "pointer-events-auto flex items-start justify-between gap-2.5 overflow-hidden px-3 py-2.5 text-[13px] transition-opacity duration-250 data-expanded:opacity-100",
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
               >
-                <div className="flex min-w-0 flex-1 gap-2">
-                  {Icon && (
-                    <div
-                      className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-                      data-slot="toast-icon"
-                    >
-                      <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
-                    </div>
-                  )}
+                <div className="flex min-w-0 flex-1 gap-2.5">
+                  {Icon ? <ToastIcon Icon={Icon} /> : null}
 
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <div className="flex items-center justify-between gap-1">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex items-start justify-between gap-1.5">
                       <Toast.Title
-                        className="min-w-0 break-words font-medium"
+                        className="min-w-0 break-words font-medium leading-5 text-foreground/94"
                         data-slot="toast-title"
                       />
                       {toast.type === "error" && typeof toast.description === "string" && (
@@ -344,7 +349,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                       )}
                     </div>
                     <Toast.Description
-                      className="min-w-0 select-text break-words text-muted-foreground"
+                      className="min-w-0 select-text break-words text-[12px] leading-4 text-muted-foreground/78"
                       data-slot="toast-description"
                     />
                     {progressPercent !== null ? (
@@ -354,7 +359,10 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                 </div>
                 {toast.actionProps && (
                   <Toast.Action
-                    className={cn(buttonVariants({ size: "xs" }), "shrink-0")}
+                    className={cn(
+                      buttonVariants({ size: "sm", variant: "outline" }),
+                      "mt-0.5 h-6 shrink-0 border-border/55 bg-foreground/[0.045] px-2.5 text-[11px] text-foreground/90 hover:bg-foreground/[0.075]",
+                    )}
                     data-slot="toast-action"
                   >
                     {toast.actionProps.children}
@@ -408,8 +416,10 @@ function AnchoredToasts() {
             >
               <Toast.Root
                 className={cn(
-                  "relative text-balance border bg-popover text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
-                  tooltipStyle ? "rounded-md" : "rounded-lg",
+                  "relative text-balance border text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+                  tooltipStyle
+                    ? "rounded-md bg-popover"
+                    : "overflow-hidden rounded-lg border-border/55 bg-popover/94 shadow-[0_18px_56px_rgba(0,0,0,0.32)] outline outline-1 outline-foreground/[0.025] backdrop-blur-xl",
                 )}
                 data-slot="toast-popup"
                 toast={toast}
@@ -419,21 +429,14 @@ function AnchoredToasts() {
                     <Toast.Title data-slot="toast-title" />
                   </Toast.Content>
                 ) : (
-                  <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm">
-                    <div className="flex min-w-0 flex-1 gap-2">
-                      {Icon && (
-                        <div
-                          className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-                          data-slot="toast-icon"
-                        >
-                          <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
-                        </div>
-                      )}
+                  <Toast.Content className="pointer-events-auto flex items-start justify-between gap-2.5 overflow-hidden px-3 py-2.5 text-[13px]">
+                    <div className="flex min-w-0 flex-1 gap-2.5">
+                      {Icon ? <ToastIcon Icon={Icon} /> : null}
 
-                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <div className="flex items-center gap-1">
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <div className="flex items-start gap-1.5">
                           <Toast.Title
-                            className="min-w-0 break-words font-medium"
+                            className="min-w-0 break-words font-medium leading-5 text-foreground/94"
                             data-slot="toast-title"
                           />
                           {toast.type === "error" && typeof toast.description === "string" && (
@@ -441,7 +444,7 @@ function AnchoredToasts() {
                           )}
                         </div>
                         <Toast.Description
-                          className="min-w-0 select-text break-words text-muted-foreground"
+                          className="min-w-0 select-text break-words text-[12px] leading-4 text-muted-foreground/78"
                           data-slot="toast-description"
                         />
                         {progressPercent !== null ? (
@@ -451,7 +454,10 @@ function AnchoredToasts() {
                     </div>
                     {toast.actionProps && (
                       <Toast.Action
-                        className={cn(buttonVariants({ size: "xs" }), "shrink-0")}
+                        className={cn(
+                          buttonVariants({ size: "sm", variant: "outline" }),
+                          "mt-0.5 h-6 shrink-0 border-border/55 bg-foreground/[0.045] px-2.5 text-[11px] text-foreground/90 hover:bg-foreground/[0.075]",
+                        )}
                         data-slot="toast-action"
                       >
                         {toast.actionProps.children}

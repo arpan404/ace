@@ -1042,7 +1042,7 @@ function useEnvironmentGitSection({
             </MenuPopup>
           </Menu>
           {gitStatusForActions?.branch === null ? (
-            <p className="px-2 text-xs leading-5 text-warning">
+            <p className="px-2 text-[11px] leading-4 text-warning">
               Detached HEAD: create and checkout a branch to enable push and PR actions.
             </p>
           ) : null}
@@ -1051,7 +1051,7 @@ function useEnvironmentGitSection({
           !gitStatusForActions.hasWorkingTreeChanges &&
           gitStatusForActions.behindCount > 0 &&
           gitStatusForActions.aheadCount === 0 ? (
-            <p className="px-2 text-xs leading-5 text-warning">
+            <p className="px-2 text-[11px] leading-4 text-warning">
               Behind upstream. Pull/rebase first.
             </p>
           ) : null}

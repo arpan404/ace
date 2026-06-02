@@ -99,6 +99,21 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "terminalFocus",
       context: TERMINAL_FOCUS_CONTEXT,
     },
+    "terminal.tab.new": {
+      category: "Terminal",
+      label: "New terminal tab",
+      description: "Create a new terminal tab in the focused panel.",
+      defaultShortcut: {
+        key: "j",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: true,
+      },
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "terminal.close": {
       category: "Terminal",
       label: "Close terminal",

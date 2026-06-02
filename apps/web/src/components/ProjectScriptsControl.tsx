@@ -7,6 +7,7 @@ import {
   PlayIcon,
   PlusIcon,
   SettingsIcon,
+  TerminalIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
@@ -50,26 +51,20 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
-  HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME,
-  HEADER_ACTION_DIALOG_HEADER_CLASS_NAME,
-  HEADER_ACTION_DIALOG_PANEL_CLASS_NAME,
   HEADER_ACTION_DIALOG_POPUP_CLASS_NAME,
-  HEADER_ACTION_FIELD_CARD_CLASS_NAME,
   HEADER_ACTION_FIELD_CONTROL_CLASS_NAME,
   HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
-  HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
 } from "./thread/topBarClusterStyles";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
-  { id: "play", label: "Play" },
+  { id: "play", label: "Run" },
   { id: "test", label: "Test" },
   { id: "lint", label: "Lint" },
-  { id: "configure", label: "Configure" },
+  { id: "configure", label: "Setup" },
   { id: "build", label: "Build" },
   { id: "debug", label: "Debug" },
 ];
@@ -86,7 +81,7 @@ function ScriptIcon({
   if (icon === "configure") return <WrenchIcon className={className} />;
   if (icon === "build") return <HammerIcon className={className} />;
   if (icon === "debug") return <BugIcon className={className} />;
-  return <PlayIcon className={className} />;
+  return <TerminalIcon className={className} />;
 }
 
 export interface NewProjectScriptInput {
@@ -114,7 +109,6 @@ type ProjectScriptDialogState = {
   name: string;
   command: string;
   icon: ProjectScriptIcon;
-  iconPickerOpen: boolean;
   runOnWorktreeCreate: boolean;
   env: string;
   keybinding: string;
@@ -128,7 +122,6 @@ type ProjectScriptDialogAction =
   | { type: "set-name"; name: string }
   | { type: "set-command"; command: string }
   | { type: "set-icon"; icon: ProjectScriptIcon }
-  | { type: "set-icon-picker-open"; iconPickerOpen: boolean }
   | { type: "set-run-on-worktree-create"; runOnWorktreeCreate: boolean }
   | { type: "set-env"; env: string }
   | { type: "set-keybinding"; keybinding: string }
@@ -154,7 +147,6 @@ const EMPTY_PROJECT_SCRIPT_DIALOG_STATE: ProjectScriptDialogState = {
   name: "",
   command: "",
   icon: "play",
-  iconPickerOpen: false,
   runOnWorktreeCreate: false,
   env: "",
   keybinding: "",
@@ -181,10 +173,6 @@ function projectScriptDialogStateReducer(
       return state.command === action.command ? state : { ...state, command: action.command };
     case "set-icon":
       return state.icon === action.icon ? state : { ...state, icon: action.icon };
-    case "set-icon-picker-open":
-      return state.iconPickerOpen === action.iconPickerOpen
-        ? state
-        : { ...state, iconPickerOpen: action.iconPickerOpen };
     case "set-run-on-worktree-create":
       return state.runOnWorktreeCreate === action.runOnWorktreeCreate
         ? state
@@ -216,22 +204,18 @@ function projectScriptDialogStateReducer(
         name: action.name,
         command: action.command,
         icon: action.icon,
-        iconPickerOpen: false,
         runOnWorktreeCreate: action.runOnWorktreeCreate,
         env: action.env,
         keybinding: action.keybinding,
         validationError: null,
       };
     case "close-dialog":
-      return state.dialogOpen || state.iconPickerOpen
-        ? { ...state, dialogOpen: false, iconPickerOpen: false }
-        : state;
+      return state.dialogOpen ? { ...state, dialogOpen: false } : state;
     case "reset-dialog-form":
       return state.editingScriptId === null &&
         state.name === "" &&
         state.command === "" &&
         state.icon === "play" &&
-        state.iconPickerOpen === false &&
         state.runOnWorktreeCreate === false &&
         state.env === "" &&
         state.keybinding === "" &&
@@ -243,7 +227,6 @@ function projectScriptDialogStateReducer(
             name: "",
             command: "",
             icon: "play",
-            iconPickerOpen: false,
             runOnWorktreeCreate: false,
             env: "",
             keybinding: "",
@@ -261,7 +244,6 @@ function ProjectScriptEditorDialog(props: {
   dialogOpen: boolean;
   dispatchDialogState: React.Dispatch<ProjectScriptDialogAction>;
   icon: ProjectScriptIcon;
-  iconPickerOpen: boolean;
   isEditing: boolean;
   keybinding: string;
   name: string;
@@ -282,9 +264,6 @@ function ProjectScriptEditorDialog(props: {
             return;
           }
           props.dispatchDialogState({ type: "set-dialog-open", dialogOpen: open });
-          if (!open) {
-            props.dispatchDialogState({ type: "set-icon-picker-open", iconPickerOpen: false });
-          }
         }}
         onOpenChangeComplete={(open) => {
           if (open) return;
@@ -292,71 +271,26 @@ function ProjectScriptEditorDialog(props: {
         }}
         open={props.dialogOpen}
       >
-        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-2xl`}>
-          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
-            <DialogTitle>{props.isEditing ? "Edit action" : "Add action"}</DialogTitle>
-            <DialogDescription className="max-w-xl">
-              Actions are project-scoped commands you can run from the environment panel or
-              keybindings.
+        <DialogPopup
+          className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} w-[min(44rem,calc(100vw-1.5rem))] max-w-none`}
+        >
+          <DialogHeader className="border-b border-border/35 px-4 py-3 sm:px-5">
+            <DialogTitle className="text-[17px] leading-6">
+              {props.isEditing ? "Edit action" : "Add action"}
+            </DialogTitle>
+            <DialogDescription className="text-[13px] leading-5 text-muted-foreground/70">
+              Project command available from the environment panel and shortcuts.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
-            <form id={props.addScriptFormId} className="space-y-4" onSubmit={props.submitAddScript}>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-name" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Name
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Popover
-                    onOpenChange={(open) =>
-                      props.dispatchDialogState({
-                        type: "set-icon-picker-open",
-                        iconPickerOpen: open,
-                      })
-                    }
-                    open={props.iconPickerOpen}
-                  >
-                    <PopoverTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="size-9 shrink-0 rounded-xl border-border/55 bg-background/72 shadow-none hover:bg-accent active:bg-accent/80 data-pressed:bg-accent"
-                          aria-label="Choose icon"
-                        />
-                      }
-                    >
-                      <ScriptIcon icon={props.icon} className="size-4.5" />
-                    </PopoverTrigger>
-                    <PopoverPopup align="start" className="border-border/60 bg-popover/96 p-2">
-                      <div className="grid grid-cols-3 gap-2">
-                        {SCRIPT_ICONS.map((entry) => {
-                          const isSelected = entry.id === props.icon;
-                          return (
-                            <button
-                              key={entry.id}
-                              type="button"
-                              className={`relative flex flex-col items-center gap-2 rounded-lg border px-2 py-2 text-xs transition-colors ${
-                                isSelected
-                                  ? "border-primary/50 bg-primary/10 text-foreground"
-                                  : "border-border/50 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
-                              }`}
-                              onClick={() => {
-                                props.dispatchDialogState({ type: "set-icon", icon: entry.id });
-                                props.dispatchDialogState({
-                                  type: "set-icon-picker-open",
-                                  iconPickerOpen: false,
-                                });
-                              }}
-                            >
-                              <ScriptIcon icon={entry.id} className="size-4" />
-                              <span>{entry.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </PopoverPopup>
-                  </Popover>
+          <DialogPanel className="px-4 py-3.5 sm:px-5">
+            <form
+              id={props.addScriptFormId}
+              className="divide-y divide-border/30"
+              onSubmit={props.submitAddScript}
+            >
+              <div className="grid gap-3 pb-4 sm:grid-cols-[minmax(0,1fr)_16rem]">
+                <label className="space-y-1.5">
+                  <span className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Name</span>
                   <Input
                     id="script-name"
                     placeholder="Test"
@@ -366,92 +300,135 @@ function ProjectScriptEditorDialog(props: {
                       props.dispatchDialogState({ type: "set-name", name: event.target.value })
                     }
                   />
+                </label>
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="script-keybinding"
+                    className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}
+                  >
+                    Keybinding
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="script-keybinding"
+                      placeholder="Press shortcut"
+                      value={props.keybinding}
+                      className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} pr-9`}
+                      readOnly
+                      onKeyDown={props.captureKeybinding}
+                    />
+                    {props.keybinding ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute top-1/2 right-1 size-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                        aria-label="Clear keybinding"
+                        onClick={() =>
+                          props.dispatchDialogState({ type: "set-keybinding", keybinding: "" })
+                        }
+                      >
+                        <XIcon className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
+                <fieldset className="space-y-2 sm:col-span-2">
+                  <legend className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Type</legend>
+                  <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                    {SCRIPT_ICONS.map((entry) => {
+                      const isSelected = entry.id === props.icon;
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          className={`group flex h-9 items-center justify-center gap-1.5 rounded-[var(--control-radius)] border px-2 text-[12px] transition-colors ${
+                            isSelected
+                              ? "border-foreground/18 bg-foreground/[0.08] text-foreground"
+                              : "border-border/35 bg-transparent text-muted-foreground/78 hover:border-border/55 hover:bg-foreground/[0.045] hover:text-foreground"
+                          }`}
+                          aria-pressed={isSelected}
+                          onClick={() =>
+                            props.dispatchDialogState({ type: "set-icon", icon: entry.id })
+                          }
+                        >
+                          <ScriptIcon
+                            icon={entry.id}
+                            className={`size-3.5 ${
+                              isSelected
+                                ? "text-foreground"
+                                : "text-muted-foreground/70 group-hover:text-foreground"
+                            }`}
+                          />
+                          <span className="truncate">{entry.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Keybinding
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="script-keybinding"
-                    placeholder="Press shortcut"
-                    value={props.keybinding}
-                    className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} pr-9`}
-                    readOnly
-                    onKeyDown={props.captureKeybinding}
+              <div className="space-y-3 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="script-command" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                    Command
+                  </Label>
+                  <Textarea
+                    id="script-command"
+                    placeholder="bun test"
+                    value={props.command}
+                    className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-24 font-mono text-[13px] leading-5`}
+                    onChange={(event) =>
+                      props.dispatchDialogState({
+                        type: "set-command",
+                        command: event.target.value,
+                      })
+                    }
                   />
-                  {props.keybinding ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute top-1/2 right-1 size-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label="Clear keybinding"
-                      onClick={() =>
-                        props.dispatchDialogState({ type: "set-keybinding", keybinding: "" })
-                      }
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  ) : null}
                 </div>
-                <p className="text-xs text-muted-foreground">Press a shortcut to capture it.</p>
+                <div className="flex min-h-9 items-center justify-between gap-3 rounded-[var(--control-radius)] border border-border/35 bg-foreground/[0.025] px-3 text-[13px]">
+                  <Label htmlFor="script-run-on-worktree-create" className="text-foreground/84">
+                    Run after creating a worktree
+                  </Label>
+                  <Switch
+                    id="script-run-on-worktree-create"
+                    checked={props.runOnWorktreeCreate}
+                    onCheckedChange={(checked) =>
+                      props.dispatchDialogState({
+                        type: "set-run-on-worktree-create",
+                        runOnWorktreeCreate: Boolean(checked),
+                      })
+                    }
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-command" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Command
-                </Label>
-                <Textarea
-                  id="script-command"
-                  placeholder="bun test"
-                  value={props.command}
-                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-28 font-mono text-[13px]`}
-                  onChange={(event) =>
-                    props.dispatchDialogState({ type: "set-command", command: event.target.value })
-                  }
-                />
-              </div>
-              <div
-                className={`${HEADER_ACTION_FIELD_CARD_CLASS_NAME} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
-              >
-                <Label htmlFor="script-run-on-worktree-create">
-                  Run automatically on worktree creation
-                </Label>
-                <Switch
-                  id="script-run-on-worktree-create"
-                  checked={props.runOnWorktreeCreate}
-                  onCheckedChange={(checked) =>
-                    props.dispatchDialogState({
-                      type: "set-run-on-worktree-create",
-                      runOnWorktreeCreate: Boolean(checked),
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-env" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
-                  Environment variables
-                </Label>
+              <div className="space-y-1.5 pt-4">
+                <div className="flex items-end justify-between gap-3">
+                  <Label htmlFor="script-env" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                    Environment
+                  </Label>
+                  <span className="text-[11px] text-muted-foreground/64">KEY=value</span>
+                </div>
                 <Textarea
                   id="script-env"
                   placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
                   value={props.env}
-                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-24 font-mono text-[13px]`}
+                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-20 font-mono text-[13px] leading-5`}
                   onChange={(event) =>
                     props.dispatchDialogState({ type: "set-env", env: event.target.value })
                   }
                 />
-                <p className="text-xs text-muted-foreground">
-                  Optional KEY=value lines. These are passed when the action runs.
+                <p className="text-[12px] text-muted-foreground/68">
+                  Optional variables passed only to this action.
                 </p>
+                {props.validationError && (
+                  <p className="rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2 text-[13px] text-destructive">
+                    {props.validationError}
+                  </p>
+                )}
               </div>
-              {props.validationError && (
-                <p className="text-sm text-destructive">{props.validationError}</p>
-              )}
             </form>
           </DialogPanel>
-          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
+          <DialogFooter className="border-t border-border/40 bg-background/36 px-4 py-3 sm:px-5">
             {props.isEditing && (
               <Button
                 type="button"
@@ -526,7 +503,6 @@ export default function ProjectScriptsControl({
     name,
     command,
     icon,
-    iconPickerOpen,
     runOnWorktreeCreate,
     env,
     keybinding,
@@ -716,7 +692,6 @@ export default function ProjectScriptsControl({
         dialogOpen={dialogOpen}
         dispatchDialogState={dispatchDialogState}
         icon={icon}
-        iconPickerOpen={iconPickerOpen}
         isEditing={isEditing}
         keybinding={keybinding}
         name={name}
