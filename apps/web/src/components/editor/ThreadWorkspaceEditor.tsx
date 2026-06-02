@@ -1778,17 +1778,31 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       trimmedCodeSearchQuery !== debouncedCodeSearchQuery) ||
     codeSearchResultsQuery.isPending ||
     codeSearchResultsQuery.isFetching;
-  const visibleRecentCodeSearches = useMemo(
-    () =>
-      recentCodeSearches
-        .map((query) => query.trim())
-        .filter((query, index, queries) => query.length >= 2 && queries.indexOf(query) === index)
-        .slice(0, WORKSPACE_CODE_SEARCH_RECENT_LIMIT),
-    [recentCodeSearches],
-  );
+  const visibleRecentCodeSearches = useMemo(() => {
+    const seenQueries = new Set<string>();
+    const visibleQueries: string[] = [];
+    for (const query of recentCodeSearches) {
+      const trimmedQuery = query.trim();
+      const normalizedQuery = trimmedQuery.toLowerCase();
+      if (trimmedQuery.length < 2 || seenQueries.has(normalizedQuery)) {
+        continue;
+      }
+      seenQueries.add(normalizedQuery);
+      visibleQueries.push(trimmedQuery);
+      if (visibleQueries.length >= WORKSPACE_CODE_SEARCH_RECENT_LIMIT) {
+        break;
+      }
+    }
+    return visibleQueries;
+  }, [recentCodeSearches]);
 
   useEffect(() => {
-    if (sidebarMode !== "search" || debouncedCodeSearchQuery.length < 2 || codeSearchBusy) {
+    if (
+      sidebarMode !== "search" ||
+      debouncedCodeSearchQuery.length < 2 ||
+      codeSearchBusy ||
+      codeSearchResultCount === 0
+    ) {
       return;
     }
 
@@ -1806,7 +1820,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ? current
         : next;
     });
-  }, [codeSearchBusy, debouncedCodeSearchQuery, setRecentCodeSearches, sidebarMode]);
+  }, [
+    codeSearchBusy,
+    codeSearchResultCount,
+    debouncedCodeSearchQuery,
+    setRecentCodeSearches,
+    sidebarMode,
+  ]);
 
   useEffect(() => {
     if (treeEntries.length === 0) {
@@ -3988,55 +4008,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   ) : null}
                   <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
                     {trimmedCodeSearchQuery.length < 2 ? (
-                      <div className="flex min-h-full flex-col justify-end px-2.5 py-3">
+                      <div className="flex min-h-full flex-col px-2.5 pt-2 pb-3">
                         {visibleRecentCodeSearches.length > 0 ? (
-                          <div className="space-y-3">
-                            <div className="space-y-1.5">
-                              <div className="px-1 text-[10px] font-medium text-muted-foreground/52">
-                                Recent searches
-                              </div>
-                              <div className="space-y-0.5">
-                                {visibleRecentCodeSearches.map((query) => (
-                                  <button
-                                    key={query}
-                                    type="button"
-                                    className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/76 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
-                                    onClick={() => handleCodeSearchExampleClick(query)}
-                                  >
-                                    {query}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="space-y-1.5">
-                              <div className="px-1 text-[10px] font-medium text-muted-foreground/42">
-                                Examples
-                              </div>
-                              <div className="space-y-0.5">
-                                {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
-                                  <button
-                                    key={query}
-                                    type="button"
-                                    className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/56 transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
-                                    onClick={() => handleCodeSearchExampleClick(query)}
-                                  >
-                                    {query}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
                           <div className="space-y-1.5">
-                            <div className="px-1 text-[10px] font-medium text-muted-foreground/52">
-                              Examples
+                            <div className="px-1 text-[11px] font-medium text-muted-foreground/68">
+                              Recent searches
                             </div>
-                            <div className="space-y-0.5">
-                              {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
+                            <div className="space-y-px">
+                              {visibleRecentCodeSearches.map((query) => (
                                 <button
                                   key={query}
                                   type="button"
-                                  className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/72 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                  className="block w-full truncate rounded px-1 py-1 text-left text-[12px] leading-5 font-medium text-foreground/78 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
                                   onClick={() => handleCodeSearchExampleClick(query)}
                                 >
                                   {query}
@@ -4044,7 +4027,25 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               ))}
                             </div>
                           </div>
-                        )}
+                        ) : null}
+                        <div className="min-h-6 flex-1" />
+                        <div className="space-y-1.5">
+                          <div className="px-1 text-[10px] font-medium text-muted-foreground/52">
+                            Examples
+                          </div>
+                          <div className="space-y-0.5">
+                            {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
+                              <button
+                                key={query}
+                                type="button"
+                                className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/72 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                onClick={() => handleCodeSearchExampleClick(query)}
+                              >
+                                {query}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-2 py-0.5">
