@@ -9,7 +9,6 @@ import {
   ClipboardIcon,
   DatabaseIcon,
   FolderIcon,
-  GlobeIcon,
   KeyRoundIcon,
   MapPinIcon,
   MicIcon,
@@ -28,6 +27,7 @@ import { Button } from "../ui/button";
 import {
   Dialog,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
@@ -38,31 +38,108 @@ import { toastManager } from "../ui/toast";
 const PERMISSION_META: Record<
   DesktopBrowserPermission,
   {
+    description: string;
     icon: ComponentType<{ className?: string }>;
     label: string;
   }
 > = {
-  camera: { label: "Camera", icon: CameraIcon },
-  microphone: { label: "Microphone", icon: MicIcon },
-  media: { label: "Camera and mic", icon: CameraIcon },
-  clipboard: { label: "Clipboard", icon: ClipboardIcon },
-  displayCapture: { label: "Screen", icon: ScreenShareIcon },
-  fileSystem: { label: "Files", icon: FolderIcon },
-  fullscreen: { label: "Fullscreen", icon: GlobeIcon },
-  geolocation: { label: "Location", icon: MapPinIcon },
-  hid: { label: "HID", icon: KeyRoundIcon },
-  idleDetection: { label: "Idle", icon: WorkflowIcon },
-  keyboardLock: { label: "Keyboard", icon: WorkflowIcon },
-  midi: { label: "MIDI", icon: WorkflowIcon },
-  notifications: { label: "Notifications", icon: BellIcon },
-  openExternal: { label: "External links", icon: GlobeIcon },
-  pointerLock: { label: "Pointer lock", icon: WorkflowIcon },
-  serial: { label: "Serial", icon: WorkflowIcon },
-  speakerSelection: { label: "Speaker", icon: WorkflowIcon },
-  storageAccess: { label: "Storage", icon: DatabaseIcon },
-  topLevelStorageAccess: { label: "Top storage", icon: DatabaseIcon },
-  usb: { label: "USB", icon: UsbIcon },
-  windowManagement: { label: "Windows", icon: GlobeIcon },
+  camera: { label: "Camera", description: "Use this computer's camera.", icon: CameraIcon },
+  microphone: {
+    label: "Microphone",
+    description: "Use this computer's microphone.",
+    icon: MicIcon,
+  },
+  media: {
+    label: "Camera and microphone",
+    description: "Use camera and audio together.",
+    icon: CameraIcon,
+  },
+  clipboard: {
+    label: "Clipboard",
+    description: "Read text or images copied on this computer.",
+    icon: ClipboardIcon,
+  },
+  displayCapture: {
+    label: "Screen sharing",
+    description: "Capture a window, screen, or browser tab.",
+    icon: ScreenShareIcon,
+  },
+  fileSystem: {
+    label: "File access",
+    description: "Open local files selected from the browser.",
+    icon: FolderIcon,
+  },
+  fullscreen: {
+    label: "Fullscreen",
+    description: "Fill the display with this page.",
+    icon: ScreenShareIcon,
+  },
+  geolocation: {
+    label: "Location",
+    description: "Use approximate device location.",
+    icon: MapPinIcon,
+  },
+  hid: {
+    label: "Connected devices",
+    description: "Access keyboards, controllers, and other HID devices.",
+    icon: KeyRoundIcon,
+  },
+  idleDetection: {
+    label: "Idle state",
+    description: "Know whether this computer is active or idle.",
+    icon: WorkflowIcon,
+  },
+  keyboardLock: {
+    label: "Keyboard shortcuts",
+    description: "Capture keys normally reserved by the browser.",
+    icon: WorkflowIcon,
+  },
+  midi: {
+    label: "MIDI devices",
+    description: "Access connected music devices.",
+    icon: WorkflowIcon,
+  },
+  notifications: {
+    label: "Notifications",
+    description: "Show alerts from this site.",
+    icon: BellIcon,
+  },
+  openExternal: {
+    label: "External apps",
+    description: "Open links in apps outside the browser.",
+    icon: WorkflowIcon,
+  },
+  pointerLock: {
+    label: "Pointer lock",
+    description: "Capture mouse movement for games or 3D tools.",
+    icon: WorkflowIcon,
+  },
+  serial: {
+    label: "Serial ports",
+    description: "Connect to hardware over serial.",
+    icon: WorkflowIcon,
+  },
+  speakerSelection: {
+    label: "Audio output",
+    description: "Choose which speaker or output device to use.",
+    icon: WorkflowIcon,
+  },
+  storageAccess: {
+    label: "Embedded site data",
+    description: "Let embedded content use its own cookies.",
+    icon: DatabaseIcon,
+  },
+  topLevelStorageAccess: {
+    label: "Top-level site data",
+    description: "Use stored data after opening as the main page.",
+    icon: DatabaseIcon,
+  },
+  usb: { label: "USB devices", description: "Connect to USB hardware.", icon: UsbIcon },
+  windowManagement: {
+    label: "Window placement",
+    description: "See and arrange windows across screens.",
+    icon: ScreenShareIcon,
+  },
 };
 
 const VISIBLE_PERMISSIONS: readonly DesktopBrowserPermission[] = [
@@ -76,7 +153,6 @@ const VISIBLE_PERMISSIONS: readonly DesktopBrowserPermission[] = [
   "hid",
   "usb",
   "serial",
-  "storageAccess",
   "windowManagement",
 ];
 
@@ -87,6 +163,27 @@ const SETTING_LABELS: Record<DesktopBrowserPermissionSetting, string> = {
 };
 
 const PERMISSION_OPTIONS = ["ask", "allow", "block"] as const;
+
+function formatCookieSummary(count: number | undefined): string {
+  const normalizedCount = count ?? 0;
+  if (normalizedCount === 0) {
+    return "No cookies stored";
+  }
+  if (normalizedCount === 1) {
+    return "1 cookie stored";
+  }
+  return `${normalizedCount} cookies stored`;
+}
+
+function formatSiteDataSummary(siteInfo: DesktopBrowserSiteInfo | null): string {
+  if (!siteInfo) {
+    return "Loading site data";
+  }
+  if (!siteInfo.storageOrigin && siteInfo.cookieCount === 0) {
+    return "Nothing saved by this site";
+  }
+  return "Saved data can be cleared here";
+}
 
 function resolveDialogHostLabel(input: {
   siteInfo: DesktopBrowserSiteInfo | null;
@@ -112,7 +209,6 @@ export function BrowserSiteDiagnosticsDialog(props: {
 }) {
   const { open, url, onOpenChange } = props;
   const [siteInfo, setSiteInfo] = useState<DesktopBrowserSiteInfo | null>(null);
-  const [loading, setLoading] = useState(false);
   const api = useMemo(() => ensureNativeApi(), []);
 
   const refresh = useCallback(async () => {
@@ -120,7 +216,6 @@ export function BrowserSiteDiagnosticsDialog(props: {
       setSiteInfo(null);
       return;
     }
-    setLoading(true);
     try {
       setSiteInfo(await api.browser.getSiteInfo(url));
     } catch (error) {
@@ -129,8 +224,6 @@ export function BrowserSiteDiagnosticsDialog(props: {
         title: "Site controls unavailable.",
         description: error instanceof Error ? error.message : "An error occurred.",
       });
-    } finally {
-      setLoading(false);
     }
   }, [api, open, url]);
 
@@ -189,35 +282,45 @@ export function BrowserSiteDiagnosticsDialog(props: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="w-[min(32rem,calc(100vw-1rem))] max-w-none overflow-hidden p-0">
-        <DialogHeader className="border-b border-border/70 px-4 py-3.5">
-          <DialogTitle className="flex items-center gap-2 text-[0.98rem]">
-            <span className="inline-flex size-7 items-center justify-center rounded-lg border border-border/70 bg-muted/28 text-primary">
-              <ShieldCheckIcon className="size-3.5" />
+      <DialogPopup className="w-[min(34rem,calc(100vw-1rem))] max-w-none overflow-hidden border-border/55 bg-background/95 p-0 supports-[backdrop-filter]:bg-background/88">
+        <DialogHeader className="gap-2 border-b border-border/35 px-4 py-3.5 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-card/45 text-muted-foreground">
+              <ShieldCheckIcon className="size-4" />
             </span>
-            Site controls
-          </DialogTitle>
-          <DialogDescription className="truncate text-xs">{hostLabel}</DialogDescription>
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-[0.98rem]">Site controls</DialogTitle>
+              <DialogDescription className="mt-0.5 truncate text-xs font-normal">
+                {hostLabel}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <DialogPanel className="max-h-[min(70dvh,34rem)] px-4 py-4" scrollFade>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-border/70 bg-muted/[0.16] px-3 py-2">
-                <div className="text-[11px] font-medium text-muted-foreground">Cookies</div>
-                <div className="mt-1 text-sm font-semibold text-foreground">
-                  {siteInfo?.cookieCount ?? 0}
+        <DialogPanel className="max-h-[min(68dvh,34rem)] px-4 py-4 sm:px-5" scrollFade>
+          <div className="space-y-3.5">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-[var(--control-radius)] border border-border/35 bg-card/30 px-3 py-2.5">
+                <div className="flex items-center gap-2 text-xs font-medium text-foreground/85">
+                  <DatabaseIcon className="size-3.5 text-muted-foreground/55" />
+                  Cookies
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground/65">
+                  {formatCookieSummary(siteInfo?.cookieCount)}
                 </div>
               </div>
-              <div className="rounded-lg border border-border/70 bg-muted/[0.16] px-3 py-2">
-                <div className="text-[11px] font-medium text-muted-foreground">Storage</div>
-                <div className="mt-1 truncate text-sm font-semibold text-foreground">
-                  {siteInfo?.storageOrigin ? "Stored" : "None"}
+              <div className="rounded-[var(--control-radius)] border border-border/35 bg-card/30 px-3 py-2.5">
+                <div className="flex items-center gap-2 text-xs font-medium text-foreground/85">
+                  <DatabaseIcon className="size-3.5 text-muted-foreground/55" />
+                  Site data
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground/65">
+                  {formatSiteDataSummary(siteInfo)}
                 </div>
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-border/70">
+            <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/35 bg-card/20">
               {VISIBLE_PERMISSIONS.map((permission) => {
                 const currentSetting = permissionsByName.get(permission) ?? "ask";
                 const meta = PERMISSION_META[permission];
@@ -225,35 +328,41 @@ export function BrowserSiteDiagnosticsDialog(props: {
                 return (
                   <div
                     key={permission}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0"
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/25 px-3 py-2 last:border-b-0"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
+                      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] border border-border/25 bg-background/45 text-muted-foreground/65">
                         <PermissionIcon className="size-3.5" />
                       </span>
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {meta.label}
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-medium text-foreground/90">
+                          {meta.label}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/60">
+                          {meta.description}
+                        </span>
                       </span>
                     </div>
 
-                    <div className="inline-flex rounded-md border border-border/70 bg-background p-0.5">
+                    <div className="inline-flex rounded-[var(--control-radius)] border border-border/35 bg-background/55 p-0.5">
                       {PERMISSION_OPTIONS.map((setting) => (
                         <button
                           key={setting}
                           type="button"
                           className={cn(
-                            "h-6 min-w-11 rounded px-2 text-[11px] font-medium transition-colors",
+                            "h-6 min-w-11 rounded-[calc(var(--control-radius)-3px)] px-2 text-[11px] font-medium transition-colors",
                             currentSetting === setting
                               ? setting === "allow"
                                 ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
                                 : setting === "block"
                                   ? "bg-destructive/10 text-destructive"
-                                  : "bg-muted text-foreground"
-                              : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                                  : "bg-foreground/[0.08] text-foreground"
+                              : "text-muted-foreground/65 hover:bg-foreground/[0.04] hover:text-foreground",
                           )}
                           onClick={() => {
                             void setPermission(permission, setting);
                           }}
+                          aria-pressed={currentSetting === setting}
                         >
                           {SETTING_LABELS[setting]}
                         </button>
@@ -263,45 +372,35 @@ export function BrowserSiteDiagnosticsDialog(props: {
                 );
               })}
             </div>
-
-            <div className="rounded-lg border border-border/70 bg-muted/[0.12] px-3 py-2.5">
-              <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-                <GlobeIcon className="size-3.5 text-muted-foreground" />
-                User agent
-              </div>
-              <p className="mt-2 line-clamp-2 break-all font-mono text-[10px] leading-4 text-muted-foreground">
-                {siteInfo?.userAgent ?? (loading ? "Loading..." : "Unavailable")}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/70 pt-3">
-              <Button type="button" size="sm" variant="ghost" onClick={() => void refresh()}>
-                <RotateCcwIcon className="size-3.5" />
-                Refresh
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={resetPermissions}
-                disabled={!url}
-              >
-                <RotateCcwIcon className="size-3.5" />
-                Reset
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                onClick={clearSiteData}
-                disabled={!url}
-              >
-                <Trash2Icon className="size-3.5" />
-                Clear data
-              </Button>
-            </div>
           </div>
         </DialogPanel>
+
+        <DialogFooter className="border-t border-border/35 bg-card/20 px-4 py-3 sm:px-5">
+          <Button type="button" size="sm" variant="ghost" onClick={() => void refresh()}>
+            <RotateCcwIcon className="size-3" />
+            Refresh
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={resetPermissions}
+            disabled={!url}
+          >
+            <RotateCcwIcon className="size-3" />
+            Reset
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            onClick={clearSiteData}
+            disabled={!url}
+          >
+            <Trash2Icon className="size-3" />
+            Clear data
+          </Button>
+        </DialogFooter>
       </DialogPopup>
     </Dialog>
   );
