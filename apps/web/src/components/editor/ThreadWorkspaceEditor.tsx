@@ -44,7 +44,6 @@ import {
   useMemo,
   useReducer,
   useRef,
-  useState,
 } from "react";
 
 import {
@@ -131,6 +130,8 @@ const WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES = [
   "content:useMutation",
   "re:.*\\.test\\.tsx$",
 ] as const;
+const WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS =
+  "h-8 rounded-md border-border/45 bg-background/62 text-[12px] shadow-none placeholder:text-muted-foreground/48 focus-within:border-primary/40 focus-within:bg-background/88 [&_[data-slot=input]]:h-full [&_[data-slot=input]]:pr-2 [&_[data-slot=input]]:pl-9 [&_[data-slot=input]]:leading-8";
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -3748,17 +3749,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               </div>
               {sidebarMode === "explorer" ? (
                 <>
-                  <div className="border-b border-border/40 px-2 py-2">
+                  <div className="px-2 py-2">
                     <div className="relative">
-                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
                       <Input
                         ref={treeSearchInputRef}
                         nativeInput
                         value={treeSearch}
                         onChange={(event) => setTreeSearch(event.target.value)}
                         placeholder="Search files"
-                        className="h-8 rounded-lg border-border/45 bg-background/54 pl-8 text-[12px] shadow-none placeholder:text-muted-foreground/42 focus-within:border-primary/40 focus-within:bg-background/86"
-                        size="sm"
+                        className={WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS}
                         type="search"
                       />
                     </div>
@@ -3885,7 +3885,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                 </>
               ) : sidebarMode === "search" ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="border-b border-border/40 bg-[color-mix(in_srgb,var(--background)_92%,var(--muted)_8%)] px-2 py-2">
+                  <div className="px-2 py-2">
                     <div className="relative">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                       <Input
@@ -3893,8 +3893,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                         value={codeSearchQuery}
                         onChange={(event) => setCodeSearchQuery(event.target.value)}
                         placeholder="Search code"
-                        className="h-9 rounded-md border-border/55 bg-background/80 pr-2 pl-9 text-[12px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_8%,transparent)] placeholder:text-muted-foreground/48 focus-within:border-primary/45 focus-within:bg-background"
-                        size="sm"
+                        className={WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS}
                         type="search"
                       />
                     </div>
