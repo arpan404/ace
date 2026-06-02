@@ -1750,6 +1750,21 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => groupWorkspaceCodeSearchResults(codeSearchResultsQuery.data ?? []),
     [codeSearchResultsQuery.data],
   );
+  const codeSearchResultPathSet = useMemo(
+    () => new Set((codeSearchResultsQuery.data ?? []).map((result) => result.entry.path)),
+    [codeSearchResultsQuery.data],
+  );
+  const codeSearchFileResults = useMemo(
+    () =>
+      deferredCodeSearchQuery.length >= 2
+        ? searchWorkspaceEntriesLocally(searchableFileEntries, deferredCodeSearchQuery, {
+            limit: WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT,
+          }).filter((entry) => !codeSearchResultPathSet.has(entry.path))
+        : EMPTY_PROJECT_ENTRIES,
+    [codeSearchResultPathSet, deferredCodeSearchQuery, searchableFileEntries],
+  );
+  const codeSearchResultCount =
+    codeSearchFileResults.length + (codeSearchResultsQuery.data?.length ?? 0);
   const visibleRecentCodeSearches = useMemo(
     () =>
       recentCodeSearches
@@ -2278,6 +2293,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       setSelectedReviewFilePath,
       setSymbolNavigationTarget,
     ],
+  );
+  const handleOpenCodeSearchFileResult = useCallback(
+    (entry: ProjectEntry) => {
+      const targetPaneId = activePane?.id ?? panes[0]?.id;
+      if (!targetPaneId) {
+        return;
+      }
+      setSelectedReviewFilePath(null);
+      setActivePane(props.threadId, targetPaneId);
+      openFile(props.threadId, entry.path, targetPaneId);
+    },
+    [activePane?.id, openFile, panes, props.threadId, setActivePane, setSelectedReviewFilePath],
   );
   const toggleOutlineId = useCallback((id: string) => {
     setCollapsedOutlineIds((current) => {
