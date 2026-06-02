@@ -9358,34 +9358,57 @@ function useChatViewComponent({
         'button[aria-label="Toggle environment panel"]',
       );
       const triggerRect = trigger?.getBoundingClientRect();
-      const panelWidth = 288;
-      const panelMargin = 12;
+      const panelWidth =
+        environmentMiniPanelRef.current?.getBoundingClientRect().width ??
+        ENVIRONMENT_MINI_PANEL_WIDTH_PX;
+      const panelMargin = ENVIRONMENT_MINI_PANEL_GAP_PX;
       const fallbackTop = 64;
-      const viewportMaxLeft = window.innerWidth - panelWidth - panelMargin;
+      const workspaceRect =
+        workspaceViewportRef.current?.getBoundingClientRect() ??
+        chatViewportRef.current?.getBoundingClientRect() ??
+        null;
+      const minLeft = workspaceRect
+        ? Math.max(panelMargin, workspaceRect.left + panelMargin)
+        : panelMargin;
+      const maxLeft = workspaceRect
+        ? Math.min(
+            window.innerWidth - panelWidth - panelMargin,
+            workspaceRect.right - panelWidth - panelMargin,
+          )
+        : window.innerWidth - panelWidth - panelMargin;
+      const clampLeft = (left: number) => Math.max(minLeft, Math.min(left, maxLeft));
       if (!triggerRect) {
-        const workspaceRect = workspaceViewportRef.current?.getBoundingClientRect() ?? null;
-        const fallbackLeft = workspaceRect
-          ? workspaceRect.right - panelWidth - panelMargin
-          : viewportMaxLeft;
         setEnvironmentPanelPopoverStyle({
-          left: Math.max(panelMargin, Math.min(fallbackLeft, viewportMaxLeft)),
+          left: clampLeft(maxLeft),
           top: fallbackTop,
         });
         return;
       }
 
       const preferredLeft = triggerRect.right - panelWidth;
-      const left = Math.max(panelMargin, Math.min(preferredLeft, viewportMaxLeft));
+      const left = clampLeft(preferredLeft);
       const top = Math.max(panelMargin, triggerRect.bottom + 8);
       setEnvironmentPanelPopoverStyle({ left, top });
     };
 
     updatePopoverPosition();
     const animationFrameId = requestAnimationFrame(updatePopoverPosition);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePopoverPosition);
+    if (workspaceViewportRef.current) {
+      resizeObserver?.observe(workspaceViewportRef.current);
+    }
+    if (chatViewportRef.current) {
+      resizeObserver?.observe(chatViewportRef.current);
+    }
+    if (environmentMiniPanelRef.current) {
+      resizeObserver?.observe(environmentMiniPanelRef.current);
+    }
     window.addEventListener("resize", updatePopoverPosition);
     window.addEventListener("scroll", updatePopoverPosition, true);
     return () => {
       cancelAnimationFrame(animationFrameId);
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", updatePopoverPosition);
       window.removeEventListener("scroll", updatePopoverPosition, true);
     };
