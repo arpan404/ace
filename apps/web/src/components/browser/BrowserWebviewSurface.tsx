@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
@@ -22,7 +21,6 @@ import {
   normalizeDesignCommentToSingleLine,
   resolveElementCommentWheelForwardingMode,
   shouldRunElementHoverInspection,
-  shouldSubmitDesignDraftFromTextareaKey,
 } from "~/components/browser/browserWebviewSurfaceUtils";
 import { type BrowserTabState, resolveBrowserTabTitle } from "~/lib/browser/session";
 import {
@@ -1608,6 +1606,7 @@ function useBrowserTabWebviewComponent(props: {
   const designRequestPanelRef = useRef<HTMLDivElement | null>(null);
   const dragSelectionRef = useRef<ActiveDragSelection | null>(null);
   const designRequestPanelRequestIdRef = useRef<string | null>(null);
+  const focusedDesignRequestIdRef = useRef<string | null>(null);
   const previousDesignRequestPanelLayoutRef = useRef<{
     panelSize: FloatingOverlaySize;
     viewport: OverlayViewportSize;
@@ -1649,6 +1648,17 @@ function useBrowserTabWebviewComponent(props: {
   const commentPlaceholder = useWorkspaceCommentPlaceholder(
     "design",
     designDraft?.capture.requestId ?? null,
+  );
+  const setDesignRequestInputRef = useCallback(
+    (node: HTMLInputElement | null) => {
+      const requestId = designDraft?.capture.requestId ?? null;
+      if (!node || !requestId || focusedDesignRequestIdRef.current === requestId) {
+        return;
+      }
+      focusedDesignRequestIdRef.current = requestId;
+      node.focus();
+    },
+    [designDraft?.capture.requestId],
   );
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
@@ -3349,6 +3359,7 @@ function useBrowserTabWebviewComponent(props: {
               style={designRequestPanelStyle}
             >
               <input
+                ref={setDesignRequestInputRef}
                 value={designInstructions}
                 onChange={(event) =>
                   dispatchDesignOverlayState({
