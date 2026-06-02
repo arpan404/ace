@@ -538,34 +538,46 @@ build_windows_docker() {
 }
 
 run_parallel() {
+  local items=("$@")
   local pids=()
   local names=()
+  local label_width=0
   local status=0
+  local index
 
-  while [[ $# -gt 0 ]]; do
-    local name="$1"
-    local command="$2"
-    shift 2
+  for ((index = 0; index < ${#items[@]}; index += 2)); do
+    local candidate_name="${items[$index]}"
+    if [[ "${#candidate_name}" -gt "$label_width" ]]; then
+      label_width="${#candidate_name}"
+    fi
+  done
+
+  printf '\n==> Parallel build group (max %s active jobs)\n' "$parallel_jobs"
+
+  for ((index = 0; index < ${#items[@]}; index += 2)); do
+    local name="${items[$index]}"
+    local command="${items[$((index + 1))]}"
 
     while [[ "$(jobs -rp | wc -l | tr -d '[:space:]')" -ge "$parallel_jobs" ]]; do
       sleep 1
     done
 
-    printf '\n==> Starting %s\n' "$name"
+    printf "%-${label_width}s | started\n" "$name"
     (
       set -euo pipefail
-      "$command"
+      "$command" 2>&1 | while IFS= read -r line; do
+        printf "%-${label_width}s | %s\n" "$name" "$line"
+      done
     ) &
     pids+=("$!")
     names+=("$name")
   done
 
-  local index
   for index in "${!pids[@]}"; do
     if wait "${pids[$index]}"; then
-      printf '\n==> Finished %s\n' "${names[$index]}"
+      printf "%-${label_width}s | finished\n" "${names[$index]}"
     else
-      printf '\n==> Failed %s\n' "${names[$index]}" >&2
+      printf "%-${label_width}s | failed\n" "${names[$index]}" >&2
       status=1
     fi
   done

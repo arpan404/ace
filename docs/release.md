@@ -255,6 +255,7 @@ What the script does:
    - Linux `arm64` AppImage in Docker.
    - Windows `x64` NSIS installer in Docker with Wine, Wine32, and NSIS.
    - Windows `arm64` NSIS installer in Docker with Wine, Wine32, and NSIS.
+     Parallel target output is prefixed with the target name so concurrent build logs stay readable.
 7. Collects release assets into `release-local/publish`.
 8. Merges per-arch macOS updater manifests into one `latest-mac.yml`.
 9. Keeps Linux updater metadata split by channel file (`latest-linux.yml` for `x64`, `latest-linux-arm64.yml` for `arm64`) and merges Windows updater metadata into one `latest.yml`.
