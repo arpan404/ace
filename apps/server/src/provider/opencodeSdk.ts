@@ -298,7 +298,7 @@ async function loadOpenCodeProviderList(baseUrl: string): Promise<OpenCodeProvid
       );
     }
 
-    const body = listed.data as OpenCodeProviderListResponse | undefined;
+    const body = listed.data as unknown as OpenCodeProviderListResponse | undefined;
     if (!body || !Array.isArray(body.all)) {
       throw new Error("Unexpected OpenCode provider list response.");
     }
@@ -354,7 +354,7 @@ async function loadOpenCodeConfigProviders(
       );
     }
 
-    const body = listed.data as OpenCodeConfigProvidersResponse | undefined;
+    const body = listed.data as unknown as OpenCodeConfigProvidersResponse | undefined;
     if (!body || !Array.isArray(body.providers)) {
       throw new Error("Unexpected OpenCode config providers response.");
     }

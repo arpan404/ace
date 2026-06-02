@@ -2,6 +2,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { cva, type VariantProps } from "class-variance-authority";
+import { LazyMotion, domAnimation, m, type MotionStyle } from "motion/react";
 import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
@@ -18,6 +19,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { SIDEBAR_RESIZE_END_EVENT, SIDEBAR_RESIZING_CLASS_NAME } from "~/lib/desktopChrome";
+import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import { Schema } from "effect";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
@@ -26,8 +28,6 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "min(16.1rem, calc(100vw - 1rem))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
-const SIDEBAR_TRANSITION_CLASS_NAME =
-  "duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -197,6 +197,7 @@ function Sidebar({
   collapsible = "offcanvas",
   resizable = false,
   className,
+  style,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
@@ -224,6 +225,29 @@ function Sidebar({
     () => ({ side, resizable: resolvedResizable }),
     [resolvedResizable, side],
   );
+  const collapsed = state === "collapsed";
+  const iconGapWidth =
+    variant === "floating" || variant === "inset"
+      ? "calc(var(--sidebar-width-icon) + 1rem)"
+      : "var(--sidebar-width-icon)";
+  const iconContainerWidth =
+    variant === "floating" || variant === "inset"
+      ? "calc(var(--sidebar-width-icon) + 1rem + 2px)"
+      : "var(--sidebar-width-icon)";
+  const sidebarGapWidth =
+    collapsed && collapsible === "offcanvas"
+      ? "0px"
+      : collapsed && collapsible === "icon"
+        ? iconGapWidth
+        : "var(--sidebar-width)";
+  const sidebarContainerWidth =
+    collapsed && collapsible === "icon" ? iconContainerWidth : "var(--sidebar-width)";
+  const sidebarContainerX =
+    collapsed && collapsible === "offcanvas" ? (side === "left" ? "-100%" : "100%") : "0%";
+  const motionContainerProps = props as unknown as Omit<
+    React.ComponentProps<typeof m.div>,
+    "animate" | "children" | "className" | "initial" | "style" | "transition"
+  >;
 
   if (collapsible === "none") {
     return (
@@ -234,6 +258,7 @@ function Sidebar({
             className,
           )}
           data-slot="sidebar"
+          style={style}
           {...props}
         >
           {children}
@@ -259,6 +284,7 @@ function Sidebar({
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+                ...style,
               } as React.CSSProperties
             }
           >
@@ -275,52 +301,50 @@ function Sidebar({
 
   return (
     <SidebarInstanceContext.Provider value={instanceContextValue}>
-      <div
-        className="group peer hidden text-sidebar-foreground md:block"
-        data-collapsible={state === "collapsed" ? collapsible : ""}
-        data-side={side}
-        data-slot="sidebar"
-        data-state={state}
-        data-variant={variant}
-      >
-        {/* This is what handles the sidebar gap on desktop */}
+      <LazyMotion features={domAnimation}>
         <div
-          className={cn(
-            "relative w-(--sidebar-width) bg-transparent transition-[width]",
-            SIDEBAR_TRANSITION_CLASS_NAME,
-            "group-data-[collapsible=offcanvas]:w-0",
-            "group-data-[side=right]:rotate-180",
-            variant === "floating" || variant === "inset"
-              ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-              : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
-          )}
-          data-slot="sidebar-gap"
-        />
-        <div
-          className={cn(
-            "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transform-gpu transition-[transform,width] will-change-[transform,width] md:flex",
-            SIDEBAR_TRANSITION_CLASS_NAME,
-            side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:-translate-x-full"
-              : "right-0 group-data-[collapsible=offcanvas]:translate-x-full",
-            // Adjust the padding for floating and inset variants.
-            variant === "floating" || variant === "inset"
-              ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
-              : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
-            className,
-          )}
-          data-slot="sidebar-container"
-          {...props}
+          className="group peer hidden text-sidebar-foreground md:block"
+          data-collapsible={state === "collapsed" ? collapsible : ""}
+          data-side={side}
+          data-slot="sidebar"
+          data-state={state}
+          data-variant={variant}
         >
-          <div
-            className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border"
-            data-sidebar="sidebar"
-            data-slot="sidebar-inner"
+          {/* This is what handles the sidebar gap on desktop */}
+          <m.div
+            className={cn("relative bg-transparent", side === "right" && "rotate-180")}
+            data-slot="sidebar-gap"
+            initial={false}
+            animate={{ width: sidebarGapWidth }}
+            transition={PANEL_SPRING_TRANSITION}
+          />
+          <m.div
+            className={cn(
+              "fixed inset-y-0 z-10 hidden h-svh transform-gpu will-change-[transform,width] md:flex",
+              side === "left" ? "left-0" : "right-0",
+              // Adjust the padding for floating and inset variants.
+              variant === "floating" || variant === "inset"
+                ? "p-2"
+                : "group-data-[side=left]:border-r group-data-[side=right]:border-l",
+              className,
+            )}
+            data-slot="sidebar-container"
+            initial={false}
+            animate={{ width: sidebarContainerWidth, x: sidebarContainerX }}
+            transition={PANEL_SPRING_TRANSITION}
+            {...(style ? { style: style as MotionStyle } : {})}
+            {...motionContainerProps}
           >
-            {children}
-          </div>
+            <div
+              className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border"
+              data-sidebar="sidebar"
+              data-slot="sidebar-inner"
+            >
+              {children}
+            </div>
+          </m.div>
         </div>
-      </div>
+      </LazyMotion>
     </SidebarInstanceContext.Provider>
   );
 }

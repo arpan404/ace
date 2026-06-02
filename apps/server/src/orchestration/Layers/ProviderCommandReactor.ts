@@ -44,6 +44,7 @@ type ProviderIntentEvent = Extract<
     type:
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
+      | "thread.subagent-turn-start-requested"
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
@@ -1219,6 +1220,7 @@ const make = Effect.gen(function* () {
 
   const sendTurnForThread = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
+    readonly providerThreadId?: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
@@ -1273,6 +1275,7 @@ const make = Effect.gen(function* () {
 
     yield* providerService.sendTurn({
       threadId: input.threadId,
+      ...(input.providerThreadId !== undefined ? { providerThreadId: input.providerThreadId } : {}),
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
@@ -1561,6 +1564,51 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const processSubagentTurnStartRequested = Effect.fnUntraced(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.subagent-turn-start-requested" }>,
+  ) {
+    const key = turnStartKeyForEvent(event);
+    if (yield* hasHandledTurnStartRecently(key)) {
+      return;
+    }
+
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+    const provider = resolveThreadProvider(thread);
+    if (provider !== "codex") {
+      yield* appendProviderFailureActivity({
+        threadId: event.payload.threadId,
+        kind: "provider.turn.start.failed",
+        summary: "Subagent message failed",
+        detail: `Subagent conversations are only supported for Codex threads. Current provider: '${provider}'.`,
+        turnId: null,
+        createdAt: event.payload.createdAt,
+      });
+      return;
+    }
+
+    yield* sendTurnForThread({
+      threadId: event.payload.threadId,
+      providerThreadId: event.payload.subagentThreadId,
+      messageText: event.payload.text,
+      interactionMode: thread.interactionMode,
+      createdAt: event.payload.createdAt,
+    }).pipe(
+      Effect.catchCause((cause) =>
+        appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Subagent message failed",
+          detail: providerFailureDetailFromCause(cause),
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        }),
+      ),
+    );
+  });
+
   const processTurnInterruptRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-interrupt-requested" }>,
   ) {
@@ -1763,6 +1811,9 @@ const make = Effect.gen(function* () {
       case "thread.turn-start-requested":
         yield* processTurnStartRequested(event);
         return;
+      case "thread.subagent-turn-start-requested":
+        yield* processSubagentTurnStartRequested(event);
+        return;
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
         return;
@@ -1811,6 +1862,7 @@ const make = Effect.gen(function* () {
       if (
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
+        event.type === "thread.subagent-turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||

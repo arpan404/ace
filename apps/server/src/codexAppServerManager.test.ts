@@ -600,6 +600,40 @@ describe("sendTurn", () => {
     });
   });
 
+  it("sends child turns to the provider thread override without marking the parent session running", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+
+    const result = await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      providerThreadId: "provider_child_1",
+      input: "Continue the subagent audit",
+    });
+
+    expect(result).toEqual({
+      threadId: "thread_1",
+      turnId: "turn_1",
+      resumeCursor: { threadId: "thread_1" },
+    });
+    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
+      threadId: "provider_child_1",
+      input: [
+        {
+          type: "text",
+          text: "Continue the subagent audit",
+          text_elements: [],
+        },
+      ],
+      model: "gpt-5.3-codex",
+    });
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(context.collabReceiverTurns.get("provider_child_1")).toEqual({
+      subagent: {
+        id: "provider_child_1",
+        type: "codex subagent",
+      },
+    });
+  });
+
   it("supports image-only turns", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
 

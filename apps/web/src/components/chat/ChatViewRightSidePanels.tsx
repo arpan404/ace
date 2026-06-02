@@ -14,7 +14,6 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ThreadId, TurnId } from "@ace/contracts";
 import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
 import {
-  BotIcon,
   Code2Icon,
   DiffIcon,
   GlobeIcon,
@@ -36,6 +35,7 @@ import type { DiffReviewCommentInput } from "../DiffPanel";
 import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { SubagentPersonaIcon } from "./SubagentThreadsPanel";
 import type { SubagentThread } from "./subagentThreads";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
@@ -541,15 +541,10 @@ export function RightSidePanelTabStrip(props: {
                     />
                   }
                 >
-                  <BotIcon
-                    className={cn(
-                      "size-4.5 shrink-0",
-                      thread.status === "failed"
-                        ? "text-destructive"
-                        : thread.status === "completed"
-                          ? "text-emerald-500"
-                          : "text-sky-500",
-                    )}
+                  <SubagentPersonaIcon
+                    className="size-4.5"
+                    status={thread.status}
+                    thread={thread}
                   />
                   <span className="truncate">{thread.label}</span>
                 </TooltipTrigger>

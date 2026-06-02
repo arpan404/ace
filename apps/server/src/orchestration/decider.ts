@@ -1,8 +1,9 @@
-import type {
-  OrchestrationCommand,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  OrchestrationThread,
+import {
+  EventId,
+  type OrchestrationCommand,
+  type OrchestrationEvent,
+  type OrchestrationReadModel,
+  type OrchestrationThread,
 } from "@ace/contracts";
 import { Effect } from "effect";
 
@@ -780,6 +781,62 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [userMessageEvent, turnStartRequestedEvent];
+    }
+
+    case "thread.subagent.turn.start": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const subagentMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: command.threadId,
+          activity: {
+            id: EventId.makeUnsafe(crypto.randomUUID()),
+            tone: "info",
+            kind: "subagent.message.sent",
+            summary: "User message",
+            payload: {
+              detail: command.message.text,
+              itemType: "subagent_message",
+              childProviderThreadId: command.subagentThreadId,
+              subagent: {
+                id: command.subagentThreadId,
+                type: "codex subagent",
+              },
+              messageId: command.message.messageId,
+            },
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+        },
+      };
+      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        causationEventId: subagentMessageEvent.eventId,
+        type: "thread.subagent-turn-start-requested",
+        payload: {
+          threadId: command.threadId,
+          subagentThreadId: command.subagentThreadId,
+          messageId: command.message.messageId,
+          text: command.message.text,
+          createdAt: command.createdAt,
+        },
+      };
+      return [subagentMessageEvent, turnStartRequestedEvent];
     }
 
     case "thread.turn.interrupt": {

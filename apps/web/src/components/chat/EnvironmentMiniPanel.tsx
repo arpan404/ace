@@ -1,51 +1,50 @@
 import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
-import { type ComponentProps } from "react";
-import { BotIcon, ListTodoIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
+import { type ComponentProps, forwardRef } from "react";
+import { ClipboardListIcon, ListTodoIcon, SlidersHorizontalIcon } from "lucide-react";
 import { m } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
+import { formatSubagentSubtitle, statusLabel, SubagentPersonaIcon } from "./SubagentThreadsPanel";
 import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanProgressState } from "../../session-logic";
 import { cn } from "~/lib/utils";
+import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
-const ENVIRONMENT_MINI_PANEL_SPRING = {
-  type: "spring",
-  stiffness: 420,
-  damping: 38,
-  mass: 0.9,
-} as const;
-
-export function EnvironmentMiniPanel(props: {
-  activeProjectScripts: ProjectScript[] | undefined;
-  activePlanProgress: ActivePlanProgressState | null;
-  activeSubagentThreadId: string | null;
-  activeThreadId: ThreadId;
-  branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
-  gitCwd: string | null;
-  isGitRepo: boolean;
-  isAgentWorking: boolean;
-  keybindings: ResolvedKeybindingsConfig;
-  layoutMode: "inline" | "popover";
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-  onDeleteProjectScript: (scriptId: string) => Promise<void>;
-  onOpenDiffPanel: () => void;
-  onRunProjectScript: (script: ProjectScript) => void;
-  onSelectSubagentThread: (threadId: string) => void;
-  onSubagentPanelOpen: () => void;
-  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
-  onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
-  preferredScriptId: string | null;
-  subagentThreads: ReadonlyArray<SubagentThread>;
-  workspaceChangeStat: { additions: number; deletions: number } | null;
-  workspaceMode: ThreadWorkspaceMode;
-}) {
+export const EnvironmentMiniPanel = forwardRef<
+  HTMLElement,
+  {
+    activeProjectScripts: ProjectScript[] | undefined;
+    activePlanProgress: ActivePlanProgressState | null;
+    activeSubagentThreadId: string | null;
+    activeThreadId: ThreadId;
+    branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
+    gitCwd: string | null;
+    isGitRepo: boolean;
+    isAgentWorking: boolean;
+    keybindings: ResolvedKeybindingsConfig;
+    layoutMode: "inline" | "popover";
+    onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
+    onDeleteProjectScript: (scriptId: string) => Promise<void>;
+    onOpenDiffPanel: () => void;
+    onOpenSummaryPanel: () => void;
+    onRunProjectScript: (script: ProjectScript) => void;
+    onSelectSubagentThread: (threadId: string) => void;
+    onSubagentPanelOpen: () => void;
+    onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+    onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
+    preferredScriptId: string | null;
+    subagentThreads: ReadonlyArray<SubagentThread>;
+    workspaceChangeStat: { additions: number; deletions: number } | null;
+    workspaceMode: ThreadWorkspaceMode;
+  }
+>(function EnvironmentMiniPanel(props, ref) {
   const hasChanges =
     props.workspaceChangeStat !== null &&
     (props.workspaceChangeStat.additions > 0 || props.workspaceChangeStat.deletions > 0);
@@ -59,15 +58,20 @@ export function EnvironmentMiniPanel(props: {
     props.activePlanProgress.currentIndex !== null
       ? {
           currentIndex: props.activePlanProgress.currentIndex,
+          currentStep: props.activePlanProgress.currentStep,
           total: props.activePlanProgress.total,
         }
       : null;
   const todoProgressWidth = activeTodoProgress
     ? Math.max(2, String(activeTodoProgress.total).length)
     : 2;
+  const planProgressWidth = props.activePlanProgress
+    ? Math.max(2, String(props.activePlanProgress.total).length)
+    : 2;
 
   return (
     <m.aside
+      ref={ref}
       className={cn(
         "pointer-events-auto absolute top-3 right-3 z-30 max-h-[calc(100%-1.5rem)] w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl backdrop-blur-xl",
         props.layoutMode === "inline" ? "shadow-black/10" : "shadow-black/20",
@@ -75,17 +79,11 @@ export function EnvironmentMiniPanel(props: {
       initial={{ opacity: 0, scale: 0.985, x: 22 }}
       animate={{ opacity: 1, scale: 1, x: 0 }}
       exit={{ opacity: 0, scale: 0.985, x: 18 }}
-      transition={ENVIRONMENT_MINI_PANEL_SPRING}
+      data-slot="environment-mini-panel"
+      transition={PANEL_SPRING_TRANSITION}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-medium text-muted-foreground">Environment</h2>
-        <button
-          type="button"
-          className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-label="Environment settings"
-        >
-          <SettingsIcon className="size-4" />
-        </button>
       </div>
 
       <div className="space-y-1">
@@ -114,15 +112,35 @@ export function EnvironmentMiniPanel(props: {
             <span className="text-[12px] text-muted-foreground">Clean</span>
           )}
         </button>
+        {props.activePlanProgress ? (
+          <button
+            type="button"
+            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+            onClick={props.onOpenSummaryPanel}
+          >
+            <ClipboardListIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1">Plan</span>
+            <span className="font-medium tabular-nums text-foreground">
+              {String(props.activePlanProgress.completed).padStart(planProgressWidth, "0")}/
+              {String(props.activePlanProgress.total).padStart(planProgressWidth, "0")}
+            </span>
+          </button>
+        ) : null}
         {activeTodoProgress ? (
-          <div className="flex min-h-8 items-center gap-2 rounded-lg px-2 py-1 text-[13px]">
+          <button
+            type="button"
+            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+            onClick={props.onOpenSummaryPanel}
+          >
             <ListTodoIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1">Todo</span>
+            <span className="min-w-0 flex-1 truncate">
+              {activeTodoProgress.currentStep ?? "Todo"}
+            </span>
             <span className="font-medium tabular-nums text-foreground">
               {String(activeTodoProgress.currentIndex).padStart(todoProgressWidth, "0")}/
               {String(activeTodoProgress.total).padStart(todoProgressWidth, "0")}
             </span>
-          </div>
+          </button>
         ) : null}
         {props.branchToolbarProps ? (
           <BranchToolbar {...props.branchToolbarProps} presentation="environment" />
@@ -163,32 +181,36 @@ export function EnvironmentMiniPanel(props: {
               <button
                 key={thread.id}
                 type="button"
-                className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="group/subagent flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-accent hover:text-accent-foreground"
                 onClick={() => {
                   props.onSelectSubagentThread(thread.id);
                   props.onSubagentPanelOpen();
                 }}
               >
-                <BotIcon
-                  className={
-                    thread.status === "failed"
-                      ? "size-3.5 text-destructive"
-                      : thread.status === "running"
-                        ? "size-3.5 text-sky-500"
-                        : "size-3.5 text-emerald-500"
-                  }
-                />
-                <span className="min-w-0 flex-1 truncate">{thread.label}</span>
+                <SubagentPersonaIcon className="size-6" status={thread.status} thread={thread} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{thread.label}</span>
+                  {formatSubagentSubtitle(thread) ? (
+                    <span className="block truncate text-[11px] text-muted-foreground group-hover/subagent:text-accent-foreground/70">
+                      {formatSubagentSubtitle(thread)}
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-normal",
+                    thread.status === "running" && "bg-sky-500/12 text-sky-500",
+                    thread.status === "completed" && "bg-emerald-500/12 text-emerald-500",
+                    thread.status === "failed" && "bg-destructive/12 text-destructive",
+                  )}
+                >
+                  {statusLabel(thread.status)}
+                </span>
               </button>
             ))}
           </div>
         </div>
       ) : null}
-
-      <div className="mt-3 border-t border-border/60 pt-2.5">
-        <div className="px-2 text-[13px] font-medium text-muted-foreground">Sources</div>
-        <div className="px-2 pt-1.5 text-[13px] text-muted-foreground">No sources yet</div>
-      </div>
     </m.aside>
   );
-}
+});
