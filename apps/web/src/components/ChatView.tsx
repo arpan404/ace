@@ -9530,7 +9530,7 @@ function useChatViewComponent({
           {activeBottomPanelMode ? (
             <m.div
               key="thread-bottom-dock-panel"
-              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-background"
+              className="absolute inset-x-0 bottom-0 z-40 flex min-h-0 min-w-0 flex-col overflow-hidden border-t border-border/70 bg-background shadow-2xl shadow-black/35"
               initial={{ height: 0, opacity: 0, y: 18 }}
               animate={{ height: terminalState.terminalHeight + 48, opacity: 1, y: 0 }}
               exit={{ height: 0, opacity: 0, y: 18 }}
