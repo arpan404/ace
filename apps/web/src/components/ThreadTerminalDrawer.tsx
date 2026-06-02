@@ -1077,7 +1077,8 @@ function SortableTerminalTab(props: {
     <Tooltip>
       <TooltipTrigger
         render={
-          <div
+          <button
+            type="button"
             ref={setNodeRef}
             style={{ transform: CSS.Translate.toString(transform), transition }}
             className={cn(
@@ -1111,8 +1112,6 @@ function SortableTerminalTab(props: {
               }
             }}
             {...attributes}
-            role="button"
-            tabIndex={0}
             aria-pressed={props.active}
             {...listeners}
           />
@@ -1572,11 +1571,10 @@ export default memo(function ThreadTerminalDrawer({
                 style={{ flex: `${ratio} 1 0` }}
               >
                 {index > 0 ? (
-                  <div
-                    role="separator"
+                  <hr
                     aria-orientation="vertical"
                     aria-label="Resize terminal split"
-                    className="group/split relative z-10 w-3 shrink-0 cursor-col-resize touch-none select-none"
+                    className="group/split relative z-10 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent before:absolute before:inset-y-2 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/55 before:transition-colors before:content-[''] after:absolute after:inset-y-3 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-primary/55 hover:after:bg-primary/10"
                     onPointerDown={(event) =>
                       handlePaneResizePointerDown(
                         event,
@@ -1585,10 +1583,7 @@ export default memo(function ThreadTerminalDrawer({
                         activeGroupPaneRatios,
                       )
                     }
-                  >
-                    <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-border/55 transition-colors group-hover/split:bg-primary/55" />
-                    <div className="absolute inset-y-3 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-colors group-hover/split:bg-primary/10" />
-                  </div>
+                  />
                 ) : null}
                 <div
                   className={cn(

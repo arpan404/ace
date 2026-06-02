@@ -6,7 +6,7 @@ import { m } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import type { SubagentThread } from "./SubagentThreadsPanel";
+import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanProgressState } from "../../session-logic";
 import { cn } from "~/lib/utils";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";

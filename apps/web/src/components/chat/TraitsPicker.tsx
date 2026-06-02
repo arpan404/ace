@@ -24,7 +24,8 @@ import {
 import { memo, type ReactElement, useCallback, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
-import { Button, buttonVariants } from "../ui/button";
+import { Button } from "../ui/button";
+import { buttonVariants } from "../ui/buttonVariants";
 import {
   Menu,
   MenuGroup,

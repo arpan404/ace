@@ -14,7 +14,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
   className?: string;
 }) {
   return (
-    <div className={cn("min-w-0", className)} role="listbox" aria-label="Theme presets">
+    <div className={cn("min-w-0", className)} aria-label="Theme presets">
       <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-1.5">
         {THEME_PRESET_OPTIONS.map((option) => {
           const active = value === option.id;
@@ -34,8 +34,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
             <button
               key={option.id}
               type="button"
-              role="option"
-              aria-selected={active}
+              aria-pressed={active}
               aria-label={option.label}
               onClick={() => {
                 onChange(option.id);

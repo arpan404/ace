@@ -36,7 +36,7 @@ import type { DiffReviewCommentInput } from "../DiffPanel";
 import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import type { SubagentThread } from "./SubagentThreadsPanel";
+import type { SubagentThread } from "./subagentThreads";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
@@ -515,7 +515,7 @@ export function RightSidePanelTabStrip(props: {
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {props.subagentThreads.length > 0 ? (
+        {props.activeMode === "subagent" && props.subagentThreads.length > 0 ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
             {props.subagentThreads.map((thread) => (

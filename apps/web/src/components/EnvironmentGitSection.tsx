@@ -63,7 +63,7 @@ import {
   HEADER_ACTION_FIELD_CARD_CLASS_NAME,
   HEADER_ACTION_FIELD_CONTROL_CLASS_NAME,
   HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
-} from "~/components/thread/TopBarCluster";
+} from "~/components/thread/topBarClusterStyles";
 import {
   gitBranchesQueryOptions,
   gitInitMutationOptions,

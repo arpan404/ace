@@ -50,12 +50,10 @@ import {
 } from "react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
 import {
-  Code2Icon,
   DiffIcon,
   FolderIcon,
   GlobeIcon,
   ListTodoIcon,
-  MessageSquarePlusIcon,
   SquareTerminalIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -230,7 +228,8 @@ import {
   type InAppBrowserMode,
 } from "./InAppBrowser";
 import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
-import { SubagentWorkspacePanel, deriveSubagentThreads } from "./chat/SubagentThreadsPanel";
+import { SubagentWorkspacePanel } from "./chat/SubagentThreadsPanel";
+import { deriveSubagentThreads } from "./chat/subagentThreads";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
 import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
@@ -435,7 +434,8 @@ function PanelChooser(props: { className?: string | undefined; options: PanelCho
               disabled={option.disabled}
               className={cn(
                 "group flex min-h-[116px] w-full flex-col items-center justify-center rounded-lg border border-border/35 bg-card/70 px-5 py-5 text-center transition-colors hover:border-border hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-                option.disabled && "cursor-not-allowed opacity-45 hover:border-border/35 hover:bg-card/70",
+                option.disabled &&
+                  "cursor-not-allowed opacity-45 hover:border-border/35 hover:bg-card/70",
               )}
               onClick={option.onSelect}
             >
@@ -1773,13 +1773,7 @@ function useChatViewComponent({
   const rightSidePanelInteractive = rightSidePanelEnabled;
   const effectiveRightSidePanelMode = rightSidePanelEnabled ? rightSidePanelMode : null;
   const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
-  const hasRightSidePanelContent =
-    rightSidePanelVisible ||
-    diffOpen ||
-    rightSidePanelTerminalOpen ||
-    effectiveRightSidePanelMode !== null;
-  const rightSidePanelOpen =
-    rightSidePanelEnabled && rightSidePanelVisible && hasRightSidePanelContent;
+  const rightSidePanelOpen = rightSidePanelEnabled && rightSidePanelVisible;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
@@ -3582,7 +3576,7 @@ function useChatViewComponent({
         setRightSidePanelVisible(true);
       }
       if (splitPane) {
-        setRightSidePanelMode(nextDiffOpen ? "diff" : "summary");
+        setRightSidePanelMode(nextDiffOpen ? "diff" : null);
         return;
       }
       if (nextDiffOpen) {
@@ -4619,13 +4613,13 @@ function useChatViewComponent({
       if (session?.tabs.length === 1) {
         closeBrowser();
         if (rightSidePanelMode === "browser") {
-          setRightSidePanelMode("summary");
+          setRightSidePanelMode(null);
         }
         return;
       }
       browserControllerRef.current?.closeTab(tabId);
       if (rightSidePanelMode === "browser" && session?.tabs.length === 1) {
-        setRightSidePanelMode("summary");
+        setRightSidePanelMode(null);
       }
     },
     [activeThreadId, closeBrowser, rightSidePanelMode, setRightSidePanelMode],
@@ -4639,7 +4633,7 @@ function useChatViewComponent({
   const onCloseRightSidePanelEditor = useCallback(() => {
     setRightSidePanelEditorOpen(false);
     if (rightSidePanelMode === "editor") {
-      setRightSidePanelMode("summary");
+      setRightSidePanelMode(null);
     }
   }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
   const onCloseBottomPanelEditor = useCallback(() => {
@@ -4654,7 +4648,7 @@ function useChatViewComponent({
   const onCloseRightSidePanelTerminal = useCallback(() => {
     setRightSidePanelTerminalOpen(false);
     if (rightSidePanelMode === "terminal") {
-      setRightSidePanelMode("summary");
+      setRightSidePanelMode(null);
     }
   }, [rightSidePanelMode, setRightSidePanelMode, setRightSidePanelTerminalOpen]);
   const onCloseBottomPanelTerminal = useCallback(() => {
@@ -8773,8 +8767,7 @@ function useChatViewComponent({
     ],
   );
   const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
-  const showDockedRightSidePanelChrome =
-    rightSidePanelOpen && !rightSidePanelFullscreen;
+  const showDockedRightSidePanelChrome = rightSidePanelOpen && !rightSidePanelFullscreen;
   const dockedRightSidePanelWidth = constrainedPanelWidth(
     rightSidePanelWidth,
     MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
@@ -9273,16 +9266,12 @@ function useChatViewComponent({
                       animate={{ width: "auto", opacity: 1, x: 0 }}
                       transition={WORKSPACE_SIDE_PANEL_TRANSITION}
                     >
-                      <div
-                        role="separator"
+                      <hr
                         aria-orientation="vertical"
                         aria-label="Resize workspace editor panel"
-                        className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
+                        className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/80 before:transition-colors before:content-[''] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:content-[''] hover:before:bg-primary/55 hover:after:bg-primary/10"
                         onPointerDown={handleWorkspaceEditorSplitResizePointerDown}
-                      >
-                        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
-                        <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
-                      </div>
+                      />
                       <div
                         ref={workspaceEditorSplitPanelRef}
                         className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
@@ -9336,7 +9325,7 @@ function useChatViewComponent({
           {/* end chat column */}
 
           <AnimatePresence initial={false}>
-            {activeRightSidePanelMode ? (
+            {rightSidePanelOpen ? (
               <m.div
                 key="thread-right-side-panel"
                 ref={rightSidePanelElementRef}
@@ -9387,18 +9376,14 @@ function useChatViewComponent({
                 transition={RIGHT_SIDE_PANEL_TRANSITION}
               >
                 {!rightSidePanelFullscreen ? (
-                  <div
-                    role="separator"
+                  <hr
                     aria-orientation="vertical"
                     aria-label="Resize right side panel"
                     tabIndex={0}
-                    className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none outline-none"
+                    className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/75 before:transition-colors before:duration-200 before:ease-out before:content-[''] after:absolute after:inset-y-1 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-[background-color,transform] after:duration-200 after:ease-out after:content-[''] hover:before:bg-border hover:after:scale-x-100 hover:after:bg-foreground/5 focus-visible:before:bg-border focus-visible:after:scale-x-100 focus-visible:after:bg-foreground/5"
                     onKeyDown={handleRightSidePanelResizeKeyDown}
                     onPointerDown={handleRightSidePanelResizePointerDown}
-                  >
-                    <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75 transition-colors duration-200 ease-out group-hover:bg-border group-focus-visible:bg-border" />
-                    <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-foreground/5 group-focus-visible:scale-x-100 group-focus-visible:bg-foreground/5" />
-                  </div>
+                  />
                 ) : null}
                 <m.div
                   className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -9413,7 +9398,18 @@ function useChatViewComponent({
                 >
                   <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                     <AnimatePresence mode="wait" initial={false}>
-                      {activeRightSidePanelMode !== "browser" ? (
+                      {activeRightSidePanelMode === null ? (
+                        <m.div
+                          key="thread-right-side-panel-content-chooser"
+                          className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                          initial={{ opacity: 0, x: 8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -6 }}
+                          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                        >
+                          <PanelChooser options={rightPanelChooserOptions} />
+                        </m.div>
+                      ) : activeRightSidePanelMode !== "browser" ? (
                         <m.div
                           key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
                           className="flex min-h-0 min-w-0 flex-1 overflow-hidden"

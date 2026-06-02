@@ -23,7 +23,8 @@ import {
 } from "~/lib/gitReactQuery";
 import { cn } from "~/lib/utils";
 import { GitHubIcon } from "./Icons";
-import { IssueMarkdown, formatIssueRelativeTime } from "./IssueMarkdown";
+import { IssueMarkdown } from "./IssueMarkdown";
+import { formatIssueRelativeTime } from "./issueTime";
 import { GitHubIssueListSkeleton, GitHubIssueThreadSkeleton } from "./GitHubIssueSkeletons";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -545,7 +546,7 @@ function useGitHubIssueDialogComponent({
 
               {/* Issue list */}
               <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-                <div role="listbox" aria-label="Issues" className="pb-1">
+                <div aria-label="Issues" className="pb-1">
                   {issuesQuery.isPending && issues.length === 0 ? (
                     <GitHubIssueListSkeleton count={ISSUE_SKELETON_KEYS.length} />
                   ) : issues.length === 0 ? (
@@ -562,7 +563,6 @@ function useGitHubIssueDialogComponent({
                         return (
                           <div
                             key={issue.number}
-                            role="option"
                             aria-selected={active}
                             className={cn(
                               "group flex items-start gap-2 rounded-[calc(var(--control-radius)+1px)] border border-transparent px-2 py-2.5 transition-colors",

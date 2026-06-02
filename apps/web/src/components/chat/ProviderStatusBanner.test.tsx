@@ -1,7 +1,7 @@
 import { type ServerProvider } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
-import { resolveProviderStatusDismissalKey } from "./ProviderStatusBanner";
+import { resolveProviderStatusDismissalKey } from "./providerStatusDismissal";
 
 function createProviderStatus(overrides: Partial<ServerProvider> = {}): ServerProvider {
   return {

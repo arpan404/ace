@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { WorkLogEntry } from "../../session-logic/types";
-import type { deriveSubagentThreads as deriveSubagentThreadsType } from "./SubagentThreadsPanel";
+import type { deriveSubagentThreads as deriveSubagentThreadsType } from "./subagentThreads";
 
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
 
@@ -27,7 +27,7 @@ beforeAll(async () => {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
-  ({ deriveSubagentThreads } = await import("./SubagentThreadsPanel"));
+  ({ deriveSubagentThreads } = await import("./subagentThreads"));
 });
 
 function workEntry(input: Partial<WorkLogEntry> & Pick<WorkLogEntry, "id">): WorkLogEntry {

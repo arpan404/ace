@@ -232,7 +232,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   );
   const [rightSidePanelVisible, setRightSidePanelVisible] = useLocalStorage(
     rightSidePanelVisibleStorageKey,
-    true,
+    false,
     Schema.Boolean,
   );
   const rightSidePanelFloatingChatOpenStorageKey = useMemo(

@@ -14,7 +14,7 @@ export const RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY =
   "ace:chat:right-side-panel-terminal-open:v1";
 export const RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY = "ace:chat:right-side-panel-fullscreen:v1";
 export const RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-diff-open:v1";
-export const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v1";
+export const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v2";
 export const RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY = "ace:chat:right-side-panel-width:v1";
 
 export type RightSidePanelMode =
