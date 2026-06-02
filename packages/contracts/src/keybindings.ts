@@ -35,6 +35,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "terminal.toggle",
   "terminal.split",
   "terminal.new",
+  "terminal.tab.new",
   "terminal.close",
   "rightPanel.toggle",
   "rightPanel.review.open",

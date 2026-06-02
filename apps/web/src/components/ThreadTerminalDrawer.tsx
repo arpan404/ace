@@ -64,6 +64,14 @@ const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
 const TERMINAL_LINK_LINE_CACHE_LIMIT = 512;
 
+function stableRuntimeEnvKey(runtimeEnv: Record<string, string> | undefined): string {
+  if (!runtimeEnv) return "";
+  const entries = Object.entries(runtimeEnv).toSorted(([leftKey], [rightKey]) =>
+    leftKey.localeCompare(rightKey),
+  );
+  return JSON.stringify(entries);
+}
+
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
   return Math.max(MIN_DRAWER_HEIGHT, Math.floor(window.innerHeight * MAX_DRAWER_HEIGHT_RATIO));
@@ -405,6 +413,8 @@ function useTerminalViewportComponent({
   const onSessionExitedRef = useRef(onSessionExited);
   const onAddTerminalContextRef = useRef(onAddTerminalContext);
   const onAutoTerminalTitleChangeRef = useRef(onAutoTerminalTitleChange);
+  const runtimeEnvRef = useRef(runtimeEnv);
+  const runtimeEnvKey = useMemo(() => stableRuntimeEnvKey(runtimeEnv), [runtimeEnv]);
   const terminalLabelRef = useRef(terminalLabel);
   const hasHandledExitRef = useRef(false);
   const commandBufferRef = useRef("");
@@ -426,6 +436,10 @@ function useTerminalViewportComponent({
   useEffect(() => {
     onAutoTerminalTitleChangeRef.current = onAutoTerminalTitleChange;
   }, [onAutoTerminalTitleChange]);
+
+  useEffect(() => {
+    runtimeEnvRef.current = runtimeEnv;
+  }, [runtimeEnv, runtimeEnvKey]);
 
   useEffect(() => {
     terminalLabelRef.current = terminalLabel;
@@ -783,7 +797,7 @@ function useTerminalViewportComponent({
           cwd,
           cols: activeTerminal.cols,
           rows: activeTerminal.rows,
-          ...(runtimeEnv ? { env: runtimeEnv } : {}),
+          ...(runtimeEnvRef.current ? { env: runtimeEnvRef.current } : {}),
         });
         if (disposed) return;
         activeTerminal.write("\u001bc");
@@ -928,7 +942,7 @@ function useTerminalViewportComponent({
     // shouldFocusTerminal is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, runtimeEnv, terminalId, threadId]);
+  }, [cwd, runtimeEnvKey, terminalId, threadId]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
