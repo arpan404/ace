@@ -12,9 +12,19 @@ import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
+import {
+  formatWorktreePathForDisplay,
+  getOrphanedWorktreePathForThread,
+  getWorktreeLinkedThreadIds,
+  normalizeWorktreePath,
+} from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
 import { useSetting } from "./useSettings";
+
+type DeleteThreadOptions = {
+  readonly deletedThreadIds?: ReadonlySet<ThreadId>;
+  readonly worktreeRemovalPrompt?: "prompt-if-orphaned" | "skip";
+};
 
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
@@ -67,7 +77,7 @@ export function useThreadActions() {
   }, []);
 
   const deleteThread = useCallback(
-    async (threadId: ThreadId, opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {}) => {
+    async (threadId: ThreadId, opts: DeleteThreadOptions = {}) => {
       const api = readNativeApi();
       if (!api) return;
       const { projects, threads } = useStore.getState();
@@ -79,7 +89,10 @@ export function useThreadActions() {
         deletedIds && deletedIds.size > 0
           ? threads.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
           : threads;
-      const orphanedWorktreePath = getOrphanedWorktreePathForThread(survivingThreads, threadId);
+      const orphanedWorktreePath =
+        opts.worktreeRemovalPrompt === "skip"
+          ? null
+          : getOrphanedWorktreePathForThread(survivingThreads, threadId);
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
@@ -182,6 +195,73 @@ export function useThreadActions() {
     ],
   );
 
+  const deleteWorktreeAndRelatedThreads = useCallback(
+    async (threadId: ThreadId) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const { projects, threads } = useStore.getState();
+      const thread = threads.find((entry) => entry.id === threadId);
+      if (!thread) return;
+      const worktreePath = normalizeWorktreePath(thread.worktreePath);
+      if (!worktreePath) return;
+      const threadProject = projects.find((project) => project.id === thread.projectId);
+      if (!threadProject) return;
+
+      const relatedThreadIds = getWorktreeLinkedThreadIds(threads, worktreePath);
+      if (relatedThreadIds.length === 0) return;
+
+      const displayWorktreePath = formatWorktreePathForDisplay(worktreePath);
+      const confirmed = await api.dialogs.confirm(
+        [
+          `Delete worktree "${displayWorktreePath}" and ${relatedThreadIds.length} related chat${
+            relatedThreadIds.length === 1 ? "" : "s"
+          }?`,
+          "This permanently clears the related conversation history and removes the worktree directory.",
+        ].join("\n"),
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const deletedThreadIds = new Set<ThreadId>(relatedThreadIds);
+      for (const relatedThreadId of relatedThreadIds) {
+        await deleteThread(relatedThreadId, {
+          deletedThreadIds,
+          worktreeRemovalPrompt: "skip",
+        });
+      }
+
+      try {
+        await removeWorktreeMutation.mutateAsync({
+          cwd: threadProject.cwd,
+          path: worktreePath,
+          force: true,
+        });
+        toastManager.add({
+          type: "success",
+          title: "Worktree cleaned up",
+          description: `Removed ${displayWorktreePath} and ${relatedThreadIds.length} related chat${
+            relatedThreadIds.length === 1 ? "" : "s"
+          }.`,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
+        console.error("Failed to remove worktree after deleting related threads", {
+          threadId,
+          projectCwd: threadProject.cwd,
+          worktreePath,
+          error,
+        });
+        toastManager.add({
+          type: "error",
+          title: "Chats deleted, but worktree removal failed",
+          description: `Could not remove ${displayWorktreePath}. ${message}`,
+        });
+      }
+    },
+    [deleteThread, removeWorktreeMutation],
+  );
+
   const confirmAndDeleteThread = useCallback(
     async (threadId: ThreadId) => {
       const api = readNativeApi();
@@ -210,6 +290,7 @@ export function useThreadActions() {
     archiveThread,
     unarchiveThread,
     deleteThread,
+    deleteWorktreeAndRelatedThreads,
     confirmAndDeleteThread,
   };
 }

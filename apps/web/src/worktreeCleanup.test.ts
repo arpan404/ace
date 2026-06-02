@@ -2,7 +2,11 @@ import { ProjectId, ThreadId } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
-import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "./worktreeCleanup";
+import {
+  formatWorktreePathForDisplay,
+  getOrphanedWorktreePathForThread,
+  getWorktreeLinkedThreadIds,
+} from "./worktreeCleanup";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -80,6 +84,35 @@ describe("getOrphanedWorktreePathForThread", () => {
     ];
     const result = getOrphanedWorktreePathForThread(threads, ThreadId.makeUnsafe("thread-1"));
     expect(result).toBe("/tmp/repo/worktrees/feature-a");
+  });
+});
+
+describe("getWorktreeLinkedThreadIds", () => {
+  it("returns every thread linked to the normalized worktree path", () => {
+    const threads = [
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-1"),
+        worktreePath: "/tmp/repo/worktrees/feature-a",
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-2"),
+        worktreePath: "/tmp/repo/worktrees/feature-a ",
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-3"),
+        worktreePath: "/tmp/repo/worktrees/feature-b",
+      }),
+    ];
+
+    const result = getWorktreeLinkedThreadIds(threads, "/tmp/repo/worktrees/feature-a");
+
+    expect(result).toEqual([ThreadId.makeUnsafe("thread-1"), ThreadId.makeUnsafe("thread-2")]);
+  });
+
+  it("returns an empty list when the path is blank", () => {
+    const result = getWorktreeLinkedThreadIds([makeThread()], " ");
+
+    expect(result).toEqual([]);
   });
 });
 

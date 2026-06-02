@@ -715,6 +715,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.deleted":
+          yield* projectionThreadMessageRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
         default:
           return;
       }
@@ -765,6 +771,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }).pipe(Effect.asVoid);
           return;
         }
+
+        case "thread.deleted":
+          yield* projectionThreadProposedPlanRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
 
         default:
           return;
@@ -818,6 +830,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.deleted":
+          yield* projectionThreadActivityRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
         default:
           return;
       }
@@ -826,21 +844,31 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const applyThreadSessionsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyThreadSessionsProjection",
     )(function* (event, _attachmentSideEffects) {
-      if (event.type !== "thread.session-set") {
-        return;
+      switch (event.type) {
+        case "thread.session-set":
+          yield* projectionThreadSessionRepository.upsert({
+            threadId: event.payload.threadId,
+            status: event.payload.session.status,
+            providerName: event.payload.session.providerName,
+            capabilities: event.payload.session.capabilities ?? null,
+            configOptions: event.payload.session.configOptions ?? [],
+            commands: event.payload.session.commands ?? [],
+            runtimeMode: event.payload.session.runtimeMode,
+            activeTurnId: event.payload.session.activeTurnId,
+            lastError: event.payload.session.lastError,
+            updatedAt: event.payload.session.updatedAt,
+          });
+          return;
+
+        case "thread.deleted":
+          yield* projectionThreadSessionRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
+        default:
+          return;
       }
-      yield* projectionThreadSessionRepository.upsert({
-        threadId: event.payload.threadId,
-        status: event.payload.session.status,
-        providerName: event.payload.session.providerName,
-        capabilities: event.payload.session.capabilities ?? null,
-        configOptions: event.payload.session.configOptions ?? [],
-        commands: event.payload.session.commands ?? [],
-        runtimeMode: event.payload.session.runtimeMode,
-        activeTurnId: event.payload.session.activeTurnId,
-        lastError: event.payload.session.lastError,
-        updatedAt: event.payload.session.updatedAt,
-      });
     });
 
     const applyThreadTurnsProjection: ProjectorDefinition["apply"] = Effect.fn(
@@ -1094,6 +1122,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.deleted":
+          yield* projectionTurnRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
         default:
           return;
       }
@@ -1181,6 +1215,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               : event.payload.createdAt,
             resolvedAt: event.payload.createdAt,
           });
+          return;
+        }
+
+        case "thread.deleted": {
+          const existingRows = yield* projectionPendingApprovalRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(
+            existingRows,
+            (row) =>
+              projectionPendingApprovalRepository.deleteByRequestId({
+                requestId: row.requestId,
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
           return;
         }
 
