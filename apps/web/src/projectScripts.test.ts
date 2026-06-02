@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   commandForProjectScript,
+  formatProjectScriptEnv,
   nextProjectScriptId,
+  parseProjectScriptEnv,
   primaryProjectScript,
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -70,6 +72,20 @@ describe("projectScripts helpers", () => {
     expect(env.ACE_PROJECT_ROOT).toBe("/custom-root");
     expect(env.CUSTOM_FLAG).toBe("1");
     expect(env.ACE_WORKTREE_PATH).toBeUndefined();
+  });
+
+  it("parses and formats project script env lines", () => {
+    const env = parseProjectScriptEnv("B=two\n# comment\nA=one=still-value\n");
+
+    expect(env).toEqual({
+      A: "one=still-value",
+      B: "two",
+    });
+    expect(formatProjectScriptEnv(env)).toBe("A=one=still-value\nB=two");
+  });
+
+  it("rejects invalid project script env keys", () => {
+    expect(() => parseProjectScriptEnv("1BAD=value")).toThrow(/must start/);
   });
 
   it("prefers the worktree path for script cwd resolution", () => {

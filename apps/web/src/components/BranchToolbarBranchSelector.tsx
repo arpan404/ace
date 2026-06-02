@@ -1,7 +1,7 @@
 import type { GitBranch } from "@ace/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDownIcon, GitForkIcon } from "lucide-react";
+import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import {
   type CSSProperties,
   useCallback,
@@ -20,6 +20,7 @@ import {
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "../lib/gitReactQuery";
+import { withRpcRouteConnection } from "../lib/connectionRouting";
 import { reportBackgroundError } from "../lib/async";
 import { readNativeApi } from "../nativeApi";
 import { parsePullRequestReference } from "../pullRequestReference";
@@ -48,6 +49,7 @@ interface BranchToolbarBranchSelectorProps {
   activeThreadBranch: string | null;
   activeWorktreePath: string | null;
   branchCwd: string | null;
+  connectionUrl?: string | null | undefined;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
   presentation?: "toolbar" | "environment";
@@ -206,6 +208,7 @@ function useBranchMutationActions(input: {
   activeProjectCwd: string;
   activeWorktreePath: string | null;
   branchCwd: string | null;
+  connectionUrl?: string | null | undefined;
   isBranchActionPending: boolean;
   isSelectingWorktreeBase: boolean;
   onComposerFocusRequest: (() => void) | undefined;
@@ -265,8 +268,13 @@ function useBranchMutationActions(input: {
         input.setOptimisticBranch(selectedBranchName);
         try {
           await api.git.checkout({
-            cwd: selectionTarget.checkoutCwd,
-            branch: branch.name,
+            ...withRpcRouteConnection(
+              {
+                cwd: selectionTarget.checkoutCwd,
+                branch: branch.name,
+              },
+              input.connectionUrl,
+            ),
           });
           await invalidateGitQueries(input.queryClient);
         } catch (error) {
@@ -280,7 +288,9 @@ function useBranchMutationActions(input: {
 
         let nextBranchName = selectedBranchName;
         if (branch.isRemote) {
-          const status = await api.git.status({ cwd: branchCwd }).catch(() => null);
+          const status = await api.git
+            .status(withRpcRouteConnection({ cwd: branchCwd }, input.connectionUrl))
+            .catch(() => null);
           if (status?.branch) nextBranchName = status.branch;
         }
         input.setOptimisticBranch(nextBranchName);
@@ -303,9 +313,13 @@ function useBranchMutationActions(input: {
       runBranchAction(async () => {
         input.setOptimisticBranch(name);
         try {
-          await api.git.createBranch({ cwd: branchCwd, branch: name });
+          await api.git.createBranch(
+            withRpcRouteConnection({ cwd: branchCwd, branch: name }, input.connectionUrl),
+          );
           try {
-            await api.git.checkout({ cwd: branchCwd, branch: name });
+            await api.git.checkout(
+              withRpcRouteConnection({ cwd: branchCwd, branch: name }, input.connectionUrl),
+            );
           } catch (error) {
             toastManager.add({
               type: "error",
@@ -339,6 +353,7 @@ export function BranchToolbarBranchSelector({
   activeThreadBranch,
   activeWorktreePath,
   branchCwd,
+  connectionUrl,
   effectiveEnvMode,
   envLocked,
   presentation = "toolbar",
@@ -351,8 +366,8 @@ export function BranchToolbarBranchSelector({
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
 
-  const branchesQuery = useQuery(gitBranchesQueryOptions(branchCwd));
-  const branchStatusQuery = useQuery(gitStatusQueryOptions(branchCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(branchCwd, connectionUrl));
+  const branchStatusQuery = useQuery(gitStatusQueryOptions(branchCwd, connectionUrl));
   const branches = useMemo(
     () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
     [branchesQuery.data?.branches],
@@ -365,7 +380,6 @@ export function BranchToolbarBranchSelector({
     activeThreadBranch,
     currentGitBranch,
   });
-  const branchNames = useMemo(() => branches.map((branch) => branch.name), [branches]);
   const branchByName = useMemo(
     () => new Map(branches.map((branch) => [branch.name, branch] as const)),
     [branches],
@@ -384,7 +398,7 @@ export function BranchToolbarBranchSelector({
     ? `__create_new_branch__:${trimmedBranchQuery}`
     : null;
   const branchPickerItems = useMemo(() => {
-    const items = [...branchNames];
+    const items = branches.map((branch) => branch.name);
     if (createBranchItemValue && !hasExactBranchMatch) {
       items.push(createBranchItemValue);
     }
@@ -392,7 +406,7 @@ export function BranchToolbarBranchSelector({
       items.unshift(checkoutPullRequestItemValue);
     }
     return items;
-  }, [branchNames, checkoutPullRequestItemValue, createBranchItemValue, hasExactBranchMatch]);
+  }, [branches, checkoutPullRequestItemValue, createBranchItemValue, hasExactBranchMatch]);
   const filteredBranchPickerItems = useMemo(
     () =>
       normalizedDeferredBranchQuery.length === 0
@@ -423,6 +437,7 @@ export function BranchToolbarBranchSelector({
     activeProjectCwd,
     activeWorktreePath,
     branchCwd,
+    connectionUrl,
     isBranchActionPending,
     isSelectingWorktreeBase,
     onComposerFocusRequest,
@@ -442,10 +457,10 @@ export function BranchToolbarBranchSelector({
         return;
       }
       void queryClient.invalidateQueries({
-        queryKey: gitQueryKeys.branches(branchCwd),
+        queryKey: gitQueryKeys.branches(branchCwd, connectionUrl),
       });
     },
-    [branchCwd, queryClient],
+    [branchCwd, connectionUrl, queryClient],
   );
 
   const branchListScrollElementRef = useRef<HTMLDivElement | null>(null);
@@ -518,7 +533,7 @@ export function BranchToolbarBranchSelector({
         disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
       >
         {isEnvironmentPresentation ? (
-          <GitForkIcon className="size-3.5 text-muted-foreground" />
+          <GitBranchIcon className="size-3.5 text-muted-foreground" />
         ) : null}
         <span
           className={

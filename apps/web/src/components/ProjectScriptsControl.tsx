@@ -19,7 +19,9 @@ import {
 } from "~/lib/projectScriptKeybindings";
 import {
   commandForProjectScript,
+  formatProjectScriptEnv,
   nextProjectScriptId,
+  parseProjectScriptEnv,
   primaryProjectScript,
 } from "~/projectScripts";
 import {
@@ -97,6 +99,7 @@ export interface NewProjectScriptInput {
   command: string;
   icon: ProjectScriptIcon;
   runOnWorktreeCreate: boolean;
+  env: Record<string, string>;
   keybinding: string | null;
 }
 
@@ -118,6 +121,7 @@ type ProjectScriptDialogState = {
   icon: ProjectScriptIcon;
   iconPickerOpen: boolean;
   runOnWorktreeCreate: boolean;
+  env: string;
   keybinding: string;
   validationError: string | null;
   deleteConfirmOpen: boolean;
@@ -131,6 +135,7 @@ type ProjectScriptDialogAction =
   | { type: "set-icon"; icon: ProjectScriptIcon }
   | { type: "set-icon-picker-open"; iconPickerOpen: boolean }
   | { type: "set-run-on-worktree-create"; runOnWorktreeCreate: boolean }
+  | { type: "set-env"; env: string }
   | { type: "set-keybinding"; keybinding: string }
   | { type: "set-validation-error"; validationError: string | null }
   | { type: "set-delete-confirm-open"; deleteConfirmOpen: boolean }
@@ -142,6 +147,7 @@ type ProjectScriptDialogAction =
       command: string;
       icon: ProjectScriptIcon;
       runOnWorktreeCreate: boolean;
+      env: string;
       keybinding: string;
     }
   | { type: "close-dialog" }
@@ -155,6 +161,7 @@ const EMPTY_PROJECT_SCRIPT_DIALOG_STATE: ProjectScriptDialogState = {
   icon: "play",
   iconPickerOpen: false,
   runOnWorktreeCreate: false,
+  env: "",
   keybinding: "",
   validationError: null,
   deleteConfirmOpen: false,
@@ -187,6 +194,8 @@ function projectScriptDialogStateReducer(
       return state.runOnWorktreeCreate === action.runOnWorktreeCreate
         ? state
         : { ...state, runOnWorktreeCreate: action.runOnWorktreeCreate };
+    case "set-env":
+      return state.env === action.env ? state : { ...state, env: action.env };
     case "set-keybinding":
       return state.keybinding === action.keybinding
         ? state
@@ -214,6 +223,7 @@ function projectScriptDialogStateReducer(
         icon: action.icon,
         iconPickerOpen: false,
         runOnWorktreeCreate: action.runOnWorktreeCreate,
+        env: action.env,
         keybinding: action.keybinding,
         validationError: null,
       };
@@ -228,6 +238,7 @@ function projectScriptDialogStateReducer(
         state.icon === "play" &&
         state.iconPickerOpen === false &&
         state.runOnWorktreeCreate === false &&
+        state.env === "" &&
         state.keybinding === "" &&
         state.validationError === null
         ? state
@@ -239,6 +250,7 @@ function projectScriptDialogStateReducer(
             icon: "play",
             iconPickerOpen: false,
             runOnWorktreeCreate: false,
+            env: "",
             keybinding: "",
             validationError: null,
           };
@@ -259,6 +271,7 @@ function ProjectScriptEditorDialog(props: {
   keybinding: string;
   name: string;
   runOnWorktreeCreate: boolean;
+  env: string;
   submitAddScript: (event: FormEvent) => Promise<void>;
   validationError: string | null;
 }) {
@@ -413,6 +426,23 @@ function ProjectScriptEditorDialog(props: {
                   }
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="script-env" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Environment variables
+                </Label>
+                <Textarea
+                  id="script-env"
+                  placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
+                  value={props.env}
+                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-24 font-mono text-[13px]`}
+                  onChange={(event) =>
+                    props.dispatchDialogState({ type: "set-env", env: event.target.value })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional KEY=value lines. These are passed when the action runs.
+                </p>
+              </div>
               {props.validationError && (
                 <p className="text-sm text-destructive">{props.validationError}</p>
               )}
@@ -495,6 +525,7 @@ export default function ProjectScriptsControl({
     icon,
     iconPickerOpen,
     runOnWorktreeCreate,
+    env,
     keybinding,
     validationError,
     deleteConfirmOpen,
@@ -551,11 +582,13 @@ export default function ProjectScriptsControl({
         keybinding,
         command: commandForProjectScript(scriptIdForValidation),
       });
+      const parsedEnv = parseProjectScriptEnv(env);
       const payload = {
         name: trimmedName,
         command: trimmedCommand,
         icon,
         runOnWorktreeCreate,
+        env: parsedEnv,
         keybinding: keybindingRule?.key ?? null,
       } satisfies NewProjectScriptInput;
       if (editingScriptId) {
@@ -584,6 +617,7 @@ export default function ProjectScriptsControl({
       command: script.command,
       icon: script.icon,
       runOnWorktreeCreate: script.runOnWorktreeCreate,
+      env: formatProjectScriptEnv(script.env),
       keybinding: keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "",
     });
   };
@@ -727,6 +761,7 @@ export default function ProjectScriptsControl({
         keybinding={keybinding}
         name={name}
         runOnWorktreeCreate={runOnWorktreeCreate}
+        env={env}
         submitAddScript={submitAddScript}
         validationError={validationError}
       />

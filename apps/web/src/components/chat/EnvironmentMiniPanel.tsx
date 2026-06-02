@@ -1,7 +1,7 @@
 import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { type ComponentProps, forwardRef } from "react";
-import { ClipboardListIcon, ListTodoIcon, SlidersHorizontalIcon } from "lucide-react";
-import { m } from "motion/react";
+import { ClipboardListIcon, ListTodoIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
+import { m, type MotionStyle } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
@@ -12,6 +12,8 @@ import type { ActivePlanProgressState } from "../../session-logic";
 import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -30,9 +32,11 @@ export const EnvironmentMiniPanel = forwardRef<
     isAgentWorking: boolean;
     keybindings: ResolvedKeybindingsConfig;
     layoutMode: "inline" | "popover";
+    style?: MotionStyle;
     onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
     onDeleteProjectScript: (scriptId: string) => Promise<void>;
     onOpenDiffPanel: () => void;
+    onOpenEnvironmentSettings: () => void;
     onOpenSummaryPanel: () => void;
     onRunProjectScript: (script: ProjectScript) => void;
     onSelectSubagentThread: (threadId: string) => void;
@@ -73,7 +77,8 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "pointer-events-auto absolute top-3 right-3 z-30 max-h-[calc(100%-1.5rem)] w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl backdrop-blur-xl",
+        "pointer-events-auto z-50 max-h-[calc(100vh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-3 text-popover-foreground shadow-2xl backdrop-blur-xl",
+        props.layoutMode === "inline" ? "absolute top-3 right-3" : "fixed",
         props.layoutMode === "inline" ? "shadow-black/10" : "shadow-black/20",
       )}
       initial={{ opacity: 0, scale: 0.985, x: 22 }}
@@ -81,9 +86,27 @@ export const EnvironmentMiniPanel = forwardRef<
       exit={{ opacity: 0, scale: 0.985, x: 18 }}
       data-slot="environment-mini-panel"
       transition={PANEL_SPRING_TRANSITION}
+      {...(props.style ? { style: props.style } : {})}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-medium text-muted-foreground">Environment</h2>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="-mr-1 size-7 shrink-0 rounded-full border border-border/60 bg-muted/30 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={props.onOpenEnvironmentSettings}
+                aria-label="Open environment settings"
+              />
+            }
+          >
+            <SettingsIcon className="size-4" strokeWidth={2} />
+          </TooltipTrigger>
+          <TooltipPopup side="left">Environment settings</TooltipPopup>
+        </Tooltip>
       </div>
 
       <div className="space-y-1">
@@ -151,6 +174,7 @@ export const EnvironmentMiniPanel = forwardRef<
         <div className="mt-1">
           <EnvironmentGitSection
             activeThreadId={props.activeThreadId}
+            connectionUrl={props.branchToolbarProps?.connectionUrl ?? null}
             gitCwd={props.gitCwd}
             workspaceMode={props.workspaceMode}
             onWorkspaceModeChange={props.onWorkspaceModeChange}

@@ -1,6 +1,7 @@
 import type { Thread, SidebarThreadSummary } from "./types";
 
 type WorktreeThread = Pick<Thread | SidebarThreadSummary, "id" | "worktreePath">;
+type WorktreeSessionThread = Pick<Thread, "session">;
 
 export function normalizeWorktreePath(path: string | null): string | null {
   const trimmed = path?.trim();
@@ -46,6 +47,15 @@ export function getWorktreeLinkedThreadIds(
   return threads
     .filter((thread) => normalizeWorktreePath(thread.worktreePath) === normalizedWorktreePath)
     .map((thread) => thread.id);
+}
+
+export function isWorktreeThreadSessionActive(thread: WorktreeSessionThread): boolean {
+  return (
+    thread.session !== null &&
+    thread.session !== undefined &&
+    thread.session.status !== "closed" &&
+    (thread.session.status === "running" || thread.session.activeTurnId != null)
+  );
 }
 
 export function formatWorktreePathForDisplay(worktreePath: string): string {

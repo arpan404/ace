@@ -3,11 +3,57 @@ import { describe, expect, it } from "vitest";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
+  formatWorktreeDisplayName,
   resolveBranchSelectionTarget,
   resolveDraftEnvModeAfterBranchChange,
+  resolveEnvironmentModeLabel,
   resolveBranchToolbarValue,
   shouldIncludeBranchPickerItem,
 } from "./branchToolbar";
+
+describe("formatWorktreeDisplayName", () => {
+  it("uses the final path segment for local worktrees", () => {
+    expect(formatWorktreeDisplayName("/repo/.ace/worktrees/ace/worktree-cleanup")).toBe(
+      "worktree-cleanup",
+    );
+  });
+
+  it("trims trailing separators", () => {
+    expect(formatWorktreeDisplayName("/repo/.ace/worktrees/demo/")).toBe("demo");
+  });
+});
+
+describe("resolveEnvironmentModeLabel", () => {
+  it("shows the local label outside worktree mode", () => {
+    expect(
+      resolveEnvironmentModeLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "local",
+        localEnvironmentLabel: "Local",
+      }),
+    ).toBe("Local");
+  });
+
+  it("shows New worktree while a worktree is pending", () => {
+    expect(
+      resolveEnvironmentModeLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        localEnvironmentLabel: "Local",
+      }),
+    ).toBe("New worktree");
+  });
+
+  it("shows the current worktree folder for existing worktrees", () => {
+    expect(
+      resolveEnvironmentModeLabel({
+        activeWorktreePath: "/repo/.ace/worktrees/feature-a",
+        effectiveEnvMode: "worktree",
+        localEnvironmentLabel: "Local",
+      }),
+    ).toBe("feature-a");
+  });
+});
 
 describe("resolveDraftEnvModeAfterBranchChange", () => {
   it("switches to local mode when returning from an existing worktree to the main worktree", () => {

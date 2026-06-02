@@ -4333,6 +4333,7 @@ function useSidebarComponent() {
       togglePinnedProject,
     ],
   );
+
   const handleRemoteProjectContextMenu = useCallback(
     async (
       input: {

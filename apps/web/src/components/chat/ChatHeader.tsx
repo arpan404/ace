@@ -1,9 +1,6 @@
 import { type ProjectId } from "@ace/contracts";
-import {
-  IconInfoCircle,
-  IconLayoutSidebarRight,
-  IconLayoutSidebarRightFilled,
-} from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
+import { Settings2Icon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -122,7 +119,7 @@ export const ChatHeader = memo(function ChatHeader({
                 />
               }
             >
-              <IconInfoCircle className="size-[18px]" strokeWidth={2} />
+              <Settings2Icon className="size-[18px]" strokeWidth={2} />
             </TooltipTrigger>
             <TooltipPopup side="bottom" align="end">
               Environment

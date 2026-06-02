@@ -25,7 +25,8 @@ export const gitQueryKeys = {
     connectionUrl?: string | null,
     relativePath?: string | null,
   ) => ["git", "working-tree-diff", connectionUrl ?? null, cwd, relativePath ?? null] as const,
-  branches: (cwd: string | null) => ["git", "branches", cwd] as const,
+  branches: (cwd: string | null, connectionUrl?: string | null) =>
+    ["git", "branches", connectionUrl ?? null, cwd] as const,
   githubIssues: (
     cwd: string | null,
     limit: number,
@@ -49,10 +50,16 @@ export const gitMutationKeys = {
 export function invalidateGitQueries(queryClient: QueryClient, input?: { cwd?: string | null }) {
   const cwd = input?.cwd ?? null;
   if (cwd !== null) {
-    return Promise.all([
-      queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) }),
-      queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) }),
-    ]);
+    return queryClient.invalidateQueries({
+      predicate: (query) => {
+        const queryKey = query.queryKey;
+        return (
+          queryKey[0] === "git" &&
+          (queryKey[1] === "status" || queryKey[1] === "branches") &&
+          queryKey[3] === cwd
+        );
+      },
+    });
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
@@ -83,7 +90,7 @@ export function gitStatusQueryOptions(cwd: string | null, connectionUrl?: string
 }
 
 export function gitWorkingTreeDiffQueryOptions(input: {
-  connectionUrl?: string | null;
+  connectionUrl?: string | null | undefined;
   cwd: string | null;
   enabled?: boolean;
   relativePath?: string | null;
@@ -110,13 +117,13 @@ export function gitWorkingTreeDiffQueryOptions(input: {
   });
 }
 
-export function gitBranchesQueryOptions(cwd: string | null) {
+export function gitBranchesQueryOptions(cwd: string | null, connectionUrl?: string | null) {
   return queryOptions({
-    queryKey: gitQueryKeys.branches(cwd),
+    queryKey: gitQueryKeys.branches(cwd, connectionUrl),
     queryFn: async () => {
       const api = ensureNativeApi();
       if (!cwd) throw new Error("Git branches are unavailable.");
-      return api.git.listBranches({ cwd });
+      return api.git.listBranches(withRpcRouteConnection({ cwd }, connectionUrl));
     },
     enabled: cwd !== null,
     staleTime: GIT_BRANCHES_STALE_TIME_MS,
@@ -215,13 +222,17 @@ export function gitResolvePullRequestQueryOptions(input: {
   });
 }
 
-export function gitInitMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
+export function gitInitMutationOptions(input: {
+  connectionUrl?: string | null | undefined;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
     mutationKey: gitMutationKeys.init(input.cwd),
     mutationFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git init is unavailable.");
-      return api.git.init({ cwd: input.cwd });
+      return api.git.init(withRpcRouteConnection({ cwd: input.cwd }, input.connectionUrl));
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -229,13 +240,19 @@ export function gitInitMutationOptions(input: { cwd: string | null; queryClient:
   });
 }
 
-function gitCheckoutMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
+function gitCheckoutMutationOptions(input: {
+  connectionUrl?: string | null | undefined;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
     mutationKey: gitMutationKeys.checkout(input.cwd),
     mutationFn: async (branch: string) => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git checkout is unavailable.");
-      return api.git.checkout({ cwd: input.cwd, branch });
+      return api.git.checkout(
+        withRpcRouteConnection({ cwd: input.cwd, branch }, input.connectionUrl),
+      );
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -286,13 +303,17 @@ export function gitRunStackedActionMutationOptions(input: {
   });
 }
 
-export function gitPullMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
+export function gitPullMutationOptions(input: {
+  connectionUrl?: string | null | undefined;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
     mutationKey: gitMutationKeys.pull(input.cwd),
     mutationFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git pull is unavailable.");
-      return api.git.pull({ cwd: input.cwd });
+      return api.git.pull(withRpcRouteConnection({ cwd: input.cwd }, input.connectionUrl));
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -306,16 +327,20 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
       cwd,
       branch,
       newBranch,
+      connectionUrl,
       path,
     }: {
       cwd: string;
       branch: string;
       newBranch: string;
+      connectionUrl?: string | null;
       path?: string | null;
     }) => {
       const api = ensureNativeApi();
       if (!cwd) throw new Error("Git worktree creation is unavailable.");
-      return api.git.createWorktree({ cwd, branch, newBranch, path: path ?? null });
+      return api.git.createWorktree(
+        withRpcRouteConnection({ cwd, branch, newBranch, path: path ?? null }, connectionUrl),
+      );
     },
     mutationKey: ["git", "mutation", "create-worktree"] as const,
     onSettled: async () => {
@@ -326,10 +351,20 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
 
 export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClient }) {
   return mutationOptions({
-    mutationFn: async ({ cwd, path, force }: { cwd: string; path: string; force?: boolean }) => {
+    mutationFn: async ({
+      connectionUrl,
+      cwd,
+      path,
+      force,
+    }: {
+      connectionUrl?: string | null;
+      cwd: string;
+      path: string;
+      force?: boolean;
+    }) => {
       const api = ensureNativeApi();
       if (!cwd) throw new Error("Git worktree removal is unavailable.");
-      return api.git.removeWorktree({ cwd, path, force });
+      return api.git.removeWorktree(withRpcRouteConnection({ cwd, path, force }, connectionUrl));
     },
     mutationKey: ["git", "mutation", "remove-worktree"] as const,
     onSettled: async () => {

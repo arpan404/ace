@@ -1,29 +1,40 @@
 import { type ThreadId } from "@ace/contracts";
 import {
-  ArrowLeftRightIcon,
   CheckIcon,
   ChevronDownIcon,
-  CloudIcon,
-  CloudOffIcon,
-  ExternalLinkIcon,
   FolderIcon,
-  GaugeIcon,
+  FolderGit2Icon,
+  GitBranchPlusIcon,
   GitForkIcon,
   LaptopIcon,
+  MonitorIcon,
 } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { runAsyncTask } from "../lib/async";
-import { newCommandId } from "../lib/utils";
+import { cn, newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
+import { toastManager } from "./ui/toast";
 import {
   EnvMode,
+  formatWorktreeDisplayName,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  resolveEnvironmentModeLabel,
 } from "../lib/git/branchToolbar";
+import {
+  CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
+  loadConnectedRemoteHostIds,
+  loadRemoteHostInstances,
+  REMOTE_HOSTS_CHANGED_EVENT,
+  resolveHostConnectionWsUrl,
+  resolveLocalDeviceWsUrl,
+  type RemoteHostInstance,
+} from "../lib/remoteHosts";
+import { normalizeWsUrl } from "@ace/shared/hostConnections";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
 import {
@@ -33,9 +44,6 @@ import {
   MenuItem,
   MenuPopup,
   MenuSeparator,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
   MenuTrigger,
 } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
@@ -44,7 +52,9 @@ import type { Project } from "../types";
 interface BranchToolbarProps {
   threadId: ThreadId;
   currentBranchName: string | null;
+  connectionUrl?: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
+  envModeOverride?: EnvMode | null;
   envLocked: boolean;
   presentation?: "footer" | "environment";
   localEnvironmentLabel?: string;
@@ -53,7 +63,44 @@ interface BranchToolbarProps {
   onComposerFocusRequest?: () => void;
 }
 
+type ConnectedRemoteEnvironment = {
+  readonly host: RemoteHostInstance;
+  readonly connectionUrl: string;
+};
+
+function loadConnectedRemoteEnvironments(): ConnectedRemoteEnvironment[] {
+  const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
+  const connectedHostIds = new Set(loadConnectedRemoteHostIds());
+  return loadRemoteHostInstances()
+    .filter((host) => connectedHostIds.has(host.id))
+    .map((host) => ({ host, connectionUrl: resolveHostConnectionWsUrl(host) }))
+    .filter((environment) => normalizeWsUrl(environment.connectionUrl) !== localConnectionUrl)
+    .toSorted((left, right) => left.host.name.localeCompare(right.host.name));
+}
+
+function useConnectedRemoteEnvironments() {
+  const [environments, setEnvironments] = useState<ConnectedRemoteEnvironment[]>(() =>
+    loadConnectedRemoteEnvironments(),
+  );
+
+  useEffect(() => {
+    const refresh = () => setEnvironments(loadConnectedRemoteEnvironments());
+    window.addEventListener(REMOTE_HOSTS_CHANGED_EVENT, refresh);
+    window.addEventListener(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT, refresh);
+    return () => {
+      window.removeEventListener(REMOTE_HOSTS_CHANGED_EVENT, refresh);
+      window.removeEventListener(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT, refresh);
+    };
+  }, []);
+
+  return environments;
+}
+
 function EnvironmentModeMenu(props: {
+  activeWorktreePath: string | null;
+  activeConnectionUrl: string | null;
+  canCreateNewWorktree: boolean;
+  connectedRemoteEnvironments: readonly ConnectedRemoteEnvironment[];
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
   localEnvironmentIcon: Project["icon"];
@@ -61,8 +108,18 @@ function EnvironmentModeMenu(props: {
   onEnvModeSelect: (mode: EnvMode) => void;
   rowClassName: string;
 }) {
-  const isLocal = props.effectiveEnvMode === "local";
-  const label = isLocal ? props.localEnvironmentLabel : "Worktree";
+  const isExistingWorktree = props.activeWorktreePath !== null;
+  const isPendingNewWorktree = props.effectiveEnvMode === "worktree" && !isExistingWorktree;
+  const isLocal = props.effectiveEnvMode === "local" && !isExistingWorktree;
+  const activeConnectionUrl = props.activeConnectionUrl
+    ? normalizeWsUrl(props.activeConnectionUrl)
+    : null;
+  const worktreeDisplayName = formatWorktreeDisplayName(props.activeWorktreePath);
+  const label = resolveEnvironmentModeLabel({
+    activeWorktreePath: props.activeWorktreePath,
+    effectiveEnvMode: props.effectiveEnvMode,
+    localEnvironmentLabel: props.localEnvironmentLabel,
+  });
   const icon = isLocal ? (
     props.localEnvironmentIcon ? (
       <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-3.5 opacity-80" />
@@ -70,7 +127,7 @@ function EnvironmentModeMenu(props: {
       <LaptopIcon className="size-3.5 text-muted-foreground" />
     )
   ) : (
-    <GitForkIcon className="size-3.5 text-muted-foreground" />
+    <FolderGit2Icon className="size-3.5 text-muted-foreground" />
   );
 
   if (props.envLocked) {
@@ -100,61 +157,68 @@ function EnvironmentModeMenu(props: {
       >
         <MenuGroup>
           <MenuGroupLabel className="px-2 pb-1.5 pt-1 text-[13px] font-normal normal-case text-muted-foreground">
-            Continue in
+            Environment
           </MenuGroupLabel>
           <MenuItem
             className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
             onClick={() => props.onEnvModeSelect("local")}
           >
             <LaptopIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Work locally</span>
-            {isLocal ? <CheckIcon className="size-3.5 text-muted-foreground" /> : null}
+            <span className="min-w-0 flex-1 truncate">
+              {isExistingWorktree ? "Main local checkout" : "Local"}
+            </span>
+            {isLocal && activeConnectionUrl === null ? (
+              <CheckIcon className="size-3.5 text-muted-foreground" />
+            ) : null}
           </MenuItem>
-          <MenuItem className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
-            <CloudIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Connect Codex web</span>
-            <ExternalLinkIcon className="size-3.5 text-muted-foreground" />
-          </MenuItem>
-          <MenuItem disabled className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
-            <CloudOffIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Send to cloud</span>
-          </MenuItem>
-        </MenuGroup>
-        <MenuSeparator className="mx-2 my-2" />
-        <MenuGroup>
-          <MenuSub>
-            <MenuSubTrigger className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
-              <GaugeIcon className="size-3.5 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">Usage remaining</span>
-            </MenuSubTrigger>
-            <MenuSubPopup
-              className="w-64 rounded-2xl shadow-2xl shadow-black/25"
-              listClassName="p-2"
-              sideOffset={8}
-            >
-              <MenuGroup>
-                <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
-                  Usage remaining
-                </MenuGroupLabel>
-                <MenuItem disabled className="min-h-8 rounded-xl px-2 text-[13px]">
-                  <span className="min-w-0 flex-1 truncate">Local usage is unlimited</span>
-                </MenuItem>
-                <MenuItem disabled className="min-h-8 rounded-xl px-2 text-[13px]">
-                  <span className="min-w-0 flex-1 truncate">Cloud usage unavailable</span>
-                </MenuItem>
-              </MenuGroup>
-            </MenuSubPopup>
-          </MenuSub>
+          {isExistingWorktree ? (
+            <MenuItem className="min-h-9 gap-2 rounded-xl px-2 text-[13px]" disabled>
+              <FolderGit2Icon className="size-3.5 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">
+                {worktreeDisplayName ?? "Current worktree"}
+              </span>
+              <CheckIcon className="size-3.5 text-muted-foreground" />
+            </MenuItem>
+          ) : null}
+          {props.connectedRemoteEnvironments.map((environment) => {
+            const normalizedConnectionUrl = normalizeWsUrl(environment.connectionUrl);
+            const isActiveRemote = activeConnectionUrl === normalizedConnectionUrl;
+            return (
+              <MenuItem
+                key={environment.host.id}
+                className={cn(
+                  "min-h-9 gap-2 rounded-xl px-2 text-[13px]",
+                  !isActiveRemote && "text-muted-foreground",
+                )}
+                onClick={() => {
+                  if (isActiveRemote) {
+                    return;
+                  }
+                  toastManager.add({
+                    type: "info",
+                    title: "Open a remote project first",
+                    description:
+                      "Select a project or thread from that device in the sidebar, then create a worktree from here.",
+                  });
+                }}
+              >
+                <MonitorIcon className="size-3.5 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{environment.host.name}</span>
+                {isActiveRemote ? <CheckIcon className="size-3.5 text-muted-foreground" /> : null}
+              </MenuItem>
+            );
+          })}
         </MenuGroup>
         <MenuSeparator className="mx-2 my-2" />
         <MenuGroup>
           <MenuItem
             className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
-            disabled={!isLocal}
+            disabled={!props.canCreateNewWorktree || isExistingWorktree}
             onClick={() => props.onEnvModeSelect("worktree")}
           >
-            <ArrowLeftRightIcon className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Handoff to worktree</span>
+            <GitBranchPlusIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">New worktree</span>
+            {isPendingNewWorktree ? <CheckIcon className="size-3.5 text-muted-foreground" /> : null}
           </MenuItem>
         </MenuGroup>
       </MenuPopup>
@@ -165,7 +229,9 @@ function EnvironmentModeMenu(props: {
 export default function BranchToolbar({
   threadId,
   currentBranchName,
+  connectionUrl = null,
   onEnvModeChange,
+  envModeOverride = null,
   envLocked,
   presentation = "footer",
   localEnvironmentLabel = "Local",
@@ -184,11 +250,24 @@ export default function BranchToolbar({
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const branchCwd = activeWorktreePath ?? activeProject?.cwd ?? null;
   const hasServerThread = serverThread !== undefined;
-  const effectiveEnvMode = resolveEffectiveEnvMode({
-    activeWorktreePath,
-    hasServerThread,
-    draftThreadEnvMode: draftThread?.envMode,
-  });
+  const effectiveEnvMode =
+    envModeOverride ??
+    resolveEffectiveEnvMode({
+      activeWorktreePath,
+      hasServerThread,
+      draftThreadEnvMode: draftThread?.envMode,
+    });
+  const canCreateNewWorktree =
+    !activeWorktreePath && (!serverThread || serverThread.messages.length === 0);
+  const connectedRemoteEnvironments = useConnectedRemoteEnvironments();
+  const normalizedConnectionUrl = useMemo(() => {
+    if (!connectionUrl) {
+      return null;
+    }
+    const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
+    const nextConnectionUrl = normalizeWsUrl(connectionUrl);
+    return nextConnectionUrl === localConnectionUrl ? null : nextConnectionUrl;
+  }, [connectionUrl]);
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -269,10 +348,14 @@ export default function BranchToolbar({
     return (
       <div className="space-y-1">
         <EnvironmentModeMenu
+          activeWorktreePath={activeWorktreePath}
+          activeConnectionUrl={normalizedConnectionUrl}
+          canCreateNewWorktree={canCreateNewWorktree}
+          connectedRemoteEnvironments={connectedRemoteEnvironments}
           effectiveEnvMode={activeWorktreePath ? "worktree" : effectiveEnvMode}
           envLocked={envLocked}
           localEnvironmentIcon={localEnvironmentIcon}
-          localEnvironmentLabel={activeWorktreePath ? "Worktree" : localEnvironmentLabel}
+          localEnvironmentLabel={localEnvironmentLabel}
           rowClassName={environmentModeRowClassName}
           onEnvModeSelect={handleEnvModeSelect}
         />
@@ -282,6 +365,7 @@ export default function BranchToolbar({
           activeThreadBranch={activeThreadBranch}
           activeWorktreePath={activeWorktreePath}
           branchCwd={branchCwd}
+          connectionUrl={normalizedConnectionUrl}
           effectiveEnvMode={effectiveEnvMode}
           envLocked={envLocked}
           presentation="environment"
@@ -355,6 +439,7 @@ export default function BranchToolbar({
         activeThreadBranch={activeThreadBranch}
         activeWorktreePath={activeWorktreePath}
         branchCwd={branchCwd}
+        connectionUrl={normalizedConnectionUrl}
         effectiveEnvMode={effectiveEnvMode}
         envLocked={envLocked}
         onSetThreadBranch={setThreadBranch}

@@ -1,18 +1,26 @@
 import {
   ArchiveIcon,
   ArchiveX,
+  ArrowLeftIcon,
+  ArrowRightIcon,
   ChevronDownIcon,
   DownloadIcon,
+  FolderGit2Icon,
+  GitForkIcon,
   RefreshCwIcon,
   SearchIcon,
+  Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
   DesktopCliInstallState,
   ProviderKind,
+  ProjectId,
+  ProjectScript,
   ServerInstallLspToolInput,
   ServerLspToolInstaller,
   ServerLspToolStatus,
@@ -59,6 +67,13 @@ import {
   setDesktopCliInstallStateQueryData,
   useDesktopCliInstallState,
 } from "../../lib/desktopCliInstallReactQuery";
+import { gitBranchesQueryOptions } from "../../lib/gitReactQuery";
+import {
+  formatProjectScriptEnv,
+  nextProjectScriptId,
+  parseProjectScriptEnv,
+  setupProjectScript,
+} from "../../projectScripts";
 import {
   getCustomModelOptionsByProvider,
   resolveAppModelSelectionState,
@@ -66,6 +81,12 @@ import {
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import {
+  formatWorktreePathForDisplay,
+  getWorktreeLinkedThreadIds,
+  isWorktreeThreadSessionActive,
+  normalizeWorktreePath,
+} from "../../worktreeCleanup";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
 import {
@@ -87,6 +108,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
@@ -3234,6 +3256,600 @@ export function AdvancedSettingsPanel() {
 
 export function AboutSettingsPanel() {
   return <SettingsPanel page="about" />;
+}
+
+type EnvironmentWorktreeEntry = {
+  readonly path: string;
+  readonly displayName: string;
+  readonly branchNames: readonly string[];
+  readonly relatedThreads: readonly Thread[];
+  readonly activeThread: Thread | null;
+};
+
+function getEnvironmentWorktreeEntries({
+  branches,
+  project,
+  threads,
+}: {
+  readonly branches: readonly { readonly name: string; readonly worktreePath: string | null }[];
+  readonly project: Project;
+  readonly threads: readonly Thread[];
+}): EnvironmentWorktreeEntry[] {
+  const projectCwd = normalizeWorktreePath(project.cwd);
+  const branchNamesByPath = new Map<string, Set<string>>();
+
+  for (const branch of branches) {
+    const worktreePath = normalizeWorktreePath(branch.worktreePath);
+    if (!worktreePath || worktreePath === projectCwd) {
+      continue;
+    }
+    let branchNames = branchNamesByPath.get(worktreePath);
+    if (!branchNames) {
+      branchNames = new Set<string>();
+      branchNamesByPath.set(worktreePath, branchNames);
+    }
+    branchNames.add(branch.name);
+  }
+
+  return Array.from(branchNamesByPath.entries())
+    .map(([path, branchNames]) => {
+      const relatedThreadIds = new Set(getWorktreeLinkedThreadIds(threads, path));
+      const relatedThreads = threads.filter((thread) => relatedThreadIds.has(thread.id));
+      return {
+        path,
+        displayName: formatWorktreePathForDisplay(path),
+        branchNames: Array.from(branchNames).toSorted((left, right) => left.localeCompare(right)),
+        relatedThreads,
+        activeThread: relatedThreads.find(isWorktreeThreadSessionActive) ?? null,
+      };
+    })
+    .toSorted(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) || left.path.localeCompare(right.path),
+    );
+}
+
+function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) {
+  const setupScript = useMemo(() => setupProjectScript(project.scripts), [project.scripts]);
+  const [command, setCommand] = useState(() => setupScript?.command ?? "");
+  const [envText, setEnvText] = useState(() => formatProjectScriptEnv(setupScript?.env));
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setCommand(setupScript?.command ?? "");
+    setEnvText(formatProjectScriptEnv(setupScript?.env));
+    setValidationError(null);
+  }, [setupScript?.command, setupScript?.env]);
+
+  const saveSetup = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    const trimmedCommand = command.trim();
+    if (!trimmedCommand) {
+      setValidationError("Setup command is required.");
+      return;
+    }
+
+    let parsedEnv: Record<string, string>;
+    try {
+      parsedEnv = parseProjectScriptEnv(envText);
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Invalid environment variables.");
+      return;
+    }
+
+    setSaving(true);
+    setValidationError(null);
+    try {
+      const setupScriptId =
+        setupScript?.id ??
+        nextProjectScriptId(
+          "Worktree setup",
+          project.scripts.map((script) => script.id),
+        );
+      const nextSetupScript: ProjectScript = {
+        id: setupScriptId,
+        name: setupScript?.name ?? "Worktree setup",
+        command: trimmedCommand,
+        icon: setupScript?.icon ?? "configure",
+        runOnWorktreeCreate: true,
+        env: parsedEnv,
+      };
+      const nextScripts = setupScript
+        ? project.scripts.map((script) =>
+            script.id === setupScript.id
+              ? nextSetupScript
+              : script.runOnWorktreeCreate
+                ? { ...script, runOnWorktreeCreate: false }
+                : script,
+          )
+        : [
+            ...project.scripts.map((script) =>
+              script.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script,
+            ),
+            nextSetupScript,
+          ];
+
+      await api.orchestration.dispatchCommand({
+        type: "project.meta.update",
+        commandId: newCommandId(),
+        projectId: project.id,
+        scripts: nextScripts,
+      });
+      toastManager.add({
+        type: "success",
+        title: "Saved worktree setup.",
+      });
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Failed to save setup command.");
+    } finally {
+      setSaving(false);
+    }
+  }, [command, envText, project.id, project.scripts, setupScript]);
+
+  const disableSetup = useCallback(async () => {
+    if (!setupScript) return;
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    setSaving(true);
+    setValidationError(null);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "project.meta.update",
+        commandId: newCommandId(),
+        projectId: project.id,
+        scripts: project.scripts.map((script) =>
+          script.id === setupScript.id ? { ...script, runOnWorktreeCreate: false } : script,
+        ),
+      });
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Failed to disable setup.");
+    } finally {
+      setSaving(false);
+    }
+  }, [project.id, project.scripts, setupScript]);
+
+  const hasEnv = Object.keys(setupScript?.env ?? {}).length > 0;
+
+  return (
+    <div className="border-t border-border/35 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
+            <WrenchIcon className="size-3.5 text-muted-foreground" />
+            Worktree setup
+            {setupScript ? (
+              <Badge variant="outline" size="sm" className="text-[10px]">
+                automatic
+              </Badge>
+            ) : null}
+            {hasEnv ? (
+              <Badge variant="outline" size="sm" className="text-[10px]">
+                {formatCountLabel(Object.keys(setupScript?.env ?? {}).length, "env var")}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground/60">
+            Runs after a new worktree is created. Use it for install, bootstrap, or generated files.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {setupScript ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={saving}
+              onClick={disableSetup}
+            >
+              Disable
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" size="xs" disabled={saving} onClick={saveSetup}>
+            Save setup
+          </Button>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground">Command</label>
+          <Textarea
+            value={command}
+            placeholder="bun install"
+            size="sm"
+            className="font-mono text-[12px]"
+            onChange={(event) => setCommand(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground">Environment</label>
+          <Textarea
+            value={envText}
+            placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
+            size="sm"
+            className="font-mono text-[12px]"
+            onChange={(event) => setEnvText(event.target.value)}
+          />
+        </div>
+      </div>
+      {validationError ? (
+        <div className="mt-2 text-[11px] text-destructive">{validationError}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectEnvironmentWorktrees({
+  project,
+  threads,
+}: {
+  readonly project: Project;
+  readonly threads: readonly Thread[];
+}) {
+  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd));
+  const navigate = useNavigate();
+  const [worktreeSearch, setWorktreeSearch] = useState("");
+  const { deleteWorktreeAndRelatedData } = useThreadActions();
+  const projectThreads = useMemo(
+    () => threads.filter((thread) => thread.projectId === project.id),
+    [project.id, threads],
+  );
+  const worktrees = useMemo(
+    () =>
+      getEnvironmentWorktreeEntries({
+        branches: branchesQuery.data?.branches ?? [],
+        project,
+        threads: projectThreads,
+      }),
+    [branchesQuery.data?.branches, project, projectThreads],
+  );
+  const filteredWorktrees = useMemo(() => {
+    const query = worktreeSearch.trim().toLowerCase();
+    if (query.length === 0) {
+      return worktrees;
+    }
+    return worktrees.filter((worktree) => {
+      const haystack = [
+        worktree.displayName,
+        worktree.path,
+        ...worktree.branchNames,
+        ...worktree.path.split("/"),
+      ]
+        .join("\n")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [worktreeSearch, worktrees]);
+
+  return (
+    <div id={`project-environment-${project.id}`} className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 px-1 pb-3 sm:px-0">
+        <div className="min-w-0">
+          <h2 className="flex min-w-0 items-center gap-2 text-[13px] leading-snug font-semibold text-foreground/90">
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="size-5 shrink-0 text-muted-foreground/70 hover:text-foreground"
+              onClick={() => void navigate({ to: "/settings/environment" })}
+              aria-label="Back to projects"
+            >
+              <ArrowLeftIcon className="size-3.5" />
+            </Button>
+            <span className="min-w-0 truncate">{project.name}</span>
+          </h2>
+          <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+            Configure this project's worktree setup command, environment variables, and cleanup.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="outline"
+          disabled={branchesQuery.isFetching}
+          onClick={() => void branchesQuery.refetch()}
+          aria-label="Refresh worktrees"
+        >
+          <RefreshCwIcon className={cn("size-3.5", branchesQuery.isFetching && "animate-spin")} />
+        </Button>
+      </div>
+      <ProjectWorktreeSetupEditor project={project} />
+
+      <div className="border-t border-border/35 py-3">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:items-start">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
+              <FolderGit2Icon className="size-3.5 text-muted-foreground" />
+              Manage worktrees
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground/60">
+              Delete unused local worktrees and their linked chats. Active agent worktrees stay
+              locked.
+            </p>
+          </div>
+          <div className="relative min-w-0">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+            <Input
+              value={worktreeSearch}
+              placeholder="Search worktrees, folders, branches"
+              className="h-8 pl-8"
+              onChange={(event) => setWorktreeSearch(event.target.value)}
+            />
+          </div>
+        </div>
+
+        {branchesQuery.isError ? (
+          <div className="mt-3 text-[11px] text-destructive">
+            {branchesQuery.error instanceof Error
+              ? branchesQuery.error.message
+              : "Unable to load worktrees for this project."}
+          </div>
+        ) : null}
+
+        {branchesQuery.isLoading ? (
+          <div className="mt-3 text-[11px] text-muted-foreground/60">Loading worktrees...</div>
+        ) : worktrees.length === 0 ? (
+          <div className="mt-3 text-[11px] text-muted-foreground/60">
+            No additional worktrees detected.
+          </div>
+        ) : filteredWorktrees.length === 0 ? (
+          <div className="mt-3 text-[11px] text-muted-foreground/60">
+            No worktrees match that search.
+          </div>
+        ) : (
+          <div className="mt-3 divide-y divide-border/35 border-y border-border/35">
+            {filteredWorktrees.map((worktree) => {
+              const relatedChatCount = worktree.relatedThreads.length;
+              const isActive = worktree.activeThread !== null;
+              return (
+                <div
+                  key={worktree.path}
+                  className="grid gap-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                >
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="truncate text-[12px] font-medium text-foreground/90">
+                          {worktree.displayName}
+                        </span>
+                        {isActive ? (
+                          <Badge variant="outline" size="sm" className="text-[10px]">
+                            In use
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground/50">
+                        {worktree.path}
+                      </div>
+                      <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
+                        <span>{formatCountLabel(worktree.branchNames.length, "branch")}</span>
+                        <span>{formatCountLabel(relatedChatCount, "linked chat")}</span>
+                        {worktree.branchNames.length > 0 ? (
+                          <span className="min-w-0 truncate">
+                            {worktree.branchNames.slice(0, 3).join(", ")}
+                            {worktree.branchNames.length > 3 ? "..." : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="destructive"
+                          className="justify-self-start sm:justify-self-end"
+                          disabled={isActive}
+                          onClick={() =>
+                            void deleteWorktreeAndRelatedData({
+                              projectCwd: project.cwd,
+                              worktreePath: worktree.path,
+                            })
+                          }
+                          aria-label={`Delete ${worktree.displayName}`}
+                        >
+                          <Trash2Icon className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                    {isActive ? (
+                      <TooltipPopup side="top">
+                        Stop the active agent in "{worktree.activeThread?.title}" first.
+                      </TooltipPopup>
+                    ) : (
+                      <TooltipPopup side="top">
+                        Delete this worktree and its linked chats.
+                      </TooltipPopup>
+                    )}
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function EnvironmentSettingsPanel() {
+  const projects = useStore((store) => store.projects);
+  const navigate = useNavigate();
+  const [projectSearch, setProjectSearch] = useState("");
+  const activeLocalProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => project.archivedAt === null)
+        .toSorted(
+          (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+        ),
+    [projects],
+  );
+  const filteredProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    if (query.length === 0) {
+      return activeLocalProjects;
+    }
+    return activeLocalProjects.filter((project) => {
+      const haystack = `${project.name}\n${project.cwd}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [activeLocalProjects, projectSearch]);
+
+  return (
+    <SettingsPageContainer>
+      <div className="min-w-0">
+        <div className="px-1 pb-3 sm:px-0">
+          <h2 className="flex min-w-0 items-center gap-2 text-[13px] leading-snug font-semibold text-foreground/90">
+            <GitForkIcon className="size-3.5 shrink-0 text-muted-foreground/65" />
+            <span className="min-w-0 truncate">Environment</span>
+          </h2>
+          <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+            Choose a project to configure worktree setup commands, environment variables, and
+            cleanup.
+          </p>
+        </div>
+        {activeLocalProjects.length === 0 ? (
+          <Empty className="py-10">
+            <EmptyHeader>
+              <EmptyMedia>
+                <GitForkIcon className="size-5" />
+              </EmptyMedia>
+              <EmptyTitle>No local projects</EmptyTitle>
+              <EmptyDescription>
+                Add a local project to configure worktree setup and cleanup.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <div>
+            <div className="border-y border-border/35 py-2.5">
+              <div className="relative max-w-md">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+                <Input
+                  value={projectSearch}
+                  placeholder="Search projects"
+                  className="h-8 pl-8"
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                />
+              </div>
+            </div>
+            {filteredProjects.length === 0 ? (
+              <Empty className="py-10">
+                <EmptyHeader>
+                  <EmptyMedia>
+                    <SearchIcon className="size-5" />
+                  </EmptyMedia>
+                  <EmptyTitle>No matching projects</EmptyTitle>
+                  <EmptyDescription>Try a different project name or path.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <div className="divide-y divide-border/35">
+                {filteredProjects.map((project) => {
+                  const setupScript = setupProjectScript(project.scripts);
+                  const environmentCount = Object.keys(setupScript?.env ?? {}).length;
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      className="grid w-full gap-3 py-3 text-left transition-colors hover:bg-accent/25 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+                      onClick={() =>
+                        void navigate({
+                          to: "/settings/project-environment/$projectId",
+                          params: { projectId: project.id },
+                        })
+                      }
+                    >
+                      <ProjectAvatar project={project} />
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate text-[13px] font-medium text-foreground/90">
+                            {project.name}
+                          </span>
+                          {setupScript ? (
+                            <span className="text-[11px] text-muted-foreground/60">setup</span>
+                          ) : null}
+                          {environmentCount > 0 ? (
+                            <span className="text-[11px] text-muted-foreground/60">
+                              {environmentCount} env
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground/55">
+                          {project.cwd}
+                        </div>
+                      </div>
+                      <ArrowRightIcon className="size-3.5 text-muted-foreground/60 sm:justify-self-end" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </SettingsPageContainer>
+  );
+}
+
+export function ProjectEnvironmentSettingsPanel({ projectId }: { readonly projectId: ProjectId }) {
+  const navigate = useNavigate();
+  const project = useStore((store) =>
+    store.projects.find((candidate) => candidate.id === projectId),
+  );
+  const threads = useStore((store) => store.threads);
+
+  if (!project || project.archivedAt !== null) {
+    return (
+      <SettingsPageContainer>
+        <SettingsSection
+          title="Project environment"
+          description="This project is no longer available."
+          icon={<GitForkIcon className="size-3.5" />}
+          headerAction={
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={() => void navigate({ to: "/settings/environment" })}
+            >
+              <ArrowLeftIcon className="size-3.5" />
+              Projects
+            </Button>
+          }
+        >
+          <Empty className="py-10">
+            <EmptyHeader>
+              <EmptyMedia>
+                <GitForkIcon className="size-5" />
+              </EmptyMedia>
+              <EmptyTitle>Project not found</EmptyTitle>
+              <EmptyDescription>
+                Choose another project to configure worktree setup and cleanup.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </SettingsSection>
+      </SettingsPageContainer>
+    );
+  }
+
+  return (
+    <SettingsPageContainer>
+      <div className="min-w-0">
+        <ProjectEnvironmentWorktrees project={project} threads={threads} />
+      </div>
+    </SettingsPageContainer>
+  );
 }
 
 type ArchivedProjectGroup = {

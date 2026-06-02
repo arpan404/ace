@@ -82,6 +82,7 @@ import { useSettings } from "~/hooks/useSettings";
 import { applySettingsUpdated } from "~/rpc/serverState";
 
 interface EnvironmentGitSectionProps {
+  connectionUrl?: string | null;
   gitCwd: string | null;
   activeThreadId: ThreadId | null;
   workspaceMode: ThreadWorkspaceMode;
@@ -305,6 +306,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
 }
 
 function useEnvironmentGitSection({
+  connectionUrl,
   gitCwd,
   activeThreadId,
   workspaceMode,
@@ -438,9 +440,11 @@ function useEnvironmentGitSection({
     [persistThreadBranchSync],
   );
 
-  const { data: gitStatus = null, error: gitStatusError } = useQuery(gitStatusQueryOptions(gitCwd));
+  const { data: gitStatus = null, error: gitStatusError } = useQuery(
+    gitStatusQueryOptions(gitCwd, connectionUrl),
+  );
 
-  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitCwd));
+  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitCwd, connectionUrl));
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
   const hasOriginRemote = branchList?.hasOriginRemote ?? false;
@@ -460,7 +464,9 @@ function useEnvironmentGitSection({
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
 
-  const initMutation = useMutation(gitInitMutationOptions({ cwd: gitCwd, queryClient }));
+  const initMutation = useMutation(
+    gitInitMutationOptions({ connectionUrl, cwd: gitCwd, queryClient }),
+  );
 
   const runImmediateGitActionMutation = useMutation(
     gitRunStackedActionMutationOptions({
@@ -468,7 +474,9 @@ function useEnvironmentGitSection({
       queryClient,
     }),
   );
-  const pullMutation = useMutation(gitPullMutationOptions({ cwd: gitCwd, queryClient }));
+  const pullMutation = useMutation(
+    gitPullMutationOptions({ connectionUrl, cwd: gitCwd, queryClient }),
+  );
 
   const isRunStackedActionRunning =
     useIsMutating({ mutationKey: gitMutationKeys.runStackedAction(gitCwd) }) > 0;
