@@ -8083,7 +8083,7 @@ function useChatViewComponent({
         title: `${activeThread?.title ?? "Conversation"} ${subagent.label} fork`,
       });
     },
-    [activeThread?.title, onForkConversation],
+    [activeThread?.title],
   );
 
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
