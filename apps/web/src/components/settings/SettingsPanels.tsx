@@ -3545,8 +3545,26 @@ function ProjectEnvironmentWorktrees({
 }) {
   const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd));
   const navigate = useNavigate();
+  const settings = useSettings();
+  const { updateSettings } = useUpdateSettings();
   const [worktreeSearch, setWorktreeSearch] = useState("");
   const { deleteWorktreeAndRelatedData } = useThreadActions();
+  const projectSshKeyPassphrase =
+    settings.gitSshKeyPassphraseByProjectRoot[project.cwd] ??
+    DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase;
+  const hasProjectSshKeyPassphrase = projectSshKeyPassphrase.trim().length > 0;
+  const updateProjectSshKeyPassphrase = useCallback(
+    (passphrase: string) => {
+      const nextPassphrases = { ...settings.gitSshKeyPassphraseByProjectRoot };
+      if (passphrase.trim().length > 0) {
+        nextPassphrases[project.cwd] = passphrase;
+      } else {
+        delete nextPassphrases[project.cwd];
+      }
+      updateSettings({ gitSshKeyPassphraseByProjectRoot: nextPassphrases });
+    },
+    [project.cwd, settings.gitSshKeyPassphraseByProjectRoot, updateSettings],
+  );
   const projectThreads = useMemo(
     () => threads.filter((thread) => thread.projectId === project.id),
     [project.id, threads],
@@ -3611,6 +3629,39 @@ function ProjectEnvironmentWorktrees({
         </Button>
       </div>
       <ProjectWorktreeSetupEditor project={project} />
+
+      <div className="border-t border-border/35 py-3">
+        <SettingsRow
+          title="SSH key passphrase"
+          description="Overrides the global Git SSH key passphrase for this project and its worktrees."
+          resetAction={
+            hasProjectSshKeyPassphrase ? (
+              <SettingResetButton
+                label="project Git SSH key passphrase"
+                onClick={() =>
+                  updateProjectSshKeyPassphrase(DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase)
+                }
+              />
+            ) : null
+          }
+          status={hasProjectSshKeyPassphrase ? "Configured" : "Using global"}
+          control={
+            <Input
+              type="password"
+              className="w-full sm:w-72"
+              value={projectSshKeyPassphrase}
+              onChange={(event) => updateProjectSshKeyPassphrase(event.target.value)}
+              placeholder={
+                settings.gitSshKeyPassphrase.trim().length > 0
+                  ? "Using global passphrase"
+                  : "Optional private key passphrase"
+              }
+              aria-label="Project Git SSH key passphrase"
+              autoComplete="off"
+            />
+          }
+        />
+      </div>
 
       <div className="border-t border-border/35 py-3">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:items-start">
