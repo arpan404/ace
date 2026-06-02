@@ -845,7 +845,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           <>
             <div
               ref={browserToolbarRef}
-              className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
+              className="flex h-12 min-w-0 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
             >
               <div className="flex shrink-0 items-center gap-0.5">
                 <Tooltip>
@@ -914,7 +914,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   </TooltipPopup>
                 </Tooltip>
               </div>
-              <search className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2">
+              <search className="relative flex min-w-0 flex-1 items-center gap-2">
                 <div
                   className={cn(
                     "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
