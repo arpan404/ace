@@ -6377,7 +6377,7 @@ function useChatViewComponent({
         command: input.keybindingCommand,
       });
 
-      if (isElectron && keybindingRule) {
+      if (keybindingRule) {
         await api.server.upsertKeybinding(keybindingRule);
       }
     },
@@ -8662,6 +8662,37 @@ function useChatViewComponent({
     },
     [activeThread, isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
   );
+  const onNewWorktreeRequest = useCallback(() => {
+    if (!activeProject) {
+      return;
+    }
+    const baseBranch = activeThread?.branch ?? activeThreadBranchName ?? null;
+    void handleNewThread(activeProject.id, {
+      branch: baseBranch,
+      worktreePath: null,
+      envMode: "worktree",
+      connectionUrl: activeServerConnectionUrl,
+    }).then(
+      () => scheduleComposerFocus(),
+      (error) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not start a new worktree",
+          description:
+            error instanceof Error
+              ? error.message
+              : "An error occurred while preparing the worktree draft.",
+        });
+      },
+    );
+  }, [
+    activeProject,
+    activeServerConnectionUrl,
+    activeThread?.branch,
+    activeThreadBranchName,
+    handleNewThread,
+    scheduleComposerFocus,
+  ]);
   const onToggleWorkGroup = useCallback((groupId: string) => {
     setExpandedWorkGroups((existing) => ({
       ...existing,
@@ -9192,6 +9223,7 @@ function useChatViewComponent({
           localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
           localEnvironmentIcon: activeEnvironmentIcon,
           onComposerFocusRequest: scheduleComposerFocus,
+          onNewWorktreeRequest,
           ...(canCheckoutPullRequestIntoThread
             ? { onCheckoutPullRequestRequest: openPullRequestDialog }
             : {}),
