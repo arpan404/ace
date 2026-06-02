@@ -1,3 +1,4 @@
+import { IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import {
   ArrowLeftIcon,
   ArrowDownIcon,
@@ -79,6 +80,8 @@ interface InAppBrowserProps {
   scopeId?: string;
   visible?: boolean;
   onClose: () => void;
+  onDetached?: () => void;
+  onReturnToMainWindow?: () => void;
   onBrowserSessionChange?: (session: BrowserSessionStorage) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
@@ -310,6 +313,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     handleBrowserKeyDownCapture,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
+    hasWebContentsId,
     openActiveTabExternally,
     openActiveTabInAuthWindow,
     openUrl,
@@ -345,6 +349,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       ? { onToggleRightPanelFullscreen: props.onToggleRightPanelFullscreen }
       : {}),
   });
+  const onDetached = props.onDetached;
+  const onReturnToMainWindow = props.onReturnToMainWindow;
   const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
   const detachBrowser = useCallback(async () => {
     const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
@@ -356,7 +362,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       ...(activeTab?.url && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
     });
     if (detached) {
-      onClose();
+      onDetached?.() ?? onClose();
       return;
     }
     toastManager.add({
@@ -364,7 +370,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       description: "The desktop app did not open a detached browser window.",
       type: "error",
     });
-  }, [activeTab?.url, activeTabIsInternal, onClose, scopeId]);
+  }, [activeTab?.url, activeTabIsInternal, onClose, onDetached, scopeId]);
   const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
   const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
   const browserSessionPublishFrameRef = useRef<number | null>(null);
@@ -392,13 +398,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     if (!activeInstance || !isElectron) {
       return;
     }
-    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
+    return window.desktopBridge?.onBrowserOpenUrl?.((event) => {
+      const { url } = event;
+      const sourceWebContentsId = event.sourceWebContentsId ?? null;
       if (typeof url !== "string") {
+        return;
+      }
+      if (typeof sourceWebContentsId === "number" && !hasWebContentsId(sourceWebContentsId)) {
         return;
       }
       openUrlInNewTabFromPage(url);
     });
-  }, [activeInstance, openUrlInNewTabFromPage]);
+  }, [activeInstance, hasWebContentsId, openUrlInNewTabFromPage]);
 
   useEffect(() => {
     latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
@@ -1122,6 +1133,25 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     }
                   />
                   <TooltipPopup side="bottom">Open browser in new window</TooltipPopup>
+                </Tooltip>
+              ) : null}
+              {onReturnToMainWindow ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        type="button"
+                        className="size-8 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/55 hover:text-foreground"
+                        onClick={onReturnToMainWindow}
+                        aria-label="Move browser back to Ace"
+                      >
+                        <IconArrowsDiagonalMinimize2 className="size-4" stroke={1.8} />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">Move browser back to Ace</TooltipPopup>
                 </Tooltip>
               ) : null}
               {designerModeAvailable ? (

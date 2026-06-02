@@ -2268,6 +2268,10 @@ function useBrowserTabWebviewComponent(props: {
         if (!readyRef.current || !webviewRef.current) return 1;
         return getWebviewZoomFactor(webviewRef.current);
       },
+      getWebContentsId: () => {
+        const id = webviewRef.current?.getWebContentsId?.();
+        return typeof id === "number" && Number.isFinite(id) ? id : null;
+      },
       getSnapshot: () => readSnapshot(),
       goBack: () => {
         if (!readyRef.current || !webviewRef.current?.canGoBack()) return;

@@ -280,7 +280,22 @@ export interface DesktopDetachedBrowserOpenInput {
 export interface DesktopDetachedEditorOpenInput {
   threadId: string;
   connectionUrl?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
 }
+
+export type DesktopDetachedWindowReturnRequest =
+  | {
+      kind: "browser";
+      scopeId?: string;
+    }
+  | {
+      kind: "editor";
+      connectionUrl?: string;
+      placement?: "bottom" | "right" | "workspace";
+      threadId: string;
+      workspaceMode?: "editor" | "split";
+    };
 
 export type DesktopBrowserPermission =
   | "camera"
@@ -336,6 +351,11 @@ export interface DesktopBrowserDownloadEvent {
   type: "done" | "updated";
 }
 
+export interface DesktopBrowserOpenUrlEvent {
+  sourceWebContentsId?: number;
+  url: string;
+}
+
 export type DesktopBrowserDownloadAction = "cancel" | "open" | "pause" | "resume" | "reveal";
 
 export interface DesktopBrowserSiteInfo {
@@ -386,6 +406,7 @@ export interface DesktopBridge {
   openNewWindow?: () => Promise<boolean>;
   openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
   openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
+  returnDetachedWindow?: (input: DesktopDetachedWindowReturnRequest) => Promise<boolean>;
   openBrowserAuthWindow?: (url: string) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
@@ -399,7 +420,10 @@ export interface DesktopBridge {
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
   onPairingUrl?: (listener: (url: string) => void) => () => void;
-  onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
+  onDetachedWindowReturn?: (
+    listener: (request: DesktopDetachedWindowReturnRequest) => void,
+  ) => () => void;
+  onBrowserOpenUrl?: (listener: (event: DesktopBrowserOpenUrlEvent) => void) => () => void;
   onBrowserContextMenuShown?: (listener: () => void) => () => void;
   onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
   onBrowserDownloadEvent?: (listener: (event: DesktopBrowserDownloadEvent) => void) => () => void;

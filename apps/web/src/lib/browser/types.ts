@@ -43,6 +43,7 @@ export type BrowserWebview = HTMLElement & {
   findInPage?: (query: string, options?: BrowserFindOptions) => number;
   getTitle: () => string;
   getURL: () => string;
+  getWebContentsId?: () => number;
   goBack: () => void;
   goForward: () => void;
   isDevToolsOpened: () => boolean;
@@ -157,6 +158,7 @@ export type BrowserTabHandle = {
   executeJavaScript: <T = unknown>(code: string) => Promise<T>;
   findInPage: (query: string, options?: BrowserFindOptions) => void;
   getZoomFactor: () => number;
+  getWebContentsId: () => number | null;
   getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
   goForward: () => void;

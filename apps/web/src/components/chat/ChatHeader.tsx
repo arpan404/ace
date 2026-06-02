@@ -1,6 +1,6 @@
 import { type ProjectId } from "@ace/contracts";
 import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
-import { AppWindowIcon, Settings2Icon } from "lucide-react";
+import { Settings2Icon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -22,7 +22,6 @@ interface ChatHeaderProps {
   rightSidePanelOpen: boolean;
   onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
   onToggleEnvironmentPanel: () => void;
-  onOpenNewWindow?: (() => void) | null;
   onToggleTerminal: () => void;
   onToggleRightSidePanel: () => void;
   reliabilitySlot?: ReactNode;
@@ -41,7 +40,6 @@ export const ChatHeader = memo(function ChatHeader({
   rightSidePanelOpen,
   onActiveProjectChange,
   onToggleEnvironmentPanel,
-  onOpenNewWindow,
   onToggleTerminal,
   onToggleRightSidePanel,
   reliabilitySlot,
@@ -104,27 +102,6 @@ export const ChatHeader = memo(function ChatHeader({
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex shrink-0 items-center gap-1.5">
           {reliabilitySlot}
-          {onOpenNewWindow ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-lg"
-                    className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
-                    onClick={onOpenNewWindow}
-                    aria-label="Open new window"
-                  />
-                }
-              >
-                <AppWindowIcon className="size-[18px]" strokeWidth={1.9} />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom" align="end">
-                New window
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
           <Tooltip>
             <TooltipTrigger
               render={

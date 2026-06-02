@@ -3,6 +3,7 @@ import {
   type ClientOrchestrationCommand,
   type CommandId,
   DEFAULT_MODEL_BY_PROVIDER,
+  type DesktopDetachedWindowReturnRequest,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
@@ -190,6 +191,12 @@ import {
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "../lib/terminalContext";
+import {
+  consumePendingDetachedWindowReturnRequest,
+  DETACHED_WINDOW_RETURN_EVENT,
+  isDetachedWindowReturnRequest,
+  resolveDetachedWindowReturnThreadId,
+} from "~/lib/detachedWindowReturn";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
 import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/desktopChrome";
@@ -1804,22 +1811,6 @@ function useChatViewComponent({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
-  const canOpenNewWindow = Boolean(window.desktopBridge?.openNewWindow);
-  const openNewAceWindow = useCallback(async () => {
-    const openNewWindow = window.desktopBridge?.openNewWindow;
-    if (!openNewWindow) {
-      return;
-    }
-    const opened = await openNewWindow();
-    if (opened) {
-      return;
-    }
-    toastManager.add({
-      title: "Could not open new window",
-      description: "The desktop app did not open another Ace window.",
-      type: "error",
-    });
-  }, []);
   const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
@@ -4750,6 +4741,12 @@ function useChatViewComponent({
     setBrowserMode,
     setRightSidePanelMode,
   ]);
+  const detachRightSidePanelBrowser = useCallback(() => {
+    setBrowserMode("closed");
+    setBrowserDevToolsOpen(false);
+    removeRightPanelTabOrder("browser");
+    setRightSidePanelMode((current) => (current === "browser" ? "summary" : current));
+  }, [removeRightPanelTabOrder, setBrowserDevToolsOpen, setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelVisible(false);
@@ -5117,6 +5114,50 @@ function useChatViewComponent({
     bottomPanelEditorTabs,
     onNewBottomPanelEditorTab,
   ]);
+  const handleDetachedWindowReturnRequest = useEffectEvent(
+    (request: DesktopDetachedWindowReturnRequest) => {
+      const requestThreadId = resolveDetachedWindowReturnThreadId(request);
+      if (requestThreadId !== null && requestThreadId !== threadId) {
+        return;
+      }
+      if (request.kind === "browser") {
+        if (request.scopeId === bottomBrowserInstanceId) {
+          onOpenBottomPanelBrowser();
+          return;
+        }
+        openBrowser();
+        return;
+      }
+      if (request.placement === "bottom") {
+        onOpenBottomPanelEditor();
+        return;
+      }
+      if (request.placement === "workspace") {
+        onWorkspaceModeChange(request.workspaceMode ?? "editor");
+        return;
+      }
+      onOpenRightSidePanelEditor();
+    },
+  );
+  useEffect(() => {
+    const pendingRequest = consumePendingDetachedWindowReturnRequest(threadId);
+    if (pendingRequest) {
+      handleDetachedWindowReturnRequest(pendingRequest);
+    }
+  }, [threadId]);
+  useEffect(() => {
+    const handleDetachedWindowReturn = (event: Event) => {
+      const request = event instanceof CustomEvent ? event.detail : null;
+      if (!isDetachedWindowReturnRequest(request)) {
+        return;
+      }
+      handleDetachedWindowReturnRequest(request);
+    };
+    window.addEventListener(DETACHED_WINDOW_RETURN_EVENT, handleDetachedWindowReturn);
+    return () => {
+      window.removeEventListener(DETACHED_WINDOW_RETURN_EVENT, handleDetachedWindowReturn);
+    };
+  }, []);
   const onCloseRightSidePanelTerminal = useCallback(() => {
     setRightSidePanelTerminalOpen(false);
     removeRightPanelTabOrder("terminal");
@@ -5201,6 +5242,12 @@ function useChatViewComponent({
     removeBottomPanelTabOrder,
     setTerminalOpen,
   ]);
+  const detachBottomPanelBrowser = useCallback(() => {
+    setBottomPanelBrowserOpen(false);
+    removeBottomPanelTabOrder("browser");
+    setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
+    setTerminalOpen(true);
+  }, [removeBottomPanelTabOrder, setTerminalOpen]);
   const onCloseBottomPanelBrowserTab = useCallback(
     (tabId: string) => {
       if (!bottomBrowserInstanceId) {
@@ -9651,6 +9698,9 @@ function useChatViewComponent({
                   mode: browserViewMode,
                   scopeId: browserInstanceId,
                   onClose: isBottomBrowserInstance ? onCloseBottomPanelBrowser : closeBrowser,
+                  onDetached: isBottomBrowserInstance
+                    ? detachBottomPanelBrowser
+                    : detachRightSidePanelBrowser,
                   onBrowserSessionChange: getBrowserSessionChangeHandler(browserInstanceId),
                   onControllerChange: getBrowserControllerChangeHandler(browserInstanceId),
                   onActiveRuntimeStateChange:
@@ -10286,7 +10336,6 @@ function useChatViewComponent({
                   onToggleEnvironmentPanel={() => {
                     setEnvironmentPanelOpen((open) => !open);
                   }}
-                  onOpenNewWindow={canOpenNewWindow ? () => void openNewAceWindow() : null}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
                   reliabilitySlot={
@@ -10374,6 +10423,7 @@ function useChatViewComponent({
                       terminalOpen={terminalState.terminalOpen}
                       threadId={activeThread.id}
                       worktreePath={activeThread.worktreePath ?? null}
+                      detachedReturnPlacement="workspace"
                       onDetached={() => onWorkspaceModeChange("chat")}
                       onSubmitAgentNote={submitWorkspaceAgentNote}
                     />
@@ -10574,6 +10624,7 @@ function useChatViewComponent({
                             terminalOpen={terminalState.terminalOpen}
                             threadId={activeThread.id}
                             worktreePath={activeThread.worktreePath ?? null}
+                            detachedReturnPlacement="workspace"
                             onDetached={() => onWorkspaceModeChange("chat")}
                             onSubmitAgentNote={submitWorkspaceAgentNote}
                           />
@@ -10755,6 +10806,7 @@ function useChatViewComponent({
                                 terminalOpen={terminalState.terminalOpen}
                                 threadId={activeThread.id}
                                 worktreePath={activeThread.worktreePath ?? null}
+                                detachedReturnPlacement="right"
                                 onDetached={onCloseRightSidePanelEditor}
                                 onSubmitAgentNote={submitWorkspaceAgentNote}
                               />
@@ -10896,6 +10948,7 @@ function useChatViewComponent({
                         terminalOpen={terminalState.terminalOpen}
                         threadId={activeThread.id}
                         worktreePath={activeThread.worktreePath ?? null}
+                        detachedReturnPlacement="bottom"
                         onDetached={onCloseBottomPanelEditor}
                         onSubmitAgentNote={submitWorkspaceAgentNote}
                       />

@@ -10,6 +10,7 @@ import type {
 import * as Schema from "effect/Schema";
 import {
   IconFiles,
+  IconArrowsDiagonalMinimize2,
   IconGitCompare,
   IconLayoutSidebar,
   IconLayoutSidebarFilled,
@@ -1039,7 +1040,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
   detachEnabled?: boolean;
+  detachedReturnPlacement?: "bottom" | "right" | "workspace";
   onDetached?: () => void;
+  onReturnToMainWindow?: () => void;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
@@ -1054,7 +1057,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
   const detachedEditorConnectionUrl = inputProps.connectionUrl;
   const detachedEditorThreadId = inputProps.threadId;
+  const detachedReturnPlacement = inputProps.detachedReturnPlacement;
+  const detachedWorkspaceMode =
+    detachedReturnPlacement === "workspace" &&
+    (inputProps.workspaceMode === "editor" || inputProps.workspaceMode === "split")
+      ? inputProps.workspaceMode
+      : undefined;
   const onEditorDetached = inputProps.onDetached;
+  const onReturnToMainWindow = inputProps.onReturnToMainWindow;
   const canDetachEditor =
     inputProps.detachEnabled !== false && Boolean(window.desktopBridge?.openDetachedEditor);
   const detachEditor = useCallback(async () => {
@@ -1065,6 +1075,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     const detached = await openDetachedEditor({
       threadId: detachedEditorThreadId,
       ...(detachedEditorConnectionUrl ? { connectionUrl: detachedEditorConnectionUrl } : {}),
+      ...(detachedReturnPlacement ? { placement: detachedReturnPlacement } : {}),
+      ...(detachedWorkspaceMode ? { workspaceMode: detachedWorkspaceMode } : {}),
     });
     if (detached) {
       onEditorDetached?.();
@@ -1075,7 +1087,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       description: "The desktop app did not open a detached editor window.",
       type: "error",
     });
-  }, [detachedEditorConnectionUrl, detachedEditorThreadId, onEditorDetached]);
+  }, [
+    detachedEditorConnectionUrl,
+    detachedEditorThreadId,
+    detachedReturnPlacement,
+    detachedWorkspaceMode,
+    onEditorDetached,
+  ]);
 
   const { resolvedTheme } = useTheme();
   const { updateSettings } = useUpdateSettings();
@@ -3795,6 +3813,24 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             }
                           />
                           <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      {onReturnToMainWindow ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                                onClick={onReturnToMainWindow}
+                                aria-label="Move editor back to Ace"
+                              >
+                                <IconArrowsDiagonalMinimize2 className="size-4" stroke={1.8} />
+                              </Button>
+                            }
+                          />
+                          <TooltipPopup side="bottom">Move editor back to Ace</TooltipPopup>
                         </Tooltip>
                       ) : null}
                       <Tooltip>

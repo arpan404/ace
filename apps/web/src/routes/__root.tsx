@@ -21,6 +21,7 @@ import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
+import type { BrowserDesignRequestSubmission } from "../lib/browser/types";
 import {
   applyTransportConnectionHealthState,
   setConnectionHealthToastsEnabled,
@@ -68,6 +69,12 @@ import { useHostConnectionStore } from "../hostConnectionStore";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
+import { appendBrowserDesignContextToPrompt } from "../lib/terminalContext";
+import { newCommandId, newMessageId, randomUUID } from "../lib/utils";
+import {
+  dispatchDetachedWindowReturnRequest,
+  resolveDetachedWindowReturnThreadId,
+} from "../lib/detachedWindowReturn";
 
 const DetachedThreadWorkspaceEditor = lazy(
   () => import("../components/editor/ThreadWorkspaceEditor"),
@@ -98,7 +105,9 @@ function RootRouteView() {
         return {
           kind: "editor" as const,
           connectionUrl: searchParams.get("connectionUrl"),
+          placement: searchParams.get("placement"),
           threadId: searchParams.get("threadId"),
+          workspaceMode: searchParams.get("workspaceMode"),
         };
       }
       return null;
@@ -121,6 +130,7 @@ function MainRootRouteView() {
     import.meta.env.MODE === "test",
   );
   const [wsHostEpoch, setWsHostEpoch] = useState(0);
+  const navigate = useNavigate();
   useEffect(() => {
     setConnectionHealthToastsEnabled(reliabilityUxEnabled);
   }, [reliabilityUxEnabled]);
@@ -142,6 +152,32 @@ function MainRootRouteView() {
       window.removeEventListener("ace:ws-host-changed", handleHostChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isElectron) {
+      return;
+    }
+    return window.desktopBridge?.onDetachedWindowReturn?.((request) => {
+      const returnThreadId = resolveDetachedWindowReturnThreadId(request);
+      const dispatchRequest = () => dispatchDetachedWindowReturnRequest(request);
+      if (!returnThreadId) {
+        dispatchRequest();
+        return;
+      }
+      runAsyncTask(
+        Promise.resolve()
+          .then(() =>
+            navigate({
+              to: "/$threadId",
+              params: { threadId: returnThreadId },
+              search: (previous) => previous,
+            }),
+          )
+          .finally(dispatchRequest),
+        "Detached window return navigation failed.",
+      );
+    });
+  }, [navigate]);
 
   const startupState = resolveAppStartupState({
     bootstrapComplete,
@@ -198,6 +234,110 @@ function DetachedBrowserWindow(props: {
 }) {
   const openedInitialUrlRef = useRef(false);
   const [controller, setController] = useState<InAppBrowserController | null>(null);
+  const threadId = useMemo(
+    () => resolveThreadIdFromBrowserScope(props.search.scopeId),
+    [props.search.scopeId],
+  );
+  const thread = useStore((store) =>
+    threadId
+      ? (store.threadsById?.[threadId] ??
+        store.threads.find((candidate) => candidate.id === threadId) ??
+        null)
+      : null,
+  );
+  const queueDetachedBrowserDesignRequest = useCallback(
+    async (submission: BrowserDesignRequestSubmission) => {
+      if (!threadId || !thread) {
+        toastManager.add({
+          type: "error",
+          title: "Could not queue design note",
+          description: "This browser window is not linked to a chat thread.",
+        });
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Could not queue design note",
+          description: "The desktop API is unavailable.",
+        });
+        return;
+      }
+      const trimmedInstructions = submission.instructions.trim();
+      const normalizedMimeType =
+        submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
+      const fileExtension = /^image\/([a-z0-9.+-]+)$/i.exec(normalizedMimeType)?.[1] ?? "png";
+      const prompt = appendBrowserDesignContextToPrompt(
+        trimmedInstructions || "Review this browser screenshot.",
+        {
+          requestId: submission.requestId,
+          pageUrl: submission.pageUrl,
+          pagePath: submission.pagePath,
+          selection: submission.selection,
+          targetElement: submission.targetElement,
+          mainContainer: submission.mainContainer,
+        },
+      );
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.queue.append",
+          commandId: newCommandId(),
+          threadId,
+          position: "back",
+          message: {
+            id: newMessageId(),
+            prompt,
+            images: [
+              {
+                type: "image",
+                id: randomUUID(),
+                name: `designer-comment.${fileExtension}`,
+                mimeType: normalizedMimeType,
+                sizeBytes: submission.imageSizeBytes,
+                dataUrl: submission.imageDataUrl,
+              },
+            ],
+            terminalContexts: [],
+            modelSelection: thread.modelSelection,
+            runtimeMode: thread.runtimeMode,
+            interactionMode: thread.interactionMode,
+          },
+        });
+        toastManager.add({
+          type: "success",
+          title: "Design note queued",
+          description: "It was added to the linked chat.",
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not queue design note",
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      }
+    },
+    [thread, threadId],
+  );
+  const moveBrowserBackToAce = useCallback(async () => {
+    const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
+    if (!returnDetachedWindow) {
+      return;
+    }
+    const returned = await returnDetachedWindow({
+      kind: "browser",
+      ...(props.search.scopeId ? { scopeId: props.search.scopeId } : {}),
+    });
+    if (returned) {
+      window.close();
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Could not move browser back",
+      description: "The desktop app did not restore the browser panel.",
+    });
+  }, [props.search.scopeId]);
 
   useEffect(() => {
     if (openedInitialUrlRef.current || !controller || !props.search.initialUrl) {
@@ -211,6 +351,9 @@ function DetachedBrowserWindow(props: {
     <ToastProvider>
       <AnchoredToastProvider>
         <UiTypographyBridge />
+        {threadId ? (
+          <DetachedThreadSnapshotBootstrap connectionUrl={null} threadId={threadId} />
+        ) : null}
         <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
           <InAppBrowser
             open
@@ -222,7 +365,11 @@ function DetachedBrowserWindow(props: {
             onClose={() => {
               window.close();
             }}
+            onReturnToMainWindow={() => {
+              void moveBrowserBackToAce();
+            }}
             onControllerChange={setController}
+            {...(thread ? { onQueueDesignRequest: queueDetachedBrowserDesignRequest } : {})}
           />
         </div>
       </AnchoredToastProvider>
@@ -230,8 +377,22 @@ function DetachedBrowserWindow(props: {
   );
 }
 
+function resolveThreadIdFromBrowserScope(scopeId: string | null): ThreadId | null {
+  if (!scopeId) {
+    return null;
+  }
+  const [threadId] = scopeId.split(":browser:");
+  return threadId && threadId !== scopeId ? ThreadId.makeUnsafe(threadId) : null;
+}
+
 function DetachedEditorWindow(props: {
-  search: { kind: "editor"; threadId: string | null; connectionUrl: string | null };
+  search: {
+    kind: "editor";
+    threadId: string | null;
+    connectionUrl: string | null;
+    placement: string | null;
+    workspaceMode: string | null;
+  };
 }) {
   return (
     <ToastProvider>
@@ -244,7 +405,9 @@ function DetachedEditorWindow(props: {
         />
         <DetachedEditorWindowContent
           connectionUrl={props.search.connectionUrl}
+          placement={props.search.placement}
           threadId={props.search.threadId}
+          workspaceMode={props.search.workspaceMode}
         />
       </AnchoredToastProvider>
     </ToastProvider>
@@ -294,6 +457,8 @@ function DetachedThreadSnapshotBootstrap(props: {
 function DetachedEditorWindowContent(props: {
   threadId: string | null;
   connectionUrl: string | null;
+  placement: string | null;
+  workspaceMode: string | null;
 }) {
   const threadId = useMemo(
     () => (props.threadId ? ThreadId.makeUnsafe(props.threadId) : null),
@@ -311,6 +476,36 @@ function DetachedEditorWindowContent(props: {
   );
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
+  const moveEditorBackToAce = useCallback(async () => {
+    const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
+    if (!returnDetachedWindow || !props.threadId) {
+      return;
+    }
+    const placement =
+      props.placement === "bottom" || props.placement === "right" || props.placement === "workspace"
+        ? props.placement
+        : undefined;
+    const workspaceMode =
+      props.workspaceMode === "editor" || props.workspaceMode === "split"
+        ? props.workspaceMode
+        : undefined;
+    const returned = await returnDetachedWindow({
+      kind: "editor",
+      threadId: props.threadId,
+      ...(props.connectionUrl ? { connectionUrl: props.connectionUrl } : {}),
+      ...(placement ? { placement } : {}),
+      ...(workspaceMode ? { workspaceMode } : {}),
+    });
+    if (returned) {
+      window.close();
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Could not move editor back",
+      description: "The desktop app did not restore the editor panel.",
+    });
+  }, [props.connectionUrl, props.placement, props.threadId, props.workspaceMode]);
 
   if (!threadId) {
     return <DetachedWindowMessage title="Editor unavailable" description="Missing thread id." />;
@@ -340,6 +535,9 @@ function DetachedEditorWindowContent(props: {
           worktreePath={thread.worktreePath}
           workspaceMode="editor"
           detachEnabled={false}
+          onReturnToMainWindow={() => {
+            void moveEditorBackToAce();
+          }}
         />
       </Suspense>
     </div>

@@ -119,6 +119,7 @@ const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_NEW_WINDOW_CHANNEL = "desktop:open-new-window";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const RETURN_DETACHED_WINDOW_CHANNEL = "desktop:return-detached-window";
 const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
@@ -1852,11 +1853,18 @@ function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
 function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   threadId: string;
   connectionUrl?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
 } | null {
   if (typeof rawInput !== "object" || rawInput === null) {
     return null;
   }
-  const input = rawInput as { threadId?: unknown; connectionUrl?: unknown };
+  const input = rawInput as {
+    connectionUrl?: unknown;
+    placement?: unknown;
+    threadId?: unknown;
+    workspaceMode?: unknown;
+  };
   if (typeof input.threadId !== "string" || input.threadId.trim().length === 0) {
     return null;
   }
@@ -1867,6 +1875,74 @@ function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   return {
     threadId: input.threadId.trim(),
     ...(connectionUrl ? { connectionUrl } : {}),
+    ...(input.placement === "bottom" ||
+    input.placement === "right" ||
+    input.placement === "workspace"
+      ? { placement: input.placement }
+      : {}),
+    ...(input.workspaceMode === "editor" || input.workspaceMode === "split"
+      ? { workspaceMode: input.workspaceMode }
+      : {}),
+  };
+}
+
+function normalizeDetachedWindowReturnRequest(rawInput: unknown):
+  | {
+      kind: "browser";
+      scopeId?: string;
+    }
+  | {
+      kind: "editor";
+      connectionUrl?: string;
+      placement?: "bottom" | "right" | "workspace";
+      threadId: string;
+      workspaceMode?: "editor" | "split";
+    }
+  | null {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return null;
+  }
+  const input = rawInput as {
+    connectionUrl?: unknown;
+    kind?: unknown;
+    placement?: unknown;
+    scopeId?: unknown;
+    threadId?: unknown;
+    workspaceMode?: unknown;
+  };
+  if (input.kind === "browser") {
+    const scopeId =
+      typeof input.scopeId === "string" && input.scopeId.trim().length > 0
+        ? input.scopeId.trim()
+        : undefined;
+    return {
+      kind: "browser",
+      ...(scopeId ? { scopeId } : {}),
+    };
+  }
+  if (input.kind !== "editor" || typeof input.threadId !== "string") {
+    return null;
+  }
+  const threadId = input.threadId.trim();
+  if (threadId.length === 0) {
+    return null;
+  }
+  const connectionUrl =
+    typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
+      ? input.connectionUrl.trim()
+      : undefined;
+  return {
+    kind: "editor",
+    threadId,
+    ...(connectionUrl ? { connectionUrl } : {}),
+    ...(input.placement === "bottom" ||
+    input.placement === "right" ||
+    input.placement === "workspace"
+      ? { placement: input.placement }
+      : {}),
+    ...(input.workspaceMode === "editor" || input.workspaceMode === "split"
+      ? { workspaceMode: input.workspaceMode }
+      : {}),
   };
 }
 
@@ -2776,6 +2852,18 @@ function registerIpcHandlers(): void {
     return input ? createDetachedEditorWindow(input) : false;
   });
 
+  ipcMain.removeHandler(RETURN_DETACHED_WINDOW_CHANNEL);
+  ipcMain.handle(RETURN_DETACHED_WINDOW_CHANNEL, async (_event, rawInput: unknown) => {
+    const request = normalizeDetachedWindowReturnRequest(rawInput);
+    if (!request) {
+      return false;
+    }
+    withReadyPrimaryWindow((window) => {
+      safelySendToWindow(window, RETURN_DETACHED_WINDOW_CHANNEL, request);
+    });
+    return true;
+  });
+
   ipcMain.removeHandler(OPEN_BROWSER_AUTH_WINDOW_CHANNEL);
   ipcMain.handle(OPEN_BROWSER_AUTH_WINDOW_CHANNEL, async (_event, rawUrl: unknown) => {
     return createBrowserAuthWindow(rawUrl);
@@ -2986,7 +3074,10 @@ function attachWebContentsContextMenu(input: {
           ? {
               onCopyLink: () => clipboard.writeText(linkUrl),
               onOpenLinkInNewTab: () => {
-                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, linkUrl);
+                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, {
+                  sourceWebContentsId: input.targetContents.id,
+                  url: linkUrl,
+                });
               },
               onOpenLink: () => {
                 void shell.openExternal(linkUrl);
@@ -3124,7 +3215,10 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
         };
       }
       if (externalUrl) {
-        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, externalUrl);
+        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, {
+          sourceWebContentsId: guestContents.id,
+          url: externalUrl,
+        });
       }
       return { action: "deny" };
     });
@@ -3369,7 +3463,12 @@ function createBrowserAuthWindow(rawUrl: unknown): boolean {
   return true;
 }
 
-function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: string }): boolean {
+function createDetachedEditorWindow(input: {
+  threadId: string;
+  connectionUrl?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
+}): boolean {
   const windowKey = input.connectionUrl
     ? `${input.connectionUrl}\0${input.threadId}`
     : input.threadId;
@@ -3445,6 +3544,8 @@ function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: s
     aceDetachedEditor: "1",
     threadId: input.threadId,
     ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
+    ...(input.placement ? { placement: input.placement } : {}),
+    ...(input.workspaceMode ? { workspaceMode: input.workspaceMode } : {}),
   });
   void window.loadURL(rendererUrl);
   return true;
