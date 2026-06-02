@@ -85,9 +85,9 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "pointer-events-auto z-50 max-h-[calc(100vh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-2.5 text-popover-foreground shadow-2xl backdrop-blur-xl",
+        "pointer-events-auto z-50 max-h-[calc(100vh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-2.5 text-popover-foreground shadow-lg backdrop-blur-xl",
         props.layoutMode === "inline" ? "absolute top-3 right-3" : "fixed",
-        props.layoutMode === "inline" ? "shadow-black/10" : "shadow-black/20",
+        props.layoutMode === "inline" ? "shadow-black/5" : "shadow-black/10",
       )}
       initial={{ opacity: 0, scale: 0.985, x: 22 }}
       animate={{ opacity: 1, scale: 1, x: 0 }}
