@@ -316,6 +316,7 @@ import {
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import {
   RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+  resolveRequestedRightSidePanelMode,
   resolveRightSidePanelModeAfterDiffClose,
   shouldApplyThreadBrowserViewportResizeToVisiblePanel,
   type RightSidePanelMode,
@@ -9615,11 +9616,11 @@ function useChatViewComponent({
           navigateExpandedImage,
         }
       : null;
-  const requestedRightSidePanelMode: RightSidePanelMode | null = rightSidePanelOpen
-    ? diffOpen
-      ? "diff"
-      : (effectiveRightSidePanelMode ?? "summary")
-    : null;
+  const requestedRightSidePanelMode = resolveRequestedRightSidePanelMode({
+    rightSidePanelOpen,
+    reviewOpen: rightSidePanelReviewOpen,
+    selectedMode: rightSidePanelMode,
+  });
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel
       ? "summary"
