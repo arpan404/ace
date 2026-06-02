@@ -272,9 +272,7 @@ describe("desktop update UI helpers", () => {
       availableVersion: "1.1.0",
       downloadedVersion: "1.1.1",
     });
-    expect(copy).toContain("Install update 1.1.1 and restart ace?");
-    expect(copy).toContain("bundled web UI");
-    expect(copy).toContain("CLI");
+    expect(copy).toContain("Update ace to 1.1.1 and restart?");
   });
 
   it("includes explicit running agent warning in install confirmation copy", () => {
@@ -286,8 +284,7 @@ describe("desktop update UI helpers", () => {
       2,
     );
 
-    expect(copy).toContain("2 agents are running in the background");
-    expect(copy).toContain("Continuing will stop those agents");
+    expect(copy).toContain("2 background agents will stop.");
   });
 
   it("falls back to generic install confirmation copy when no version is available", () => {
@@ -296,7 +293,7 @@ describe("desktop update UI helpers", () => {
         availableVersion: null,
         downloadedVersion: null,
       }),
-    ).toContain("Install update and restart ace?");
+    ).toContain("Update ace and restart?");
   });
 });
 
