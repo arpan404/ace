@@ -1980,6 +1980,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       try: () => {
         const managerInput = {
           threadId: input.threadId,
+          ...(input.providerThreadId !== undefined
+            ? { providerThreadId: input.providerThreadId }
+            : {}),
           ...(promptText !== undefined ? { input: promptText } : {}),
           ...(input.modelSelection?.provider === "codex"
             ? { model: input.modelSelection.model }

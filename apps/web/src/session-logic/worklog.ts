@@ -159,6 +159,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const exitCode = extractToolExitCode(payload);
   const durationMs = extractToolDurationMs(payload);
   const subagent = extractSubagentMetadata(payload);
+  const rawPayloadItemType =
+    typeof payload?.itemType === "string" ? payload.itemType.trim() : undefined;
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
@@ -283,6 +285,18 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (subagent.model) {
     entry.subagentModel = subagent.model;
   }
+  if (activity.kind === "subagent.message.sent" && entry.detail) {
+    entry.sideChatMessageId =
+      typeof payload?.messageId === "string" && payload.messageId.trim().length > 0
+        ? payload.messageId.trim()
+        : activity.id;
+    entry.sideChatMessageRole = "user";
+    entry.sideChatMessageText = entry.detail;
+  } else if (rawPayloadItemType === "assistant_message" && subagent.id && entry.detail) {
+    entry.sideChatMessageId = activity.id;
+    entry.sideChatMessageRole = "assistant";
+    entry.sideChatMessageText = entry.detail;
+  }
   if (embeddedIntentText && entry.tone === "tool") {
     entry.intentText = embeddedIntentText;
   }
@@ -401,6 +415,12 @@ function mergeDerivedWorkLogEntries(
   const subagentType = next.subagentType ?? previous.subagentType;
   const subagentName = next.subagentName ?? previous.subagentName;
   const subagentModel = next.subagentModel ?? previous.subagentModel;
+  const sideChatMessageId = next.sideChatMessageId ?? previous.sideChatMessageId;
+  const sideChatMessageRole = next.sideChatMessageRole ?? previous.sideChatMessageRole;
+  const sideChatMessageText =
+    sideChatMessageRole !== undefined
+      ? (detail ?? next.sideChatMessageText ?? previous.sideChatMessageText)
+      : undefined;
   return {
     ...previous,
     ...next,
@@ -427,6 +447,9 @@ function mergeDerivedWorkLogEntries(
     ...(subagentType ? { subagentType } : {}),
     ...(subagentName ? { subagentName } : {}),
     ...(subagentModel ? { subagentModel } : {}),
+    ...(sideChatMessageId ? { sideChatMessageId } : {}),
+    ...(sideChatMessageRole ? { sideChatMessageRole } : {}),
+    ...(sideChatMessageText ? { sideChatMessageText } : {}),
     ...(collapseKey ? { collapseKey } : {}),
   };
 }
@@ -440,7 +463,7 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const data = asRecord(payload?.data);
   const ace = asRecord(data?.ace);
   const aceSubagent = asRecord(ace?.subagent);
-  const subagent = asRecord(data?.subagent) ?? aceSubagent;
+  const subagent = asRecord(payload?.subagent) ?? asRecord(data?.subagent) ?? aceSubagent;
   const input = asRecord(data?.input);
   const args = asRecord(data?.arguments);
   const item = asRecord(data?.item);

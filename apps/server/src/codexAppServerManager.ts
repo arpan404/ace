@@ -84,7 +84,7 @@ interface CodexRuntimeModelInfo {
 }
 
 interface CodexCollabReceiverRoute {
-  readonly parentTurnId: TurnId;
+  readonly parentTurnId?: TurnId;
   readonly subagent?: Record<string, unknown>;
 }
 
@@ -131,6 +131,7 @@ interface JsonRpcNotification {
 
 export interface CodexAppServerSendTurnInput {
   readonly threadId: ThreadId;
+  readonly providerThreadId?: string;
   readonly input?: string;
   readonly attachments?: ReadonlyArray<{ type: "image"; url: string }>;
   readonly model?: string;
@@ -1077,6 +1078,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
     context.collabReceiverTurns.clear();
+    const isChildProviderTurn = input.providerThreadId !== undefined;
 
     const turnInput: Array<
       { type: "text"; text: string; text_elements: [] } | { type: "image"; url: string }
@@ -1100,13 +1102,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("Turn input must include text or attachments.");
     }
 
-    const providerThreadId = readResumeThreadId({
-      threadId: context.session.threadId,
-      runtimeMode: context.session.runtimeMode,
-      resumeCursor: context.session.resumeCursor,
-    });
+    const providerThreadId =
+      input.providerThreadId ??
+      readResumeThreadId({
+        threadId: context.session.threadId,
+        runtimeMode: context.session.runtimeMode,
+        resumeCursor: context.session.resumeCursor,
+      });
     if (!providerThreadId) {
       throw new Error("Session is missing provider resume thread id.");
+    }
+    if (input.providerThreadId) {
+      context.collabReceiverTurns.set(input.providerThreadId, {
+        subagent: {
+          id: input.providerThreadId,
+          type: "codex subagent",
+        },
+      });
     }
     const turnStartParams: {
       threadId: string;
@@ -1163,13 +1175,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
 
-    this.updateSession(context, {
-      status: "running",
-      activeTurnId: turnId,
-      ...(context.session.resumeCursor !== undefined
-        ? { resumeCursor: context.session.resumeCursor }
-        : {}),
-    });
+    if (!isChildProviderTurn) {
+      this.updateSession(context, {
+        status: "running",
+        activeTurnId: turnId,
+        ...(context.session.resumeCursor !== undefined
+          ? { resumeCursor: context.session.resumeCursor }
+          : {}),
+      });
+    }
 
     return {
       threadId: context.session.threadId,
@@ -1584,7 +1598,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const rawRoute = this.readRouteFields(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const childParentTurnId = this.readChildParentTurnId(context, notification.params);
-    const isChildConversation = childParentTurnId !== undefined;
+    const isChildConversation =
+      childParentTurnId !== undefined ||
+      this.hasChildConversationRoute(context, notification.params);
     const textDelta =
       notification.method === "item/agentMessage/delta"
         ? this.readString(notification.params, "delta")
@@ -1681,6 +1697,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const rawRoute = this.readRouteFields(request.params);
     const childParentTurnId = this.readChildParentTurnId(context, request.params);
+    const isChildConversation =
+      childParentTurnId !== undefined || this.hasChildConversationRoute(context, request.params);
     const effectiveTurnId = rawRoute.turnId;
     const requestKind = this.requestKindForMethod(request.method);
     let requestId: ApprovalRequestId | undefined;
@@ -2225,14 +2243,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return context.collabReceiverTurns.get(providerConversationId)?.parentTurnId;
   }
 
+  private hasChildConversationRoute(context: CodexSessionContext, params: unknown): boolean {
+    const providerConversationId = this.readProviderConversationId(params);
+    return providerConversationId ? context.collabReceiverTurns.has(providerConversationId) : false;
+  }
+
   private withChildConversationRoute(
     context: CodexSessionContext,
     params: unknown,
     parentTurnId: TurnId | undefined,
   ): unknown {
-    if (!parentTurnId) {
-      return params;
-    }
     const record = this.readObject(params);
     if (!record) {
       return params;
@@ -2242,12 +2262,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const route = providerConversationId
       ? context.collabReceiverTurns.get(providerConversationId)
       : undefined;
+    if (!parentTurnId && !route) {
+      return params;
+    }
     return {
       ...record,
       ace: {
         ...existingAce,
-        parentTurnId,
-        childProviderThreadId: providerConversationId,
+        ...(parentTurnId ? { parentTurnId } : {}),
+        ...(providerConversationId ? { childProviderThreadId: providerConversationId } : {}),
         ...(route?.subagent ? { subagent: route.subagent } : {}),
       },
     };
@@ -2278,7 +2301,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const subagent = this.readCodexCollabSubagent(payload, item);
     for (const receiverThreadId of receiverThreadIds) {
       context.collabReceiverTurns.set(receiverThreadId, {
-        parentTurnId,
+        ...(parentTurnId ? { parentTurnId } : {}),
         ...(subagent ? { subagent: { ...subagent, id: receiverThreadId } } : {}),
       });
     }

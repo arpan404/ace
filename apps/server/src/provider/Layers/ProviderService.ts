@@ -909,28 +909,31 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       allowRecovery: true,
     });
     const turn = yield* routed.adapter.sendTurn(input);
-    markTurnStarted(input.threadId, routed.adapter.provider);
-    yield* directory.upsert({
-      threadId: input.threadId,
-      provider: routed.adapter.provider,
-      status: "running",
-      ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
-      runtimePayload: {
-        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-        ...(input.providerInstanceId !== undefined
-          ? { providerInstanceId: input.providerInstanceId }
-          : {}),
-        activeTurnId: turn.turnId,
-        lastRuntimeEvent: "provider.sendTurn",
-        lastRuntimeEventAt: new Date().toISOString(),
-      },
-    });
+    if (input.providerThreadId === undefined) {
+      markTurnStarted(input.threadId, routed.adapter.provider);
+      yield* directory.upsert({
+        threadId: input.threadId,
+        provider: routed.adapter.provider,
+        status: "running",
+        ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
+        runtimePayload: {
+          ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+          ...(input.providerInstanceId !== undefined
+            ? { providerInstanceId: input.providerInstanceId }
+            : {}),
+          activeTurnId: turn.turnId,
+          lastRuntimeEvent: "provider.sendTurn",
+          lastRuntimeEventAt: new Date().toISOString(),
+        },
+      });
+    }
     yield* analytics.record("provider.turn.sent", {
       provider: routed.adapter.provider,
       model: input.modelSelection?.model,
       interactionMode: input.interactionMode,
       attachmentCount: input.attachments?.length ?? 0,
       hasInput: typeof input.input === "string" && input.input.trim().length > 0,
+      providerThreadOverride: input.providerThreadId !== undefined,
     });
     return { provider: routed.adapter.provider, turn } as const;
   });

@@ -9022,6 +9022,7 @@ function useChatViewComponent({
                           ) : activeRightSidePanelMode === "subagent" ? (
                             <SubagentWorkspacePanel
                               activeThreadId={activeSubagentThreadId}
+                              parentThreadId={activeThread.id}
                               timelineProps={messagesTimelineProps}
                               threads={subagentThreads}
                             />

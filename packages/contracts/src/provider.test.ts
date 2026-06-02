@@ -205,6 +205,17 @@ describe("ProviderSendTurnInput", () => {
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
   });
 
+  it("accepts a provider thread override for child conversations", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: " thread-parent ",
+      providerThreadId: " provider-child ",
+      input: "continue",
+    });
+
+    expect(parsed.threadId).toBe("thread-parent");
+    expect(parsed.providerThreadId).toBe("provider-child");
+  });
+
   it("accepts claude modelSelection including ultrathink", () => {
     const parsed = decodeProviderSendTurnInput({
       threadId: "thread-1",

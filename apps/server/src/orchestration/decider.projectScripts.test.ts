@@ -203,6 +203,107 @@ describe("decider project scripts", () => {
     });
   });
 
+  it("emits subagent activity and provider request events for thread.subagent.turn.start", async () => {
+    const now = new Date().toISOString();
+    const initial = createEmptyReadModel(now);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-subagent"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-project-create-subagent"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-subagent"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const readModel = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-subagent"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-subagent"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-subagent"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.subagent.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-subagent-turn"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          subagentThreadId: "provider-child",
+          message: {
+            messageId: asMessageId("message-subagent-1"),
+            role: "user",
+            text: "continue the audit",
+          },
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
+
+    expect(Array.isArray(result)).toBe(true);
+    const events = Array.isArray(result) ? result : [result];
+    expect(events).toHaveLength(2);
+    expect(events[0]?.type).toBe("thread.activity-appended");
+    expect(events[1]?.type).toBe("thread.subagent-turn-start-requested");
+    if (events[0]?.type !== "thread.activity-appended") {
+      return;
+    }
+    expect(events[0].payload.activity).toMatchObject({
+      kind: "subagent.message.sent",
+      summary: "User message",
+      payload: {
+        detail: "continue the audit",
+        childProviderThreadId: "provider-child",
+      },
+    });
+    if (events[1]?.type !== "thread.subagent-turn-start-requested") {
+      return;
+    }
+    expect(events[1].payload).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      subagentThreadId: "provider-child",
+      messageId: asMessageId("message-subagent-1"),
+      text: "continue the audit",
+    });
+  });
+
   it("emits thread.runtime-mode-set from thread.runtime-mode.set", async () => {
     const now = new Date().toISOString();
     const initial = createEmptyReadModel(now);

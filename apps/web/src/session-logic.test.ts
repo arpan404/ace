@@ -1020,6 +1020,56 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("marks Codex side-chat activity as timeline messages", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "side-user-activity",
+        kind: "subagent.message.sent",
+        summary: "User message",
+        payload: {
+          detail: "Please keep checking the build.",
+          messageId: "side-user-message",
+          subagent: {
+            id: "child_provider_1",
+            type: "codex subagent",
+          },
+        },
+      }),
+      makeActivity({
+        id: "side-assistant-activity",
+        kind: "task.progress",
+        summary: "Subagent message",
+        payload: {
+          itemType: "assistant_message",
+          detail: "I am checking the build now.",
+          data: {
+            ace: {
+              childProviderThreadId: "child_provider_1",
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    const userMessage = entries.find((entry) => entry.sideChatMessageRole === "user");
+    const assistantMessage = entries.find((entry) => entry.sideChatMessageRole === "assistant");
+
+    expect(entries).toHaveLength(2);
+    expect(userMessage).toMatchObject({
+      sideChatMessageId: "side-user-message",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Please keep checking the build.",
+      subagentId: "child_provider_1",
+    });
+    expect(assistantMessage).toMatchObject({
+      sideChatMessageId: "side-assistant-activity",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "I am checking the build now.",
+      subagentId: "child_provider_1",
+    });
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

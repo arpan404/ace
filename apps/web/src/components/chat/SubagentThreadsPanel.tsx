@@ -1,19 +1,16 @@
 import { BotIcon } from "lucide-react";
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-} from "react";
-import type { ProviderKind } from "@ace/contracts";
+import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
+import { MessageId, TrimmedNonEmptyString, type ProviderKind, type ThreadId } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
 import { deriveTimelineEntries } from "../../session-logic";
-import { cn } from "../../lib/utils";
+import { cn, newCommandId, newMessageId } from "../../lib/utils";
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
+import { readNativeApi } from "../../nativeApi";
 import { ScrollArea } from "../ui/scroll-area";
 import { MessagesTimeline } from "./MessagesTimeline";
+import { SideChatComposer } from "./SideChatComposer";
+import type { ChatMessage } from "../../types";
 
 export interface SubagentThread {
   readonly id: string;
@@ -313,10 +310,13 @@ export function SubagentThreadsPanel(props: {
 
 export function SubagentWorkspacePanel(props: {
   activeThreadId: string | null;
+  parentThreadId: ThreadId;
   timelineProps: ComponentProps<typeof MessagesTimeline>;
   threads: ReadonlyArray<SubagentThread>;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const onToggleWorkGroup = useCallback((groupId: string) => {
     setExpandedWorkGroups((existing) => ({
@@ -326,9 +326,32 @@ export function SubagentWorkspacePanel(props: {
   }, []);
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
+  const sideChatTimeline = useMemo(() => {
+    const messages: ChatMessage[] = [];
+    const workEntries: WorkLogEntry[] = [];
+    for (const entry of activeThread?.entries ?? []) {
+      if (entry.sideChatMessageRole && entry.sideChatMessageText) {
+        messages.push({
+          id: MessageId.makeUnsafe(entry.sideChatMessageId ?? entry.id),
+          role: entry.sideChatMessageRole,
+          text: entry.sideChatMessageText,
+          turnId: null,
+          createdAt: entry.createdAt,
+          ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
+          streaming: false,
+        });
+      } else {
+        workEntries.push(entry);
+      }
+    }
+    return {
+      messages,
+      workEntries,
+    };
+  }, [activeThread?.entries]);
   const timelineEntries = useMemo(
-    () => deriveTimelineEntries([], [], activeThread?.entries ?? []),
-    [activeThread?.entries],
+    () => deriveTimelineEntries(sideChatTimeline.messages, [], sideChatTimeline.workEntries),
+    [sideChatTimeline],
   );
 
   if (!activeThread) {
@@ -346,62 +369,67 @@ export function SubagentWorkspacePanel(props: {
     activeThread.entries[0]?.createdAt ??
     null;
   const isSubagentWorking = activeThread.status === "running";
+  const handleSubmit = async (text: string) => {
+    const api = readNativeApi();
+    if (!api) {
+      setSendError("Native API unavailable.");
+      return;
+    }
+    setIsSending(true);
+    setSendError(null);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.subagent.turn.start",
+        commandId: newCommandId(),
+        threadId: props.parentThreadId,
+        subagentThreadId: TrimmedNonEmptyString.makeUnsafe(activeThread.id),
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text,
+        },
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Failed to send message.");
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/60 px-5">
-        <SubagentPersonaIcon
-          className="size-7"
-          status={activeThread.status}
-          thread={activeThread}
-        />
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-medium">{activeThread.label}</h2>
-          {formatSubagentSubtitle(activeThread) ? (
-            <p className="truncate text-xs text-muted-foreground">
-              {formatSubagentSubtitle(activeThread)}
-            </p>
-          ) : null}
-        </div>
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-normal",
-            activeThread.status === "running" && "bg-sky-500/12 text-sky-500",
-            activeThread.status === "completed" && "bg-emerald-500/12 text-emerald-500",
-            activeThread.status === "failed" && "bg-destructive/12 text-destructive",
-          )}
-        >
-          {statusLabel(activeThread.status)}
-        </span>
-      </header>
-      <ScrollArea
-        className="min-h-0 flex-1 px-3 py-3 sm:px-5 sm:py-4"
-        viewportRef={scrollContainerRef}
-      >
+      <ScrollArea className="min-h-0 flex-1 px-3 py-4 sm:px-5" viewportRef={scrollContainerRef}>
         <MessagesTimeline
           key={activeThread.id}
           {...props.timelineProps}
           activeTurnInProgress={isSubagentWorking}
           activeTurnStartedAt={activeThreadStartedAt}
-          backgroundMarkdownPrewarm={props.timelineProps.backgroundMarkdownPrewarm}
+          backgroundMarkdownPrewarm={props.timelineProps.backgroundMarkdownPrewarm ?? true}
           completionDividerBeforeEntryId={null}
           completionSummary={null}
           expandedWorkGroups={expandedWorkGroups}
           getScrollContainer={() => scrollContainerRef.current}
           hasMessages={timelineEntries.length > 0}
-          hideCompletedWorkMessages={props.timelineProps.hideCompletedWorkMessages}
+          hideCompletedWorkMessages={false}
           isWorking={isSubagentWorking}
-          liveTimers={props.timelineProps.liveTimers}
+          liveTimers={props.timelineProps.liveTimers ?? true}
           onForkConversation={null}
           onStartConversationFromMessage={null}
           onToggleWorkGroup={onToggleWorkGroup}
-          revertTurnCountByAssistantMessageId={undefined}
           revertTurnCountByUserMessageId={new Map()}
-          stuckTurnSnapshot={undefined}
           timelineEntries={timelineEntries}
           turnDiffSummaryByAssistantMessageId={new Map()}
         />
       </ScrollArea>
+      <SideChatComposer
+        className="border-t border-border/70"
+        disabled={isSending}
+        error={sendError}
+        isSending={isSending}
+        placeholder={`Message ${activeThread.label}`}
+        onSubmit={handleSubmit}
+      />
     </section>
   );
 }
