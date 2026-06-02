@@ -30,7 +30,10 @@ export function getBrowserSession(
   return browserSessionByThreadId[String(threadId)] ?? null;
 }
 
-export function setBrowserSession(threadId: ThreadId, session: BrowserSessionStorage): void {
+export function setBrowserSession(
+  threadId: ThreadId | string,
+  session: BrowserSessionStorage,
+): void {
   if (browserSessionByThreadId[threadId] === session) {
     return;
   }
@@ -41,7 +44,7 @@ export function setBrowserSession(threadId: ThreadId, session: BrowserSessionSto
   emitBrowserSessionChange();
 }
 
-export function deleteBrowserSession(threadId: ThreadId): void {
+export function deleteBrowserSession(threadId: ThreadId | string): void {
   if (!browserSessionByThreadId[threadId]) {
     return;
   }

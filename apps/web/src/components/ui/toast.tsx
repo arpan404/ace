@@ -43,12 +43,12 @@ const TOAST_ICONS = {
 const TOAST_SURFACE_CLASS_NAME =
   "overflow-hidden rounded-lg border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_10px_30px_rgba(0,0,0,0.16)] outline outline-1 outline-background/45 backdrop-blur-xl";
 const TOAST_CONTENT_CLASS_NAME =
-  "pointer-events-auto flex items-start justify-between gap-3 overflow-hidden px-3.5 py-3 text-[13px]";
-const TOAST_TITLE_CLASS_NAME = "min-w-0 break-words font-medium leading-5 text-foreground/95";
+  "pointer-events-auto flex items-start justify-between gap-2.5 overflow-hidden px-3 py-2.5 text-[12px]";
+const TOAST_TITLE_CLASS_NAME = "min-w-0 break-words font-medium leading-4 text-foreground/95";
 const TOAST_DESCRIPTION_CLASS_NAME =
-  "min-w-0 select-text break-words text-[12px] leading-4.5 text-muted-foreground/82";
+  "min-w-0 select-text break-words text-[11px] leading-4 text-muted-foreground/78";
 const TOAST_ACTION_CLASS_NAME =
-  "mt-0.5 h-7 shrink-0 rounded-md border-border/65 bg-background/70 px-2.5 text-[12px] font-medium text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+  "h-6 max-w-[9.5rem] shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-[11px] font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
 
 function resolveToastProgressPercent(data: ThreadToastData | undefined): number | null {
   if (typeof data?.progressPercent !== "number" || !Number.isFinite(data.progressPercent)) {
@@ -212,7 +212,7 @@ function ThreadToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastProvider({ children, position = "bottom-right", ...props }: ToastProviderProps) {
+function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
   return (
     <Toast.Provider toastManager={toastManager} {...props}>
       {children}
@@ -348,10 +348,10 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
               >
-                <div className="flex min-w-0 flex-1 gap-2.5">
+                <div className="flex min-w-0 flex-1 gap-2">
                   {Icon ? <ToastIcon Icon={Icon} /> : null}
 
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-start justify-between gap-1.5">
                       <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
                       {toast.type === "error" && typeof toast.description === "string" && (
@@ -438,10 +438,10 @@ function AnchoredToasts() {
                   </Toast.Content>
                 ) : (
                   <Toast.Content className={TOAST_CONTENT_CLASS_NAME}>
-                    <div className="flex min-w-0 flex-1 gap-2.5">
+                    <div className="flex min-w-0 flex-1 gap-2">
                       {Icon ? <ToastIcon Icon={Icon} /> : null}
 
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <div className="flex items-start gap-1.5">
                           <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
                           {toast.type === "error" && typeof toast.description === "string" && (
