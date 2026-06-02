@@ -1,6 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
-import { memo, useEffect, useRef, type ComponentProps } from "react";
+import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
@@ -44,6 +44,7 @@ function ExpandedImageOverlay({
   navigateExpandedImage,
 }: ExpandedImageOverlayProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -60,10 +61,14 @@ function ExpandedImageOverlay({
     };
   }, []);
 
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [expandedImageItem.src]);
+
   return (
     <dialog
       ref={dialogRef}
-      className={`${MODAL_LAYER_CLASS_NAME} fixed inset-0 m-0 hidden h-screen max-h-none w-screen max-w-none items-center justify-center border-0 bg-black/75 px-4 py-6 text-inherit [open]:flex [-webkit-app-region:no-drag] backdrop:bg-transparent`}
+      className={`${MODAL_LAYER_CLASS_NAME} fixed inset-0 m-0 flex h-screen max-h-none w-screen max-w-none items-center justify-center border-0 bg-black/75 px-4 py-6 text-inherit [-webkit-app-region:no-drag] backdrop:bg-transparent`}
       aria-label="Expanded image preview"
       onCancel={closeExpandedImage}
       onClick={(event) => {
@@ -78,6 +83,16 @@ function ExpandedImageOverlay({
         aria-label="Close image preview"
         onClick={closeExpandedImage}
       />
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="absolute right-3 top-3 z-30 bg-black/25 text-white/90 hover:bg-white/10 hover:text-white sm:right-5 sm:top-5"
+        onClick={closeExpandedImage}
+        aria-label="Close image preview"
+      >
+        <XIcon className="size-5" />
+      </Button>
       {expandedImage.images.length > 1 && (
         <Button
           type="button"
@@ -93,22 +108,21 @@ function ExpandedImageOverlay({
         </Button>
       )}
       <div className="relative isolate z-10 max-h-[92vh] max-w-[92vw]">
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="absolute right-2 top-2"
-          onClick={closeExpandedImage}
-          aria-label="Close image preview"
-        >
-          <XIcon />
-        </Button>
-        <img
-          src={expandedImageItem.src}
-          alt={expandedImageItem.name}
-          className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain"
-          draggable={false}
-        />
+        {imageLoadFailed ? (
+          <div className="flex min-h-32 min-w-64 max-w-[92vw] items-center justify-center rounded-lg border border-white/15 bg-background px-6 py-5 text-center text-sm text-muted-foreground shadow-2xl">
+            Image preview unavailable.
+          </div>
+        ) : (
+          <img
+            src={expandedImageItem.src}
+            alt={expandedImageItem.name}
+            className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain shadow-2xl"
+            draggable={false}
+            onError={() => {
+              setImageLoadFailed(true);
+            }}
+          />
+        )}
         <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground">
           {expandedImageItem.name}
           {expandedImage.images.length > 1

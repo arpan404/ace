@@ -8,6 +8,15 @@ export interface ExpandedImagePreview {
   index: number;
 }
 
+export function resolveExpandedImageItem(
+  preview: ExpandedImagePreview | null,
+): ExpandedImageItem | null {
+  if (!preview || preview.images.length === 0) {
+    return null;
+  }
+  return preview.images[preview.index] ?? null;
+}
+
 export function buildExpandedImagePreview(
   images: ReadonlyArray<{ id: string; name: string; previewUrl?: string }>,
   selectedImageId: string,

@@ -210,7 +210,7 @@ import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import type { DiffReviewCommentInput } from "./DiffPanel";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { resolveExpandedImageItem, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadLanding } from "./chat/NewThreadLanding";
 import {
   ConnectedChatComposerPanels,
@@ -8941,9 +8941,12 @@ function useChatViewComponent({
     }));
   }, []);
   const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
+    if (!resolveExpandedImageItem(preview)) {
+      return;
+    }
     setExpandedImage(preview);
   }, []);
-  const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
+  const expandedImageItem = resolveExpandedImageItem(expandedImage);
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!rightSidePanelEnabled) {
