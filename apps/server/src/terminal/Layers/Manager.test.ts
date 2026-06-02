@@ -953,6 +953,59 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect("does not persist duplicate initial prompt redraws before user input", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(10, {
+        ptyAdapter: new FakePtyAdapter("async"),
+      });
+
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      process.emitData("\u001b[32m~/project\u001b[0m on main > ");
+      process.emitData("\u001b[32m~/project\u001b[0m on main > ");
+
+      yield* waitFor(
+        Effect.gen(function* () {
+          const snapshot = yield* manager.open(openInput());
+          return snapshot.history === "\u001b[32m~/project\u001b[0m on main > ";
+        }),
+        "1200 millis",
+      );
+    }),
+  );
+
+  it.effect("keeps duplicate terminal output after a submitted command", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(10, {
+        ptyAdapter: new FakePtyAdapter("async"),
+      });
+
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      yield* manager.write({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        data: "printf repeat\\nrepeat\\n\n",
+      });
+      process.emitData("repeat\n");
+      process.emitData("repeat\n");
+
+      yield* waitFor(
+        Effect.gen(function* () {
+          const snapshot = yield* manager.open(openInput());
+          return snapshot.history === "repeat\nrepeat\n";
+        }),
+        "1200 millis",
+      );
+    }),
+  );
+
   it.effect("preserves queued PTY output ordering through exit callbacks", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
