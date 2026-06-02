@@ -991,7 +991,7 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
       yield* manager.write({
         threadId: "thread-1",
         terminalId: DEFAULT_TERMINAL_ID,
-        data: "printf repeat\\nrepeat\\n\n",
+        data: "ls\n",
       });
       process.emitData("repeat\n");
       process.emitData("repeat\n");
