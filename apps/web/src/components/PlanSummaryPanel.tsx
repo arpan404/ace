@@ -119,10 +119,10 @@ function summaryGeneratedAfterRequest(summaryCreatedAt: string | null, requested
 
 function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: boolean }) {
   return (
-    <div className="flex items-center gap-2 text-xs text-blue-300" role="status">
+    <output className="flex items-center gap-2 text-xs text-blue-300">
       <Spinner aria-hidden="true" className="size-3.5 text-blue-300" role="presentation" />
       <span>{hasExistingSummary ? "Updating summary..." : "Generating summary..."}</span>
-    </div>
+    </output>
   );
 }
 

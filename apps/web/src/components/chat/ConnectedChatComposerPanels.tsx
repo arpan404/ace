@@ -82,7 +82,7 @@ import { cn, randomUUID } from "~/lib/utils";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
 import { resolveAppModelSelection } from "../../modelSelection";
 import { getComposerProviderState } from "./composerProviderRegistry";
-import { AVAILABLE_PROVIDER_OPTIONS } from "./ProviderModelPicker";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { resolveSelectableProvider } from "../../providerModels";
 import { ChatComposerPanel } from "./ChatComposerPanel";
 import { ProviderStatusBanner } from "./ProviderStatusBanner";

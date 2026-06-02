@@ -12,7 +12,7 @@ import { ProjectAvatar } from "../ProjectAvatar";
 import {
   HEADER_PILL_HERO_TRIGGER_CLASS_NAME,
   HEADER_PILL_TRIGGER_CLASS_NAME,
-} from "../thread/TopBarCluster";
+} from "../thread/topBarClusterStyles";
 import { Button } from "../ui/button";
 import {
   Menu,

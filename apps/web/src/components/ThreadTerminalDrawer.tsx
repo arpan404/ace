@@ -35,6 +35,7 @@ import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
   applyTerminalInputToBuffer,
   deriveTerminalTitleFromCommand,
+  resizeTerminalPaneRatios,
   resolveTerminalDisplayTitle,
 } from "~/lib/terminalPresentation";
 import { openInPreferredEditor } from "../editorPreferences";
@@ -58,6 +59,7 @@ import { cn } from "~/lib/utils";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
+const MIN_TERMINAL_PANE_WIDTH = 220;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
 const TERMINAL_LINK_LINE_CACHE_LIMIT = 512;
@@ -350,6 +352,22 @@ export function resolveTerminalTabDropTarget(
     }
   }
   return null;
+}
+
+export function resolveTerminalGroupPaneRatios(
+  ratios: readonly number[] | undefined,
+  paneCount: number,
+): number[] {
+  if (paneCount <= 0) return [];
+  if (!ratios || ratios.length !== paneCount) {
+    return Array.from({ length: paneCount }, () => 1 / paneCount);
+  }
+  const sanitizedRatios = ratios.map((ratio) => (Number.isFinite(ratio) && ratio > 0 ? ratio : 0));
+  const total = sanitizedRatios.reduce((sum, ratio) => sum + ratio, 0);
+  if (total <= 0) {
+    return Array.from({ length: paneCount }, () => 1 / paneCount);
+  }
+  return sanitizedRatios.map((ratio) => ratio / total);
 }
 
 interface TerminalViewportProps {
@@ -974,6 +992,7 @@ interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
   runtimeEnv?: Record<string, string>;
+  layout?: "bottom" | "panel";
   height: number;
   interactive: boolean;
   terminalIds: string[];
@@ -981,12 +1000,14 @@ interface ThreadTerminalDrawerProps {
   terminalGroups: ThreadTerminalGroup[];
   runningTerminalIds: string[];
   autoTerminalTitlesById: Record<string, string>;
+  splitRatiosByGroupId: Record<string, number[]>;
   focusRequestId: number;
   onNewTerminal: () => void;
   newShortcutLabel?: string | undefined;
   toggleShortcutLabel?: string | undefined;
   onActiveTerminalChange: (terminalId: string) => void;
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
+  onSplitRatiosChange: (groupId: string, ratios: number[]) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onCloseTerminal: (terminalId: string) => void;
   onToggleTerminal: () => void;
@@ -1056,7 +1077,8 @@ function SortableTerminalTab(props: {
     <Tooltip>
       <TooltipTrigger
         render={
-          <div
+          <button
+            type="button"
             ref={setNodeRef}
             style={{ transform: CSS.Translate.toString(transform), transition }}
             className={cn(
@@ -1090,8 +1112,6 @@ function SortableTerminalTab(props: {
               }
             }}
             {...attributes}
-            role="button"
-            tabIndex={0}
             aria-pressed={props.active}
             {...listeners}
           />
@@ -1137,6 +1157,7 @@ export default memo(function ThreadTerminalDrawer({
   threadId,
   cwd,
   runtimeEnv,
+  layout = "bottom",
   height,
   interactive,
   terminalIds,
@@ -1144,12 +1165,14 @@ export default memo(function ThreadTerminalDrawer({
   terminalGroups,
   runningTerminalIds,
   autoTerminalTitlesById,
+  splitRatiosByGroupId,
   focusRequestId,
   onNewTerminal,
   newShortcutLabel,
   toggleShortcutLabel,
   onActiveTerminalChange,
   onMoveTerminal,
+  onSplitRatiosChange,
   onAutoTerminalTitleChange,
   onCloseTerminal,
   onToggleTerminal,
@@ -1165,7 +1188,16 @@ export default memo(function ThreadTerminalDrawer({
     startY: number;
     startHeight: number;
   } | null>(null);
+  const paneResizeStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    groupId: string;
+    dividerIndex: number;
+    startRatios: number[];
+    containerWidth: number;
+  } | null>(null);
   const didResizeDuringDragRef = useRef(false);
+  const groupContainerRef = useRef<HTMLDivElement>(null);
   const suppressTerminalTabClickAfterDragRef = useRef(false);
   const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
   const terminalTabSensors = useSensors(
@@ -1187,6 +1219,25 @@ export default memo(function ThreadTerminalDrawer({
   }, [normalizedTerminalIds, terminalGroups]);
 
   const runningTerminalIdSet = useMemo(() => new Set(runningTerminalIds), [runningTerminalIds]);
+  const activeTerminalGroup = resolvedTerminalGroups.find((group) =>
+    group.terminalIds.includes(resolvedActiveTerminalId),
+  ) ??
+    resolvedTerminalGroups[0] ?? {
+      id: `group-${resolvedActiveTerminalId}`,
+      terminalIds: [resolvedActiveTerminalId],
+    };
+  const visibleTerminalGroup =
+    layout === "panel"
+      ? { id: activeTerminalGroup.id, terminalIds: [resolvedActiveTerminalId] }
+      : activeTerminalGroup;
+  const activeGroupPaneRatios = useMemo(
+    () =>
+      resolveTerminalGroupPaneRatios(
+        splitRatiosByGroupId[visibleTerminalGroup.id],
+        visibleTerminalGroup.terminalIds.length,
+      ),
+    [splitRatiosByGroupId, visibleTerminalGroup.id, visibleTerminalGroup.terminalIds.length],
+  );
 
   const terminalLabelById = useMemo(
     () =>
@@ -1299,6 +1350,52 @@ export default memo(function ThreadTerminalDrawer({
     [syncHeight],
   );
 
+  const handlePaneResizePointerDown = useCallback(
+    (
+      event: ReactPointerEvent<HTMLDivElement>,
+      groupId: string,
+      dividerIndex: number,
+      ratios: number[],
+    ) => {
+      if (event.button !== 0) return;
+      const containerWidth = groupContainerRef.current?.clientWidth ?? 0;
+      if (containerWidth <= 0) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      paneResizeStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        groupId,
+        dividerIndex,
+        startRatios: ratios,
+        containerWidth,
+      };
+    },
+    [],
+  );
+
+  const handlePaneResizePointerMove = useCallback(
+    (event: PointerEvent) => {
+      const resizeState = paneResizeStateRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+      const nextRatios = resizeTerminalPaneRatios({
+        ratios: resizeState.startRatios,
+        dividerIndex: resizeState.dividerIndex,
+        deltaPx: event.clientX - resizeState.startX,
+        containerWidthPx: resizeState.containerWidth,
+        minPaneWidthPx: MIN_TERMINAL_PANE_WIDTH,
+      });
+      onSplitRatiosChange(resizeState.groupId, nextRatios);
+    },
+    [onSplitRatiosChange],
+  );
+
+  const handlePaneResizePointerEnd = useCallback((event?: PointerEvent) => {
+    const resizeState = paneResizeStateRef.current;
+    if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
+    paneResizeStateRef.current = null;
+  }, []);
+
   useEffect(() => {
     let resizeFrame: number | null = null;
     const syncWindowBounds = () => {
@@ -1342,9 +1439,11 @@ export default memo(function ThreadTerminalDrawer({
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       handleResizePointerMove(event);
+      handlePaneResizePointerMove(event);
     };
     const handlePointerEnd = (event: PointerEvent) => {
       handleResizePointerEnd(event);
+      handlePaneResizePointerEnd(event);
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -1354,10 +1453,16 @@ export default memo(function ThreadTerminalDrawer({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [handleResizePointerEnd, handleResizePointerMove]);
+  }, [
+    handlePaneResizePointerEnd,
+    handlePaneResizePointerMove,
+    handleResizePointerEnd,
+    handleResizePointerMove,
+  ]);
   useEffect(() => {
     const resetResizeInteractions = () => {
       handleResizePointerEnd();
+      handlePaneResizePointerEnd();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -1370,7 +1475,7 @@ export default memo(function ThreadTerminalDrawer({
       window.removeEventListener("blur", resetResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [handleResizePointerEnd]);
+  }, [handlePaneResizePointerEnd, handleResizePointerEnd]);
 
   const newTerminalButton = (
     <TerminalActionButton
@@ -1393,81 +1498,146 @@ export default memo(function ThreadTerminalDrawer({
   return (
     <aside
       className={cn(
-        "thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-terminal",
+        "thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-terminal",
+        layout === "bottom" ? "border-t border-border/70" : "h-full flex-1 border-0",
         !interactive && "pointer-events-none select-none",
       )}
-      style={{ height: `${drawerHeight}px` }}
+      style={layout === "bottom" ? { height: `${drawerHeight}px` } : undefined}
     >
-      <div
-        className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
-        onPointerDown={handleResizePointerDown}
-      />
-
-      <div className="terminal-tabs-strip flex shrink-0 items-center gap-2 bg-transparent px-3 pb-3 pt-2.5">
+      {layout === "bottom" ? (
         <div
-          ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          <DndContext
-            sensors={terminalTabSensors}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
-            onDragStart={handleTerminalTabDragStart}
-            onDragEnd={handleTerminalTabDragEnd}
-            onDragCancel={handleTerminalTabDragCancel}
-          >
-            <SortableContext items={normalizedTerminalIds} strategy={horizontalListSortingStrategy}>
-              <div className="flex min-w-max items-center gap-1.5">
-                {normalizedTerminalIds.map((terminalId) => (
-                  <SortableTerminalTab
-                    key={terminalId}
-                    active={terminalId === resolvedActiveTerminalId}
-                    canClose={normalizedTerminalIds.length > 1}
-                    label={terminalLabelById.get(terminalId) ?? "Terminal"}
-                    running={runningTerminalIdSet.has(terminalId)}
-                    suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
-                    terminalId={terminalId}
-                    onClose={onCloseTerminal}
-                    onSelect={onActiveTerminalChange}
-                  />
-                ))}
-                {tabsOverflow ? (
-                  <span className="size-8 shrink-0" aria-hidden="true" />
-                ) : (
-                  newTerminalButton
-                )}
-              </div>
-            </SortableContext>
-          </DndContext>
-        </div>
+          className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
+          onPointerDown={handleResizePointerDown}
+        />
+      ) : null}
 
-        {tabsOverflow ? newTerminalButton : null}
-        {toggleTerminalButton}
-      </div>
+      {layout === "bottom" ? (
+        <div className="terminal-tabs-strip flex shrink-0 items-center gap-2 bg-transparent px-3 pb-3 pt-2.5">
+          <div
+            ref={tabStripRef}
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            <DndContext
+              sensors={terminalTabSensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
+              onDragStart={handleTerminalTabDragStart}
+              onDragEnd={handleTerminalTabDragEnd}
+              onDragCancel={handleTerminalTabDragCancel}
+            >
+              <SortableContext
+                items={normalizedTerminalIds}
+                strategy={horizontalListSortingStrategy}
+              >
+                <div className="flex min-w-max items-center gap-1.5">
+                  {normalizedTerminalIds.map((terminalId) => (
+                    <SortableTerminalTab
+                      key={terminalId}
+                      active={terminalId === resolvedActiveTerminalId}
+                      canClose={normalizedTerminalIds.length > 1}
+                      label={terminalLabelById.get(terminalId) ?? "Terminal"}
+                      running={runningTerminalIdSet.has(terminalId)}
+                      suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
+                      terminalId={terminalId}
+                      onClose={onCloseTerminal}
+                      onSelect={onActiveTerminalChange}
+                    />
+                  ))}
+                  {tabsOverflow ? (
+                    <span className="size-8 shrink-0" aria-hidden="true" />
+                  ) : (
+                    newTerminalButton
+                  )}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
+
+          {tabsOverflow ? newTerminalButton : null}
+          {toggleTerminalButton}
+        </div>
+      ) : null}
 
       <div className="min-h-0 w-full flex-1">
-        <div className="flex h-full min-h-0">
-          <div className="min-w-0 flex-1">
-            <div className="h-full">
-              <TerminalViewport
-                key={resolvedActiveTerminalId}
-                threadId={threadId}
-                terminalId={resolvedActiveTerminalId}
-                terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
-                cwd={cwd}
-                {...(runtimeEnv ? { runtimeEnv } : {})}
-                interactive={interactive}
-                onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
-                onAddTerminalContext={onAddTerminalContext}
-                onAutoTerminalTitleChange={(title) =>
-                  onAutoTerminalTitleChange(resolvedActiveTerminalId, title)
-                }
-                focusRequestId={focusRequestId}
-                shouldFocusTerminal={interactive}
-                drawerHeight={drawerHeight}
-              />
-            </div>
-          </div>
+        <div ref={groupContainerRef} className="flex h-full min-h-0">
+          {visibleTerminalGroup.terminalIds.map((terminalId, index) => {
+            const ratio =
+              activeGroupPaneRatios[index] ?? 1 / visibleTerminalGroup.terminalIds.length;
+            const terminalLabel = terminalLabelById.get(terminalId) ?? "Terminal";
+            return (
+              <div
+                key={terminalId}
+                className="flex min-h-0 min-w-0"
+                style={{ flex: `${ratio} 1 0` }}
+              >
+                {index > 0 ? (
+                  <hr
+                    aria-orientation="vertical"
+                    aria-label="Resize terminal split"
+                    className="group/split relative z-10 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent before:absolute before:inset-y-2 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/55 before:transition-colors before:content-[''] after:absolute after:inset-y-3 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-primary/55 hover:after:bg-primary/10"
+                    onPointerDown={(event) =>
+                      handlePaneResizePointerDown(
+                        event,
+                        visibleTerminalGroup.id,
+                        index - 1,
+                        activeGroupPaneRatios,
+                      )
+                    }
+                  />
+                ) : null}
+                <div
+                  className={cn(
+                    "relative min-h-0 min-w-0 flex-1 overflow-hidden",
+                    terminalId !== resolvedActiveTerminalId && "border-l border-border/25",
+                  )}
+                  onPointerDown={() => {
+                    if (terminalId !== resolvedActiveTerminalId) {
+                      onActiveTerminalChange(terminalId);
+                    }
+                  }}
+                >
+                  {visibleTerminalGroup.terminalIds.length > 1 ? (
+                    <div
+                      className={cn(
+                        "pointer-events-none absolute inset-x-0 top-0 z-10 flex h-7 items-center justify-between gap-2 border-b px-2 text-[11px] font-medium backdrop-blur",
+                        terminalId === resolvedActiveTerminalId
+                          ? "border-primary/25 bg-primary/8 text-foreground"
+                          : "border-border/35 bg-background/45 text-muted-foreground",
+                      )}
+                    >
+                      <span className="min-w-0 truncate">{terminalLabel}</span>
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          runningTerminalIdSet.has(terminalId) ? "bg-emerald-400" : "bg-border",
+                        )}
+                      />
+                    </div>
+                  ) : null}
+                  <div
+                    className={cn("h-full", visibleTerminalGroup.terminalIds.length > 1 && "pt-7")}
+                  >
+                    <TerminalViewport
+                      threadId={threadId}
+                      terminalId={terminalId}
+                      terminalLabel={terminalLabel}
+                      cwd={cwd}
+                      {...(runtimeEnv ? { runtimeEnv } : {})}
+                      interactive={interactive && terminalId === resolvedActiveTerminalId}
+                      onSessionExited={() => onCloseTerminal(terminalId)}
+                      onAddTerminalContext={onAddTerminalContext}
+                      onAutoTerminalTitleChange={(title) =>
+                        onAutoTerminalTitleChange(terminalId, title)
+                      }
+                      focusRequestId={focusRequestId}
+                      shouldFocusTerminal={interactive && terminalId === resolvedActiveTerminalId}
+                      drawerHeight={drawerHeight}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </aside>

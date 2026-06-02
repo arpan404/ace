@@ -1,5 +1,9 @@
 import { type ProjectId } from "@ace/contracts";
-import { IconInfoCircle, IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
+import {
+  IconInfoCircle,
+  IconLayoutSidebarRight,
+  IconLayoutSidebarRightFilled,
+} from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -43,11 +47,11 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleRightSidePanel,
   reliabilitySlot,
 }: ChatHeaderProps) {
-  const terminalTooltipLabel = !terminalAvailable
-    ? "Terminal is unavailable until this thread has an active project."
+  const bottomPanelTooltipLabel = !terminalAvailable
+    ? "Bottom panel is unavailable until this thread has an active project."
     : terminalToggleShortcutLabel
-      ? `Toggle terminal (${terminalToggleShortcutLabel})`
-      : "Toggle terminal";
+      ? `Toggle bottom panel (${terminalToggleShortcutLabel})`
+      : "Toggle bottom panel";
   const rightSidePanelTooltipLabel = `${rightSidePanelOpen ? "Close" : "Open"} panel${
     rightSidePanelToggleShortcutLabel ? ` (${rightSidePanelToggleShortcutLabel})` : ""
   }`;
@@ -124,55 +128,61 @@ export const ChatHeader = memo(function ChatHeader({
               Environment
             </TooltipPopup>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-lg"
-                  className={cn(
-                    DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                    terminalOpen && "!bg-accent text-foreground hover:text-foreground",
-                  )}
-                  onClick={onToggleTerminal}
-                  disabled={!terminalAvailable}
-                  aria-pressed={terminalOpen}
-                  aria-label={
-                    terminalToggleShortcutLabel
-                      ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                      : "Toggle terminal drawer"
-                  }
-                />
-              }
-            >
-              <IconTerminal className="size-[18px]" />
-            </TooltipTrigger>
-            <TooltipPopup side="bottom" align="end">
-              {terminalTooltipLabel}
-            </TooltipPopup>
-          </Tooltip>
           {!rightSidePanelOpen ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-lg"
-                    className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
-                    onClick={onToggleRightSidePanel}
-                    aria-pressed={false}
-                    aria-label={rightSidePanelButtonLabel}
-                  />
-                }
-              >
-                <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom" align="end">
-                {rightSidePanelTooltipLabel}
-              </TooltipPopup>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-lg"
+                      className={cn(
+                        DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                        terminalOpen && "!bg-accent text-foreground hover:text-foreground",
+                      )}
+                      onClick={onToggleTerminal}
+                      disabled={!terminalAvailable}
+                      aria-pressed={terminalOpen}
+                      aria-label={
+                        terminalToggleShortcutLabel
+                          ? `Toggle bottom panel (${terminalToggleShortcutLabel})`
+                          : "Toggle bottom panel"
+                      }
+                    />
+                  }
+                >
+                  {terminalOpen ? (
+                    <IconLayoutSidebarRightFilled className="size-[18px] rotate-90" />
+                  ) : (
+                    <IconLayoutSidebarRight className="size-[18px] rotate-90" strokeWidth={2} />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="end">
+                  {bottomPanelTooltipLabel}
+                </TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-lg"
+                      className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
+                      onClick={onToggleRightSidePanel}
+                      aria-pressed={false}
+                      aria-label={rightSidePanelButtonLabel}
+                    />
+                  }
+                >
+                  <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="end">
+                  {rightSidePanelTooltipLabel}
+                </TooltipPopup>
+              </Tooltip>
+            </>
           ) : null}
         </div>
       </div>

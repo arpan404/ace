@@ -3,7 +3,8 @@ import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { AppPageTopBar } from "../AppPageTopBar";
-import { HEADER_PILL_CONTROL_CLASS_NAME, TopBarCluster } from "../thread/TopBarCluster";
+import { TopBarCluster } from "../thread/TopBarCluster";
+import { HEADER_PILL_CONTROL_CLASS_NAME } from "../thread/topBarClusterStyles";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
 import { getSettingsNavItem } from "./settingsNavigation";

@@ -302,7 +302,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       }}
     >
       <SidebarMenuSubButton
-        render={<div role="button" tabIndex={0} />}
+        render={<button type="button" />}
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
@@ -397,12 +397,11 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               <TooltipTrigger
                 render={
                   <span
-                    role="img"
-                    aria-label={terminalStatus.label}
                     className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
                   >
                     <IconTerminal
                       className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
+                      aria-label={terminalStatus.label}
                     />
                   </span>
                 }

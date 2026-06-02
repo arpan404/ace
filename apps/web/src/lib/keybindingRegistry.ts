@@ -151,6 +151,13 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
+    "rightPanel.terminal.open": {
+      category: "Right Panel",
+      label: "Open Terminal tab",
+      description: "Open and focus the Terminal tab in the right side panel.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "rightPanel.fullscreen.toggle": {
       category: "Right Panel",
       label: "Toggle side panel full screen",

@@ -46,6 +46,7 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
         className="flex-1 px-3 py-3 sm:px-5 sm:py-4"
         viewportRef={messagesContainerRef}
         viewportProps={{
+          className: "pe-2.5",
           onScroll: onMessagesScroll,
           onClickCapture: onMessagesClickCapture,
           onWheel: onMessagesWheel,

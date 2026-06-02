@@ -5,7 +5,8 @@ import { CircleDotIcon, CircleXIcon, ExternalLinkIcon, XIcon } from "lucide-reac
 import { useMemo } from "react";
 
 import { gitGitHubIssueThreadQueryOptions, gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
-import { IssueMarkdown, formatIssueRelativeTime } from "./IssueMarkdown";
+import { IssueMarkdown } from "./IssueMarkdown";
+import { formatIssueRelativeTime } from "./issueTime";
 import {
   GitHubIssuePreviewHeaderSkeleton,
   GitHubIssueThreadSkeleton,

@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { buttonVariants } from "~/components/ui/button";
+import { buttonVariants } from "~/components/ui/buttonVariants";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "~/lib/ui/toast";
@@ -49,19 +49,12 @@ function resolveToastProgressPercent(data: ThreadToastData | undefined): number 
 
 function ToastProgressBar({ percent }: { percent: number }) {
   return (
-    <div
+    <progress
       aria-label={`Progress ${percent}%`}
-      aria-valuemax={100}
-      aria-valuemin={0}
-      aria-valuenow={percent}
-      className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
-      role="progressbar"
-    >
-      <div
-        className="h-full rounded-full bg-info transition-[width] duration-200 ease-out"
-        style={{ width: `${percent}%` }}
-      />
-    </div>
+      className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
+      max={100}
+      value={percent}
+    />
   );
 }
 

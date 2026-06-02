@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   shouldCleanupBootstrapQuery,
   shouldProbeActiveRemoteHost,
-} from "./RemoteAutoConnectBootstrap";
+} from "./remoteAutoConnectBootstrapLogic";
 
 describe("shouldCleanupBootstrapQuery", () => {
   it("returns true when bootstrap ws query param is present", () => {

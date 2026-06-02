@@ -11,7 +11,7 @@ import {
   getProviderSnapshot,
   resolveSelectableProvider,
 } from "../../providerModels";
-import { AVAILABLE_PROVIDER_OPTIONS } from "./ProviderModelPicker";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { getComposerProviderState } from "./composerProviderRegistry";
 
 type ComposerModelDraftState =

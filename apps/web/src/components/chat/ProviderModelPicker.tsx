@@ -9,9 +9,9 @@ import { resolveSelectableModel } from "@ace/shared/model";
 import * as Schema from "effect/Schema";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { PROVIDER_OPTIONS } from "../../session-logic";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
-import { Button, buttonVariants } from "../ui/button";
+import { Button } from "../ui/button";
+import { buttonVariants } from "../ui/buttonVariants";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -24,18 +24,9 @@ import {
 } from "../../cursorModelSelector";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { HandoffMenuButton } from "./HandoffMenu";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";
 import { ProviderInstanceBadge } from "../../providerInstanceBadges";
-
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available;
-}
-
-export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
 const MODEL_MENU_MAX_HEIGHT = "18rem";
 const PROVIDER_PICKER_PREFS_STORAGE_KEY = "ace:provider-model-picker-prefs:v1";
 const ProviderModelPickerPrefsSchema = Schema.Struct({

@@ -6,12 +6,8 @@ import { m } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import {
-  formatSubagentSubtitle,
-  statusLabel,
-  SubagentPersonaIcon,
-  type SubagentThread,
-} from "./SubagentThreadsPanel";
+import { formatSubagentSubtitle, statusLabel, SubagentPersonaIcon } from "./SubagentThreadsPanel";
+import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanProgressState } from "../../session-logic";
 import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
