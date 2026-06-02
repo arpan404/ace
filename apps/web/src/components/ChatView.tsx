@@ -9820,7 +9820,9 @@ function useChatViewComponent({
         )
       : null;
   const rightSidePanelTabStripNode = rightSidePanelTabStrip("h-full bg-transparent px-2.5");
-  const bottomPanelTabStripNode = bottomPanelTabStrip("h-full bg-transparent px-2.5");
+  const bottomPanelTabStripNode = bottomPanelTabStrip(
+    "h-full min-w-0 flex-1 bg-transparent px-2.5",
+  );
   const showRightPanelChatDock =
     rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
   const dockedRightSidePanelHeader = (
