@@ -9361,30 +9361,31 @@ function useChatViewComponent({
       const panelWidth = 288;
       const panelMargin = 12;
       const fallbackTop = 64;
-      const workspaceRect = workspaceViewportRef.current?.getBoundingClientRect() ?? null;
       const viewportMaxLeft = window.innerWidth - panelWidth - panelMargin;
-      const chatMaxLeft = workspaceRect ? workspaceRect.right - panelWidth - panelMargin : null;
-      const chatMinLeft = workspaceRect ? workspaceRect.left + panelMargin : panelMargin;
-      const chatHasRoom =
-        workspaceRect !== null && workspaceRect.width >= panelWidth + panelMargin * 2;
-      const maxLeft = chatHasRoom && chatMaxLeft !== null ? chatMaxLeft : viewportMaxLeft;
-      const minLeft = chatHasRoom ? chatMinLeft : panelMargin;
-      const fallbackLeft = Math.max(minLeft, Math.min(viewportMaxLeft, maxLeft));
       if (!triggerRect) {
-        setEnvironmentPanelPopoverStyle({ left: fallbackLeft, top: fallbackTop });
+        const workspaceRect = workspaceViewportRef.current?.getBoundingClientRect() ?? null;
+        const fallbackLeft = workspaceRect
+          ? workspaceRect.right - panelWidth - panelMargin
+          : viewportMaxLeft;
+        setEnvironmentPanelPopoverStyle({
+          left: Math.max(panelMargin, Math.min(fallbackLeft, viewportMaxLeft)),
+          top: fallbackTop,
+        });
         return;
       }
 
-      const preferredLeft = triggerRect.left;
-      const left = Math.max(minLeft, Math.min(preferredLeft, maxLeft));
+      const preferredLeft = triggerRect.right - panelWidth;
+      const left = Math.max(panelMargin, Math.min(preferredLeft, viewportMaxLeft));
       const top = Math.max(panelMargin, triggerRect.bottom + 8);
       setEnvironmentPanelPopoverStyle({ left, top });
     };
 
     updatePopoverPosition();
+    const animationFrameId = requestAnimationFrame(updatePopoverPosition);
     window.addEventListener("resize", updatePopoverPosition);
     window.addEventListener("scroll", updatePopoverPosition, true);
     return () => {
+      cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", updatePopoverPosition);
       window.removeEventListener("scroll", updatePopoverPosition, true);
     };

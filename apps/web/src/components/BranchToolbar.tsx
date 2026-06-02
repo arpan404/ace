@@ -95,6 +95,8 @@ type ConnectedRemoteEnvironment = {
   readonly connectionUrl: string;
 };
 
+const MAIN_CHECKOUT_ENVIRONMENT_LABEL = "Main checkout";
+
 function loadConnectedRemoteEnvironments(): ConnectedRemoteEnvironment[] {
   const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
   const connectedHostIds = new Set(loadConnectedRemoteHostIds());
@@ -146,7 +148,7 @@ function EnvironmentModeMenu(props: {
   const label = resolveEnvironmentModeLabel({
     activeWorktreePath: props.activeWorktreePath,
     effectiveEnvMode: props.effectiveEnvMode,
-    localEnvironmentLabel: props.localEnvironmentLabel,
+    localEnvironmentLabel: MAIN_CHECKOUT_ENVIRONMENT_LABEL,
   });
   const icon = isLocal ? (
     props.localEnvironmentIcon ? (
@@ -193,7 +195,11 @@ function EnvironmentModeMenu(props: {
           >
             <EnvironmentMenuRowContent
               icon={<LaptopIcon className="size-3.5" />}
-              label={isExistingWorktree ? "Switch to main checkout" : "Main checkout"}
+              label={
+                isExistingWorktree
+                  ? `Switch to ${MAIN_CHECKOUT_ENVIRONMENT_LABEL.toLowerCase()}`
+                  : MAIN_CHECKOUT_ENVIRONMENT_LABEL
+              }
               description={
                 isExistingWorktree
                   ? "Use the project root instead of this worktree."
