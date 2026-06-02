@@ -480,6 +480,32 @@ function shouldAppendTerminalHistoryChunk(
   return incomingKey !== terminalHistoryLineKey(lastTerminalHistoryLine(session.history));
 }
 
+function collapseRepeatedPromptOnlyHistory(history: string): string {
+  if (history.length === 0) {
+    return history;
+  }
+  const hasTrailingNewline = /(?:\r?\n|\r)$/.test(history);
+  const lines = history.split(/\r?\n|\r/g);
+  if (hasTrailingNewline) {
+    lines.pop();
+  }
+  if (lines.length <= 1) {
+    return history;
+  }
+
+  const keys = lines.map(terminalHistoryLineKey).filter((key) => key.length > 0);
+  if (keys.length !== lines.length) {
+    return history;
+  }
+  const firstKey = keys[0];
+  if (!firstKey || keys.some((key) => key !== firstKey)) {
+    return history;
+  }
+
+  const firstLine = lines[0] ?? "";
+  return hasTrailingNewline ? `${firstLine}\n` : firstLine;
+}
+
 function isCsiFinalByte(codePoint: number): boolean {
   return codePoint >= 0x40 && codePoint <= 0x7e;
 }
@@ -994,7 +1020,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           .readFileString(nextPath)
           .pipe(Effect.mapError(toTerminalHistoryError("read", threadId, terminalId)));
         const sanitized = sanitizeTerminalHistoryString(raw);
-        const capped = capHistory(sanitized, historyLineLimit);
+        const compacted = collapseRepeatedPromptOnlyHistory(sanitized);
+        const capped = capHistory(compacted, historyLineLimit);
         if (capped !== raw) {
           yield* fileSystem
             .writeFileString(nextPath, capped)
@@ -1020,7 +1047,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         .readFileString(legacyPath)
         .pipe(Effect.mapError(toTerminalHistoryError("migrate", threadId, terminalId)));
       const sanitized = sanitizeTerminalHistoryString(raw);
-      const capped = capHistory(sanitized, historyLineLimit);
+      const compacted = collapseRepeatedPromptOnlyHistory(sanitized);
+      const capped = capHistory(compacted, historyLineLimit);
       yield* fileSystem
         .writeFileString(nextPath, capped)
         .pipe(Effect.mapError(toTerminalHistoryError("migrate", threadId, terminalId)));
@@ -1690,6 +1718,19 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           }
 
           const liveSession = existing.value;
+          const compactedLiveHistory =
+            liveSession.title === null && liveSession.pendingInputCommandBuffer.length === 0
+              ? collapseRepeatedPromptOnlyHistory(liveSession.history)
+              : liveSession.history;
+          if (compactedLiveHistory !== liveSession.history) {
+            liveSession.history = compactedLiveHistory;
+            liveSession.pendingHistoryControlSequence = "";
+            yield* persistHistory(
+              liveSession.threadId,
+              liveSession.terminalId,
+              liveSession.history,
+            );
+          }
           const nextRuntimeEnv = normalizedRuntimeEnv(input.env);
           const currentRuntimeEnv = liveSession.runtimeEnv;
           const targetCols = input.cols ?? liveSession.cols;

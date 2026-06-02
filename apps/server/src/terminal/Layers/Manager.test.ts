@@ -587,6 +587,19 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect("compacts existing prompt-only duplicate history on open", () =>
+    Effect.gen(function* () {
+      const { manager, logsDir } = yield* createManager(10);
+      const prompt = "\u001b[32m~/project\u001b[0m on main > ";
+      yield* writeFileString(historyLogPath(logsDir), `${prompt}\n${prompt}\n${prompt}\n`);
+
+      const snapshot = yield* manager.open(openInput());
+
+      assert.equal(snapshot.history, `${prompt}\n`);
+      assert.equal(yield* readFileString(historyLogPath(logsDir)), `${prompt}\n`);
+    }),
+  );
+
   it.effect("strips replay-unsafe terminal query and reply sequences from persisted history", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
