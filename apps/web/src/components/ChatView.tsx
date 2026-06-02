@@ -125,7 +125,7 @@ import {
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import { shouldEscalateInterruptToSessionStop } from "../lib/chat/interruptFallback";
-import { PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
+import { BOTTOM_PANEL_SPRING_TRANSITION, PANEL_SPRING_TRANSITION } from "../lib/panelMotion";
 import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -10045,11 +10045,11 @@ function useChatViewComponent({
           {activeBottomPanelMode ? (
             <m.div
               key="thread-bottom-dock-panel"
-              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-background"
-              initial={{ height: 0, opacity: 0, y: 18 }}
-              animate={{ height: terminalState.terminalHeight + 48, opacity: 1, y: 0 }}
-              exit={{ height: 0, opacity: 0, y: 18 }}
-              transition={PANEL_SPRING_TRANSITION}
+              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-background will-change-[height,opacity]"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: terminalState.terminalHeight + 48, opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={BOTTOM_PANEL_SPRING_TRANSITION}
             >
               <hr
                 aria-orientation="horizontal"
@@ -10058,98 +10058,108 @@ function useChatViewComponent({
                 className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-border/75 before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border hover:after:bg-foreground/5 focus-visible:before:bg-border focus-visible:after:bg-foreground/5"
                 onPointerDown={handleBottomPanelResizePointerDown}
               />
-              <div className="flex h-12 shrink-0 items-stretch border-b border-border/70 bg-sidebar">
-                {bottomPanelTabStripNode}
-              </div>
-              <div
-                className="min-h-0 flex-1 overflow-hidden"
-                style={{ height: `${terminalState.terminalHeight}px` }}
+              <m.div
+                className="flex min-h-0 flex-1 transform-gpu flex-col overflow-hidden will-change-[transform,opacity]"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={PANEL_SPRING_TRANSITION}
               >
-                {activeBottomPanelMode === "summary" ? (
-                  <PlanSummaryPanel
-                    activePlan={activePlan}
-                    activeProposedPlan={sidebarProposedPlan}
-                    generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
-                    activeProvider={activeThread?.session?.provider ?? null}
-                    markdownCwd={gitCwd ?? undefined}
-                    onOpenDiffPanel={isGitRepo ? onOpenBottomPanelDiff : null}
-                    onRegenerateSummary={handleRegenerateSummary}
-                    onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                    onOpenFilePath={canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null}
-                    enableLocalFileLinks={canOpenLocalMarkdownFiles}
-                    workspaceDiffSummary={workspaceDiffSummary}
-                    workspaceRoot={activeProject?.cwd ?? undefined}
-                  />
-                ) : activeBottomPanelMode === "diff" ? (
-                  <LocalDiffPanel
-                    threadId={activeThread.id}
-                    diffState={localDiffState}
-                    onAddReviewComment={addDiffReviewComment}
-                    onDiffStateChange={setLocalDiffState}
-                  />
-                ) : activeBottomPanelMode === "subagent" ? (
-                  <SubagentWorkspacePanel
-                    activeThreadId={activeSubagentThreadId}
-                    parentThreadId={activeThread.id}
-                    timelineProps={messagesTimelineProps}
-                    threads={subagentThreads}
-                  />
-                ) : activeBottomPanelMode === "terminal" ? (
-                  <ConnectedThreadTerminalPanel
-                    activeThreadId={activeThread.id}
-                    activeProjectAvailable={activeProject !== undefined}
-                    cwd={gitCwd ?? activeProject?.cwd ?? null}
-                    runtimeEnv={threadTerminalRuntimeEnv}
-                    focusRequestId={terminalFocusRequestId}
-                    interactive={activeForSideEffects}
-                    onNewTerminal={createNewTerminal}
-                    newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-                    toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
-                    onActiveTerminalChange={activateTerminal}
-                    onMoveTerminal={moveTerminal}
-                    onSplitRatiosChange={setTerminalGroupSplitRatios}
-                    onAutoTerminalTitleChange={setTerminalAutoTitle}
-                    onCloseTerminal={closeTerminal}
-                    onToggleTerminal={toggleTerminalVisibility}
-                    onClosePanelTerminal={onCloseBottomPanelTerminal}
-                    onHeightChange={setTerminalHeight}
-                    onAddTerminalContext={addTerminalContextToDraft}
-                  />
-                ) : activeBottomPanelMode === "editor" ? (
-                  <Suspense
-                    fallback={
-                      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                        <div className="border-b border-border/60 px-4 py-3">
-                          <div className="h-5 w-44 rounded bg-foreground/6" />
-                        </div>
-                        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                          <div className="border-r border-border/60 bg-foreground/3" />
-                          <div className="bg-background" />
-                        </div>
-                      </div>
-                    }
-                  >
-                    <ThreadWorkspaceEditor
-                      key={activeBottomPanelEditorTabId ?? "bottom-panel-editor"}
-                      availableEditors={availableEditors}
-                      branch={activeThreadBranchName}
-                      connectionUrl={activeServerConnectionUrl}
-                      gitCwd={gitCwd}
-                      lspCwd={activeProject?.cwd ?? null}
-                      keybindings={keybindings}
-                      browserOpen={browserOpen}
-                      workspaceMode="split"
-                      terminalOpen={terminalState.terminalOpen}
-                      threadId={activeThread.id}
-                      worktreePath={activeThread.worktreePath ?? null}
-                      onDetached={onCloseBottomPanelEditor}
-                      onSubmitAgentNote={submitWorkspaceAgentNote}
+                <div className="flex h-12 shrink-0 items-stretch border-b border-border/70 bg-sidebar">
+                  {bottomPanelTabStripNode}
+                </div>
+                <div
+                  className="min-h-0 flex-1 overflow-hidden"
+                  style={{ height: `${terminalState.terminalHeight}px` }}
+                >
+                  {activeBottomPanelMode === "summary" ? (
+                    <PlanSummaryPanel
+                      activePlan={activePlan}
+                      activeProposedPlan={sidebarProposedPlan}
+                      generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                      activeProvider={activeThread?.session?.provider ?? null}
+                      markdownCwd={gitCwd ?? undefined}
+                      onOpenDiffPanel={isGitRepo ? onOpenBottomPanelDiff : null}
+                      onRegenerateSummary={handleRegenerateSummary}
+                      onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                      onOpenFilePath={
+                        canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                      }
+                      enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                      workspaceDiffSummary={workspaceDiffSummary}
+                      workspaceRoot={activeProject?.cwd ?? undefined}
                     />
-                  </Suspense>
-                ) : activeBottomPanelMode === "browser" && browserPanel ? (
-                  <RetainedBrowserInstances instances={browserPanel.instances} />
-                ) : null}
-              </div>
+                  ) : activeBottomPanelMode === "diff" ? (
+                    <LocalDiffPanel
+                      threadId={activeThread.id}
+                      diffState={localDiffState}
+                      onAddReviewComment={addDiffReviewComment}
+                      onDiffStateChange={setLocalDiffState}
+                    />
+                  ) : activeBottomPanelMode === "subagent" ? (
+                    <SubagentWorkspacePanel
+                      activeThreadId={activeSubagentThreadId}
+                      composer={renderSubagentComposer}
+                      timelineProps={messagesTimelineProps}
+                      threads={subagentThreads}
+                    />
+                  ) : activeBottomPanelMode === "terminal" ? (
+                    <ConnectedThreadTerminalPanel
+                      activeThreadId={activeThread.id}
+                      activeProjectAvailable={activeProject !== undefined}
+                      cwd={gitCwd ?? activeProject?.cwd ?? null}
+                      runtimeEnv={threadTerminalRuntimeEnv}
+                      focusRequestId={terminalFocusRequestId}
+                      interactive={activeForSideEffects}
+                      onNewTerminal={createNewTerminal}
+                      newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+                      toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
+                      onActiveTerminalChange={activateTerminal}
+                      onMoveTerminal={moveTerminal}
+                      onSplitRatiosChange={setTerminalGroupSplitRatios}
+                      onAutoTerminalTitleChange={setTerminalAutoTitle}
+                      onCloseTerminal={closeTerminal}
+                      onToggleTerminal={toggleTerminalVisibility}
+                      onClosePanelTerminal={onCloseBottomPanelTerminal}
+                      onHeightChange={setTerminalHeight}
+                      onAddTerminalContext={addTerminalContextToDraft}
+                    />
+                  ) : activeBottomPanelMode === "editor" ? (
+                    <Suspense
+                      fallback={
+                        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                          <div className="border-b border-border/60 px-4 py-3">
+                            <div className="h-5 w-44 rounded bg-foreground/6" />
+                          </div>
+                          <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                            <div className="border-r border-border/60 bg-foreground/3" />
+                            <div className="bg-background" />
+                          </div>
+                        </div>
+                      }
+                    >
+                      <ThreadWorkspaceEditor
+                        key={activeBottomPanelEditorTabId ?? "bottom-panel-editor"}
+                        availableEditors={availableEditors}
+                        branch={activeThreadBranchName}
+                        connectionUrl={activeServerConnectionUrl}
+                        gitCwd={gitCwd}
+                        lspCwd={activeProject?.cwd ?? null}
+                        keybindings={keybindings}
+                        browserOpen={browserOpen}
+                        workspaceMode="split"
+                        terminalOpen={terminalState.terminalOpen}
+                        threadId={activeThread.id}
+                        worktreePath={activeThread.worktreePath ?? null}
+                        onDetached={onCloseBottomPanelEditor}
+                        onSubmitAgentNote={submitWorkspaceAgentNote}
+                      />
+                    </Suspense>
+                  ) : activeBottomPanelMode === "browser" && browserPanel ? (
+                    <RetainedBrowserInstances instances={browserPanel.instances} />
+                  ) : null}
+                </div>
+              </m.div>
             </m.div>
           ) : null}
         </AnimatePresence>
