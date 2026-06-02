@@ -188,11 +188,11 @@ function EnvironmentModeMenu(props: {
             Environment
           </MenuGroupLabel>
           <MenuItem
-            className="min-h-12 items-start gap-2 rounded-xl px-2 py-2 text-[13px]"
+            className="min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]"
             onClick={() => props.onEnvModeSelect("local")}
           >
             <EnvironmentMenuRowContent
-              icon={<LaptopIcon className="size-4" />}
+              icon={<LaptopIcon className="size-3.5" />}
               label={isExistingWorktree ? "Switch to main checkout" : "Main checkout"}
               description={
                 isExistingWorktree
@@ -200,16 +200,17 @@ function EnvironmentModeMenu(props: {
                   : "Run this thread in the project root."
               }
               meta={
-                isLocal && activeConnectionUrl === null ? (
-                  <CheckIcon className="size-3.5" />
-                ) : null
+                isLocal && activeConnectionUrl === null ? <CheckIcon className="size-3.5" /> : null
               }
             />
           </MenuItem>
           {isExistingWorktree ? (
-            <MenuItem className="min-h-12 items-start gap-2 rounded-xl px-2 py-2 text-[13px]" disabled>
+            <MenuItem
+              className="min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]"
+              disabled
+            >
               <EnvironmentMenuRowContent
-                icon={<FolderGit2Icon className="size-4" />}
+                icon={<FolderGit2Icon className="size-3.5" />}
                 label={worktreeDisplayName ?? "Current worktree"}
                 description="Current isolated worktree for this chat."
                 meta={<CheckIcon className="size-3.5" />}
@@ -223,7 +224,7 @@ function EnvironmentModeMenu(props: {
               <MenuItem
                 key={environment.host.id}
                 className={cn(
-                  "min-h-12 items-start gap-2 rounded-xl px-2 py-2 text-[13px]",
+                  "min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]",
                   !isActiveRemote && "text-muted-foreground",
                 )}
                 onClick={() => {
@@ -239,7 +240,7 @@ function EnvironmentModeMenu(props: {
                 }}
               >
                 <EnvironmentMenuRowContent
-                  icon={<MonitorIcon className="size-4" />}
+                  icon={<MonitorIcon className="size-3.5" />}
                   label={environment.host.name}
                   description={
                     isActiveRemote
@@ -255,7 +256,7 @@ function EnvironmentModeMenu(props: {
         <MenuSeparator className="mx-2 my-2" />
         <MenuGroup>
           <MenuItem
-            className="min-h-12 items-start gap-2 rounded-xl px-2 py-2 text-[13px]"
+            className="min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]"
             disabled={!props.canCreateNewWorktree && !props.onNewWorktreeRequest}
             onClick={() => {
               if (props.canCreateNewWorktree && !isExistingWorktree) {
@@ -266,7 +267,7 @@ function EnvironmentModeMenu(props: {
             }}
           >
             <EnvironmentMenuRowContent
-              icon={<GitBranchPlusIcon className="size-4" />}
+              icon={<GitBranchPlusIcon className="size-3.5" />}
               label={isPendingNewWorktree ? "New worktree selected" : "Start new worktree"}
               description="Open a fresh draft that creates its worktree on first send."
               meta={isPendingNewWorktree ? <CheckIcon className="size-3.5" /> : null}
