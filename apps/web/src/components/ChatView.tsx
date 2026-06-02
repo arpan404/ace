@@ -813,7 +813,47 @@ const RetainedBrowserInstances = memo(function RetainedBrowserInstances({
   ) : (
     content
   );
-});
+}, browserPanelInstancesEqual);
+
+function shallowObjectEqual(left: object, right: object): boolean {
+  if (left === right) {
+    return true;
+  }
+  const leftKeys = Object.keys(left) as Array<keyof typeof left>;
+  const rightKeys = Object.keys(right) as Array<keyof typeof right>;
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  for (const key of leftKeys) {
+    if (
+      !Object.prototype.hasOwnProperty.call(right, key) ||
+      !Object.is(left[key], right[key as keyof typeof right])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function browserPanelInstancesEqual(
+  previous: { instances: readonly BrowserPanelInstance[] },
+  next: { instances: readonly BrowserPanelInstance[] },
+): boolean {
+  if (previous.instances === next.instances) {
+    return true;
+  }
+  if (previous.instances.length !== next.instances.length) {
+    return false;
+  }
+  return previous.instances.every((previousInstance, index) => {
+    const nextInstance = next.instances[index];
+    return (
+      nextInstance !== undefined &&
+      previousInstance.key === nextInstance.key &&
+      shallowObjectEqual(previousInstance.inAppBrowserProps, nextInstance.inAppBrowserProps)
+    );
+  });
+}
 
 function handoffLineageResultsEqual(
   left: HandoffLineageResult | null,
@@ -3195,6 +3235,9 @@ function useChatViewComponent({
   const browserRuntimeStateChangeHandlerByThreadRef = useRef(
     new Map<ThreadId, (state: ActiveBrowserRuntimeState) => void>(),
   );
+  const browserViewportResizeHandlerByThreadRef = useRef(
+    new Map<ThreadId, (request: BrowserViewportResizeRequest) => BrowserViewportResizeResult>(),
+  );
   const activeBrowserThreadIdRef = useRef<ThreadId | null>(activeThreadId);
   const pendingBrowserOpenUrlRef = useRef<string | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
@@ -3301,6 +3344,7 @@ function useChatViewComponent({
       browserSessionChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
       browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
+      browserViewportResizeHandlerByThreadRef.current.delete(browserThreadId);
       deleteBrowserSession(browserThreadId);
       if (activeBrowserThreadIdRef.current !== browserThreadId) {
         return;
@@ -3320,6 +3364,7 @@ function useChatViewComponent({
       browserSessionChangeHandlerByThreadRef.current.clear();
       browserControllerChangeHandlerByThreadRef.current.clear();
       browserRuntimeStateChangeHandlerByThreadRef.current.clear();
+      browserViewportResizeHandlerByThreadRef.current.clear();
       clearBrowserSessions();
       activeBrowserThreadIdRef.current = null;
       browserControllerRef.current = null;
@@ -5598,6 +5643,23 @@ function useChatViewComponent({
       setRightSidePanelVisible,
       syncRightSidePanelWidth,
     ],
+  );
+  const resizeBrowserViewportForBridgeEvent = useEffectEvent(
+    (browserThreadId: ThreadId, request: BrowserViewportResizeRequest) =>
+      resizeBrowserViewportForBridge(browserThreadId, request),
+  );
+  const getBrowserViewportResizeHandler = useCallback(
+    (browserThreadId: ThreadId) => {
+      const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserThreadId);
+      if (existingHandler) {
+        return existingHandler;
+      }
+      const handler = (request: BrowserViewportResizeRequest) =>
+        resizeBrowserViewportForBridgeEvent(browserThreadId, request);
+      browserViewportResizeHandlerByThreadRef.current.set(browserThreadId, handler);
+      return handler;
+    },
+    [resizeBrowserViewportForBridgeEvent],
   );
 
   const handleRightSidePanelResizePointerDown = useCallback(
@@ -8915,8 +8977,7 @@ function useChatViewComponent({
                   onBrowserSessionChange: getBrowserSessionChangeHandler(browserThreadId),
                   onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
                   onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
-                  onResizeViewport: (request: BrowserViewportResizeRequest) =>
-                    resizeBrowserViewportForBridge(browserThreadId, request),
+                  onResizeViewport: getBrowserViewportResizeHandler(browserThreadId),
                   onToggleRightPanelFloatingChat: onToggleRightSidePanelFloatingChat,
                   onToggleRightPanelFullscreen: onToggleRightSidePanelFullscreen,
                   backShortcutLabel: browserBackShortcutLabel,

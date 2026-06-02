@@ -819,6 +819,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         exit={browserShellExit}
         transition={BROWSER_SHELL_TRANSITION}
         className={cn(
+          "browser-render-island",
           mode === "split"
             ? visible
               ? "relative flex h-full min-h-0 min-w-0"
