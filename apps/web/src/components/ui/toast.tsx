@@ -31,15 +31,15 @@ type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
 const TOAST_SURFACE_CLASS_NAME =
-  "overflow-hidden rounded-lg border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_10px_30px_rgba(0,0,0,0.16)] outline outline-1 outline-background/45 backdrop-blur-xl";
+  "overflow-hidden rounded-md border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline outline-1 outline-background/45 backdrop-blur-xl";
 const TOAST_CONTENT_CLASS_NAME =
-  "pointer-events-auto flex flex-col gap-3 overflow-hidden px-4 py-3.5 text-[13px]";
+  "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-xs";
 const TOAST_TITLE_CLASS_NAME =
-  "min-w-0 break-words text-[13px] font-medium leading-5 text-foreground/95";
+  "min-w-0 break-words text-xs font-medium leading-4 text-foreground/95";
 const TOAST_DESCRIPTION_CLASS_NAME =
-  "min-w-0 select-text break-words text-[12px] leading-4.5 text-muted-foreground/76";
+  "min-w-0 select-text break-words text-[11px] leading-4 text-muted-foreground/76";
 const TOAST_ACTION_CLASS_NAME =
-  "h-8 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-3 text-[13px] font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+  "h-6 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
 const TOAST_STATUS_ICONS = {
   error: CircleAlertIcon,
   loading: LoaderCircleIcon,
@@ -57,7 +57,7 @@ function ToastProgressBar({ percent }: { percent: number }) {
   return (
     <progress
       aria-label={`Progress ${percent}%`}
-      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/55 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/55 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
+      className="mt-1 h-0.5 w-full overflow-hidden rounded-full bg-muted/55 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/55 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
       max={100}
       value={percent}
     />
@@ -72,18 +72,14 @@ function CopyErrorButton({ text }: { text: string }) {
       <TooltipTrigger
         render={
           <button
-            className="shrink-0 cursor-pointer rounded-md border border-transparent p-1 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
+            className="shrink-0 cursor-pointer rounded-md border border-transparent p-0.5 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
             onClick={() => copyToClipboard(text)}
             type="button"
             aria-label={isCopied ? "Copied" : "Copy error"}
           />
         }
       >
-        {isCopied ? (
-          <CheckIcon className="size-3.5 text-success" />
-        ) : (
-          <CopyIcon className="size-3.5" />
-        )}
+        {isCopied ? <CheckIcon className="size-3 text-success" /> : <CopyIcon className="size-3" />}
       </TooltipTrigger>
       <TooltipPopup side="top">{isCopied ? "Copied" : "Copy error"}</TooltipPopup>
     </Tooltip>
@@ -107,7 +103,7 @@ function ToastStatusIcon({
   return (
     <Icon
       className={cn(
-        "mt-0.5 size-4 shrink-0",
+        "mt-px size-3.5 shrink-0",
         type === "error" && "text-destructive",
         type === "loading" && "animate-spin text-info/90",
         type === "warning" && "text-warning",
@@ -289,7 +285,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[20rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
+          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[18rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
           // Vertical positioning
           "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
