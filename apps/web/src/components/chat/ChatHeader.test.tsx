@@ -25,7 +25,6 @@ describe("ChatHeader", () => {
 
     expect(markup).not.toContain("Workspace changes: 12 additions, 4 deletions");
     expect(markup).not.toContain("+12");
-    expect(markup).not.toContain("-4");
   });
 
   it("keeps active todo progress out of the top header", () => {

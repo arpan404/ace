@@ -360,6 +360,7 @@ function upsertTerminalIntoGroups(
   state: ThreadTerminalState,
   terminalId: string,
   mode: "split" | "new",
+  options?: { terminalOpen?: boolean },
 ): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
   if (!isValidTerminalId(terminalId)) {
@@ -388,7 +389,7 @@ function upsertTerminalIntoGroups(
     terminalGroups.push({ id: nextGroupId, terminalIds: [terminalId] });
     return normalizeThreadTerminalState({
       ...normalized,
-      terminalOpen: true,
+      terminalOpen: options?.terminalOpen ?? true,
       terminalIds,
       activeTerminalId: terminalId,
       terminalGroups,
@@ -436,7 +437,7 @@ function upsertTerminalIntoGroups(
 
   return normalizeThreadTerminalState({
     ...normalized,
-    terminalOpen: true,
+    terminalOpen: options?.terminalOpen ?? true,
     terminalIds,
     activeTerminalId: terminalId,
     terminalGroups,
@@ -893,6 +894,7 @@ interface TerminalStateStoreState {
   setTerminalSidebarDensity: (threadId: ThreadId, density: "compact" | "comfortable") => void;
   splitTerminal: (threadId: ThreadId, terminalId: string) => void;
   newTerminal: (threadId: ThreadId, terminalId: string) => void;
+  newBackgroundTerminal: (threadId: ThreadId, terminalId: string) => void;
   setActiveTerminal: (threadId: ThreadId, terminalId: string) => void;
   moveTerminal: (
     threadId: ThreadId,
@@ -961,6 +963,12 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
           updateTerminal(threadId, (state) => splitThreadTerminal(state, terminalId)),
         newTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) => newThreadTerminal(state, terminalId)),
+        newBackgroundTerminal: (threadId, terminalId) =>
+          updateTerminal(threadId, (state) =>
+            upsertTerminalIntoGroups(state, terminalId, "new", {
+              terminalOpen: normalizeThreadTerminalState(state).terminalOpen,
+            }),
+          ),
         setActiveTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) => setThreadActiveTerminal(state, terminalId)),
         moveTerminal: (threadId, terminalId, targetGroupId, targetIndex) =>

@@ -49,6 +49,16 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
+import {
+  Code2Icon,
+  DiffIcon,
+  FolderIcon,
+  GlobeIcon,
+  ListTodoIcon,
+  MessageSquarePlusIcon,
+  SquareTerminalIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -157,7 +167,10 @@ import {
   measureRenderWork,
   recordReactRenderProfile,
 } from "~/lib/renderProfiling";
-import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
+import {
+  deriveTerminalTitleFromCommand,
+  resolveTerminalDisplayTitle,
+} from "~/lib/terminalPresentation";
 import { useSetting } from "../hooks/useSettings";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -390,10 +403,57 @@ const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+type DockPanelMode = RightSidePanelMode;
+
+interface PanelChooserOption {
+  description: string;
+  disabled?: boolean | undefined;
+  icon: LucideIcon;
+  label: string;
+  onSelect: () => void;
+  shortcutLabel?: string | null | undefined;
+}
+
+function PanelChooser(props: { className?: string | undefined; options: PanelChooserOption[] }) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 items-center justify-center overflow-auto bg-background px-6 py-8",
+        props.className,
+      )}
+    >
+      <div className="flex w-full max-w-[360px] flex-col gap-3">
+        {props.options.map((option) => {
+          const Icon = option.icon;
+          return (
+            <button
+              key={option.label}
+              type="button"
+              disabled={option.disabled}
+              className={cn(
+                "group flex min-h-[116px] w-full flex-col items-center justify-center rounded-lg border border-border/35 bg-card/70 px-5 py-5 text-center transition-colors hover:border-border hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                option.disabled && "cursor-not-allowed opacity-45 hover:border-border/35 hover:bg-card/70",
+              )}
+              onClick={option.onSelect}
+            >
+              <Icon className="mb-3 size-6 text-muted-foreground transition-colors group-hover:text-foreground" />
+              <span className="text-[15px] font-semibold text-foreground">{option.label}</span>
+              <span className="mt-1 text-[13px] text-muted-foreground">{option.description}</span>
+              {option.shortcutLabel ? (
+                <span className="mt-3 rounded-md bg-muted px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
+                  {option.shortcutLabel}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 type ThreadTerminalDrawerProps = ComponentProps<typeof ThreadTerminalDrawer>;
 
 interface RetainedThreadTerminalDrawerEntry {
@@ -406,10 +466,7 @@ function upsertRetainedThreadTerminalDrawerEntry(
   nextEntry: RetainedThreadTerminalDrawerEntry,
 ): RetainedThreadTerminalDrawerEntry[] {
   const filteredEntries = entries.filter((entry) => entry.threadId !== nextEntry.threadId);
-  const nextEntries = [...filteredEntries, nextEntry];
-  return nextEntries.length <= MAX_RETAINED_THREAD_TERMINAL_DRAWERS
-    ? nextEntries
-    : nextEntries.slice(nextEntries.length - MAX_RETAINED_THREAD_TERMINAL_DRAWERS);
+  return [...filteredEntries, nextEntry];
 }
 
 // Preserve a small set of recent terminal drawers so thread switches can reuse
@@ -1121,7 +1178,6 @@ function useChatViewComponent({
   const reliabilityUxEnabled = useSetting("reliabilityUxEnabled");
   const timestampFormat = useSetting("timestampFormat");
   const workspaceEditorOpenMode = useSetting("workspaceEditorOpenMode");
-  const browserMaxMountedInstances = useSetting("browserMaxMountedInstances");
   const commentSubmissionMode = useSetting("commentSubmissionMode");
   const {
     activeDraftThread: currentRouteDraftThread,
@@ -1186,6 +1242,10 @@ function useChatViewComponent({
     workspaceEditorSplitWidth,
     workspaceLayoutByThreadId,
   } = useChatViewPersistentPanelState(threadId);
+  const [bottomPanelMode, setBottomPanelMode] = useState<DockPanelMode | null>(null);
+  const [bottomPanelBrowserOpen, setBottomPanelBrowserOpen] = useState(false);
+  const [bottomPanelEditorOpen, setBottomPanelEditorOpen] = useState(false);
+  const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -1446,7 +1506,11 @@ function useChatViewComponent({
       const selectedState = selectThreadTerminalState(state.terminalStateByThreadId, threadId);
       return {
         terminalOpen: selectedState.terminalOpen,
+        terminalHeight: selectedState.terminalHeight,
         activeTerminalId: selectedState.activeTerminalId,
+        terminalIds: selectedState.terminalIds,
+        runningTerminalIds: selectedState.runningTerminalIds,
+        autoTerminalTitlesById: selectedState.autoTerminalTitlesById,
       };
     }),
   );
@@ -1454,6 +1518,7 @@ function useChatViewComponent({
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
+  const storeNewBackgroundTerminal = useTerminalStateStore((s) => s.newBackgroundTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
   const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
@@ -1709,7 +1774,10 @@ function useChatViewComponent({
   const effectiveRightSidePanelMode = rightSidePanelEnabled ? rightSidePanelMode : null;
   const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
   const hasRightSidePanelContent =
-    diffOpen || rightSidePanelTerminalOpen || effectiveRightSidePanelMode !== null;
+    rightSidePanelVisible ||
+    diffOpen ||
+    rightSidePanelTerminalOpen ||
+    effectiveRightSidePanelMode !== null;
   const rightSidePanelOpen =
     rightSidePanelEnabled && rightSidePanelVisible && hasRightSidePanelContent;
   const activeThreadId = activeThread?.id ?? null;
@@ -3257,11 +3325,19 @@ function useChatViewComponent({
       browserOpen &&
       isElectron &&
       !diffOpen &&
+      bottomPanelMode !== "browser" &&
       rightSidePanelMode === null
     ) {
       setRightSidePanelMode("browser");
     }
-  }, [browserOpen, diffOpen, rightSidePanelEnabled, rightSidePanelMode, setRightSidePanelMode]);
+  }, [
+    bottomPanelMode,
+    browserOpen,
+    diffOpen,
+    rightSidePanelEnabled,
+    rightSidePanelMode,
+    setRightSidePanelMode,
+  ]);
   useEffect(() => {
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
       ensureWorkspaceEditorPanelVisible();
@@ -3296,25 +3372,9 @@ function useChatViewComponent({
       return;
     }
     setMountedBrowserInstances((current) =>
-      touchRecentBrowserInstance(current, activeThreadId, Date.now(), browserMaxMountedInstances),
+      touchRecentBrowserInstance(current, activeThreadId, Date.now(), Number.MAX_SAFE_INTEGER),
     );
-  }, [
-    activeThreadId,
-    browserMaxMountedInstances,
-    browserOpen,
-    resetBrowserCacheState,
-    rightSidePanelInteractive,
-  ]);
-  useEffect(() => {
-    if (!rightSidePanelInteractive) {
-      return;
-    }
-    setMountedBrowserInstances((current) =>
-      current.length <= browserMaxMountedInstances
-        ? current
-        : current.slice(0, browserMaxMountedInstances),
-    );
-  }, [browserMaxMountedInstances, rightSidePanelInteractive]);
+  }, [activeThreadId, browserOpen, resetBrowserCacheState, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -4352,7 +4412,11 @@ function useChatViewComponent({
   );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
-    setTerminalOpen(!terminalState.terminalOpen);
+    const nextOpen = !terminalState.terminalOpen;
+    setTerminalOpen(nextOpen);
+    setBottomPanelMode((current) =>
+      nextOpen ? "terminal" : current === "terminal" ? null : current,
+    );
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
 
   const syncRightSidePanelWidth = useCallback(
@@ -4424,15 +4488,7 @@ function useChatViewComponent({
       return;
     }
     setRightSidePanelVisible(true);
-    if (!hasRightSidePanelContent) {
-      setRightSidePanelMode("summary");
-    }
-  }, [
-    hasRightSidePanelContent,
-    rightSidePanelOpen,
-    setRightSidePanelMode,
-    setRightSidePanelVisible,
-  ]);
+  }, [rightSidePanelOpen, setRightSidePanelVisible]);
   const onOpenRightSidePanelEditor = useCallback(() => {
     setRightSidePanelEditorOpen(true);
     setRightSidePanelMode("editor");
@@ -4525,6 +4581,16 @@ function useChatViewComponent({
     openBrowser();
     browserControllerRef.current?.openNewTab();
   }, [openBrowser]);
+  const onOpenBottomPanelBrowser = useCallback(() => {
+    if (!isElectron) return;
+    setBrowserMode("split");
+    setBottomPanelBrowserOpen(true);
+    setBottomPanelMode("browser");
+  }, [setBrowserMode]);
+  const onOpenBottomPanelBrowserTab = useCallback(() => {
+    onOpenBottomPanelBrowser();
+    browserControllerRef.current?.openNewTab();
+  }, [onOpenBottomPanelBrowser]);
   const onSelectRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
       openBrowser();
@@ -4535,6 +4601,17 @@ function useChatViewComponent({
       }
     },
     [activeThreadId, openBrowser],
+  );
+  const onSelectBottomPanelBrowserTab = useCallback(
+    (tabId: string) => {
+      onOpenBottomPanelBrowser();
+      const session = getBrowserSession(activeThreadId);
+      const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
+      if (index >= 0) {
+        browserControllerRef.current?.setActiveTabByIndex(index);
+      }
+    },
+    [activeThreadId, onOpenBottomPanelBrowser],
   );
   const onCloseRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
@@ -4565,12 +4642,25 @@ function useChatViewComponent({
       setRightSidePanelMode("summary");
     }
   }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
+  const onCloseBottomPanelEditor = useCallback(() => {
+    setBottomPanelEditorOpen(false);
+    setBottomPanelMode((current) => (current === "editor" ? "terminal" : current));
+    setTerminalOpen(true);
+  }, [setTerminalOpen]);
+  const onOpenBottomPanelEditor = useCallback(() => {
+    setBottomPanelEditorOpen(true);
+    setBottomPanelMode("editor");
+  }, []);
   const onCloseRightSidePanelTerminal = useCallback(() => {
     setRightSidePanelTerminalOpen(false);
     if (rightSidePanelMode === "terminal") {
       setRightSidePanelMode("summary");
     }
   }, [rightSidePanelMode, setRightSidePanelMode, setRightSidePanelTerminalOpen]);
+  const onCloseBottomPanelTerminal = useCallback(() => {
+    setTerminalOpen(false);
+    setBottomPanelMode((current) => (current === "terminal" ? null : current));
+  }, [setTerminalOpen]);
   const onCloseRightSidePanelDiff = useCallback(() => {
     setRightSidePanelDiffOpenState(false);
     setRightSidePanelReviewOpen(false);
@@ -4588,6 +4678,99 @@ function useChatViewComponent({
     setRightSidePanelMode,
     setRightSidePanelReviewOpen,
   ]);
+  const onOpenBottomPanelDiff = useCallback(() => {
+    setBottomPanelReviewOpen(true);
+    setBottomPanelMode("diff");
+    setLocalDiffState((previous) => ({ ...previous, open: true }));
+  }, [setLocalDiffState]);
+  const onCloseBottomPanelDiff = useCallback(() => {
+    setBottomPanelReviewOpen(false);
+    setBottomPanelMode((current) => (current === "diff" ? "terminal" : current));
+    setLocalDiffState((previous) => ({ ...previous, open: false }));
+    setTerminalOpen(true);
+  }, [setLocalDiffState, setTerminalOpen]);
+  const onCloseBottomPanelBrowser = useCallback(() => {
+    setBottomPanelBrowserOpen(false);
+    setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
+    setTerminalOpen(true);
+    if (!(rightSidePanelVisible && rightSidePanelMode === "browser")) {
+      closeBrowser();
+    }
+  }, [closeBrowser, rightSidePanelMode, rightSidePanelVisible, setTerminalOpen]);
+  const onCloseBottomPanelBrowserTab = useCallback(
+    (tabId: string) => {
+      const session = getBrowserSession(activeThreadId);
+      if (session?.tabs.length === 1) {
+        onCloseBottomPanelBrowser();
+        return;
+      }
+      browserControllerRef.current?.closeTab(tabId);
+      if (session?.tabs.length === 1) {
+        setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
+        setTerminalOpen(true);
+      }
+    },
+    [activeThreadId, onCloseBottomPanelBrowser, setTerminalOpen],
+  );
+  const onReorderBottomPanelBrowserTab = useCallback(
+    (draggedTabId: string, targetTabId: string) => {
+      browserControllerRef.current?.reorderTabs(draggedTabId, targetTabId);
+    },
+    [],
+  );
+  const onSelectBottomPanelMode = useCallback(
+    (mode: DockPanelMode) => {
+      if (mode === "summary") {
+        setBottomPanelMode("summary");
+        return;
+      }
+      if (mode === "browser") {
+        onOpenBottomPanelBrowser();
+        return;
+      }
+      if (mode === "diff") {
+        onOpenBottomPanelDiff();
+        return;
+      }
+      if (mode === "terminal") {
+        setTerminalOpen(true);
+        setBottomPanelMode("terminal");
+        setTerminalFocusRequestId((value) => value + 1);
+        return;
+      }
+      if (mode === "editor") {
+        onOpenBottomPanelEditor();
+        return;
+      }
+      setBottomPanelMode(mode);
+    },
+    [
+      onOpenBottomPanelBrowser,
+      onOpenBottomPanelDiff,
+      onOpenBottomPanelEditor,
+      setTerminalFocusRequestId,
+      setTerminalOpen,
+    ],
+  );
+  const bottomPanelOpen =
+    bottomPanelMode !== null ||
+    bottomPanelBrowserOpen ||
+    bottomPanelEditorOpen ||
+    bottomPanelReviewOpen ||
+    terminalState.terminalOpen;
+  const onToggleBottomPanel = useCallback(() => {
+    if (bottomPanelOpen) {
+      setBottomPanelMode(null);
+      setBottomPanelBrowserOpen(false);
+      setBottomPanelEditorOpen(false);
+      setBottomPanelReviewOpen(false);
+      setTerminalOpen(false);
+      return;
+    }
+    setBottomPanelMode("terminal");
+    setTerminalOpen(true);
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [bottomPanelOpen, setTerminalFocusRequestId, setTerminalOpen]);
   const onToggleRightSidePanelFullscreen = useCallback(() => {
     setRightSidePanelFullscreen((current) => !current);
   }, [setRightSidePanelFullscreen]);
@@ -5515,6 +5698,12 @@ function useChatViewComponent({
     storeNewTerminal(activeThreadId, terminalId);
     setTerminalFocusRequestId((value) => value + 1);
   }, [activeThreadId, setTerminalFocusRequestId, storeNewTerminal]);
+  const createNewPanelTerminal = useCallback(() => {
+    if (!activeThreadId) return;
+    const terminalId = `terminal-${randomUUID()}`;
+    storeNewBackgroundTerminal(activeThreadId, terminalId);
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [activeThreadId, setTerminalFocusRequestId, storeNewBackgroundTerminal]);
   const createSplitTerminal = useCallback(() => {
     if (!activeThreadId) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -6385,6 +6574,13 @@ function useChatViewComponent({
     setTerminalFocusRequestId,
     terminalState.terminalOpen,
   ]);
+  useEffect(() => {
+    if (terminalState.terminalOpen) {
+      setBottomPanelMode((current) => current ?? "terminal");
+      return;
+    }
+    setBottomPanelMode((current) => (current === "terminal" ? null : current));
+  }, [terminalState.terminalOpen]);
 
   useEffect(() => {
     if (!ownsGlobalSideEffects) return;
@@ -8491,7 +8687,7 @@ function useChatViewComponent({
             ...mountedBrowserThreadIds.filter(
               (browserThreadId) => browserThreadId !== activeThreadId,
             ),
-          ].slice(0, browserMaxMountedInstances);
+          ];
           if (orderedBrowserThreadIds.length === 0) {
             return null;
           }
@@ -8548,21 +8744,50 @@ function useChatViewComponent({
     : null;
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
+  const bottomPanelHasContent = bottomPanelOpen;
+  const requestedBottomPanelMode: DockPanelMode | null = bottomPanelHasContent
+    ? (bottomPanelMode ?? "terminal")
+    : null;
+  const activeBottomPanelMode =
+    requestedBottomPanelMode === "browser" && !browserPanel ? null : requestedBottomPanelMode;
   const activeRightPanelBrowserSession = useBrowserSession(browserOpen ? activeThreadId : null);
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
+  const rightPanelTerminalTabs = useMemo(
+    () =>
+      terminalState.terminalIds.map((terminalId) => ({
+        id: terminalId,
+        label: resolveTerminalDisplayTitle({
+          autoTitle: terminalState.autoTerminalTitlesById[terminalId],
+          cwd: gitCwd ?? activeProject?.cwd ?? "",
+          isRunning: terminalState.runningTerminalIds.includes(terminalId),
+          terminalId,
+        }),
+        running: terminalState.runningTerminalIds.includes(terminalId),
+      })),
+    [
+      activeProject?.cwd,
+      gitCwd,
+      terminalState.autoTerminalTitlesById,
+      terminalState.runningTerminalIds,
+      terminalState.terminalIds,
+    ],
+  );
   const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
   const showDockedRightSidePanelChrome =
-    activeRightSidePanelMode !== null && !rightSidePanelFullscreen;
+    rightSidePanelOpen && !rightSidePanelFullscreen;
   const dockedRightSidePanelWidth = constrainedPanelWidth(
     rightSidePanelWidth,
     MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
     MIN_RIGHT_SIDE_PANEL_WIDTH,
   );
   const rightSidePanelTabStrip = (className?: string) =>
-    activeRightSidePanelMode ? (
+    rightSidePanelOpen ? (
       <RightSidePanelTabStrip
         activeMode={activeRightSidePanelMode}
         activeBrowserTabId={activeRightPanelBrowserTabId}
+        bottomPanelAvailable={activeProject !== undefined}
+        bottomPanelOpen={bottomPanelOpen}
+        bottomPanelToggleShortcutLabel={terminalToggleShortcutLabel}
         browserSession={activeRightPanelBrowserSession}
         browserAvailable={isElectron}
         browserShortcutLabel={browserNewTabShortcutLabel}
@@ -8577,15 +8802,24 @@ function useChatViewComponent({
         reviewOpen={rightSidePanelReviewOpen}
         terminalShortcutLabel={rightPanelTerminalShortcutLabel}
         terminalOpen={rightSidePanelTerminalOpen}
+        terminalTabs={rightPanelTerminalTabs}
+        activeTerminalId={terminalState.activeTerminalId}
         activeSubagentThreadId={activeSubagentThreadId}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
         onBrowserTabClose={onCloseRightSidePanelBrowserTab}
         onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
         onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
+        onToggleBottomPanel={onToggleBottomPanel}
         onDiffClose={onCloseRightSidePanelDiff}
         onEditorClose={onCloseRightSidePanelEditor}
         onTerminalClose={onCloseRightSidePanelTerminal}
+        onTerminalTabClose={closeTerminal}
+        onTerminalTabSelect={(terminalId) => {
+          activateTerminal(terminalId);
+          onOpenRightSidePanelTerminal();
+        }}
         onNewBrowserTab={onOpenRightSidePanelBrowserTab}
+        onNewTerminalTab={createNewPanelTerminal}
         onSelectMode={onSelectRightSidePanelMode}
         onSelectSubagentThread={setActiveSubagentThreadId}
         onTogglePanelVisibility={onToggleRightSidePanel}
@@ -8597,6 +8831,90 @@ function useChatViewComponent({
         subagentThreads={subagentThreads}
       />
     ) : null;
+  const bottomPanelTabStrip = (className?: string) =>
+    activeBottomPanelMode ? (
+      <RightSidePanelTabStrip
+        activeMode={activeBottomPanelMode}
+        activeBrowserTabId={activeRightPanelBrowserTabId}
+        browserSession={bottomPanelBrowserOpen ? activeRightPanelBrowserSession : null}
+        browserAvailable={isElectron}
+        browserShortcutLabel={browserNewTabShortcutLabel}
+        className={className}
+        diffAvailable={isGitRepo}
+        editorShortcutLabel={rightPanelEditorShortcutLabel}
+        editorOpen={bottomPanelEditorOpen}
+        floatingChatShortcutLabel={null}
+        fullscreen={false}
+        fullscreenShortcutLabel={null}
+        reviewShortcutLabel={reviewPanelShortcutLabel}
+        reviewOpen={bottomPanelReviewOpen}
+        terminalShortcutLabel={terminalToggleShortcutLabel}
+        terminalOpen={terminalState.terminalOpen}
+        terminalTabs={rightPanelTerminalTabs}
+        activeTerminalId={terminalState.activeTerminalId}
+        activeSubagentThreadId={activeSubagentThreadId}
+        floatingChatOpen={false}
+        onBrowserTabClose={onCloseBottomPanelBrowserTab}
+        onBrowserTabReorder={onReorderBottomPanelBrowserTab}
+        onBrowserTabSelect={onSelectBottomPanelBrowserTab}
+        onDiffClose={onCloseBottomPanelDiff}
+        onEditorClose={onCloseBottomPanelEditor}
+        onTerminalClose={onCloseBottomPanelTerminal}
+        onTerminalTabClose={closeTerminal}
+        onTerminalTabSelect={(terminalId) => {
+          activateTerminal(terminalId);
+          onSelectBottomPanelMode("terminal");
+        }}
+        onNewBrowserTab={onOpenBottomPanelBrowserTab}
+        onNewTerminalTab={createNewTerminal}
+        onSelectMode={onSelectBottomPanelMode}
+        onSelectSubagentThread={setActiveSubagentThreadId}
+        onTogglePanelVisibility={onToggleBottomPanel}
+        onToggleFloatingChat={() => undefined}
+        onToggleFullscreen={() => undefined}
+        panelToggleShortcutLabel={null}
+        showPanelActions={false}
+        subagentThreads={subagentThreads}
+      />
+    ) : null;
+  const rightPanelChooserOptions: PanelChooserOption[] = [
+    {
+      label: "Files",
+      description: "Browse project files",
+      icon: FolderIcon,
+      shortcutLabel: rightPanelEditorShortcutLabel,
+      onSelect: onOpenRightSidePanelEditor,
+    },
+    {
+      label: "Summary",
+      description: "Review thread context",
+      icon: ListTodoIcon,
+      onSelect: () => onSelectRightSidePanelMode("summary"),
+    },
+    {
+      label: "Browser",
+      description: "Open a website",
+      icon: GlobeIcon,
+      disabled: !isElectron,
+      shortcutLabel: browserNewTabShortcutLabel,
+      onSelect: onOpenRightSidePanelBrowserTab,
+    },
+    {
+      label: "Review",
+      description: "View code changes",
+      icon: DiffIcon,
+      disabled: !isGitRepo,
+      shortcutLabel: reviewPanelShortcutLabel,
+      onSelect: onOpenRightSidePanelDiff,
+    },
+    {
+      label: "Terminal",
+      description: "Start an interactive shell",
+      icon: SquareTerminalIcon,
+      shortcutLabel: rightPanelTerminalShortcutLabel,
+      onSelect: onOpenRightSidePanelTerminal,
+    },
+  ];
 
   const handleQueueComposerMessage = useCallback(() => {
     queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue");
@@ -8614,6 +8932,7 @@ function useChatViewComponent({
     return <NewThreadLanding />;
   }
   const rightSidePanelTabStripNode = rightSidePanelTabStrip("h-full bg-transparent px-2.5");
+  const bottomPanelTabStripNode = bottomPanelTabStrip("h-full bg-transparent px-2.5");
   const showRightPanelChatDock =
     rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
   const dockedRightSidePanelHeader = (
@@ -9142,7 +9461,7 @@ function useChatViewComponent({
                               runtimeEnv={threadTerminalRuntimeEnv}
                               focusRequestId={terminalFocusRequestId}
                               interactive={activeForSideEffects}
-                              onNewTerminal={createNewTerminal}
+                              onNewTerminal={createNewPanelTerminal}
                               newShortcutLabel={newTerminalShortcutLabel ?? undefined}
                               toggleShortcutLabel={rightPanelTerminalShortcutLabel ?? undefined}
                               onActiveTerminalChange={activateTerminal}
@@ -9189,7 +9508,7 @@ function useChatViewComponent({
                         </m.div>
                       ) : null}
                     </AnimatePresence>
-                    {browserPanel ? (
+                    {browserPanel && activeBottomPanelMode !== "browser" ? (
                       <div
                         className={cn(
                           "absolute inset-0 min-h-0 min-w-0",
@@ -9211,25 +9530,108 @@ function useChatViewComponent({
         </div>
         {/* end horizontal flex container */}
 
-        <ConnectedRetainedThreadTerminalDrawers
-          activeThreadId={activeThread.id}
-          activeProjectAvailable={activeProject !== undefined}
-          cwd={gitCwd ?? activeProject?.cwd ?? null}
-          runtimeEnv={threadTerminalRuntimeEnv}
-          focusRequestId={terminalFocusRequestId}
-          interactive={activeForSideEffects}
-          onNewTerminal={createNewTerminal}
-          newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-          toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
-          onActiveTerminalChange={activateTerminal}
-          onMoveTerminal={moveTerminal}
-          onSplitRatiosChange={setTerminalGroupSplitRatios}
-          onAutoTerminalTitleChange={setTerminalAutoTitle}
-          onCloseTerminal={closeTerminal}
-          onToggleTerminal={toggleTerminalVisibility}
-          onHeightChange={setTerminalHeight}
-          onAddTerminalContext={addTerminalContextToDraft}
-        />
+        <AnimatePresence initial={false}>
+          {activeBottomPanelMode ? (
+            <m.div
+              key="thread-bottom-dock-panel"
+              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-background"
+              initial={{ height: 0, opacity: 0, y: 18 }}
+              animate={{ height: terminalState.terminalHeight + 48, opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: 18 }}
+              transition={TERMINAL_DRAWER_TRANSITION}
+            >
+              <div className="flex h-12 shrink-0 items-stretch border-b border-border/70 bg-sidebar">
+                {bottomPanelTabStripNode}
+              </div>
+              <div
+                className="min-h-0 flex-1 overflow-hidden"
+                style={{ height: `${terminalState.terminalHeight}px` }}
+              >
+                {activeBottomPanelMode === "summary" ? (
+                  <PlanSummaryPanel
+                    activePlan={activePlan}
+                    activeProposedPlan={sidebarProposedPlan}
+                    generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                    activeProvider={activeThread?.session?.provider ?? null}
+                    markdownCwd={gitCwd ?? undefined}
+                    onOpenDiffPanel={isGitRepo ? onOpenBottomPanelDiff : null}
+                    onRegenerateSummary={handleRegenerateSummary}
+                    onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                    onOpenFilePath={canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null}
+                    enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                    workspaceDiffSummary={workspaceDiffSummary}
+                    workspaceRoot={activeProject?.cwd ?? undefined}
+                  />
+                ) : activeBottomPanelMode === "diff" ? (
+                  <LocalDiffPanel
+                    threadId={activeThread.id}
+                    diffState={localDiffState}
+                    onAddReviewComment={addDiffReviewComment}
+                    onDiffStateChange={setLocalDiffState}
+                  />
+                ) : activeBottomPanelMode === "subagent" ? (
+                  <SubagentWorkspacePanel
+                    activeThreadId={activeSubagentThreadId}
+                    threads={subagentThreads}
+                  />
+                ) : activeBottomPanelMode === "terminal" ? (
+                  <ConnectedThreadTerminalPanel
+                    activeThreadId={activeThread.id}
+                    activeProjectAvailable={activeProject !== undefined}
+                    cwd={gitCwd ?? activeProject?.cwd ?? null}
+                    runtimeEnv={threadTerminalRuntimeEnv}
+                    focusRequestId={terminalFocusRequestId}
+                    interactive={activeForSideEffects}
+                    onNewTerminal={createNewTerminal}
+                    newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+                    toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
+                    onActiveTerminalChange={activateTerminal}
+                    onMoveTerminal={moveTerminal}
+                    onSplitRatiosChange={setTerminalGroupSplitRatios}
+                    onAutoTerminalTitleChange={setTerminalAutoTitle}
+                    onCloseTerminal={closeTerminal}
+                    onToggleTerminal={toggleTerminalVisibility}
+                    onClosePanelTerminal={onCloseBottomPanelTerminal}
+                    onHeightChange={setTerminalHeight}
+                    onAddTerminalContext={addTerminalContextToDraft}
+                  />
+                ) : activeBottomPanelMode === "editor" ? (
+                  <Suspense
+                    fallback={
+                      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                        <div className="border-b border-border/60 px-4 py-3">
+                          <div className="h-5 w-44 rounded bg-foreground/6" />
+                        </div>
+                        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                          <div className="border-r border-border/60 bg-foreground/3" />
+                          <div className="bg-background" />
+                        </div>
+                      </div>
+                    }
+                  >
+                    <ThreadWorkspaceEditor
+                      availableEditors={availableEditors}
+                      branch={activeThreadBranchName}
+                      connectionUrl={activeServerConnectionUrl}
+                      gitCwd={gitCwd}
+                      lspCwd={activeProject?.cwd ?? null}
+                      keybindings={keybindings}
+                      browserOpen={browserOpen}
+                      workspaceMode="split"
+                      terminalOpen={terminalState.terminalOpen}
+                      threadId={activeThread.id}
+                      worktreePath={activeThread.worktreePath ?? null}
+                      onDetached={onCloseBottomPanelEditor}
+                      onSubmitAgentNote={submitWorkspaceAgentNote}
+                    />
+                  </Suspense>
+                ) : activeBottomPanelMode === "browser" && browserPanel ? (
+                  <RetainedBrowserInstances instances={browserPanel.instances} />
+                ) : null}
+              </div>
+            </m.div>
+          ) : null}
+        </AnimatePresence>
       </div>
     </LazyMotion>
   );

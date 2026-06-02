@@ -1227,13 +1227,17 @@ export default memo(function ThreadTerminalDrawer({
       id: `group-${resolvedActiveTerminalId}`,
       terminalIds: [resolvedActiveTerminalId],
     };
+  const visibleTerminalGroup =
+    layout === "panel"
+      ? { id: activeTerminalGroup.id, terminalIds: [resolvedActiveTerminalId] }
+      : activeTerminalGroup;
   const activeGroupPaneRatios = useMemo(
     () =>
       resolveTerminalGroupPaneRatios(
-        splitRatiosByGroupId[activeTerminalGroup.id],
-        activeTerminalGroup.terminalIds.length,
+        splitRatiosByGroupId[visibleTerminalGroup.id],
+        visibleTerminalGroup.terminalIds.length,
       ),
-    [activeTerminalGroup.id, activeTerminalGroup.terminalIds.length, splitRatiosByGroupId],
+    [splitRatiosByGroupId, visibleTerminalGroup.id, visibleTerminalGroup.terminalIds.length],
   );
 
   const terminalLabelById = useMemo(
@@ -1508,53 +1512,58 @@ export default memo(function ThreadTerminalDrawer({
         />
       ) : null}
 
-      <div className="terminal-tabs-strip flex shrink-0 items-center gap-2 bg-transparent px-3 pb-3 pt-2.5">
-        <div
-          ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          <DndContext
-            sensors={terminalTabSensors}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
-            onDragStart={handleTerminalTabDragStart}
-            onDragEnd={handleTerminalTabDragEnd}
-            onDragCancel={handleTerminalTabDragCancel}
+      {layout === "bottom" ? (
+        <div className="terminal-tabs-strip flex shrink-0 items-center gap-2 bg-transparent px-3 pb-3 pt-2.5">
+          <div
+            ref={tabStripRef}
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            <SortableContext items={normalizedTerminalIds} strategy={horizontalListSortingStrategy}>
-              <div className="flex min-w-max items-center gap-1.5">
-                {normalizedTerminalIds.map((terminalId) => (
-                  <SortableTerminalTab
-                    key={terminalId}
-                    active={terminalId === resolvedActiveTerminalId}
-                    canClose={normalizedTerminalIds.length > 1}
-                    label={terminalLabelById.get(terminalId) ?? "Terminal"}
-                    running={runningTerminalIdSet.has(terminalId)}
-                    suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
-                    terminalId={terminalId}
-                    onClose={onCloseTerminal}
-                    onSelect={onActiveTerminalChange}
-                  />
-                ))}
-                {tabsOverflow ? (
-                  <span className="size-8 shrink-0" aria-hidden="true" />
-                ) : (
-                  newTerminalButton
-                )}
-              </div>
-            </SortableContext>
-          </DndContext>
-        </div>
+            <DndContext
+              sensors={terminalTabSensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
+              onDragStart={handleTerminalTabDragStart}
+              onDragEnd={handleTerminalTabDragEnd}
+              onDragCancel={handleTerminalTabDragCancel}
+            >
+              <SortableContext
+                items={normalizedTerminalIds}
+                strategy={horizontalListSortingStrategy}
+              >
+                <div className="flex min-w-max items-center gap-1.5">
+                  {normalizedTerminalIds.map((terminalId) => (
+                    <SortableTerminalTab
+                      key={terminalId}
+                      active={terminalId === resolvedActiveTerminalId}
+                      canClose={normalizedTerminalIds.length > 1}
+                      label={terminalLabelById.get(terminalId) ?? "Terminal"}
+                      running={runningTerminalIdSet.has(terminalId)}
+                      suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
+                      terminalId={terminalId}
+                      onClose={onCloseTerminal}
+                      onSelect={onActiveTerminalChange}
+                    />
+                  ))}
+                  {tabsOverflow ? (
+                    <span className="size-8 shrink-0" aria-hidden="true" />
+                  ) : (
+                    newTerminalButton
+                  )}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
 
-        {tabsOverflow ? newTerminalButton : null}
-        {toggleTerminalButton}
-      </div>
+          {tabsOverflow ? newTerminalButton : null}
+          {toggleTerminalButton}
+        </div>
+      ) : null}
 
       <div className="min-h-0 w-full flex-1">
         <div ref={groupContainerRef} className="flex h-full min-h-0">
-          {activeTerminalGroup.terminalIds.map((terminalId, index) => {
+          {visibleTerminalGroup.terminalIds.map((terminalId, index) => {
             const ratio =
-              activeGroupPaneRatios[index] ?? 1 / activeTerminalGroup.terminalIds.length;
+              activeGroupPaneRatios[index] ?? 1 / visibleTerminalGroup.terminalIds.length;
             const terminalLabel = terminalLabelById.get(terminalId) ?? "Terminal";
             return (
               <div
@@ -1571,7 +1580,7 @@ export default memo(function ThreadTerminalDrawer({
                     onPointerDown={(event) =>
                       handlePaneResizePointerDown(
                         event,
-                        activeTerminalGroup.id,
+                        visibleTerminalGroup.id,
                         index - 1,
                         activeGroupPaneRatios,
                       )
@@ -1592,7 +1601,7 @@ export default memo(function ThreadTerminalDrawer({
                     }
                   }}
                 >
-                  {activeTerminalGroup.terminalIds.length > 1 ? (
+                  {visibleTerminalGroup.terminalIds.length > 1 ? (
                     <div
                       className={cn(
                         "pointer-events-none absolute inset-x-0 top-0 z-10 flex h-7 items-center justify-between gap-2 border-b px-2 text-[11px] font-medium backdrop-blur",
@@ -1611,7 +1620,7 @@ export default memo(function ThreadTerminalDrawer({
                     </div>
                   ) : null}
                   <div
-                    className={cn("h-full", activeTerminalGroup.terminalIds.length > 1 && "pt-7")}
+                    className={cn("h-full", visibleTerminalGroup.terminalIds.length > 1 && "pt-7")}
                   >
                     <TerminalViewport
                       threadId={threadId}
