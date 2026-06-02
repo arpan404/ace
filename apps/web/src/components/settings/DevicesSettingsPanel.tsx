@@ -81,8 +81,6 @@ const SETTINGS_POPOVER_TRIGGER_CLASS_NAME =
   "inline-flex h-7 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const SETTINGS_NATIVE_SELECT_CLASS_NAME =
   "h-7 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
-const DEVICE_SECTION_CLASS_NAME =
-  "overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/72 text-card-foreground shadow-none supports-[backdrop-filter]:bg-background/66 supports-[backdrop-filter]:backdrop-blur-md";
 const DEVICE_SUBPANEL_CLASS_NAME =
   "rounded-[var(--control-radius)] border border-border/40 bg-background/45";
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
@@ -304,23 +302,21 @@ function DeviceSection({
 }) {
   return (
     <section className="min-w-0">
-      <div className={DEVICE_SECTION_CLASS_NAME}>
-        <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.10] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-3.5">
-          <div className="min-w-0 space-y-0.5">
-            <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
-              <span className="shrink-0 text-muted-foreground/65">{icon}</span>
-              <span className="min-w-0 truncate">{title}</span>
-            </h2>
-            {description ? (
-              <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
+      <div className="flex min-w-0 flex-col gap-2 px-1 pb-2 sm:flex-row sm:items-start sm:justify-between sm:px-0">
+        <div className="min-w-0 space-y-0.5">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
+            <span className="shrink-0 text-muted-foreground/65">{icon}</span>
+            <span className="min-w-0 truncate">{title}</span>
+          </h2>
+          {description ? (
+            <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+              {description}
+            </p>
+          ) : null}
         </div>
-        {children}
+        {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
       </div>
+      <div className="border-y border-border/35 text-card-foreground">{children}</div>
     </section>
   );
 }

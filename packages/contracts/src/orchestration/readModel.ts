@@ -35,12 +35,21 @@ export const ProjectScriptIcon = Schema.Literals([
 ]);
 export type ProjectScriptIcon = typeof ProjectScriptIcon.Type;
 
+const ProjectScriptEnvKey = Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/));
+const ProjectScriptEnvValue = Schema.String.check(Schema.isMaxLength(8_192));
+export const ProjectScriptEnv = Schema.Record(ProjectScriptEnvKey, ProjectScriptEnvValue).check(
+  Schema.isMaxProperties(128),
+);
+export type ProjectScriptEnv = typeof ProjectScriptEnv.Type;
+
 export const ProjectScript = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
   command: TrimmedNonEmptyString,
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
+  env: Schema.optional(ProjectScriptEnv),
+  envFilePath: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectScript = typeof ProjectScript.Type;
 

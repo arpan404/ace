@@ -19,14 +19,19 @@ function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
 
 function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdrop.Props) {
   return (
-    <AlertDialogPrimitive.Backdrop
-      data-slot="alert-dialog-overlay"
-      className={cn(
-        "fixed inset-0 isolate bg-black/42 duration-100 backdrop-blur-[3px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
-        MODAL_LAYER_CLASS_NAME,
-        className,
-      )}
-      {...props}
+    <AlertDialogPrimitive.Close
+      nativeButton={false}
+      render={
+        <AlertDialogPrimitive.Backdrop
+          data-slot="alert-dialog-overlay"
+          className={cn(
+            "fixed inset-0 isolate bg-black/42 duration-100 backdrop-blur-[3px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+            MODAL_LAYER_CLASS_NAME,
+            className,
+          )}
+          {...props}
+        />
+      }
     />
   );
 }

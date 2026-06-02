@@ -9,6 +9,7 @@ import {
   MonitorSmartphoneIcon,
   Settings2Icon,
   SlidersHorizontalIcon,
+  WorkflowIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -24,7 +25,11 @@ import {
   SidebarMenuItem,
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { SETTINGS_NAV_GROUPS, SETTINGS_NAV_ITEMS } from "./settingsNavigation";
+import {
+  SETTINGS_NAV_GROUPS,
+  SETTINGS_NAV_ITEMS,
+  isSettingsNavItemActive,
+} from "./settingsNavigation";
 import type { SettingsSectionPath } from "./settingsNavigation";
 
 const SETTINGS_NAV_ICON_BY_PATH = {
@@ -32,6 +37,7 @@ const SETTINGS_NAV_ICON_BY_PATH = {
   "/settings/browser": Globe2Icon,
   "/settings/chat": MessageCircleIcon,
   "/settings/editor": CodeXmlIcon,
+  "/settings/environment": WorkflowIcon,
   "/settings/providers": BotIcon,
   "/settings/devices": MonitorSmartphoneIcon,
   "/settings/advanced": SlidersHorizontalIcon,
@@ -54,7 +60,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               </SidebarGroupLabel>
               <SidebarMenu className="gap-0.5">
                 {items.map((item) => {
-                  const isActive = pathname === item.to;
+                  const isActive = isSettingsNavItemActive(pathname, item);
                   const Icon = SETTINGS_NAV_ICON_BY_PATH[item.to];
                   return (
                     <SidebarMenuItem key={item.to}>

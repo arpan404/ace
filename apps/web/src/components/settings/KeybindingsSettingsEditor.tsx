@@ -384,7 +384,7 @@ function KeybindingsSettingsEditorContent(props: {
               </p>
             ) : null}
           </div>
-          <div className="overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/30">
+          <div className="border-y border-border/35">
             {(expandedGroups[group.category]
               ? group.items
               : group.items.slice(0, CATEGORY_PREVIEW_COUNT)

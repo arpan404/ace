@@ -6,6 +6,11 @@ import {
 } from "@ace/contracts";
 import { Schema } from "effect";
 
+const PROJECT_SCRIPT_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const PROJECT_SCRIPT_ENV_FILE_SEGMENT_PATTERN = /^[^/\\]+$/;
+
+export const DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH = ".env";
+
 function normalizeScriptId(value: string): string {
   const cleaned = value
     .trim()
@@ -83,6 +88,63 @@ export function projectScriptRuntimeEnv(
   }
   if (input.extraEnv) {
     return { ...env, ...input.extraEnv };
+  }
+  return env;
+}
+
+export function formatProjectScriptEnv(env: Record<string, string> | undefined): string {
+  return Object.entries(env ?? {})
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+export function formatProjectScriptEnvFile(env: Record<string, string> | undefined): string {
+  const formatted = formatProjectScriptEnv(env);
+  return formatted ? `${formatted}\n` : "";
+}
+
+export function normalizeProjectScriptEnvFilePath(value: string): string {
+  const normalized = value
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^\.\/+/, "");
+  if (!normalized) {
+    throw new Error("Environment file path is required.");
+  }
+  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) {
+    throw new Error("Environment file path must be relative to the worktree.");
+  }
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length === 0 || segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("Environment file path cannot escape the worktree.");
+  }
+  for (const segment of segments) {
+    if (!PROJECT_SCRIPT_ENV_FILE_SEGMENT_PATTERN.test(segment)) {
+      throw new Error("Environment file path contains an invalid segment.");
+    }
+  }
+  return segments.join("/");
+}
+
+export function parseProjectScriptEnv(value: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [index, rawLine] of value.split(/\r?\n/).entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      throw new Error(`Environment line ${index + 1} must use KEY=value.`);
+    }
+    const key = line.slice(0, separatorIndex).trim();
+    if (!PROJECT_SCRIPT_ENV_KEY_PATTERN.test(key)) {
+      throw new Error(
+        `Environment key "${key}" must start with a letter or underscore and contain only letters, numbers, and underscores.`,
+      );
+    }
+    env[key] = line.slice(separatorIndex + 1);
   }
   return env;
 }

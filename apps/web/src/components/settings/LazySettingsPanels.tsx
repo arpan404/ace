@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ComponentType } from "react";
+import type { ProjectId } from "@ace/contracts";
 
 import { Skeleton } from "../ui/skeleton";
 import { SettingsPageContainer, SettingsSection } from "./SettingsPanelPrimitives";
@@ -34,19 +35,27 @@ function SettingsPanelLoadingState() {
   );
 }
 
-function LazySettingsRoute({ panel: Panel }: { panel: ComponentType }) {
+function LazySettingsRoute<Props extends object>({
+  panel: Panel,
+  props,
+}: {
+  panel: ComponentType<Props>;
+  props: Props;
+}) {
   return (
     <Suspense fallback={<SettingsPanelLoadingState />}>
-      <Panel />
+      <Panel {...props} />
     </Suspense>
   );
 }
 
-function createLazySettingsPanel(loader: () => Promise<{ default: ComponentType }>) {
-  const Panel = lazy(loader);
+function createLazySettingsPanel<Props extends object = object>(
+  loader: () => Promise<{ default: ComponentType<any> }>,
+) {
+  const Panel = lazy(loader) as ComponentType<Props>;
 
-  return function LazySettingsPanelRoute() {
-    return <LazySettingsRoute panel={Panel} />;
+  return function LazySettingsPanelRoute(props: Props) {
+    return <LazySettingsRoute panel={Panel} props={props} />;
   };
 }
 
@@ -76,6 +85,18 @@ export const DevicesSettingsPanelRoute = createLazySettingsPanel(() =>
 
 export const EditorSettingsPanelRoute = createLazySettingsPanel(() =>
   import("./SettingsPanels").then((module) => ({ default: module.EditorSettingsPanel })),
+);
+
+export const EnvironmentSettingsPanelRoute = createLazySettingsPanel(() =>
+  import("./SettingsPanels").then((module) => ({ default: module.EnvironmentSettingsPanel })),
+);
+
+export const ProjectEnvironmentSettingsPanelRoute = createLazySettingsPanel<{
+  readonly projectId: ProjectId;
+}>(() =>
+  import("./SettingsPanels").then((module) => ({
+    default: module.ProjectEnvironmentSettingsPanel,
+  })),
 );
 
 export const GeneralSettingsPanelRoute = createLazySettingsPanel(() =>

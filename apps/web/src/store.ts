@@ -203,7 +203,7 @@ function normalizeModelSelection<T extends { provider: ProviderKind; model: stri
 }
 
 function mapProjectScripts(scripts: ReadonlyArray<Project["scripts"][number]>): Project["scripts"] {
-  return scripts.map((script) => ({ ...script }));
+  return scripts.map((script) => ({ ...script, env: { ...(script.env ?? {}) } }));
 }
 
 function mapSession(session: OrchestrationSession): Thread["session"] {
@@ -677,6 +677,18 @@ function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boole
   return left.glyph === right.glyph && left.color === right.color;
 }
 
+function recordsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(([key, value]) => right[key] === value)
+  );
+}
+
 function projectScriptsEqual(
   left: ReadonlyArray<Project["scripts"][number]>,
   right: ReadonlyArray<Project["scripts"][number]>,
@@ -691,7 +703,9 @@ function projectScriptsEqual(
         leftScript.name === rightScript.name &&
         leftScript.command === rightScript.command &&
         leftScript.icon === rightScript.icon &&
-        leftScript.runOnWorktreeCreate === rightScript.runOnWorktreeCreate
+        leftScript.runOnWorktreeCreate === rightScript.runOnWorktreeCreate &&
+        leftScript.envFilePath === rightScript.envFilePath &&
+        recordsEqual(leftScript.env ?? {}, rightScript.env ?? {})
       );
     })
   );

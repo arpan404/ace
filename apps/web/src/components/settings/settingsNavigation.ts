@@ -4,6 +4,7 @@ export type SettingsSectionPath =
   | "/settings/browser"
   | "/settings/chat"
   | "/settings/editor"
+  | "/settings/environment"
   | "/settings/providers"
   | "/settings/devices"
   | "/settings/advanced"
@@ -53,6 +54,12 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     to: "/settings/editor",
   },
   {
+    group: "workspace",
+    label: "Environment",
+    description: "Worktrees, linked chats, and cleanup",
+    to: "/settings/environment",
+  },
+  {
     group: "ai",
     label: "Providers",
     description: "Models, provider CLI status, installs, and custom configurations",
@@ -86,6 +93,18 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
 
 const DEFAULT_SETTINGS_NAV_ITEM = SETTINGS_NAV_ITEMS[0] as SettingsNavItem;
 
+export function isSettingsNavItemActive(pathname: string, item: SettingsNavItem) {
+  if (pathname === item.to || pathname.startsWith(`${item.to}/`)) {
+    return true;
+  }
+  return (
+    item.to === "/settings/environment" && pathname.startsWith("/settings/project-environment/")
+  );
+}
+
 export function getSettingsNavItem(pathname: string) {
-  return SETTINGS_NAV_ITEMS.find((item) => item.to === pathname) ?? DEFAULT_SETTINGS_NAV_ITEM;
+  return (
+    SETTINGS_NAV_ITEMS.find((item) => isSettingsNavItemActive(pathname, item)) ??
+    DEFAULT_SETTINGS_NAV_ITEM
+  );
 }

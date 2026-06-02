@@ -49,6 +49,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
 import {
   DiffIcon,
@@ -154,6 +155,8 @@ import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybinding
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   commandForProjectScript,
+  DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  formatProjectScriptEnvFile,
   nextProjectScriptId,
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -348,8 +351,13 @@ const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
   ENVIRONMENT_MINI_PANEL_WIDTH_PX + ENVIRONMENT_MINI_PANEL_GAP_PX;
 const ENVIRONMENT_POPOVER_INTERACTIVE_LAYER_SELECTOR = [
+  '[data-slot="alert-dialog-content"]',
+  '[data-slot="alert-dialog-overlay"]',
   '[data-slot="combobox-positioner"]',
   '[data-slot="combobox-popup"]',
+  '[data-slot="dialog-backdrop"]',
+  '[data-slot="dialog-popup"]',
+  '[data-slot="dialog-viewport"]',
   '[data-slot="menu-positioner"]',
   '[data-slot="menu-popup"]',
   '[data-slot="popover-positioner"]',
@@ -1378,6 +1386,9 @@ function useChatViewComponent({
   const promptRef = useRef("");
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
+  const [threadEnvModeOverrideById, setThreadEnvModeOverrideById] = useState<
+    Partial<Record<ThreadId, DraftThreadEnvMode>>
+  >({});
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
@@ -2879,6 +2890,10 @@ function useChatViewComponent({
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
+  const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   useEffect(() => {
     if (subagentThreads.length === 0) {
       if (activeSubagentThreadId !== null) {
@@ -6087,8 +6102,32 @@ function useChatViewComponent({
           cwd: activeProject.cwd,
         },
         worktreePath: options?.worktreePath ?? activeThread.worktreePath ?? null,
-        ...(options?.env ? { extraEnv: options.env } : {}),
+        extraEnv: {
+          ...(script.env ?? {}),
+          ...(options?.env ?? {}),
+        },
       });
+      const envFilePath =
+        script.envFilePath ??
+        (script.runOnWorktreeCreate ? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH : null);
+      if (envFilePath && options?.worktreePath) {
+        let envFileContents = formatProjectScriptEnvFile(script.env);
+        try {
+          const sourceEnvFile = await api.projects.readFile({
+            cwd: activeProject.cwd,
+            relativePath: envFilePath,
+          });
+          envFileContents = sourceEnvFile.contents;
+        } catch {
+          // If the source env file does not exist, fall back to the configured setup env values.
+        }
+        await api.projects.writeFile({
+          cwd: targetCwd,
+          relativePath: envFilePath,
+          contents: envFileContents,
+          overwrite: true,
+        });
+      }
       const openTerminalInput: TerminalOpenInput = shouldCreateNewTerminal
         ? {
             threadId: activeThreadId,
@@ -6219,6 +6258,7 @@ function useChatViewComponent({
         command: input.command,
         icon: input.icon,
         runOnWorktreeCreate: input.runOnWorktreeCreate,
+        env: input.env,
       };
       const nextScripts = input.runOnWorktreeCreate
         ? [
@@ -6254,6 +6294,7 @@ function useChatViewComponent({
         command: input.command,
         icon: input.icon,
         runOnWorktreeCreate: input.runOnWorktreeCreate,
+        env: input.env,
       };
       const nextScripts = activeProject.scripts.map((script) =>
         script.id === scriptId
@@ -6779,7 +6820,9 @@ function useChatViewComponent({
     ? "worktree"
     : isLocalDraftThread
       ? (draftThread?.envMode ?? "local")
-      : "local";
+      : activeThread
+        ? (threadEnvModeOverrideById[activeThread.id] ?? "local")
+        : "local";
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -7232,6 +7275,7 @@ function useChatViewComponent({
           beginLocalDispatch({ preparingWorktree: true });
           const newBranch = buildTemporaryWorktreeBranchName();
           const result = await createWorktreeMutation.mutateAsync({
+            connectionUrl: activeServerConnectionUrl,
             cwd: activeProject.cwd,
             branch: baseBranchForWorktree,
             newBranch,
@@ -7248,6 +7292,11 @@ function useChatViewComponent({
             });
             setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
           }
+          setThreadEnvModeOverrideById((existing) => {
+            const remaining = { ...existing };
+            delete remaining[threadIdForSend];
+            return remaining;
+          });
         }
 
         let firstComposerImageName: string | null = null;
@@ -7408,6 +7457,7 @@ function useChatViewComponent({
     },
     [
       activeProject,
+      activeServerConnectionUrl,
       activeThread,
       addComposerImagesToDraft,
       addComposerTerminalContextsToDraft,
@@ -8378,10 +8428,15 @@ function useChatViewComponent({
     (mode: DraftThreadEnvMode) => {
       if (isLocalDraftThread) {
         setDraftThreadContext(threadId, { envMode: mode });
+      } else if (activeThread) {
+        setThreadEnvModeOverrideById((existing) => ({
+          ...existing,
+          [activeThread.id]: mode,
+        }));
       }
       scheduleComposerFocus();
     },
-    [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
+    [activeThread, isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
   );
   const onToggleWorkGroup = useCallback((groupId: string) => {
     setExpandedWorkGroups((existing) => ({
@@ -8554,6 +8609,7 @@ function useChatViewComponent({
             })),
           );
           const worktreeResult = await createWorktreeMutation.mutateAsync({
+            connectionUrl: activeServerConnectionUrl,
             cwd: activeProject.cwd,
             branch: activeThreadBranch,
             newBranch: buildTemporaryWorktreeBranchName(),
@@ -8796,6 +8852,48 @@ function useChatViewComponent({
   const environmentPanelInlineOpen =
     environmentPanelVisible && !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
   const environmentPanelPopoverOpen = environmentPanelVisible && !environmentPanelInlineOpen;
+  useLayoutEffect(() => {
+    if (!environmentPanelPopoverOpen) {
+      setEnvironmentPanelPopoverStyle(null);
+      return;
+    }
+
+    const updatePopoverPosition = () => {
+      const trigger = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Toggle environment panel"]',
+      );
+      const triggerRect = trigger?.getBoundingClientRect();
+      const panelWidth = 288;
+      const panelMargin = 12;
+      const fallbackTop = 64;
+      const workspaceRect = workspaceViewportRef.current?.getBoundingClientRect() ?? null;
+      const viewportMaxLeft = window.innerWidth - panelWidth - panelMargin;
+      const chatMaxLeft = workspaceRect ? workspaceRect.right - panelWidth - panelMargin : null;
+      const chatMinLeft = workspaceRect ? workspaceRect.left + panelMargin : panelMargin;
+      const chatHasRoom =
+        workspaceRect !== null && workspaceRect.width >= panelWidth + panelMargin * 2;
+      const maxLeft = chatHasRoom && chatMaxLeft !== null ? chatMaxLeft : viewportMaxLeft;
+      const minLeft = chatHasRoom ? chatMinLeft : panelMargin;
+      const fallbackLeft = Math.max(minLeft, Math.min(viewportMaxLeft, maxLeft));
+      if (!triggerRect) {
+        setEnvironmentPanelPopoverStyle({ left: fallbackLeft, top: fallbackTop });
+        return;
+      }
+
+      const preferredLeft = triggerRect.left;
+      const left = Math.max(minLeft, Math.min(preferredLeft, maxLeft));
+      const top = Math.max(panelMargin, triggerRect.bottom + 8);
+      setEnvironmentPanelPopoverStyle({ left, top });
+    };
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [environmentPanelPopoverOpen, rightSidePanelOpen, rightSidePanelWidth]);
   useEffect(() => {
     if (!environmentPanelPopoverOpen) {
       return;
@@ -8862,8 +8960,10 @@ function useChatViewComponent({
     isGitRepo && activeThread
       ? {
           threadId: activeThread.id,
+          connectionUrl: activeServerConnectionUrl,
           currentBranchName: activeThreadBranchName,
           onEnvModeChange,
+          envModeOverride: envMode,
           envLocked,
           localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
           localEnvironmentIcon: activeEnvironmentIcon,
@@ -8896,6 +8996,16 @@ function useChatViewComponent({
         onAddProjectScript: saveProjectScript,
         onDeleteProjectScript: deleteProjectScript,
         onOpenDiffPanel: onOpenRightSidePanelDiff,
+        onOpenEnvironmentSettings: () => {
+          if (activeProject) {
+            void navigate({
+              to: "/settings/project-environment/$projectId",
+              params: { projectId: activeProject.id },
+            });
+            return;
+          }
+          void navigate({ to: "/settings/environment" });
+        },
         onOpenSummaryPanel: () => {
           setRightSidePanelMode("summary");
           setRightSidePanelVisible(true);
@@ -9493,6 +9603,24 @@ function useChatViewComponent({
   if (!activeThread) {
     return <NewThreadLanding />;
   }
+  const environmentMiniPanelPortal =
+    environmentPanelPopoverOpen &&
+    environmentMiniPanelProps &&
+    environmentPanelPopoverStyle &&
+    typeof document !== "undefined"
+      ? createPortal(
+          <AnimatePresence initial={false}>
+            <EnvironmentMiniPanel
+              key="environment-mini-panel-popover"
+              ref={environmentMiniPanelRef}
+              {...environmentMiniPanelProps}
+              layoutMode="popover"
+              style={environmentPanelPopoverStyle}
+            />
+          </AnimatePresence>,
+          document.body,
+        )
+      : null;
   const rightSidePanelTabStripNode = rightSidePanelTabStrip("h-full bg-transparent px-2.5");
   const bottomPanelTabStripNode = bottomPanelTabStrip("h-full bg-transparent px-2.5");
   const showRightPanelChatDock =
@@ -9558,6 +9686,7 @@ function useChatViewComponent({
 
   return (
     <LazyMotion features={domAnimation}>
+      {environmentMiniPanelPortal}
       <div
         ref={chatShellRef}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
@@ -9818,12 +9947,12 @@ function useChatViewComponent({
                       ) : null}
                     </m.div>
                     <AnimatePresence initial={false}>
-                      {environmentPanelVisible && environmentMiniPanelProps ? (
+                      {environmentPanelInlineOpen && environmentMiniPanelProps ? (
                         <EnvironmentMiniPanel
-                          key="environment-mini-panel"
+                          key="environment-mini-panel-inline"
                           ref={environmentMiniPanelRef}
                           {...environmentMiniPanelProps}
-                          layoutMode={environmentPanelInlineOpen ? "inline" : "popover"}
+                          layoutMode="inline"
                         />
                       ) : null}
                     </AnimatePresence>

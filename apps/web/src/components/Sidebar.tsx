@@ -1830,7 +1830,7 @@ function useSidebarComponent() {
   );
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread } =
     useHandleNewThread();
-  const { archiveThread, deleteThread } = useThreadActions();
+  const { archiveThread, deleteThread, deleteWorktreeAndRelatedThreads } = useThreadActions();
   const keybindings = useServerKeybindings();
   const [projectPickerState, dispatchProjectPickerState] = useReducer(projectPickerStateReducer, {
     addingProject: false,
@@ -3893,6 +3893,15 @@ function useSidebarComponent() {
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
+          ...(thread.worktreePath
+            ? [
+                {
+                  id: "delete-worktree",
+                  label: "Delete worktree and chats",
+                  destructive: true,
+                },
+              ]
+            : []),
           { id: "delete", label: "Delete", destructive: true },
         ],
         position,
@@ -3943,6 +3952,10 @@ function useSidebarComponent() {
         copyThreadIdToClipboard(threadId, { threadId });
         return;
       }
+      if (clicked === "delete-worktree") {
+        await deleteWorktreeAndRelatedThreads(threadId);
+        return;
+      }
       if (clicked !== "delete") return;
       if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
@@ -3962,6 +3975,7 @@ function useSidebarComponent() {
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
+      deleteWorktreeAndRelatedThreads,
       markThreadUnread,
       openThreadInSplit,
       pinnedThreadIds,
@@ -4319,6 +4333,7 @@ function useSidebarComponent() {
       togglePinnedProject,
     ],
   );
+
   const handleRemoteProjectContextMenu = useCallback(
     async (
       input: {

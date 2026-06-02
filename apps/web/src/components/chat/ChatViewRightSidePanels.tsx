@@ -18,14 +18,12 @@ import {
   DiffIcon,
   GlobeIcon,
   ListTodoIcon,
-  Maximize2Icon,
   MessageSquareIcon,
-  Minimize2Icon,
   PlusIcon,
   TerminalIcon,
   XIcon,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useRef, type MutableRefObject } from "react";
+import { Suspense, lazy, useCallback, useRef, type MutableRefObject, type SVGProps } from "react";
 
 import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/session";
@@ -41,6 +39,42 @@ import type { SubagentThread } from "./subagentThreads";
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
 type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
+
+function FullscreenExpandChevronIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      {...props}
+    >
+      <path d="M15 4h5v5" />
+      <path d="M9 20H4v-5" />
+    </svg>
+  );
+}
+
+function FullscreenRestoreChevronIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      {...props}
+    >
+      <path d="M20 9h-5V4" />
+      <path d="M9 20v-5H4" />
+    </svg>
+  );
+}
 
 interface TerminalPanelTab {
   id: string;
@@ -301,16 +335,16 @@ function RightSidePanelActionButtons(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/78 transition-colors hover:bg-accent/70 hover:text-foreground"
               aria-label={props.fullscreenTooltipWithShortcut}
               onClick={props.onToggleFullscreen}
             />
           }
         >
           {props.fullscreen ? (
-            <Minimize2Icon className="size-4.5" />
+            <FullscreenRestoreChevronIcon className="size-4.5" />
           ) : (
-            <Maximize2Icon className="size-4.5" />
+            <FullscreenExpandChevronIcon className="size-4.5" />
           )}
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">

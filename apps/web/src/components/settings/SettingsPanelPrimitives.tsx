@@ -167,30 +167,29 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0">
-      <div
-        className={cn(
-          "relative min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/72 text-card-foreground shadow-none",
-          "supports-[backdrop-filter]:bg-background/66 supports-[backdrop-filter]:backdrop-blur-md",
-          contentClassName,
-        )}
-      >
-        <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.10] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-3.5">
-          <div className="min-w-0 space-y-0.5">
-            <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
-              {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
-              <span className="min-w-0 truncate">{title}</span>
-            </h2>
-            {description ? (
-              <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          {headerAction ? (
-            <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
+    <section className={cn("min-w-0", contentClassName)}>
+      <div className="flex min-w-0 flex-col gap-2 px-1 pb-2 sm:flex-row sm:items-start sm:justify-between sm:px-0">
+        <div className="min-w-0 space-y-0.5">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
+            {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
+            <span className="min-w-0 truncate">{title}</span>
+          </h2>
+          {description ? (
+            <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+              {description}
+            </p>
           ) : null}
         </div>
+        {headerAction ? (
+          <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "relative min-w-0 border-y border-border/35 text-card-foreground",
+          "bg-transparent",
+        )}
+      >
         {children}
       </div>
     </section>
@@ -219,7 +218,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-border/35 px-3 py-2.5 first:border-t-0 sm:px-3.5",
+        "border-t border-border/35 py-2.5 first:border-t-0",
         tone === "warning" && "bg-warning/[0.04]",
         tone === "danger" && "bg-destructive/[0.04]",
       )}
@@ -286,7 +285,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3 sm:px-4 sm:py-4 lg:px-5">
-      <div className="mx-auto flex w-full max-w-[58rem] flex-col gap-3 pb-8 sm:gap-3.5 [&_[data-slot=input-control]]:border-border/55 [&_[data-slot=input-control]]:bg-background/70 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/55 [&_[data-slot=select-button]]:bg-background/70 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+      <div className="mx-auto flex w-full max-w-[58rem] flex-col gap-5 pb-8 sm:gap-6 [&_[data-slot=input-control]]:border-border/55 [&_[data-slot=input-control]]:bg-background/70 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/55 [&_[data-slot=select-button]]:bg-background/70 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
         {children}
       </div>
     </div>

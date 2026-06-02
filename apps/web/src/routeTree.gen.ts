@@ -16,6 +16,7 @@ import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
+import { Route as SettingsEnvironmentRouteImport } from './routes/settings.environment'
 import { Route as SettingsEditorRouteImport } from './routes/settings.editor'
 import { Route as SettingsDevicesRouteImport } from './routes/settings.devices'
 import { Route as SettingsChatRouteImport } from './routes/settings.chat'
@@ -24,6 +25,7 @@ import { Route as SettingsArchivedRouteImport } from './routes/settings.archived
 import { Route as SettingsAdvancedRouteImport } from './routes/settings.advanced'
 import { Route as SettingsAboutRouteImport } from './routes/settings.about'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
+import { Route as SettingsProjectEnvironmentProjectIdRouteImport } from './routes/settings.project-environment.$projectId'
 
 const TerminalsRoute = TerminalsRouteImport.update({
   id: '/terminals',
@@ -57,6 +59,11 @@ const SettingsModelsRoute = SettingsModelsRouteImport.update({
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsEnvironmentRoute = SettingsEnvironmentRouteImport.update({
+  id: '/environment',
+  path: '/environment',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsEditorRoute = SettingsEditorRouteImport.update({
@@ -99,6 +106,12 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
+const SettingsProjectEnvironmentProjectIdRoute =
+  SettingsProjectEnvironmentProjectIdRouteImport.update({
+    id: '/project-environment/$projectId',
+    path: '/project-environment/$projectId',
+    getParentRoute: () => SettingsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
@@ -112,9 +125,11 @@ export interface FileRoutesByFullPath {
   '/settings/chat': typeof SettingsChatRoute
   '/settings/devices': typeof SettingsDevicesRoute
   '/settings/editor': typeof SettingsEditorRoute
+  '/settings/environment': typeof SettingsEnvironmentRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/project-environment/$projectId': typeof SettingsProjectEnvironmentProjectIdRoute
 }
 export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
@@ -127,10 +142,12 @@ export interface FileRoutesByTo {
   '/settings/chat': typeof SettingsChatRoute
   '/settings/devices': typeof SettingsDevicesRoute
   '/settings/editor': typeof SettingsEditorRoute
+  '/settings/environment': typeof SettingsEnvironmentRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/': typeof ChatIndexRoute
+  '/settings/project-environment/$projectId': typeof SettingsProjectEnvironmentProjectIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -145,10 +162,12 @@ export interface FileRoutesById {
   '/settings/chat': typeof SettingsChatRoute
   '/settings/devices': typeof SettingsDevicesRoute
   '/settings/editor': typeof SettingsEditorRoute
+  '/settings/environment': typeof SettingsEnvironmentRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/_chat/': typeof ChatIndexRoute
+  '/settings/project-environment/$projectId': typeof SettingsProjectEnvironmentProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -164,9 +183,11 @@ export interface FileRouteTypes {
     | '/settings/chat'
     | '/settings/devices'
     | '/settings/editor'
+    | '/settings/environment'
     | '/settings/general'
     | '/settings/models'
     | '/settings/providers'
+    | '/settings/project-environment/$projectId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/settings'
@@ -179,10 +200,12 @@ export interface FileRouteTypes {
     | '/settings/chat'
     | '/settings/devices'
     | '/settings/editor'
+    | '/settings/environment'
     | '/settings/general'
     | '/settings/models'
     | '/settings/providers'
     | '/'
+    | '/settings/project-environment/$projectId'
   id:
     | '__root__'
     | '/_chat'
@@ -196,10 +219,12 @@ export interface FileRouteTypes {
     | '/settings/chat'
     | '/settings/devices'
     | '/settings/editor'
+    | '/settings/environment'
     | '/settings/general'
     | '/settings/models'
     | '/settings/providers'
     | '/_chat/'
+    | '/settings/project-environment/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -259,6 +284,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsGeneralRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/environment': {
+      id: '/settings/environment'
+      path: '/environment'
+      fullPath: '/settings/environment'
+      preLoaderRoute: typeof SettingsEnvironmentRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/editor': {
       id: '/settings/editor'
       path: '/editor'
@@ -315,6 +347,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/settings/project-environment/$projectId': {
+      id: '/settings/project-environment/$projectId'
+      path: '/project-environment/$projectId'
+      fullPath: '/settings/project-environment/$projectId'
+      preLoaderRoute: typeof SettingsProjectEnvironmentProjectIdRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
@@ -338,9 +377,11 @@ interface SettingsRouteChildren {
   SettingsChatRoute: typeof SettingsChatRoute
   SettingsDevicesRoute: typeof SettingsDevicesRoute
   SettingsEditorRoute: typeof SettingsEditorRoute
+  SettingsEnvironmentRoute: typeof SettingsEnvironmentRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsProjectEnvironmentProjectIdRoute: typeof SettingsProjectEnvironmentProjectIdRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -351,9 +392,12 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsChatRoute: SettingsChatRoute,
   SettingsDevicesRoute: SettingsDevicesRoute,
   SettingsEditorRoute: SettingsEditorRoute,
+  SettingsEnvironmentRoute: SettingsEnvironmentRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsProjectEnvironmentProjectIdRoute:
+    SettingsProjectEnvironmentProjectIdRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

@@ -12,9 +12,25 @@ import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
+import {
+  formatWorktreePathForDisplay,
+  getOrphanedWorktreePathForThread,
+  getWorktreeLinkedThreadIds,
+  isWorktreeThreadSessionActive,
+  normalizeWorktreePath,
+} from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
 import { useSetting } from "./useSettings";
+
+type DeleteThreadOptions = {
+  readonly deletedThreadIds?: ReadonlySet<ThreadId>;
+  readonly worktreeRemovalPrompt?: "prompt-if-orphaned" | "skip";
+};
+
+type DeleteWorktreeAndRelatedDataInput = {
+  readonly projectCwd: string;
+  readonly worktreePath: string;
+};
 
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
@@ -67,7 +83,7 @@ export function useThreadActions() {
   }, []);
 
   const deleteThread = useCallback(
-    async (threadId: ThreadId, opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {}) => {
+    async (threadId: ThreadId, opts: DeleteThreadOptions = {}) => {
       const api = readNativeApi();
       if (!api) return;
       const { projects, threads } = useStore.getState();
@@ -79,13 +95,18 @@ export function useThreadActions() {
         deletedIds && deletedIds.size > 0
           ? threads.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
           : threads;
-      const orphanedWorktreePath = getOrphanedWorktreePathForThread(survivingThreads, threadId);
+      const orphanedWorktreePath =
+        opts.worktreeRemovalPrompt === "skip"
+          ? null
+          : getOrphanedWorktreePathForThread(survivingThreads, threadId);
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
+      const isWorktreeInUse = isWorktreeThreadSessionActive(thread);
       const shouldDeleteWorktree =
         canDeleteWorktree &&
+        !isWorktreeInUse &&
         (await api.dialogs.confirm(
           [
             "This thread is the only one linked to this worktree:",
@@ -94,6 +115,13 @@ export function useThreadActions() {
             "Delete the worktree too?",
           ].join("\n"),
         ));
+      if (canDeleteWorktree && isWorktreeInUse) {
+        toastManager.add({
+          type: "error",
+          title: "Worktree is in use",
+          description: `Stop the active agent before deleting ${displayWorktreePath ?? orphanedWorktreePath}.`,
+        });
+      }
 
       if (thread.session && thread.session.status !== "closed") {
         await api.orchestration
@@ -182,6 +210,101 @@ export function useThreadActions() {
     ],
   );
 
+  const deleteWorktreeAndRelatedData = useCallback(
+    async ({ projectCwd, worktreePath: rawWorktreePath }: DeleteWorktreeAndRelatedDataInput) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const { threads } = useStore.getState();
+      const worktreePath = normalizeWorktreePath(rawWorktreePath);
+      if (!worktreePath) return;
+
+      const relatedThreadIds = getWorktreeLinkedThreadIds(threads, worktreePath);
+      const relatedThreads = threads.filter((thread) => relatedThreadIds.includes(thread.id));
+      const activeThread = relatedThreads.find(isWorktreeThreadSessionActive);
+
+      const displayWorktreePath = formatWorktreePathForDisplay(worktreePath);
+      if (activeThread) {
+        toastManager.add({
+          type: "error",
+          title: "Worktree is in use",
+          description: `Stop the active agent in "${activeThread.title}" before deleting ${displayWorktreePath}.`,
+        });
+        return;
+      }
+
+      const confirmed = await api.dialogs.confirm(
+        relatedThreadIds.length > 0
+          ? [
+              `Delete worktree "${displayWorktreePath}" and ${relatedThreadIds.length} related chat${
+                relatedThreadIds.length === 1 ? "" : "s"
+              }?`,
+              "This permanently clears the related conversation history and removes the worktree directory.",
+            ].join("\n")
+          : [
+              `Delete worktree "${displayWorktreePath}"?`,
+              "This permanently removes the worktree directory.",
+            ].join("\n"),
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const deletedThreadIds = new Set<ThreadId>(relatedThreadIds);
+      for (const relatedThreadId of relatedThreadIds) {
+        await deleteThread(relatedThreadId, {
+          deletedThreadIds,
+          worktreeRemovalPrompt: "skip",
+        });
+      }
+
+      try {
+        await removeWorktreeMutation.mutateAsync({
+          cwd: projectCwd,
+          path: worktreePath,
+          force: true,
+        });
+        toastManager.add({
+          type: "success",
+          title: "Worktree cleaned up",
+          description:
+            relatedThreadIds.length > 0
+              ? `Removed ${displayWorktreePath} and ${relatedThreadIds.length} related chat${
+                  relatedThreadIds.length === 1 ? "" : "s"
+                }.`
+              : `Removed ${displayWorktreePath}.`,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
+        console.error("Failed to remove worktree after deleting related threads", {
+          projectCwd,
+          worktreePath,
+          error,
+        });
+        toastManager.add({
+          type: "error",
+          title: "Chats deleted, but worktree removal failed",
+          description: `Could not remove ${displayWorktreePath}. ${message}`,
+        });
+      }
+    },
+    [deleteThread, removeWorktreeMutation],
+  );
+
+  const deleteWorktreeAndRelatedThreads = useCallback(
+    async (threadId: ThreadId) => {
+      const { projects, threads } = useStore.getState();
+      const thread = threads.find((entry) => entry.id === threadId);
+      if (!thread) return;
+      const threadProject = projects.find((project) => project.id === thread.projectId);
+      if (!threadProject) return;
+      await deleteWorktreeAndRelatedData({
+        projectCwd: threadProject.cwd,
+        worktreePath: thread.worktreePath ?? "",
+      });
+    },
+    [deleteWorktreeAndRelatedData],
+  );
+
   const confirmAndDeleteThread = useCallback(
     async (threadId: ThreadId) => {
       const api = readNativeApi();
@@ -210,6 +333,8 @@ export function useThreadActions() {
     archiveThread,
     unarchiveThread,
     deleteThread,
+    deleteWorktreeAndRelatedData,
+    deleteWorktreeAndRelatedThreads,
     confirmAndDeleteThread,
   };
 }
