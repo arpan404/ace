@@ -153,6 +153,7 @@ export type ThreadHandoff = typeof ThreadHandoff.Type;
 
 export const ThreadFork = Schema.Struct({
   sourceThreadId: ThreadId,
+  sourceProviderThreadId: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
 });
 export type ThreadFork = typeof ThreadFork.Type;

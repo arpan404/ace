@@ -490,6 +490,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           handoff_mode AS "handoffMode",
           handoff_created_at AS "handoffCreatedAt",
           fork_source_thread_id AS "forkSourceThreadId",
+          fork_source_provider_thread_id AS "forkSourceProviderThreadId",
           fork_created_at AS "forkCreatedAt",
           queued_composer_messages_json AS "queuedComposerMessages",
           queued_steer_request_json AS "queuedSteerRequest",
@@ -523,6 +524,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           handoff_mode AS "handoffMode",
           handoff_created_at AS "handoffCreatedAt",
           fork_source_thread_id AS "forkSourceThreadId",
+          fork_source_provider_thread_id AS "forkSourceProviderThreadId",
           fork_created_at AS "forkCreatedAt",
           queued_composer_messages_json AS "queuedComposerMessages",
           queued_steer_request_json AS "queuedSteerRequest",
@@ -1382,6 +1384,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               return Object.assign({}, threadWithHandoff, {
                 fork: {
                   sourceThreadId: forkSourceThreadId,
+                  ...(row.forkSourceProviderThreadId !== null
+                    ? { sourceProviderThreadId: row.forkSourceProviderThreadId }
+                    : {}),
                   createdAt: forkCreatedAt,
                 },
               });
@@ -1537,6 +1542,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ? {
                   fork: {
                     sourceThreadId: forkSourceThreadId,
+                    ...(threadRow.value.forkSourceProviderThreadId !== null
+                      ? { sourceProviderThreadId: threadRow.value.forkSourceProviderThreadId }
+                      : {}),
                     createdAt: forkCreatedAt,
                   },
                 }

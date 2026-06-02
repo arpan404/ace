@@ -1479,6 +1479,62 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.replayTurns?.[0]?.prompt).not.toContain("Best-effort handoff");
   });
 
+  it("starts subagent conversation forks from the child Codex provider thread", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-fork"),
+        threadId: ThreadId.makeUnsafe("thread-subagent-fork"),
+        projectId: asProjectId("project-1"),
+        title: "Subagent fork",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        fork: {
+          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          sourceProviderThreadId: "child_provider_1",
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-subagent-fork"),
+        threadId: ThreadId.makeUnsafe("thread-subagent-fork"),
+        message: {
+          messageId: asMessageId("user-message-subagent-fork"),
+          role: "user",
+          text: "continue from subagent",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    const startInput = harness.startSession.mock.calls[0]?.[1] as
+      | {
+          forkSource?: { threadId: ThreadId; resumeCursor?: unknown };
+        }
+      | undefined;
+    expect(startInput?.forkSource).toEqual({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      resumeCursor: { threadId: "child_provider_1" },
+    });
+  });
+
   it("replays upstream handoff context when forking a handoff thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

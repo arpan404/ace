@@ -475,6 +475,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             handoffMode: event.payload.handoff?.mode ?? null,
             handoffCreatedAt: event.payload.handoff?.createdAt ?? null,
             forkSourceThreadId: event.payload.fork?.sourceThreadId ?? null,
+            forkSourceProviderThreadId: event.payload.fork?.sourceProviderThreadId ?? null,
             forkCreatedAt: event.payload.fork?.createdAt ?? null,
             queuedComposerMessages: [],
             queuedSteerRequest: null,

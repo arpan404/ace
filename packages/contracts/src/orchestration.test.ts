@@ -326,6 +326,7 @@ it.effect("decodes thread.created chat fork metadata when present", () =>
       worktreePath: null,
       fork: {
         sourceThreadId: "thread-1",
+        sourceProviderThreadId: "provider-child-1",
         createdAt: "2026-01-01T00:00:00.000Z",
       },
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -334,6 +335,7 @@ it.effect("decodes thread.created chat fork metadata when present", () =>
 
     assert.deepStrictEqual(parsed.fork, {
       sourceThreadId: "thread-1",
+      sourceProviderThreadId: "provider-child-1",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
   }),

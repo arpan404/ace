@@ -148,6 +148,8 @@ export function SubagentThreadsPanel(props: {
 export function SubagentWorkspacePanel(props: {
   activeThreadId: string | null;
   composer: (thread: SubagentThread) => ReactNode;
+  isForkConversationDisabled?: boolean;
+  onForkConversation?: ((thread: SubagentThread) => void) | null;
   timelineProps: ComponentProps<typeof MessagesTimeline>;
   threads: ReadonlyArray<SubagentThread>;
 }) {
@@ -222,7 +224,12 @@ export function SubagentWorkspacePanel(props: {
           hideCompletedWorkMessages={false}
           isWorking={isSubagentWorking}
           liveTimers={props.timelineProps.liveTimers ?? true}
-          onForkConversation={null}
+          onForkConversation={
+            props.onForkConversation ? () => props.onForkConversation?.(activeThread) : null
+          }
+          isForkConversationDisabled={
+            props.isForkConversationDisabled === true || isSubagentWorking
+          }
           onStartConversationFromMessage={null}
           onToggleWorkGroup={onToggleWorkGroup}
           revertTurnCountByUserMessageId={new Map()}

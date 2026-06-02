@@ -92,6 +92,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         handoffMode: null,
         handoffCreatedAt: null,
         forkSourceThreadId: null,
+        forkSourceProviderThreadId: null,
         forkCreatedAt: null,
         queuedComposerMessages: [
           {

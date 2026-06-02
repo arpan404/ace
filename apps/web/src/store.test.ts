@@ -1146,6 +1146,7 @@ describe("incremental orchestration updates", () => {
 
     const fork = {
       sourceThreadId,
+      sourceProviderThreadId: "child_provider_1",
       createdAt: "2026-02-27T00:00:01.000Z",
     };
 

@@ -2290,12 +2290,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const item = this.readObject(payload, "item") ?? payload;
     const itemType = this.readString(item, "type") ?? this.readString(item, "kind");
-    if (itemType !== "collabAgentToolCall") {
+    const normalizedItemType = itemType
+      ?.replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/[\s-]+/g, "_")
+      .toLowerCase();
+    if (normalizedItemType !== "collab_agent_tool_call") {
       return;
     }
 
     const receiverThreadIds =
-      this.readArray(item, "receiverThreadIds")
+      (
+        this.readArray(item, "receiverThreadIds") ??
+        this.readArray(item, "receiver_thread_ids") ??
+        this.readArray(payload, "receiverThreadIds") ??
+        this.readArray(payload, "receiver_thread_ids")
+      )
         ?.map((value) => (typeof value === "string" ? value : null))
         .filter((value): value is string => value !== null) ?? [];
     const subagent = this.readCodexCollabSubagent(payload, item);
@@ -2320,28 +2329,52 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readObject(args, "subagent");
     const type =
       this.readString(subagent, "type") ??
+      this.readString(subagent, "agentType") ??
+      this.readString(subagent, "agent_type") ??
       this.readString(payload, "subagentType") ??
       this.readString(payload, "subagent_type") ??
+      this.readString(payload, "agentType") ??
+      this.readString(payload, "agent_type") ??
       this.readString(item, "subagentType") ??
       this.readString(item, "subagent_type") ??
+      this.readString(item, "agentType") ??
+      this.readString(item, "agent_type") ??
       this.readString(input, "subagentType") ??
       this.readString(input, "subagent_type") ??
+      this.readString(input, "agentType") ??
+      this.readString(input, "agent_type") ??
       this.readString(args, "subagentType") ??
-      this.readString(args, "subagent_type");
+      this.readString(args, "subagent_type") ??
+      this.readString(args, "agentType") ??
+      this.readString(args, "agent_type");
     const name =
       this.readString(subagent, "name") ??
       this.readString(subagent, "displayName") ??
+      this.readString(subagent, "display_name") ??
+      this.readString(subagent, "nickname") ??
       this.readString(payload, "agentName") ??
       this.readString(payload, "agent_name") ??
+      this.readString(payload, "displayName") ??
+      this.readString(payload, "display_name") ??
+      this.readString(payload, "nickname") ??
       this.readString(payload, "name") ??
       this.readString(item, "agentName") ??
       this.readString(item, "agent_name") ??
+      this.readString(item, "displayName") ??
+      this.readString(item, "display_name") ??
+      this.readString(item, "nickname") ??
       this.readString(item, "name") ??
       this.readString(input, "agentName") ??
       this.readString(input, "agent_name") ??
+      this.readString(input, "displayName") ??
+      this.readString(input, "display_name") ??
+      this.readString(input, "nickname") ??
       this.readString(input, "name") ??
       this.readString(args, "agentName") ??
       this.readString(args, "agent_name") ??
+      this.readString(args, "displayName") ??
+      this.readString(args, "display_name") ??
+      this.readString(args, "nickname") ??
       this.readString(args, "name");
     const model =
       this.readString(subagent, "model") ??

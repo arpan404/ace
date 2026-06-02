@@ -7989,88 +7989,102 @@ function useChatViewComponent({
     ],
   );
 
-  const onForkConversation = useEffectEvent(async () => {
-    const api = readNativeApi();
-    if (!api || !activeThread || !activeProject || !isServerThread) {
-      return;
-    }
-    if (activeThread.messages.length === 0) {
-      toastManager.add({
-        type: "error",
-        title: "Send a message before forking.",
-      });
-      return;
-    }
-    if (
-      handoffInFlight ||
-      liveTurnInProgress ||
-      isSendBusy ||
-      isConnecting ||
-      sendInFlightRef.current
-    ) {
-      toastManager.add({
-        type: "error",
-        title: "Wait for the current turn to finish.",
-      });
-      return;
-    }
-
-    const createdAt = new Date().toISOString();
-    const nextThreadId = newThreadId();
-    const modelSelection = activeThread.modelSelection;
-    const nextThreadTitle = truncate(`${activeThread.title} fork`);
-
-    setHandoffInFlight(true);
-    try {
-      await api.orchestration.dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
-        threadId: nextThreadId,
-        projectId: activeProject.id,
-        title: nextThreadTitle,
-        modelSelection,
-        runtimeMode,
-        interactionMode,
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
-        fork: {
-          sourceThreadId: activeThread.id,
-          createdAt,
-        },
-        createdAt,
-      });
-
-      setComposerDraftModelSelection(nextThreadId, modelSelection);
-      setStickyComposerModelSelection(modelSelection);
-
-      try {
-        const readModelThread = await hydrateThreadFromCache(nextThreadId, {
-          expectedUpdatedAt: null,
+  const onForkConversation = useEffectEvent(
+    async (input?: { readonly sourceProviderThreadId?: string; readonly title?: string }) => {
+      const api = readNativeApi();
+      if (!api || !activeThread || !activeProject || !isServerThread) {
+        return;
+      }
+      if (input?.sourceProviderThreadId === undefined && activeThread.messages.length === 0) {
+        toastManager.add({
+          type: "error",
+          title: "Send a message before forking.",
         });
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
+        return;
+      }
+      if (
+        handoffInFlight ||
+        liveTurnInProgress ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        toastManager.add({
+          type: "error",
+          title: "Wait for the current turn to finish.",
         });
-      } catch (error) {
-        console.error("Failed to hydrate new fork thread", error);
+        return;
       }
 
-      await navigate({
-        to: "/$threadId",
-        params: { threadId: nextThreadId },
+      const createdAt = new Date().toISOString();
+      const nextThreadId = newThreadId();
+      const modelSelection = activeThread.modelSelection;
+      const nextThreadTitle = truncate(input?.title ?? `${activeThread.title} fork`);
+
+      setHandoffInFlight(true);
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.create",
+          commandId: newCommandId(),
+          threadId: nextThreadId,
+          projectId: activeProject.id,
+          title: nextThreadTitle,
+          modelSelection,
+          runtimeMode,
+          interactionMode,
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
+          fork: {
+            sourceThreadId: activeThread.id,
+            ...(input?.sourceProviderThreadId !== undefined
+              ? { sourceProviderThreadId: input.sourceProviderThreadId }
+              : {}),
+            createdAt,
+          },
+          createdAt,
+        });
+
+        setComposerDraftModelSelection(nextThreadId, modelSelection);
+        setStickyComposerModelSelection(modelSelection);
+
+        try {
+          const readModelThread = await hydrateThreadFromCache(nextThreadId, {
+            expectedUpdatedAt: null,
+          });
+          startTransition(() => {
+            hydrateThreadFromReadModel(readModelThread);
+          });
+        } catch (error) {
+          console.error("Failed to hydrate new fork thread", error);
+        }
+
+        await navigate({
+          to: "/$threadId",
+          params: { threadId: nextThreadId },
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not create fork thread",
+          description:
+            error instanceof Error
+              ? error.message
+              : "An error occurred while creating the fork thread.",
+        });
+      } finally {
+        setHandoffInFlight(false);
+      }
+    },
+  );
+  const onForkSubagentConversation = useCallback(
+    (subagent: SubagentThread) => {
+      void onForkConversation({
+        sourceProviderThreadId: subagent.id,
+        title: `${activeThread?.title ?? "Conversation"} ${subagent.label} fork`,
       });
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Could not create fork thread",
-        description:
-          error instanceof Error
-            ? error.message
-            : "An error occurred while creating the fork thread.",
-      });
-    } finally {
-      setHandoffInFlight(false);
-    }
-  });
+    },
+    [activeThread?.title, onForkConversation],
+  );
 
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
@@ -10636,6 +10650,8 @@ function useChatViewComponent({
                             <SubagentWorkspacePanel
                               activeThreadId={activeSubagentThreadId}
                               composer={renderSubagentComposer}
+                              isForkConversationDisabled={isWorking || handoffInFlight}
+                              onForkConversation={onForkSubagentConversation}
                               timelineProps={messagesTimelineProps}
                               threads={subagentThreads}
                             />

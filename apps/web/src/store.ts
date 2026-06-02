@@ -487,7 +487,11 @@ function forksEqual(left: Thread["fork"], right: Thread["fork"]): boolean {
   if (!left || !right) {
     return false;
   }
-  return left.sourceThreadId === right.sourceThreadId && left.createdAt === right.createdAt;
+  return (
+    left.sourceThreadId === right.sourceThreadId &&
+    left.sourceProviderThreadId === right.sourceProviderThreadId &&
+    left.createdAt === right.createdAt
+  );
 }
 
 function queuedSteerRequestsEqual(
@@ -819,6 +823,7 @@ function sidebarThreadSummariesEqual(
     left.handoff?.mode === right.handoff?.mode &&
     left.handoff?.createdAt === right.handoff?.createdAt &&
     left.fork?.sourceThreadId === right.fork?.sourceThreadId &&
+    left.fork?.sourceProviderThreadId === right.fork?.sourceProviderThreadId &&
     left.fork?.createdAt === right.fork?.createdAt &&
     handoffsEqual(left.handoff, right.handoff) &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
