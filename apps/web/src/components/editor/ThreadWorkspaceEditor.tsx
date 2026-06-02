@@ -121,10 +121,16 @@ import {
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
-const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 80;
-const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 48;
+const WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT = 32;
+const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 48;
+const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 36;
 const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
+const WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES = [
+  "auth token refresh",
+  "content:useMutation",
+  "re:.*\\.test\\.tsx$",
+] as const;
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -1118,6 +1124,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const setCodeSearchQuery = useCallback((codeSearchQuery: string) => {
     dispatchUiState({ type: "set-code-search-query", codeSearchQuery });
   }, []);
+  const handleCodeSearchExampleClick = useCallback((query: string) => {
+    dispatchUiState({ type: "set-code-search-query", codeSearchQuery: query });
+  }, []);
   const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
   }, []);
@@ -1609,6 +1618,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => localSearchEntries.slice(0, WORKSPACE_SEARCH_RESULT_LIMIT),
     [localSearchEntries],
   );
+  const searchableFileEntries = useMemo(
+    () => treeEntries.filter((candidate) => candidate.kind === "file"),
+    [treeEntries],
+  );
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
@@ -1621,7 +1634,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       props.gitCwd,
       deferredCodeSearchQuery,
     ],
-    queryFn: async (): Promise<readonly WorkspaceCodeSearchResult[]> => {
+    queryFn: async ({ signal }): Promise<readonly WorkspaceCodeSearchResult[]> => {
       if (!api || !props.gitCwd) {
         throw new Error("Workspace code search is unavailable.");
       }
@@ -1629,12 +1642,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       const searchQueries = buildWorkspaceCodeSearchQueries(deferredCodeSearchQuery);
       const candidateEntriesByPath = new Map<string, ProjectEntry>();
       for (const entry of searchWorkspaceEntriesLocally(
-        treeEntries.filter((candidate) => candidate.kind === "file"),
+        searchableFileEntries,
         deferredCodeSearchQuery,
-      ).slice(0, WORKSPACE_CODE_SEARCH_REMOTE_LIMIT)) {
+        { limit: WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT },
+      )) {
         candidateEntriesByPath.set(entry.path, entry);
       }
 
+      signal.throwIfAborted();
       const remoteResults = await Promise.all(
         searchQueries.map((query) =>
           api.projects
@@ -1651,6 +1666,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
             .catch(() => ({ entries: [], truncated: false })),
         ),
       );
+      signal.throwIfAborted();
 
       for (const result of remoteResults) {
         for (const entry of result.entries) {
@@ -1670,6 +1686,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         startIndex < candidateEntries.length;
         startIndex += WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE
       ) {
+        signal.throwIfAborted();
         const batchEntries = candidateEntries.slice(
           startIndex,
           startIndex + WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE,
@@ -1690,6 +1707,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               .catch(() => null),
           ),
         );
+        signal.throwIfAborted();
 
         for (const batchFile of batchFiles) {
           if (!batchFile) {
@@ -3867,28 +3885,59 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                 </>
               ) : sidebarMode === "search" ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="border-b border-border/40 px-2 py-2">
+                  <div className="border-b border-border/40 bg-[color-mix(in_srgb,var(--background)_92%,var(--muted)_8%)] px-2 py-2">
                     <div className="relative">
-                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                       <Input
                         nativeInput
                         value={codeSearchQuery}
                         onChange={(event) => setCodeSearchQuery(event.target.value)}
                         placeholder="Search code"
-                        className="h-8 rounded-lg border-border/45 bg-background/54 pl-8 text-[12px] shadow-none placeholder:text-muted-foreground/42 focus-within:border-primary/40 focus-within:bg-background/86"
+                        className="h-9 rounded-md border-border/55 bg-background/80 pr-2 pl-9 text-[12px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_8%,transparent)] placeholder:text-muted-foreground/48 focus-within:border-primary/45 focus-within:bg-background"
                         size="sm"
                         type="search"
                       />
                     </div>
                   </div>
+                  {deferredCodeSearchQuery.length >= 2 ? (
+                    <div className="flex h-6 items-center gap-1.5 border-b border-border/35 bg-background/35 px-3 text-[10px] text-muted-foreground/70">
+                      <span className="min-w-0 flex-1 truncate">
+                        {codeSearchResultsQuery.isPending || codeSearchResultsQuery.isFetching
+                          ? "Searching"
+                          : "Code matches"}
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        {codeSearchResultsQuery.data?.length ?? 0}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
-                    {deferredCodeSearchQuery.length < 2 ? null : codeSearchResultsQuery.isPending ||
-                      codeSearchResultsQuery.isFetching ? (
+                    {deferredCodeSearchQuery.length < 2 ? (
+                      <div className="flex min-h-full flex-col justify-end px-2 py-3">
+                        <div className="space-y-2 rounded-md border border-border/45 bg-background/45 p-2.5 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
+                          <div className="text-[10px] font-medium text-muted-foreground/70">
+                            Examples
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
+                              <button
+                                key={query}
+                                type="button"
+                                className="rounded-md border border-border/45 bg-muted/24 px-2 py-1 font-mono text-[10px] text-foreground/78 transition-colors hover:border-border/70 hover:bg-accent/55 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                onClick={() => handleCodeSearchExampleClick(query)}
+                              >
+                                {query}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : codeSearchResultsQuery.isPending || codeSearchResultsQuery.isFetching ? (
                       <div className="space-y-2 p-2">
                         {Array.from({ length: 7 }, (_, index) => (
                           <div
                             key={`code-search-pending-${index}`}
-                            className="space-y-1 rounded-lg border border-border/50 bg-background/55 p-2"
+                            className="space-y-1 rounded-md border border-border/45 bg-background/50 p-2"
                           >
                             <div className="h-3 w-3/4 rounded bg-foreground/6" />
                             <div className="h-3 w-full rounded bg-foreground/4" />
@@ -3902,7 +3951,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       </div>
                     ) : (codeSearchResultsQuery.data?.length ?? 0) === 0 ? (
                       <div className="px-3 py-4 text-[11px] text-muted-foreground/72">
-                        No matches
+                        No code matches.
                       </div>
                     ) : (
                       <div className="space-y-2 py-0.5">

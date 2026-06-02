@@ -35,6 +35,7 @@ const WORKSPACE_CODE_SEARCH_STOP_WORDS = new Set([
 ]);
 
 const MAX_CODE_SEARCH_TERMS = 5;
+const MAX_CODE_SEARCH_CONTENT_QUERIES = 2;
 const MAX_CODE_SEARCH_SNIPPETS = 3;
 
 export interface WorkspaceCodeSearchSnippet {
@@ -95,15 +96,10 @@ export function buildWorkspaceCodeSearchQueries(query: string): readonly string[
   const hasExplicitSearchPrefix = /^(?:content|in|inre|re):/iu.test(trimmed);
   const queries = [trimmed];
   const terms = extractWorkspaceCodeSearchTerms(trimmed);
-  if (
-    !hasExplicitSearchPrefix &&
-    terms.length > 1 &&
-    trimmed.length <= 96 &&
-    !trimmed.includes("\n")
-  ) {
-    queries.push(`content:${trimmed}`);
-  }
-  for (const term of terms) {
+  for (const term of terms.slice(
+    0,
+    hasExplicitSearchPrefix ? MAX_CODE_SEARCH_TERMS : MAX_CODE_SEARCH_CONTENT_QUERIES,
+  )) {
     queries.push(`content:${term}`);
   }
   return uniqueValues(queries);
