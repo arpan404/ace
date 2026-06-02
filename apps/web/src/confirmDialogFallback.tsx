@@ -1,4 +1,5 @@
 import { createRoot, type Root } from "react-dom/client";
+import { CircleAlertIcon } from "lucide-react";
 
 import { Button } from "./components/ui/button";
 import {
@@ -7,6 +8,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
 
@@ -76,7 +78,7 @@ function flushConfirmDialog(): void {
   }
   const messageLines = normalizeMessageLines(activeRequest.message);
   const title = messageLines[0] ?? "Confirm action";
-  const description = messageLines.slice(1).join("\n");
+  const [description, ...details] = messageLines.slice(1);
   const settle = (confirmed: boolean) => {
     const currentRequest = activeRequest;
     activeRequest = null;
@@ -98,13 +100,26 @@ function flushConfirmDialog(): void {
         }
       }}
     >
-      <AlertDialogContent key={activeRequest.id}>
+      <AlertDialogContent key={activeRequest.id} className="gap-4">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-base">{title}</AlertDialogTitle>
-          {description.length > 0 ? (
-            <AlertDialogDescription className="whitespace-pre-line text-sm">
-              {description}
-            </AlertDialogDescription>
+          <AlertDialogMedia className="bg-warning/12 text-warning">
+            <CircleAlertIcon />
+          </AlertDialogMedia>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          {description && description.length > 0 ? (
+            <AlertDialogDescription className="max-w-[32ch]">{description}</AlertDialogDescription>
+          ) : null}
+          {details.length > 0 ? (
+            <div className="mt-2 grid gap-1.5 text-xs text-muted-foreground sm:col-start-2">
+              {details.map((detail) => (
+                <div
+                  key={detail}
+                  className="rounded-[var(--control-radius)] border border-border/55 bg-muted/35 px-2 py-1.5"
+                >
+                  {detail}
+                </div>
+              ))}
+            </div>
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
