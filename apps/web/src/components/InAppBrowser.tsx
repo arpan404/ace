@@ -3,6 +3,7 @@ import {
   ArrowDownIcon,
   ArrowRightIcon,
   ArrowUpIcon,
+  AppWindowIcon,
   BoxSelectIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
@@ -273,6 +274,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     designerElementCommentShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
+    detachEnabled = true,
     onQueueDesignRequest,
   } = props;
   const findInputRef = useRef<HTMLInputElement | null>(null);
@@ -343,6 +345,26 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       ? { onToggleRightPanelFullscreen: props.onToggleRightPanelFullscreen }
       : {}),
   });
+  const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
+  const detachBrowser = useCallback(async () => {
+    const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
+    if (!openDetachedBrowser) {
+      return;
+    }
+    const detached = await openDetachedBrowser({
+      ...(scopeId ? { scopeId } : {}),
+      ...(activeTab?.url && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
+    });
+    if (detached) {
+      onClose();
+      return;
+    }
+    toastManager.add({
+      title: "Could not open browser window",
+      description: "The desktop app did not open a detached browser window.",
+      type: "error",
+    });
+  }, [activeTab?.url, activeTabIsInternal, onClose, scopeId]);
   const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
   const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
   const browserSessionPublishFrameRef = useRef<number | null>(null);
@@ -1081,6 +1103,27 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   />
                 ) : null}
               </search>
+              {canDetachBrowser ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        type="button"
+                        className="size-8 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/55 hover:text-foreground"
+                        onClick={() => {
+                          void detachBrowser();
+                        }}
+                        aria-label="Open browser in new window"
+                      >
+                        <AppWindowIcon className="size-4" strokeWidth={1.9} />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">Open browser in new window</TooltipPopup>
+                </Tooltip>
+              ) : null}
               {designerModeAvailable ? (
                 <div
                   ref={designerToolSlotRef}

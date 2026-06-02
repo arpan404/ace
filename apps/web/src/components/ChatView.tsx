@@ -1804,6 +1804,25 @@ function useChatViewComponent({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
+  const canDetachChat = Boolean(window.desktopBridge?.openDetachedChat);
+  const openDetachedChatWindow = useCallback(async () => {
+    const openDetachedChat = window.desktopBridge?.openDetachedChat;
+    if (!openDetachedChat) {
+      return;
+    }
+    const detached = await openDetachedChat({
+      threadId,
+      ...(activeServerConnectionUrl ? { connectionUrl: activeServerConnectionUrl } : {}),
+    });
+    if (detached) {
+      return;
+    }
+    toastManager.add({
+      title: "Could not open chat window",
+      description: "The desktop app did not open a detached chat window.",
+      type: "error",
+    });
+  }, [activeServerConnectionUrl, threadId]);
   const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
@@ -10247,6 +10266,7 @@ function useChatViewComponent({
                   onToggleEnvironmentPanel={() => {
                     setEnvironmentPanelOpen((open) => !open);
                   }}
+                  onOpenChatWindow={canDetachChat ? () => void openDetachedChatWindow() : null}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
                   reliabilitySlot={

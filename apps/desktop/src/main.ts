@@ -117,6 +117,7 @@ const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
+const OPEN_DETACHED_CHAT_CHANNEL = "desktop:open-detached-chat";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
 const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
@@ -225,6 +226,7 @@ interface DesktopRendererBootstrapPayload {
 
 let mainWindow: BrowserWindow | null = null;
 const detachedBrowserWindows = new Map<string, BrowserWindow>();
+const detachedChatWindows = new Map<string, BrowserWindow>();
 const detachedEditorWindows = new Map<string, BrowserWindow>();
 const browserAuthWindows = new Map<string, BrowserWindow>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
@@ -1853,6 +1855,13 @@ function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   };
 }
 
+function normalizeDetachedChatOpenInput(rawInput: unknown): {
+  threadId: string;
+  connectionUrl?: string;
+} | null {
+  return normalizeDetachedEditorOpenInput(rawInput);
+}
+
 async function repairInAppBrowserStorage(): Promise<boolean> {
   try {
     const browserSession = getInAppBrowserSession();
@@ -2747,6 +2756,12 @@ function registerIpcHandlers(): void {
     return createDetachedBrowserWindow(normalizeDetachedBrowserOpenInput(rawInput));
   });
 
+  ipcMain.removeHandler(OPEN_DETACHED_CHAT_CHANNEL);
+  ipcMain.handle(OPEN_DETACHED_CHAT_CHANNEL, async (_event, rawInput: unknown) => {
+    const input = normalizeDetachedChatOpenInput(rawInput);
+    return input ? createDetachedChatWindow(input) : false;
+  });
+
   ipcMain.removeHandler(OPEN_DETACHED_EDITOR_CHANNEL);
   ipcMain.handle(OPEN_DETACHED_EDITOR_CHANNEL, async (_event, rawInput: unknown) => {
     const input = normalizeDetachedEditorOpenInput(rawInput);
@@ -3343,6 +3358,87 @@ function createBrowserAuthWindow(rawUrl: unknown): boolean {
     );
     revealWindow();
   });
+  return true;
+}
+
+function createDetachedChatWindow(input: { threadId: string; connectionUrl?: string }): boolean {
+  const windowKey = input.connectionUrl
+    ? `${input.connectionUrl}\0${input.threadId}`
+    : input.threadId;
+  const existingWindow = detachedChatWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    return true;
+  }
+
+  const window = new BrowserWindow({
+    width: 1100,
+    height: 820,
+    minWidth: 680,
+    minHeight: 560,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Chat`,
+    webPreferences: {
+      preload: Path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+
+  detachedChatWindows.set(windowKey, window);
+  setupWebViewEventHandlers(window);
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Chat`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Chat`);
+    emitUpdateState();
+  });
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_EDITOR_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    detachedChatWindows.delete(windowKey);
+  });
+
+  const rendererUrl = buildRendererWindowUrl({
+    aceDetachedChat: "1",
+    threadId: input.threadId,
+    ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
+  });
+  void window.loadURL(rendererUrl);
   return true;
 }
 

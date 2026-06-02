@@ -17,6 +17,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { InAppBrowser, type InAppBrowserController } from "../components/InAppBrowser";
+import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
@@ -94,6 +95,13 @@ function RootRouteView() {
           scopeId: searchParams.get("browserScope"),
         };
       }
+      if (searchParams.get("aceDetachedChat") === "1") {
+        return {
+          kind: "chat" as const,
+          connectionUrl: searchParams.get("connectionUrl"),
+          threadId: searchParams.get("threadId"),
+        };
+      }
       if (searchParams.get("aceDetachedEditor") === "1") {
         return {
           kind: "editor" as const,
@@ -106,6 +114,9 @@ function RootRouteView() {
   });
   if (detachedWindowSearch?.kind === "browser") {
     return <DetachedBrowserWindow search={detachedWindowSearch} />;
+  }
+  if (detachedWindowSearch?.kind === "chat") {
+    return <DetachedChatWindow search={detachedWindowSearch} />;
   }
   if (detachedWindowSearch?.kind === "editor") {
     return <DetachedEditorWindow search={detachedWindowSearch} />;
@@ -238,7 +249,7 @@ function DetachedEditorWindow(props: {
       <AnchoredToastProvider>
         <UiTypographyBridge />
         <ServerStateBootstrap />
-        <DetachedEditorSnapshotBootstrap
+        <DetachedThreadSnapshotBootstrap
           connectionUrl={props.search.connectionUrl}
           threadId={props.search.threadId}
         />
@@ -251,7 +262,28 @@ function DetachedEditorWindow(props: {
   );
 }
 
-function DetachedEditorSnapshotBootstrap(props: {
+function DetachedChatWindow(props: {
+  search: { kind: "chat"; threadId: string | null; connectionUrl: string | null };
+}) {
+  return (
+    <ToastProvider>
+      <AnchoredToastProvider>
+        <UiTypographyBridge />
+        <ServerStateBootstrap />
+        <DetachedThreadSnapshotBootstrap
+          connectionUrl={props.search.connectionUrl}
+          threadId={props.search.threadId}
+        />
+        <DetachedChatWindowContent
+          connectionUrl={props.search.connectionUrl}
+          threadId={props.search.threadId}
+        />
+      </AnchoredToastProvider>
+    </ToastProvider>
+  );
+}
+
+function DetachedThreadSnapshotBootstrap(props: {
   threadId: string | null;
   connectionUrl: string | null;
 }) {
@@ -289,6 +321,36 @@ function DetachedEditorSnapshotBootstrap(props: {
   }, [mergeServerReadModel, props.connectionUrl, props.threadId]);
 
   return null;
+}
+
+function DetachedChatWindowContent(props: {
+  threadId: string | null;
+  connectionUrl: string | null;
+}) {
+  const threadId = useMemo(
+    () => (props.threadId ? ThreadId.makeUnsafe(props.threadId) : null),
+    [props.threadId],
+  );
+  const thread = useStore((store) =>
+    threadId
+      ? (store.threadsById?.[threadId] ??
+        store.threads.find((candidate) => candidate.id === threadId) ??
+        null)
+      : null,
+  );
+
+  if (!threadId) {
+    return <DetachedWindowMessage title="Chat unavailable" description="Missing thread id." />;
+  }
+  if (!thread) {
+    return <DetachedWindowMessage title="Loading chat" description="Preparing conversation..." />;
+  }
+
+  return (
+    <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      <ThreadBoard threadId={threadId} connectionUrl={props.connectionUrl} />
+    </div>
+  );
 }
 
 function DetachedEditorWindowContent(props: {

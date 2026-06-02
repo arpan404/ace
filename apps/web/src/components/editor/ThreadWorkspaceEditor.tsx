@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BoxIcon,
+  AppWindowIcon,
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -3786,7 +3787,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 onClick={() => void detachEditor()}
                                 aria-label="Detach editor"
                               >
-                                <ExternalLinkIcon className="size-4" />
+                                <AppWindowIcon className="size-4" strokeWidth={1.9} />
                               </Button>
                             }
                           />
