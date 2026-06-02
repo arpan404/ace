@@ -543,15 +543,9 @@ export function RightSidePanelTabStrip(props: {
   subagentThreads: ReadonlyArray<SubagentThread>;
 }) {
   const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
-  const reviewTooltipLabel = props.reviewShortcutLabel
-    ? `Review (${props.reviewShortcutLabel})`
-    : "Review";
   const editorTooltipLabel = props.editorShortcutLabel
     ? `Editor (${props.editorShortcutLabel})`
     : "Editor";
-  const terminalTooltipLabel = props.terminalShortcutLabel
-    ? `Terminal (${props.terminalShortcutLabel})`
-    : "Terminal";
   const panelToggleTooltipLabel = props.panelToggleShortcutLabel
     ? `Close panel (${props.panelToggleShortcutLabel})`
     : "Close panel";
@@ -633,9 +627,6 @@ export function RightSidePanelTabStrip(props: {
     const rightIndex = orderIndex(rightEntry.key, rightEntry.mode);
     return leftIndex - rightIndex;
   });
-  const hasVisualPredecessor = (key: PanelTabOrderEntry): boolean =>
-    visibleTabEntries.findIndex((entry) => entry.key === key) > 0;
-
   return (
     <div
       className={cn(
@@ -676,11 +667,11 @@ export function RightSidePanelTabStrip(props: {
             }, 0);
           }}
         >
-          {visibleTabEntries.map((entry) => {
+          {visibleTabEntries.map((entry, index) => {
             const withSeparator = (children: ReactNode) => (
               <SortablePanelTab key={entry.key} id={entry.key}>
                 <div className="flex min-w-max items-center gap-1.5">
-                  {hasVisualPredecessor(entry.key) ? <PanelTabSeparator /> : null}
+                  {index > 0 ? <PanelTabSeparator /> : null}
                   {children}
                 </div>
               </SortablePanelTab>
@@ -749,43 +740,34 @@ export function RightSidePanelTabStrip(props: {
 
             if (entry.mode === "diff") {
               return withSeparator(
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
-                        disabled={!props.diffAvailable}
-                        aria-pressed={props.activeMode === "diff"}
-                        onClick={() => props.onSelectMode("diff")}
-                      />
-                    }
-                  >
-                    <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                      <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                      <button
-                        type="button"
-                        className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                        aria-label="Close review tab"
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          props.onDiffClose();
-                        }}
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
-                    </span>
-                    <span className="min-w-0 truncate text-left">Review</span>
-                  </TooltipTrigger>
-                  <TooltipPopup side="bottom" align="start">
-                    {reviewTooltipLabel}
-                  </TooltipPopup>
-                </Tooltip>,
+                <button
+                  type="button"
+                  className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
+                  disabled={!props.diffAvailable}
+                  aria-pressed={props.activeMode === "diff"}
+                  onClick={() => props.onSelectMode("diff")}
+                >
+                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                    <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                    <button
+                      type="button"
+                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                      aria-label="Close review tab"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        props.onDiffClose();
+                      }}
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </span>
+                  <span className="min-w-0 truncate text-left">Review</span>
+                </button>,
               );
             }
 
@@ -840,55 +822,46 @@ export function RightSidePanelTabStrip(props: {
               const tab = props.terminalTabs.find((candidate) => candidate.id === entry.id);
               if (!tab) return null;
               return withSeparator(
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={tabClassName(
-                          props.activeMode === "terminal" && props.activeTerminalId === tab.id,
-                        )}
-                        aria-pressed={
-                          props.activeMode === "terminal" && props.activeTerminalId === tab.id
+                <button
+                  type="button"
+                  className={tabClassName(
+                    props.activeMode === "terminal" && props.activeTerminalId === tab.id,
+                  )}
+                  aria-pressed={
+                    props.activeMode === "terminal" && props.activeTerminalId === tab.id
+                  }
+                  onClick={() => props.onTerminalTabSelect(tab.id)}
+                >
+                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                    <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                    <button
+                      type="button"
+                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                      aria-label={`Close ${tab.label}`}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (props.terminalTabs.length <= 1) {
+                          props.onTerminalClose();
                         }
-                        onClick={() => props.onTerminalTabSelect(tab.id)}
-                      />
-                    }
-                  >
-                    <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                      <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                      <button
-                        type="button"
-                        className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                        aria-label={`Close ${tab.label}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          if (props.terminalTabs.length <= 1) {
-                            props.onTerminalClose();
-                          }
-                          props.onTerminalTabClose(tab.id);
-                        }}
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
-                    </span>
-                    <span className="min-w-0 truncate text-left">{tab.label}</span>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full",
-                        tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
-                      )}
-                    />
-                  </TooltipTrigger>
-                  <TooltipPopup side="bottom" align="start">
-                    {terminalTooltipLabel}: {tab.label}
-                  </TooltipPopup>
-                </Tooltip>,
+                        props.onTerminalTabClose(tab.id);
+                      }}
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </span>
+                  <span className="min-w-0 truncate text-left">{tab.label}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full",
+                      tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+                    )}
+                  />
+                </button>,
               );
             }
 
