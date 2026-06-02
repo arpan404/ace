@@ -1,0 +1,21 @@
+# Default reviewer for repository changes.
+* @arpan404
+
+# High-risk runtime and protocol surfaces.
+packages/contracts/ @arpan404
+packages/shared/ @arpan404
+apps/server/src/provider/ @arpan404
+apps/server/src/codexAppServerManager.ts @arpan404
+apps/server/src/providerManager.ts @arpan404
+apps/server/src/wsServer.ts @arpan404
+apps/server/src/wsClientSessions.ts @arpan404
+apps/server/src/orchestration/Layers/Provider* @arpan404
+apps/server/src/orchestration/Services/Provider* @arpan404
+apps/server/src/persistence/Layers/ProviderSessionRuntime* @arpan404
+apps/server/src/persistence/Services/ProviderSessionRuntime* @arpan404
+apps/server/src/persistence/Migrations/*ProviderSessionRuntime* @arpan404
+
+# Release, CI, and desktop distribution.
+.github/ @arpan404
+scripts/ @arpan404
+apps/desktop/ @arpan404

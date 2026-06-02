@@ -1,0 +1,94 @@
+name: PR Review State
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  label:
+    name: Sync PR review state labels
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: pr-review-state-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Sync review state labels
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const issueNumber = pullRequest.number;
+            const managedLabels = new Set([
+              "status:approved",
+              "status:changes-requested",
+              "status:needs-review",
+              "status:draft",
+            ]);
+
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            const currentLabelNames = new Set(currentLabels.map((label) => label.name));
+            const nextLabels = new Set();
+
+            if (pullRequest.draft) {
+              nextLabels.add("status:draft");
+            } else {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: issueNumber,
+                per_page: 100,
+              });
+              const latestReviewByUser = new Map();
+              for (const review of reviews) {
+                if (!review.user?.login || review.state === "COMMENTED") {
+                  continue;
+                }
+                latestReviewByUser.set(review.user.login, review.state);
+              }
+              const latestStates = [...latestReviewByUser.values()];
+
+              if (latestStates.includes("CHANGES_REQUESTED")) {
+                nextLabels.add("status:changes-requested");
+              } else if (latestStates.includes("APPROVED")) {
+                nextLabels.add("status:approved");
+              } else {
+                nextLabels.add("status:needs-review");
+              }
+            }
+
+            for (const label of currentLabelNames) {
+              if (!managedLabels.has(label) || nextLabels.has(label)) {
+                continue;
+              }
+
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: label,
+              }).catch((error) => {
+                if (error.status !== 404) throw error;
+              });
+            }
+
+            const labelsToAdd = [...nextLabels].filter((label) => !currentLabelNames.has(label));
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: labelsToAdd,
+              });
+            }

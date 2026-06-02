@@ -569,7 +569,7 @@ const styles = StyleSheet.create({
 
   // Loading overlay
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "center",
     alignItems: "center",

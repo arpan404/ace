@@ -5648,19 +5648,16 @@ function useChatViewComponent({
     (browserThreadId: ThreadId, request: BrowserViewportResizeRequest) =>
       resizeBrowserViewportForBridge(browserThreadId, request),
   );
-  const getBrowserViewportResizeHandler = useCallback(
-    (browserThreadId: ThreadId) => {
-      const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserThreadId);
-      if (existingHandler) {
-        return existingHandler;
-      }
-      const handler = (request: BrowserViewportResizeRequest) =>
-        resizeBrowserViewportForBridgeEvent(browserThreadId, request);
-      browserViewportResizeHandlerByThreadRef.current.set(browserThreadId, handler);
-      return handler;
-    },
-    [resizeBrowserViewportForBridgeEvent],
-  );
+  const getBrowserViewportResizeHandler = useCallback((browserThreadId: ThreadId) => {
+    const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserThreadId);
+    if (existingHandler) {
+      return existingHandler;
+    }
+    const handler = (request: BrowserViewportResizeRequest) =>
+      resizeBrowserViewportForBridgeEvent(browserThreadId, request);
+    browserViewportResizeHandlerByThreadRef.current.set(browserThreadId, handler);
+    return handler;
+  }, []);
 
   const handleRightSidePanelResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {

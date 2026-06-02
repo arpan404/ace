@@ -1,0 +1,59 @@
+name: Issue Response State
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  label:
+    name: Sync response-needed label
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Sync response-needed label
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const comment = context.payload.comment;
+            const issueNumber = issue.number;
+            const isAuthorComment = comment.user?.login === issue.user?.login;
+            const isMaintainerComment = ["OWNER", "MEMBER", "COLLABORATOR"].includes(
+              comment.author_association,
+            );
+
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            const currentLabelNames = new Set(currentLabels.map((label) => label.name));
+
+            if (isAuthorComment && currentLabelNames.has("status:needs-response")) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: "status:needs-response",
+              }).catch((error) => {
+                if (error.status !== 404) throw error;
+              });
+              return;
+            }
+
+            if (
+              isMaintainerComment &&
+              !isAuthorComment &&
+              !currentLabelNames.has("status:needs-response")
+            ) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ["status:needs-response"],
+              });
+            }

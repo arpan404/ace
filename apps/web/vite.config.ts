@@ -65,12 +65,19 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("@codemirror") || id.includes("@lezer")) {
+            return "codemirror";
+          }
+
           if (
-            id.includes("monaco-editor") ||
-            id.includes("@monaco-editor") ||
-            id.includes("@codingame")
+            (id.includes("@shikijs") &&
+              !id.includes("@shikijs+langs") &&
+              !id.includes("@shikijs+themes")) ||
+            id.includes("/shiki/dist/core") ||
+            id.includes("/shiki/dist/engine-") ||
+            id.includes("/shiki/dist/textmate")
           ) {
-            return "monaco";
+            return "shiki";
           }
 
           if (

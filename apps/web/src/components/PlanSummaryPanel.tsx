@@ -36,6 +36,8 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const diffCountFormatter = new Intl.NumberFormat();
+const PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME =
+  "group inline-flex h-auto min-w-0 items-center gap-1.5 rounded-none bg-transparent p-0 text-left shadow-none hover:!bg-transparent active:!translate-y-0 active:!bg-transparent aria-expanded:!bg-transparent dark:hover:!bg-transparent dark:active:!bg-transparent focus-visible:border-transparent focus-visible:ring-0";
 
 function stepStatusIcon(status: string) {
   if (status === "completed") {
@@ -379,7 +381,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         <Button
                           type="button"
                           variant="ghost"
-                          className="group inline-flex min-w-0 items-center gap-2 rounded-sm h-auto p-0 hover:bg-transparent"
+                          className={cn(PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME, "gap-2")}
                           onClick={() => setSummaryDetailsExpanded((value) => !value)}
                           aria-expanded={summaryDetailsExpanded}
                           aria-label={
@@ -473,7 +475,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           <Button
                             type="button"
                             variant="ghost"
-                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground h-auto p-0 hover:bg-transparent"
+                            className={cn(
+                              PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME,
+                              "text-sm font-medium tracking-tight text-foreground",
+                            )}
                             onClick={() => setPlanDetailsExpanded((value) => !value)}
                             aria-expanded={planDetailsExpanded}
                             aria-label={
@@ -545,7 +550,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                             variant="ghost"
                             size="sm"
                             type="button"
-                            className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-medium tracking-tight text-foreground h-auto p-0 hover:bg-transparent"
+                            className={cn(
+                              PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME,
+                              "text-sm font-medium tracking-tight text-foreground",
+                            )}
                             onClick={() => setTodoDetailsExpanded((value) => !value)}
                             aria-expanded={todoDetailsExpanded}
                             aria-label={

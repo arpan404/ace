@@ -1,4 +1,4 @@
-import { parsePatchFiles, type SelectedLineRange } from "@pierre/diffs";
+import type { SelectedLineRange } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -36,8 +36,15 @@ import { readNativeApi } from "../nativeApi";
 import { resolvePathLinkTarget } from "../terminal-links";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import { useTheme } from "../hooks/useTheme";
-import { buildPatchCacheKey } from "../lib/diffRendering";
 import { resolveDiffThemeName } from "../lib/diffRendering";
+import {
+  buildFileDiffRenderKey,
+  formatFileChangeType,
+  getRenderablePatch,
+  resolveFileDiffPath,
+  summarizeFileDiff,
+} from "../lib/diffPatch";
+import { useWorkspaceCommentPlaceholder } from "../lib/editor/workspaceCommentPlaceholders";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
 import { useSetting } from "../hooks/useSettings";
@@ -93,80 +100,6 @@ interface ReviewCommentPopoverPosition {
   readonly left: number;
   readonly placement: "anchored" | "fallback" | "pending";
   readonly top: number;
-}
-
-type RenderablePatch =
-  | {
-      kind: "files";
-      files: FileDiffMetadata[];
-    }
-  | {
-      kind: "raw";
-      text: string;
-      reason: string;
-    };
-
-function getRenderablePatch(
-  patch: string | undefined,
-  cacheScope = "diff-panel",
-): RenderablePatch | null {
-  if (!patch) return null;
-  const normalizedPatch = patch.trim();
-  if (normalizedPatch.length === 0) return null;
-
-  try {
-    const parsedPatches = parsePatchFiles(
-      normalizedPatch,
-      buildPatchCacheKey(normalizedPatch, cacheScope),
-    );
-    const files = parsedPatches.flatMap((parsedPatch) => parsedPatch.files);
-    if (files.length > 0) {
-      return { kind: "files", files };
-    }
-
-    return {
-      kind: "raw",
-      text: normalizedPatch,
-      reason: "Unsupported diff format. Showing raw patch.",
-    };
-  } catch {
-    return {
-      kind: "raw",
-      text: normalizedPatch,
-      reason: "Failed to parse patch. Showing raw patch.",
-    };
-  }
-}
-
-function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
-  const raw = fileDiff.name ?? fileDiff.prevName ?? "";
-  if (raw.startsWith("a/") || raw.startsWith("b/")) {
-    return raw.slice(2);
-  }
-  return raw;
-}
-
-function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
-  return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
-}
-
-function summarizeFileDiff(fileDiff: FileDiffMetadata): {
-  additions: number;
-  deletions: number;
-  hunkCount: number;
-} {
-  let additions = 0;
-  let deletions = 0;
-  for (const hunk of fileDiff.hunks) {
-    additions += hunk.additionLines;
-    deletions += hunk.deletionLines;
-  }
-  return { additions, deletions, hunkCount: fileDiff.hunks.length };
-}
-
-function formatFileChangeType(fileDiff: FileDiffMetadata): string {
-  const raw = String(fileDiff.type);
-  return raw.length > 0 ? raw.replace(/[-_]/g, " ") : "modified";
 }
 
 function normalizeDiffReviewLineSide(side: SelectedLineRange["side"]): DiffReviewLineSide {
@@ -433,6 +366,12 @@ function useDiffPanelComponent({
   const [activeCommentFileKey, setActiveCommentFileKey] = useState<string | null>(null);
   const [activeReviewLineSelection, setActiveReviewLineSelection] =
     useState<ActiveReviewLineSelection | null>(null);
+  const commentPlaceholder = useWorkspaceCommentPlaceholder(
+    "diff",
+    activeReviewLineSelection
+      ? `${activeReviewLineSelection.fileKey}:${activeReviewLineSelection.lineRange.startSide}:${activeReviewLineSelection.lineRange.startLine}:${activeReviewLineSelection.lineRange.endSide}:${activeReviewLineSelection.lineRange.endLine}`
+      : null,
+  );
   const [reviewCommentPopoverPosition, setReviewCommentPopoverPosition] =
     useState<ReviewCommentPopoverPosition | null>(null);
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");
@@ -1288,7 +1227,7 @@ function useDiffPanelComponent({
                                 closeReviewCommentPopover();
                               }
                             }}
-                            placeholder="Comment for the agent"
+                            placeholder={commentPlaceholder}
                             className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
                             autoFocus
                           />
