@@ -972,14 +972,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
       clearBridgeReadCache(activeTab.id);
       updateBrowserSession((current) => updateBrowserTab(current, activeTab.id, { url: nextUrl }));
-      if (activeTabIsInternal) {
-        return;
-      }
       webviewHandlesRef.current.get(activeTab.id)?.navigate(nextUrl);
     },
     [
       activeTab,
-      activeTabIsInternal,
       browserSearchEngine,
       clearBridgeReadCache,
       dismissAddressBarSuggestionOverlayAndBlur,
