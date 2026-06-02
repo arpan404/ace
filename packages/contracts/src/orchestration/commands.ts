@@ -216,7 +216,13 @@ export const ThreadSubagentTurnStartCommand = Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),
     text: Schema.String,
+    attachments: Schema.Array(UploadChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
   }),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
   createdAt: IsoDateTime,
 });
 

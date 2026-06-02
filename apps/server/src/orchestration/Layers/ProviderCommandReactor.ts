@@ -1589,11 +1589,22 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    const attachments = yield* normalizeUploadChatAttachments({
+      threadId: event.payload.threadId,
+      attachments: event.payload.attachments,
+    });
+
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
       providerThreadId: event.payload.subagentThreadId,
       messageText: event.payload.text,
-      interactionMode: thread.interactionMode,
+      attachments,
+      ...(event.payload.modelSelection !== undefined
+        ? { modelSelection: event.payload.modelSelection }
+        : {}),
+      ...(event.payload.interactionMode !== undefined
+        ? { interactionMode: event.payload.interactionMode }
+        : {}),
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.catchCause((cause) =>

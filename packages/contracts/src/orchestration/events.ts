@@ -27,6 +27,7 @@ import {
   QueuedSteerRequest,
   RuntimeMode,
   TurnCountRange,
+  UploadChatAttachment,
 } from "./provider";
 import {
   OrchestrationCheckpointFile,
@@ -197,6 +198,12 @@ export const ThreadSubagentTurnStartRequestedPayload = Schema.Struct({
   subagentThreadId: TrimmedNonEmptyString,
   messageId: MessageId,
   text: Schema.String,
+  attachments: Schema.Array(UploadChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
   createdAt: IsoDateTime,
 });
 

@@ -1,15 +1,13 @@
 import { BotIcon } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
-import { MessageId, TrimmedNonEmptyString, type ProviderKind, type ThreadId } from "@ace/contracts";
+import { useCallback, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { MessageId, type ProviderKind } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
 import { deriveTimelineEntries } from "../../session-logic";
-import { cn, newCommandId, newMessageId } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
-import { readNativeApi } from "../../nativeApi";
 import { ScrollArea } from "../ui/scroll-area";
 import { MessagesTimeline } from "./MessagesTimeline";
-import { SideChatComposer } from "./SideChatComposer";
 import type { ChatMessage } from "../../types";
 
 export interface SubagentThread {
@@ -310,13 +308,11 @@ export function SubagentThreadsPanel(props: {
 
 export function SubagentWorkspacePanel(props: {
   activeThreadId: string | null;
-  parentThreadId: ThreadId;
+  composer: (thread: SubagentThread) => ReactNode;
   timelineProps: ComponentProps<typeof MessagesTimeline>;
   threads: ReadonlyArray<SubagentThread>;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const onToggleWorkGroup = useCallback((groupId: string) => {
     setExpandedWorkGroups((existing) => ({
@@ -369,33 +365,6 @@ export function SubagentWorkspacePanel(props: {
     activeThread.entries[0]?.createdAt ??
     null;
   const isSubagentWorking = activeThread.status === "running";
-  const handleSubmit = async (text: string) => {
-    const api = readNativeApi();
-    if (!api) {
-      setSendError("Native API unavailable.");
-      return;
-    }
-    setIsSending(true);
-    setSendError(null);
-    try {
-      await api.orchestration.dispatchCommand({
-        type: "thread.subagent.turn.start",
-        commandId: newCommandId(),
-        threadId: props.parentThreadId,
-        subagentThreadId: TrimmedNonEmptyString.makeUnsafe(activeThread.id),
-        message: {
-          messageId: newMessageId(),
-          role: "user",
-          text,
-        },
-        createdAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Failed to send message.");
-    } finally {
-      setIsSending(false);
-    }
-  };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
@@ -422,14 +391,7 @@ export function SubagentWorkspacePanel(props: {
           turnDiffSummaryByAssistantMessageId={new Map()}
         />
       </ScrollArea>
-      <SideChatComposer
-        className="border-t border-border/70"
-        disabled={isSending}
-        error={sendError}
-        isSending={isSending}
-        placeholder={`Message ${activeThread.label}`}
-        onSubmit={handleSubmit}
-      />
+      <div>{props.composer(activeThread)}</div>
     </section>
   );
 }

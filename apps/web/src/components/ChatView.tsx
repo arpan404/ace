@@ -13,7 +13,8 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type ThreadHandoffMode,
-  type ThreadId,
+  ThreadId,
+  TrimmedNonEmptyString,
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
@@ -218,7 +219,11 @@ import {
   type InAppBrowserMode,
 } from "./InAppBrowser";
 import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
-import { SubagentWorkspacePanel, deriveSubagentThreads } from "./chat/SubagentThreadsPanel";
+import {
+  SubagentWorkspacePanel,
+  deriveSubagentThreads,
+  type SubagentThread,
+} from "./chat/SubagentThreadsPanel";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
 import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
@@ -1346,6 +1351,7 @@ function useChatViewComponent({
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
+  const subagentComposerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const chatShellRef = useRef<HTMLDivElement | null>(null);
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
     messagesScrollRef.current = element;
@@ -8496,6 +8502,298 @@ function useChatViewComponent({
     !isSendBusy &&
     !isConnecting &&
     !sendInFlightRef.current;
+  const subagentComposerThreadId = useCallback(
+    (subagent: SubagentThread) =>
+      ThreadId.makeUnsafe(`subagent:${activeThread?.id ?? threadId}:${subagent.id}`),
+    [activeThread?.id, threadId],
+  );
+  const handleSubagentComposerSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>, subagent: SubagentThread) => {
+      event.preventDefault();
+      const api = readNativeApi();
+      if (!api || !activeThread) return;
+      const draftThreadId = subagentComposerThreadId(subagent);
+      const draft = getComposerThreadDraft(draftThreadId);
+      const promptForSend = draft.prompt;
+      const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
+      const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
+        deriveComposerSendState({
+          prompt: promptForSendWithoutInlineMarkers,
+          imageCount: draft.images.length,
+          terminalContexts: draft.terminalContexts,
+        });
+      if (!hasSendableContent) {
+        if (expiredTerminalContextCount > 0) {
+          const toastCopy = buildExpiredTerminalContextToastCopy(
+            expiredTerminalContextCount,
+            "empty",
+          );
+          toastManager.add({
+            type: "warning",
+            title: toastCopy.title,
+            description: toastCopy.description,
+          });
+        }
+        return;
+      }
+
+      const { interactionMode, runtimeMode } = deriveEffectiveComposerExecutionModeState({
+        draft,
+        threadRuntimeMode: activeThread.runtimeMode,
+        threadInteractionMode: activeThread.interactionMode,
+      });
+      const { selectedModel, modelOptions } = deriveEffectiveComposerModelState({
+        draft,
+        providers: providerStatuses,
+        selectedProvider: "codex",
+        threadModelSelection: activeThread.modelSelection,
+        projectModelSelection: activeProject?.defaultModelSelection,
+        settings: modelSettings,
+      });
+      const sideProviderInstanceId =
+        draft.modelSelectionByProvider.codex?.providerInstanceId ??
+        (activeThread.modelSelection.provider === "codex"
+          ? activeThread.modelSelection.providerInstanceId
+          : undefined);
+      const sideProviderModels = getProviderModels(
+        providerStatuses,
+        "codex",
+        sideProviderInstanceId,
+      );
+      const sideProviderState = getComposerProviderState({
+        provider: "codex",
+        model: selectedModel,
+        models: sideProviderModels,
+        prompt: promptForSendWithoutInlineMarkers,
+        modelOptions,
+      });
+      const modelSelection = buildProviderModelSelection(
+        "codex",
+        selectedModel,
+        sideProviderState.modelOptionsForDispatch,
+        sideProviderInstanceId,
+      );
+      const textWithTerminalContext = appendTerminalContextsToPrompt(
+        promptForSendWithoutInlineMarkers,
+        sendableTerminalContexts,
+      );
+      const outgoingMessageText = formatOutgoingPrompt({
+        provider: "codex",
+        model: selectedModel,
+        models: sideProviderModels,
+        effort: sideProviderState.promptEffort,
+        text: textWithTerminalContext,
+      });
+      let attachments: Array<{
+        type: "image";
+        name: string;
+        mimeType: string;
+        sizeBytes: number;
+        dataUrl: string;
+      }>;
+      try {
+        attachments = await Promise.all(
+          draft.images.map(async (image) => ({
+            type: "image" as const,
+            name: image.name,
+            mimeType: image.mimeType,
+            sizeBytes: image.sizeBytes,
+            dataUrl:
+              "dataUrl" in image && typeof image.dataUrl === "string"
+                ? image.dataUrl
+                : await readFileAsDataUrl(image.file),
+          })),
+        );
+      } catch (error) {
+        setThreadError(
+          draftThreadId,
+          error instanceof Error ? error.message : "Failed to read message attachments.",
+        );
+        return;
+      }
+      if (expiredTerminalContextCount > 0) {
+        const toastCopy = buildExpiredTerminalContextToastCopy(
+          expiredTerminalContextCount,
+          "omitted",
+        );
+        toastManager.add({
+          type: "warning",
+          title: toastCopy.title,
+          description: toastCopy.description,
+        });
+      }
+      const createdAt = new Date().toISOString();
+      try {
+        setThreadError(draftThreadId, null);
+        await api.orchestration.dispatchCommand({
+          type: "thread.subagent.turn.start",
+          commandId: newCommandId(),
+          threadId: activeThread.id,
+          subagentThreadId: TrimmedNonEmptyString.makeUnsafe(subagent.id),
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: outgoingMessageText,
+            attachments,
+          },
+          modelSelection,
+          runtimeMode,
+          interactionMode,
+          createdAt,
+        });
+        clearComposerDraftContent(draftThreadId);
+        subagentComposerPanelsRef.current?.resetUi("");
+      } catch (error) {
+        setThreadError(
+          draftThreadId,
+          error instanceof Error ? error.message : "Failed to send subagent message.",
+        );
+      }
+    },
+    [
+      activeProject?.defaultModelSelection,
+      activeThread,
+      clearComposerDraftContent,
+      modelSettings,
+      providerStatuses,
+      setThreadError,
+      subagentComposerThreadId,
+    ],
+  );
+  const renderSubagentComposer = useCallback(
+    (subagent: SubagentThread) => {
+      if (!activeThread) {
+        return null;
+      }
+      const draftThreadId = subagentComposerThreadId(subagent);
+      const draft = getComposerThreadDraft(draftThreadId);
+      const { selectedModel } = deriveEffectiveComposerModelState({
+        draft,
+        providers: providerStatuses,
+        selectedProvider: "codex",
+        threadModelSelection: activeThread.modelSelection,
+        projectModelSelection: activeProject?.defaultModelSelection,
+        settings: modelSettings,
+      });
+      const providerInstanceId =
+        draft.modelSelectionByProvider.codex?.providerInstanceId ??
+        (activeThread.modelSelection.provider === "codex"
+          ? activeThread.modelSelection.providerInstanceId
+          : undefined);
+      const codexModels = getProviderModels(providerStatuses, "codex", providerInstanceId);
+      return (
+        <ConnectedChatComposerPanels
+          ref={subagentComposerPanelsRef}
+          threadId={draftThreadId}
+          activeForSideEffects={activeForSideEffects}
+          gitCwd={gitCwd}
+          isGitRepo={isGitRepo}
+          modelSettings={modelSettings}
+          providers={providerStatuses}
+          isServerThread
+          threadRuntimeMode={activeThread.runtimeMode}
+          threadInteractionMode={activeThread.interactionMode}
+          composerModelOptions={composerModelOptions}
+          selectedProvider="codex"
+          selectedProviderInstanceId={providerInstanceId}
+          selectedModel={selectedModel}
+          selectedProviderModels={codexModels}
+          selectedProviderModelOptions={composerModelOptions?.codex}
+          sessionConfigOptions={activeThread.session?.configOptions}
+          providerCommands={composerProviderCommands}
+          selectedModelForPickerWithCustomFallback={selectedModel}
+          lockedProvider="codex"
+          modelOptionsByProvider={modelOptionsByProvider}
+          modelSelectionByProvider={draft.modelSelectionByProvider}
+          providerInstancesByProvider={providerInstancesByProvider}
+          handoffTargetProviders={[]}
+          handoffDisabled={true}
+          interactionModeShortcutLabel={togglePlanModeShortcutLabel}
+          activeContextWindow={activeContextWindow}
+          queuedComposerMessages={[]}
+          queuedSteerMessageId={null}
+          canSendQueuedMessages={false}
+          pendingComposerComments={[]}
+          liveTurnInProgress={subagent.status === "running"}
+          isConnecting={isConnecting}
+          isPreparingWorktree={false}
+          isSendBusy={false}
+          allowQueueWhenSendable={false}
+          activePendingApproval={null}
+          pendingApprovalsCount={0}
+          pendingUserInputs={[]}
+          respondingApprovalRequestIds={[]}
+          respondingUserInputRequestIds={[]}
+          activePendingDraftAnswers={{}}
+          activePendingQuestionIndex={0}
+          activePendingProgress={null}
+          activePendingIsResponding={false}
+          activePendingResolvedAnswers={null}
+          planFollowUpId={null}
+          planFollowUpTitle={null}
+          resolvedTheme={resolvedTheme}
+          showFloatingDock={false}
+          floatingDockFooter={null}
+          floatingDockPortalHost={null}
+          onComposerHeightChange={scheduleStickToBottom}
+          onPreviewExpandedImage={onExpandTimelineImage}
+          onIssuePreviewOpen={onComposerIssueTokenClick}
+          onPendingUserInputCustomAnswerChange={() => {}}
+          onSubmit={(event) => {
+            void handleSubagentComposerSubmit(event, subagent);
+          }}
+          onRespondToApproval={async () => {}}
+          onSelectPendingUserInputOption={() => {}}
+          onAdvancePendingUserInput={() => {}}
+          onHandoffToProvider={() => {}}
+          onInteractionModeChange={(mode) => {
+            setComposerDraftInteractionMode(draftThreadId, mode);
+          }}
+          onRuntimeModeChange={(mode) => {
+            setComposerDraftRuntimeMode(draftThreadId, mode);
+          }}
+          onPreviousPendingQuestion={() => {}}
+          onInterrupt={() => {}}
+          onImplementPlanInNewThread={() => {}}
+          onQueueMessage={() => {}}
+          onEditQueuedComposerMessage={() => {}}
+          onDeleteQueuedComposerMessage={() => {}}
+          onClearQueuedComposerMessages={() => {}}
+          onDismissPendingComposerComment={() => {}}
+          onClearPendingComposerComments={() => {}}
+          onReorderQueuedComposerMessages={() => {}}
+          onSendQueuedComposerMessage={() => {}}
+          onSteerQueuedComposerMessage={() => {}}
+          onSetThreadError={setThreadError}
+        />
+      );
+    },
+    [
+      activeContextWindow,
+      activeForSideEffects,
+      activeProject?.defaultModelSelection,
+      activeThread,
+      composerModelOptions,
+      composerProviderCommands,
+      gitCwd,
+      handleSubagentComposerSubmit,
+      isConnecting,
+      isGitRepo,
+      modelOptionsByProvider,
+      modelSettings,
+      onComposerIssueTokenClick,
+      onExpandTimelineImage,
+      providerInstancesByProvider,
+      providerStatuses,
+      resolvedTheme,
+      scheduleStickToBottom,
+      setComposerDraftInteractionMode,
+      setComposerDraftRuntimeMode,
+      setThreadError,
+      subagentComposerThreadId,
+      togglePlanModeShortcutLabel,
+    ],
+  );
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
@@ -9022,7 +9320,7 @@ function useChatViewComponent({
                           ) : activeRightSidePanelMode === "subagent" ? (
                             <SubagentWorkspacePanel
                               activeThreadId={activeSubagentThreadId}
-                              parentThreadId={activeThread.id}
+                              composer={renderSubagentComposer}
                               timelineProps={messagesTimelineProps}
                               threads={subagentThreads}
                             />

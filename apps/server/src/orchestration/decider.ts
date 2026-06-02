@@ -807,6 +807,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             payload: {
               detail: command.message.text,
               itemType: "subagent_message",
+              attachments: command.message.attachments,
+              modelSelection: command.modelSelection,
+              runtimeMode: command.runtimeMode,
+              interactionMode: command.interactionMode,
               childProviderThreadId: command.subagentThreadId,
               subagent: {
                 id: command.subagentThreadId,
@@ -833,6 +837,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           subagentThreadId: command.subagentThreadId,
           messageId: command.message.messageId,
           text: command.message.text,
+          attachments: command.message.attachments,
+          modelSelection: command.modelSelection,
+          runtimeMode: command.runtimeMode,
+          interactionMode: command.interactionMode,
           createdAt: command.createdAt,
         },
       };
