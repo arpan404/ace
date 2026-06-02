@@ -390,7 +390,8 @@ function applyResizablePanelWidth(element: HTMLElement | null, width: number): v
     return;
   }
   const widthPx = `${Math.round(width)}px`;
-  element.style.cssText += `;width:${widthPx};min-width:${widthPx};`;
+  element.style.setProperty("width", widthPx);
+  element.style.setProperty("min-width", widthPx);
 }
 
 function clearResizablePanelWidth(element: HTMLElement | null): void {
@@ -399,6 +400,20 @@ function clearResizablePanelWidth(element: HTMLElement | null): void {
   }
   element.style.removeProperty("width");
   element.style.removeProperty("min-width");
+}
+
+function applyResizablePanelHeight(element: HTMLElement | null, height: number): void {
+  if (!element) {
+    return;
+  }
+  element.style.setProperty("height", `${Math.round(height)}px`);
+}
+
+function clearResizablePanelHeight(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.style.removeProperty("height");
 }
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -3359,7 +3374,19 @@ function useChatViewComponent({
   const rightSidePanelWidthRef = useRef(rightSidePanelWidth);
   const rightSidePanelElementRef = useRef<HTMLDivElement | null>(null);
   const bottomPanelElementRef = useRef<HTMLDivElement | null>(null);
+  const bottomPanelContentElementRef = useRef<HTMLDivElement | null>(null);
   const dockedRightSidePanelHeaderRef = useRef<HTMLDivElement | null>(null);
+  const bottomPanelResizePointerIdRef = useRef<number | null>(null);
+  const bottomPanelResizeStateRef = useRef<{
+    contentElement: HTMLElement | null;
+    handleElement: HTMLElement | null;
+    panelElement: HTMLElement | null;
+    pendingHeight: number;
+    rafId: number | null;
+    startHeight: number;
+    startY: number;
+  } | null>(null);
+  const didResizeBottomPanelDuringDragRef = useRef(false);
   const rightSidePanelResizePointerIdRef = useRef<number | null>(null);
   const rightSidePanelResizeStateRef = useRef<{
     headerElement: HTMLElement | null;
@@ -4578,22 +4605,27 @@ function useChatViewComponent({
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!activeThreadId) return;
       event.preventDefault();
-      const startY = event.clientY;
-      const startHeight = terminalState.terminalHeight;
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        const nextHeight = startHeight + (startY - moveEvent.clientY);
-        storeSetTerminalHeight(activeThreadId, clampBottomPanelHeight(nextHeight));
+      event.currentTarget.setPointerCapture(event.pointerId);
+      bottomPanelResizePointerIdRef.current = event.pointerId;
+      bottomPanelResizeStateRef.current = {
+        contentElement: bottomPanelContentElementRef.current,
+        handleElement: event.currentTarget,
+        panelElement: bottomPanelElementRef.current,
+        pendingHeight: terminalState.terminalHeight,
+        rafId: null,
+        startHeight: terminalState.terminalHeight,
+        startY: event.clientY,
       };
-      const handlePointerUp = () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerUp);
-        window.dispatchEvent(new CustomEvent(SIDEBAR_RESIZE_END_EVENT));
-      };
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp, { once: true });
+      applyResizablePanelHeight(bottomPanelElementRef.current, terminalState.terminalHeight + 48);
+      applyResizablePanelHeight(bottomPanelContentElementRef.current, terminalState.terminalHeight);
+      didResizeBottomPanelDuringDragRef.current = false;
     },
-    [activeThreadId, storeSetTerminalHeight, terminalState.terminalHeight],
+    [activeThreadId, terminalState.terminalHeight],
   );
+  const syncBottomPanelHeightEvent = useEffectEvent((nextHeight: number) => {
+    if (!activeThreadId) return;
+    storeSetTerminalHeight(activeThreadId, clampBottomPanelHeight(nextHeight));
+  });
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
     const nextOpen = !terminalState.terminalOpen;
@@ -5203,6 +5235,86 @@ function useChatViewComponent({
     bottomPanelEditorTabs.length > 0 ||
     bottomPanelReviewOpen ||
     terminalState.terminalOpen;
+  useEffect(() => {
+    if (!bottomPanelOpen) {
+      return;
+    }
+    const handlePointerMove = (event: PointerEvent) => {
+      if (bottomPanelResizePointerIdRef.current !== event.pointerId) {
+        return;
+      }
+      const resizeState = bottomPanelResizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+      const nextHeight = clampBottomPanelHeight(
+        resizeState.startHeight + (resizeState.startY - event.clientY),
+      );
+      resizeState.pendingHeight = nextHeight;
+      if (resizeState.rafId !== null) {
+        return;
+      }
+      resizeState.rafId = window.requestAnimationFrame(() => {
+        const activeResizeState = bottomPanelResizeStateRef.current;
+        if (!activeResizeState) {
+          return;
+        }
+        activeResizeState.rafId = null;
+        applyResizablePanelHeight(
+          activeResizeState.panelElement,
+          activeResizeState.pendingHeight + 48,
+        );
+        applyResizablePanelHeight(
+          activeResizeState.contentElement,
+          activeResizeState.pendingHeight,
+        );
+      });
+      didResizeBottomPanelDuringDragRef.current = true;
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (
+        bottomPanelResizePointerIdRef.current === null ||
+        bottomPanelResizePointerIdRef.current !== event.pointerId
+      ) {
+        return;
+      }
+      const resizeState = bottomPanelResizeStateRef.current;
+      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(resizeState.rafId);
+      }
+      if (resizeState) {
+        applyResizablePanelHeight(resizeState.panelElement, resizeState.pendingHeight + 48);
+        applyResizablePanelHeight(resizeState.contentElement, resizeState.pendingHeight);
+      }
+      bottomPanelResizePointerIdRef.current = null;
+      bottomPanelResizeStateRef.current = null;
+      if (resizeState?.handleElement?.hasPointerCapture(event.pointerId)) {
+        resizeState.handleElement.releasePointerCapture(event.pointerId);
+      }
+      if (!didResizeBottomPanelDuringDragRef.current) {
+        clearResizablePanelHeight(resizeState?.panelElement ?? null);
+        clearResizablePanelHeight(resizeState?.contentElement ?? null);
+        return;
+      }
+      didResizeBottomPanelDuringDragRef.current = false;
+      syncBottomPanelHeightEvent(resizeState?.pendingHeight ?? terminalState.terminalHeight);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          clearResizablePanelHeight(resizeState?.panelElement ?? null);
+          clearResizablePanelHeight(resizeState?.contentElement ?? null);
+        });
+      });
+      window.dispatchEvent(new CustomEvent(SIDEBAR_RESIZE_END_EVENT));
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [bottomPanelOpen, terminalState.terminalHeight]);
   const onToggleBottomPanel = useCallback(() => {
     if (bottomPanelOpen) {
       setBottomPanelMode(null);
@@ -6012,8 +6124,10 @@ function useChatViewComponent({
       didResizeRightSidePanelDuringDragRef.current = false;
       syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
       window.requestAnimationFrame(() => {
-        clearResizablePanelWidth(resizeState?.panelElement ?? null);
-        clearResizablePanelWidth(resizeState?.headerElement ?? null);
+        window.requestAnimationFrame(() => {
+          clearResizablePanelWidth(resizeState?.panelElement ?? null);
+          clearResizablePanelWidth(resizeState?.headerElement ?? null);
+        });
       });
     };
     window.addEventListener("pointermove", handlePointerMove);
@@ -6051,6 +6165,20 @@ function useChatViewComponent({
       if (didResizeWorkspaceEditorSplitDuringDragRef.current) {
         didResizeWorkspaceEditorSplitDuringDragRef.current = false;
         syncWorkspaceEditorSplitWidthEvent(workspaceEditorSplitWidthRef.current);
+      }
+      const bottomPanelResizeState = bottomPanelResizeStateRef.current;
+      if (bottomPanelResizeState?.rafId !== null && bottomPanelResizeState?.rafId !== undefined) {
+        window.cancelAnimationFrame(bottomPanelResizeState.rafId);
+      }
+      clearResizablePanelHeight(bottomPanelResizeState?.panelElement ?? null);
+      clearResizablePanelHeight(bottomPanelResizeState?.contentElement ?? null);
+      bottomPanelResizePointerIdRef.current = null;
+      bottomPanelResizeStateRef.current = null;
+      if (didResizeBottomPanelDuringDragRef.current) {
+        didResizeBottomPanelDuringDragRef.current = false;
+        syncBottomPanelHeightEvent(
+          bottomPanelResizeState?.pendingHeight ?? DEFAULT_THREAD_TERMINAL_HEIGHT,
+        );
       }
       const rightPanelResizeState = rightSidePanelResizeStateRef.current;
       if (rightPanelResizeState?.rafId !== null && rightPanelResizeState?.rafId !== undefined) {
@@ -10602,6 +10730,7 @@ function useChatViewComponent({
                   {bottomPanelTabStripNode}
                 </div>
                 <div
+                  ref={bottomPanelContentElementRef}
                   className="min-h-0 flex-1 overflow-hidden"
                   style={{ height: `${terminalState.terminalHeight}px` }}
                 >
