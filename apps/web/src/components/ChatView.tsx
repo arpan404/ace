@@ -1804,25 +1804,22 @@ function useChatViewComponent({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
-  const canDetachChat = Boolean(window.desktopBridge?.openDetachedChat);
-  const openDetachedChatWindow = useCallback(async () => {
-    const openDetachedChat = window.desktopBridge?.openDetachedChat;
-    if (!openDetachedChat) {
+  const canOpenNewWindow = Boolean(window.desktopBridge?.openNewWindow);
+  const openNewAceWindow = useCallback(async () => {
+    const openNewWindow = window.desktopBridge?.openNewWindow;
+    if (!openNewWindow) {
       return;
     }
-    const detached = await openDetachedChat({
-      threadId,
-      ...(activeServerConnectionUrl ? { connectionUrl: activeServerConnectionUrl } : {}),
-    });
-    if (detached) {
+    const opened = await openNewWindow();
+    if (opened) {
       return;
     }
     toastManager.add({
-      title: "Could not open chat window",
-      description: "The desktop app did not open a detached chat window.",
+      title: "Could not open new window",
+      description: "The desktop app did not open another Ace window.",
       type: "error",
     });
-  }, [activeServerConnectionUrl, threadId]);
+  }, []);
   const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
@@ -4426,7 +4423,11 @@ function useChatViewComponent({
     ],
   );
   const queuePreparedMessage = useCallback(
-    async (preparedPrompt: string, images: ReadonlyArray<ComposerImageAttachment> = []) => {
+    async (
+      preparedPrompt: string,
+      images: ReadonlyArray<ComposerImageAttachment> = [],
+      options?: { targetThreadId?: ThreadId },
+    ) => {
       const queuedImages = images.length === 0 ? [] : await buildQueuedComposerImages([...images]);
       const queuedMessage: QueuedComposerMessage = {
         id: newMessageId(),
@@ -4437,12 +4438,17 @@ function useChatViewComponent({
         runtimeMode,
         interactionMode,
       };
-      const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: preparedPrompt,
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
-      });
+      const activeComposerThreadId = activeThread?.id ?? threadId;
+      const requestedTargetThreadId = options?.targetThreadId ?? activeComposerThreadId;
+      const targetThreadId =
+        requestedTargetThreadId === activeComposerThreadId
+          ? await ensureQueuedComposerThread({
+              titleSeed: preparedPrompt,
+              modelSelection: selectedModelSelection,
+              runtimeMode,
+              interactionMode,
+            })
+          : requestedTargetThreadId;
       if (!targetThreadId) {
         return false;
       }
@@ -4455,10 +4461,12 @@ function useChatViewComponent({
       interactionMode,
       runtimeMode,
       selectedModelSelection,
+      activeThread?.id,
+      threadId,
     ],
   );
   const queueBrowserDesignRequest = useEffectEvent(
-    async (submission: BrowserDesignRequestSubmission) => {
+    async (targetThreadId: ThreadId, submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
       const normalizedMimeType =
         submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
@@ -4481,7 +4489,7 @@ function useChatViewComponent({
         mainContainer: submission.mainContainer,
       });
       if (commentSubmissionMode === "accumulate") {
-        const existingPendingComments = pendingComposerCommentsByThreadId[threadId] ?? [];
+        const existingPendingComments = pendingComposerCommentsByThreadId[targetThreadId] ?? [];
         if (existingPendingComments.length >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
           throw new Error(
             `You can accumulate up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} browser comments with screenshots.`,
@@ -4498,8 +4506,8 @@ function useChatViewComponent({
         });
         setPendingComposerCommentsByThreadId((current) => ({
           ...current,
-          [threadId]: [
-            ...(current[threadId] ?? []),
+          [targetThreadId]: [
+            ...(current[targetThreadId] ?? []),
             {
               id: randomUUID(),
               source: "browser",
@@ -4523,16 +4531,20 @@ function useChatViewComponent({
         runtimeMode,
         interactionMode,
       };
-      const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: trimmedInstructions || "Designer comment",
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
-      });
-      if (!targetThreadId) {
+      const activeComposerThreadId = activeThread?.id ?? threadId;
+      const queueTargetThreadId =
+        targetThreadId === activeComposerThreadId
+          ? await ensureQueuedComposerThread({
+              titleSeed: trimmedInstructions || "Designer comment",
+              modelSelection: selectedModelSelection,
+              runtimeMode,
+              interactionMode,
+            })
+          : targetThreadId;
+      if (!queueTargetThreadId) {
         throw new Error("Failed to add the comment.");
       }
-      const persisted = await appendQueuedComposerMessage(targetThreadId, queuedMessage);
+      const persisted = await appendQueuedComposerMessage(queueTargetThreadId, queuedMessage);
       if (!persisted) {
         throw new Error("Failed to add the comment.");
       }
@@ -7977,13 +7989,18 @@ function useChatViewComponent({
     [dispatchQueuedComposerMessage, isConnecting, isSendBusy, liveTurnInProgress, serverThread],
   );
   const submitWorkspaceAgentNote = useCallback(
-    async (input: { mode: "queue" | "send"; prompt: string }) => {
+    async (input: { mode: "queue" | "send"; prompt: string; threadId?: ThreadId }) => {
       const trimmedPrompt = input.prompt.trim();
       if (trimmedPrompt.length === 0) {
         return false;
       }
+      const activeComposerThreadId = activeThread?.id ?? threadId;
+      const targetThreadId = input.threadId ?? activeComposerThreadId;
       if (input.mode === "queue") {
-        return queuePreparedMessage(trimmedPrompt);
+        return queuePreparedMessage(trimmedPrompt, [], { targetThreadId });
+      }
+      if (targetThreadId !== activeComposerThreadId) {
+        return queuePreparedMessage(trimmedPrompt, [], { targetThreadId });
       }
       if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
         return false;
@@ -8006,6 +8023,8 @@ function useChatViewComponent({
       queuePreparedMessage,
       runtimeMode,
       selectedModelSelection,
+      activeThread?.id,
+      threadId,
     ],
   );
 
@@ -9645,7 +9664,8 @@ function useChatViewComponent({
                   devToolsShortcutLabel: browserDevToolsShortcutLabel,
                   forwardShortcutLabel: browserForwardShortcutLabel,
                   reloadShortcutLabel: browserReloadShortcutLabel,
-                  onQueueDesignRequest: queueBrowserDesignRequest,
+                  onQueueDesignRequest: (submission: BrowserDesignRequestSubmission) =>
+                    queueBrowserDesignRequest(browserThreadId, submission),
                 },
               };
             }),
@@ -10266,7 +10286,7 @@ function useChatViewComponent({
                   onToggleEnvironmentPanel={() => {
                     setEnvironmentPanelOpen((open) => !open);
                   }}
-                  onOpenChatWindow={canDetachChat ? () => void openDetachedChatWindow() : null}
+                  onOpenNewWindow={canOpenNewWindow ? () => void openNewAceWindow() : null}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
                   reliabilitySlot={

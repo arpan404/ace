@@ -268,6 +268,7 @@ interface QueuedWorkspaceContext {
 interface WorkspaceAgentNoteSubmission {
   readonly mode: "queue" | "send";
   readonly prompt: string;
+  readonly threadId?: ThreadId;
 }
 
 type ThreadWorkspaceEditorUiState = {
@@ -1049,6 +1050,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
     [inputProps.gitCwd, inputProps.threadId],
   );
+  const agentNoteThreadId = inputProps.threadId;
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
   const detachedEditorConnectionUrl = inputProps.connectionUrl;
   const detachedEditorThreadId = inputProps.threadId;
@@ -2360,13 +2362,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         const sent = await inputProps.onSubmitAgentNote({
           ...submission,
           prompt: trimmedPrompt,
+          threadId: agentNoteThreadId,
         });
         return sent;
       } finally {
         setAgentNoteSubmissionBusy(false);
       }
     },
-    [agentNoteSubmissionBusy, inputProps],
+    [agentNoteSubmissionBusy, agentNoteThreadId, inputProps],
   );
   const handleQueueCodeSearchResult = useCallback(
     (result: WorkspaceCodeSearchResult, lineNumber?: number) => {

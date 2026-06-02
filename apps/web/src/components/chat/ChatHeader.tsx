@@ -22,7 +22,7 @@ interface ChatHeaderProps {
   rightSidePanelOpen: boolean;
   onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
   onToggleEnvironmentPanel: () => void;
-  onOpenChatWindow?: (() => void) | null;
+  onOpenNewWindow?: (() => void) | null;
   onToggleTerminal: () => void;
   onToggleRightSidePanel: () => void;
   reliabilitySlot?: ReactNode;
@@ -41,7 +41,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightSidePanelOpen,
   onActiveProjectChange,
   onToggleEnvironmentPanel,
-  onOpenChatWindow,
+  onOpenNewWindow,
   onToggleTerminal,
   onToggleRightSidePanel,
   reliabilitySlot,
@@ -104,7 +104,7 @@ export const ChatHeader = memo(function ChatHeader({
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex shrink-0 items-center gap-1.5">
           {reliabilitySlot}
-          {onOpenChatWindow ? (
+          {onOpenNewWindow ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -113,15 +113,15 @@ export const ChatHeader = memo(function ChatHeader({
                     variant="ghost"
                     size="icon-lg"
                     className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
-                    onClick={onOpenChatWindow}
-                    aria-label="Open chat in new window"
+                    onClick={onOpenNewWindow}
+                    aria-label="Open new window"
                   />
                 }
               >
                 <AppWindowIcon className="size-[18px]" strokeWidth={1.9} />
               </TooltipTrigger>
               <TooltipPopup side="bottom" align="end">
-                Open chat in new window
+                New window
               </TooltipPopup>
             </Tooltip>
           ) : null}

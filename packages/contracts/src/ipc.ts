@@ -282,11 +282,6 @@ export interface DesktopDetachedEditorOpenInput {
   connectionUrl?: string;
 }
 
-export interface DesktopDetachedChatOpenInput {
-  threadId: string;
-  connectionUrl?: string;
-}
-
 export type DesktopBrowserPermission =
   | "camera"
   | "microphone"
@@ -388,8 +383,8 @@ export interface DesktopBridge {
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
+  openNewWindow?: () => Promise<boolean>;
   openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
-  openDetachedChat?: (input: DesktopDetachedChatOpenInput) => Promise<boolean>;
   openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
   openBrowserAuthWindow?: (url: string) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;

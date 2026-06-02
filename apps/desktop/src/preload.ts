@@ -13,8 +13,8 @@ const BROWSER_DOWNLOAD_CONTROL_CHANNEL = "desktop:browser-download-control";
 const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_NEW_WINDOW_CHANNEL = "desktop:open-new-window";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
-const OPEN_DETACHED_CHAT_CHANNEL = "desktop:open-detached-chat";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
 const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
@@ -173,12 +173,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return result === true;
   },
   applyAppZoom: (action) => ipcRenderer.invoke(APP_ZOOM_CHANNEL, action),
-  openDetachedBrowser: async (input) => {
-    const result = await ipcRenderer.invoke(OPEN_DETACHED_BROWSER_CHANNEL, input);
+  openNewWindow: async () => {
+    const result = await ipcRenderer.invoke(OPEN_NEW_WINDOW_CHANNEL);
     return result === true;
   },
-  openDetachedChat: async (input) => {
-    const result = await ipcRenderer.invoke(OPEN_DETACHED_CHAT_CHANNEL, input);
+  openDetachedBrowser: async (input) => {
+    const result = await ipcRenderer.invoke(OPEN_DETACHED_BROWSER_CHANNEL, input);
     return result === true;
   },
   openDetachedEditor: async (input) => {
