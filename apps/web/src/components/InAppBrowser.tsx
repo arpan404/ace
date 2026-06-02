@@ -819,6 +819,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         exit={browserShellExit}
         transition={BROWSER_SHELL_TRANSITION}
         className={cn(
+          "browser-render-island",
           mode === "split"
             ? visible
               ? "relative flex h-full min-h-0 min-w-0"
@@ -913,10 +914,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   </TooltipPopup>
                 </Tooltip>
               </div>
-              <div
-                role="search"
-                className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
-              >
+              <search className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2">
                 <div
                   className={cn(
                     "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
@@ -1082,7 +1080,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     onSelect={applySuggestion}
                   />
                 ) : null}
-              </div>
+              </search>
               {designerModeAvailable ? (
                 <div
                   ref={designerToolSlotRef}

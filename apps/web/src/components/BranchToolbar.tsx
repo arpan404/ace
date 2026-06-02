@@ -1,5 +1,16 @@
-import { type RuntimeMode, type ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon } from "lucide-react";
+import { type ThreadId } from "@ace/contracts";
+import {
+  ArrowLeftRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CloudIcon,
+  CloudOffIcon,
+  ExternalLinkIcon,
+  FolderIcon,
+  GaugeIcon,
+  GitForkIcon,
+  LaptopIcon,
+} from "lucide-react";
 import { useCallback } from "react";
 
 import { runAsyncTask } from "../lib/async";
@@ -15,52 +26,140 @@ import {
 } from "../lib/git/branchToolbar";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
-import { Button } from "./ui/button";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import type { Project } from "../types";
-
-function nextAccessMode(mode: RuntimeMode): RuntimeMode {
-  switch (mode) {
-    case "approval-required":
-      return "full-access";
-    case "full-access":
-    default:
-      return "approval-required";
-  }
-}
-
-const ACCESS_MODE_META: Record<
-  RuntimeMode,
-  { label: string; title: string; textClassName: string; iconClassName: string }
-> = {
-  "approval-required": {
-    label: "Supervised",
-    title: "Supervised — click to switch to Full access",
-    textClassName:
-      "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300",
-    iconClassName: "text-emerald-600 dark:text-emerald-400",
-  },
-  "full-access": {
-    label: "Full access",
-    title: "Full access — click to switch to Supervised",
-    textClassName:
-      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
-    iconClassName: "text-amber-600 dark:text-amber-400",
-  },
-};
 
 interface BranchToolbarProps {
   threadId: ThreadId;
   currentBranchName: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  presentation?: "footer" | "environment";
   localEnvironmentLabel?: string;
   localEnvironmentIcon?: Project["icon"];
-  runtimeMode?: RuntimeMode;
-  onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
+}
+
+function EnvironmentModeMenu(props: {
+  effectiveEnvMode: EnvMode;
+  envLocked: boolean;
+  localEnvironmentIcon: Project["icon"];
+  localEnvironmentLabel: string;
+  onEnvModeSelect: (mode: EnvMode) => void;
+  rowClassName: string;
+}) {
+  const isLocal = props.effectiveEnvMode === "local";
+  const label = isLocal ? props.localEnvironmentLabel : "Worktree";
+  const icon = isLocal ? (
+    props.localEnvironmentIcon ? (
+      <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-3.5 opacity-80" />
+    ) : (
+      <LaptopIcon className="size-3.5 text-muted-foreground" />
+    )
+  ) : (
+    <GitForkIcon className="size-3.5 text-muted-foreground" />
+  );
+
+  if (props.envLocked) {
+    return (
+      <div className={props.rowClassName}>
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </div>
+    );
+  }
+
+  return (
+    <Menu>
+      <MenuTrigger
+        className={`${props.rowClassName} data-popup-open:bg-accent data-popup-open:text-accent-foreground`}
+      >
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup
+        align="start"
+        side="bottom"
+        className="w-72 rounded-2xl shadow-2xl shadow-black/25"
+        listClassName="p-2"
+        sideOffset={6}
+      >
+        <MenuGroup>
+          <MenuGroupLabel className="px-2 pb-1.5 pt-1 text-[13px] font-normal normal-case text-muted-foreground">
+            Continue in
+          </MenuGroupLabel>
+          <MenuItem
+            className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
+            onClick={() => props.onEnvModeSelect("local")}
+          >
+            <LaptopIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Work locally</span>
+            {isLocal ? <CheckIcon className="size-3.5 text-muted-foreground" /> : null}
+          </MenuItem>
+          <MenuItem className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
+            <CloudIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Connect Codex web</span>
+            <ExternalLinkIcon className="size-3.5 text-muted-foreground" />
+          </MenuItem>
+          <MenuItem disabled className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
+            <CloudOffIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Send to cloud</span>
+          </MenuItem>
+        </MenuGroup>
+        <MenuSeparator className="mx-2 my-2" />
+        <MenuGroup>
+          <MenuSub>
+            <MenuSubTrigger className="min-h-9 gap-2 rounded-xl px-2 text-[13px]">
+              <GaugeIcon className="size-3.5 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">Usage remaining</span>
+            </MenuSubTrigger>
+            <MenuSubPopup
+              className="w-64 rounded-2xl shadow-2xl shadow-black/25"
+              listClassName="p-2"
+              sideOffset={8}
+            >
+              <MenuGroup>
+                <MenuGroupLabel className="px-2 py-1 text-[13px] font-normal normal-case text-muted-foreground">
+                  Usage remaining
+                </MenuGroupLabel>
+                <MenuItem disabled className="min-h-8 rounded-xl px-2 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate">Local usage is unlimited</span>
+                </MenuItem>
+                <MenuItem disabled className="min-h-8 rounded-xl px-2 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate">Cloud usage unavailable</span>
+                </MenuItem>
+              </MenuGroup>
+            </MenuSubPopup>
+          </MenuSub>
+        </MenuGroup>
+        <MenuSeparator className="mx-2 my-2" />
+        <MenuGroup>
+          <MenuItem
+            className="min-h-9 gap-2 rounded-xl px-2 text-[13px]"
+            disabled={!isLocal}
+            onClick={() => props.onEnvModeSelect("worktree")}
+          >
+            <ArrowLeftRightIcon className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Handoff to worktree</span>
+          </MenuItem>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
+  );
 }
 
 export default function BranchToolbar({
@@ -68,10 +167,9 @@ export default function BranchToolbar({
   currentBranchName,
   onEnvModeChange,
   envLocked,
+  presentation = "footer",
   localEnvironmentLabel = "Local",
   localEnvironmentIcon = null,
-  runtimeMode,
-  onRuntimeModeChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -155,7 +253,7 @@ export default function BranchToolbar({
   );
 
   if (!activeThreadId || !activeProject) return null;
-  const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
+  const isEnvironmentPresentation = presentation === "environment";
   const envModeItems = [
     { value: "local", label: localEnvironmentLabel },
     { value: "worktree", label: "New worktree" },
@@ -165,6 +263,35 @@ export default function BranchToolbar({
   ) : (
     <FolderIcon className="size-3 opacity-60" />
   );
+  const environmentModeRowClassName =
+    "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
+  if (isEnvironmentPresentation) {
+    return (
+      <div className="space-y-1">
+        <EnvironmentModeMenu
+          effectiveEnvMode={activeWorktreePath ? "worktree" : effectiveEnvMode}
+          envLocked={envLocked}
+          localEnvironmentIcon={localEnvironmentIcon}
+          localEnvironmentLabel={activeWorktreePath ? "Worktree" : localEnvironmentLabel}
+          rowClassName={environmentModeRowClassName}
+          onEnvModeSelect={handleEnvModeSelect}
+        />
+
+        <BranchToolbarBranchSelector
+          activeProjectCwd={activeProject.cwd}
+          activeThreadBranch={activeThreadBranch}
+          activeWorktreePath={activeWorktreePath}
+          branchCwd={branchCwd}
+          effectiveEnvMode={effectiveEnvMode}
+          envLocked={envLocked}
+          presentation="environment"
+          onSetThreadBranch={setThreadBranch}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
@@ -221,39 +348,6 @@ export default function BranchToolbar({
             </SelectPopup>
           </Select>
         )}
-        {runtimeMode && onRuntimeModeChange ? (
-          <>
-            <span className="mx-0.5 h-3 w-px bg-border/50" />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className={`gap-1.5 rounded-md text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 ${runtimeModeMeta?.textClassName ?? "text-muted-foreground hover:text-foreground"}`}
-                    onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
-                    aria-label={runtimeModeMeta?.title}
-                    data-chat-branch-runtime-mode={runtimeMode}
-                  />
-                }
-              >
-                {runtimeMode === "full-access" ? (
-                  <LockOpenIcon
-                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                  />
-                ) : (
-                  <LockIcon
-                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                  />
-                )}
-                {runtimeModeMeta?.label ?? "Access"}
-              </TooltipTrigger>
-              {runtimeModeMeta?.title ? (
-                <TooltipPopup side="top">{runtimeModeMeta.title}</TooltipPopup>
-              ) : null}
-            </Tooltip>
-          </>
-        ) : null}
       </div>
 
       <BranchToolbarBranchSelector

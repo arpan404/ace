@@ -3573,7 +3573,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   ]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
+    <div className="editor-render-island relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
       <div
         className="grid min-h-0 min-w-0 flex-1 bg-background"
         style={{

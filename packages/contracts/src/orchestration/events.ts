@@ -27,6 +27,7 @@ import {
   QueuedSteerRequest,
   RuntimeMode,
   TurnCountRange,
+  UploadChatAttachment,
 } from "./provider";
 import {
   OrchestrationCheckpointFile,
@@ -58,6 +59,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.interaction-mode-set",
   "thread.message-sent",
   "thread.turn-start-requested",
+  "thread.subagent-turn-start-requested",
   "thread.turn-interrupt-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
@@ -188,6 +190,20 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  createdAt: IsoDateTime,
+});
+
+export const ThreadSubagentTurnStartRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  subagentThreadId: TrimmedNonEmptyString,
+  messageId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(UploadChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
   createdAt: IsoDateTime,
 });
 
@@ -334,6 +350,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-start-requested"),
     payload: ThreadTurnStartRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.subagent-turn-start-requested"),
+    payload: ThreadSubagentTurnStartRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

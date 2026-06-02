@@ -600,6 +600,40 @@ describe("sendTurn", () => {
     });
   });
 
+  it("sends child turns to the provider thread override without marking the parent session running", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+
+    const result = await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      providerThreadId: "provider_child_1",
+      input: "Continue the subagent audit",
+    });
+
+    expect(result).toEqual({
+      threadId: "thread_1",
+      turnId: "turn_1",
+      resumeCursor: { threadId: "thread_1" },
+    });
+    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
+      threadId: "provider_child_1",
+      input: [
+        {
+          type: "text",
+          text: "Continue the subagent audit",
+          text_elements: [],
+        },
+      ],
+      model: "gpt-5.3-codex",
+    });
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(context.collabReceiverTurns.get("provider_child_1")).toEqual({
+      subagent: {
+        id: "provider_child_1",
+        type: "codex subagent",
+      },
+    });
+  });
+
   it("supports image-only turns", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
 
@@ -1307,7 +1341,7 @@ describe("respondToUserInput", () => {
 });
 
 describe("collab child conversation routing", () => {
-  it("rewrites child notification turn ids onto the parent turn", () => {
+  it("preserves child notification turn ids and records parent route metadata", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 
     (
@@ -1320,6 +1354,8 @@ describe("collab child conversation routing", () => {
         item: {
           type: "collabAgentToolCall",
           id: "call_collab_1",
+          agentName: "Dewey",
+          subagentType: "explorer",
           receiverThreadIds: ["child_provider_1"],
         },
         threadId: "provider_parent",
@@ -1344,13 +1380,24 @@ describe("collab child conversation routing", () => {
     expect(emitEvent).toHaveBeenLastCalledWith(
       expect.objectContaining({
         method: "item/agentMessage/delta",
-        turnId: "turn_parent",
+        turnId: "turn_child_1",
         itemId: "msg_child_1",
+        payload: expect.objectContaining({
+          ace: expect.objectContaining({
+            parentTurnId: "turn_parent",
+            childProviderThreadId: "child_provider_1",
+            subagent: {
+              id: "child_provider_1",
+              name: "Dewey",
+              type: "explorer",
+            },
+          }),
+        }),
       }),
     );
   });
 
-  it("suppresses child lifecycle notifications so they cannot replace the parent turn", () => {
+  it("emits child lifecycle notifications without replacing the parent turn", () => {
     const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
 
     (
@@ -1396,7 +1443,19 @@ describe("collab child conversation routing", () => {
       },
     });
 
-    expect(emitEvent).not.toHaveBeenCalled();
+    expect(emitEvent).toHaveBeenCalledTimes(2);
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "turn/started",
+        turnId: "turn_child_1",
+      }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "turn/completed",
+        turnId: "turn_child_1",
+      }),
+    );
     expect(updateSession).not.toHaveBeenCalled();
   });
 
@@ -1481,7 +1540,7 @@ describe("collab child conversation routing", () => {
     );
   });
 
-  it("rewrites child approval requests onto the parent turn", () => {
+  it("preserves child approval request routes and records parent metadata", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 
     (
@@ -1519,15 +1578,21 @@ describe("collab child conversation routing", () => {
 
     expect(Array.from(context.pendingApprovals.values())[0]).toEqual(
       expect.objectContaining({
-        turnId: "turn_parent",
+        turnId: "turn_child_1",
         itemId: "call_child_1",
       }),
     );
     expect(emitEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "item/commandExecution/requestApproval",
-        turnId: "turn_parent",
+        turnId: "turn_child_1",
         itemId: "call_child_1",
+        payload: expect.objectContaining({
+          ace: expect.objectContaining({
+            parentTurnId: "turn_parent",
+            childProviderThreadId: "child_provider_1",
+          }),
+        }),
       }),
     );
   });

@@ -30,6 +30,7 @@ import {
   RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_MODE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY,
   RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY,
   RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
   RightSidePanelModeStorageSchema,
@@ -39,6 +40,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 
 const RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY =
   "ace:chat:right-side-panel-floating-chat:v1";
+const ENVIRONMENT_PANEL_OPEN_STORAGE_KEY = "ace:chat:environment-panel-open:v1";
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 
 type ChatViewPanelState = {
@@ -170,6 +172,10 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY, threadId),
     [threadId],
   );
+  const rightSidePanelTerminalOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const rightSidePanelFullscreenStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY, threadId),
     [threadId],
@@ -186,6 +192,10 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
   );
+  const environmentPanelOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(ENVIRONMENT_PANEL_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const rightSidePanelWidthStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY, threadId),
     [threadId],
@@ -198,7 +208,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   const [rightSidePanelLastNonDiffMode, setRightSidePanelLastNonDiffMode] = useLocalStorage(
     rightSidePanelLastNonDiffModeStorageKey,
     "summary" satisfies Exclude<RightSidePanelMode, "diff">,
-    Schema.Literals(["browser", "editor", "summary"]),
+    Schema.Literals(["browser", "editor", "subagent", "summary", "terminal"]),
   );
   const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
     rightSidePanelDiffOpenStorageKey,
@@ -215,6 +225,11 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     false,
     Schema.Boolean,
   );
+  const [rightSidePanelTerminalOpen, setRightSidePanelTerminalOpen] = useLocalStorage(
+    rightSidePanelTerminalOpenStorageKey,
+    false,
+    Schema.Boolean,
+  );
   const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useLocalStorage(
     rightSidePanelFullscreenStorageKey,
     false,
@@ -222,7 +237,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   );
   const [rightSidePanelVisible, setRightSidePanelVisible] = useLocalStorage(
     rightSidePanelVisibleStorageKey,
-    true,
+    false,
     Schema.Boolean,
   );
   const rightSidePanelFloatingChatOpenStorageKey = useMemo(
@@ -232,6 +247,11 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   const [rightSidePanelFloatingChatOpen, setRightSidePanelFloatingChatOpen] = useLocalStorage(
     rightSidePanelFloatingChatOpenStorageKey,
     false,
+    Schema.Boolean,
+  );
+  const [environmentPanelOpen, setEnvironmentPanelOpen] = useLocalStorage(
+    environmentPanelOpenStorageKey,
+    true,
     Schema.Boolean,
   );
   const [browserMode, setBrowserMode] = useLocalStorage(
@@ -336,6 +356,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   return {
     browserSplitWidth,
     browserMode,
+    environmentPanelOpen,
     handoffInFlight,
     isHeaderHidden,
     isRevertingCheckpoint: revertingCheckpointThreadId === threadId,
@@ -346,11 +367,13 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     rightSidePanelLastNonDiffMode,
     rightSidePanelMode,
     rightSidePanelReviewOpen,
+    rightSidePanelTerminalOpen,
     rightSidePanelVisible,
     rightSidePanelWidth,
     setBrowserDevToolsOpen,
     setBrowserMode,
     setBrowserSplitWidth,
+    setEnvironmentPanelOpen,
     setHandoffInFlight,
     setIsHeaderHidden,
     setIsRevertingCheckpoint,
@@ -361,6 +384,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     setRightSidePanelLastNonDiffMode,
     setRightSidePanelMode,
     setRightSidePanelReviewOpen,
+    setRightSidePanelTerminalOpen,
     setRightSidePanelVisible,
     setRightSidePanelWidth,
     setShowScrollToBottom,

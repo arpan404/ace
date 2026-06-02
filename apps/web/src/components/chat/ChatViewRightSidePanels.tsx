@@ -12,7 +12,7 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ThreadId, TurnId } from "@ace/contracts";
-import { IconLayoutSidebarRightFilled } from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
 import {
   Code2Icon,
   DiffIcon,
@@ -22,6 +22,7 @@ import {
   MessageSquareIcon,
   Minimize2Icon,
   PlusIcon,
+  TerminalIcon,
   XIcon,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useRef, type MutableRefObject } from "react";
@@ -34,10 +35,23 @@ import type { DiffReviewCommentInput } from "../DiffPanel";
 import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { SubagentPersonaIcon } from "./SubagentThreadsPanel";
+import type { SubagentThread } from "./subagentThreads";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
-type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
+type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
+
+interface TerminalPanelTab {
+  id: string;
+  label: string;
+  running: boolean;
+}
+
+interface EditorPanelTab {
+  id: string;
+  label: string;
+}
 
 function LocalDiffLoadingFallback() {
   return (
@@ -154,12 +168,24 @@ function RightSidePanelAddTabMenu(props: {
   browserShortcutLabel: string | null;
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
-  editorOpen: boolean;
+  terminalShortcutLabel: string | null;
+  terminalOpen: boolean;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
   onNewBrowserTab: () => void;
+  onNewEditorTab: () => void;
+  onNewTerminalTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
 }) {
+  const handleTerminalMenuClick = () => {
+    if (props.terminalOpen) {
+      props.onNewTerminalTab();
+      props.onSelectMode("terminal");
+      return;
+    }
+    props.onSelectMode("terminal");
+  };
+
   return (
     <Menu>
       <Tooltip>
@@ -206,18 +232,21 @@ function RightSidePanelAddTabMenu(props: {
             </MenuShortcut>
           ) : null}
         </MenuItem>
-        <MenuItem
-          disabled={props.editorOpen}
-          onClick={() => {
-            props.onSelectMode("editor");
-          }}
-          className="gap-2.5 py-1.5 text-[14px]"
-        >
+        <MenuItem onClick={props.onNewEditorTab} className="gap-2.5 py-1.5 text-[14px]">
           <Code2Icon className="size-4.5 opacity-70" strokeWidth={1.75} />
           <span>Editor</span>
           {props.editorShortcutLabel ? (
             <MenuShortcut className="text-muted-foreground/60">
               {props.editorShortcutLabel}
+            </MenuShortcut>
+          ) : null}
+        </MenuItem>
+        <MenuItem onClick={handleTerminalMenuClick} className="gap-2.5 py-1.5 text-[14px]">
+          <TerminalIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
+          <span>Terminal</span>
+          {props.terminalShortcutLabel ? (
+            <MenuShortcut className="text-muted-foreground/60">
+              {props.terminalShortcutLabel}
             </MenuShortcut>
           ) : null}
         </MenuItem>
@@ -227,10 +256,14 @@ function RightSidePanelAddTabMenu(props: {
 }
 
 function RightSidePanelActionButtons(props: {
+  bottomPanelAvailable: boolean;
+  bottomPanelOpen: boolean;
+  bottomPanelToggleTooltipLabel: string;
   floatingChatOpen: boolean;
   floatingChatTooltipWithShortcut: string;
   fullscreen: boolean;
   fullscreenTooltipWithShortcut: string;
+  onToggleBottomPanel: () => void;
   onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
   onTogglePanelVisibility: () => void;
@@ -289,6 +322,35 @@ function RightSidePanelActionButtons(props: {
           render={
             <button
               type="button"
+              className={cn(
+                "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                props.bottomPanelOpen
+                  ? "bg-accent text-foreground hover:bg-accent hover:text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                !props.bottomPanelAvailable && "pointer-events-none opacity-45",
+              )}
+              disabled={!props.bottomPanelAvailable}
+              aria-pressed={props.bottomPanelOpen}
+              aria-label={props.bottomPanelToggleTooltipLabel}
+              onClick={props.onToggleBottomPanel}
+            />
+          }
+        >
+          {props.bottomPanelOpen ? (
+            <IconLayoutSidebarRightFilled className="size-5 rotate-90" />
+          ) : (
+            <IconLayoutSidebarRight className="size-5 rotate-90" strokeWidth={2} />
+          )}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="end">
+          {props.bottomPanelToggleTooltipLabel}
+        </TooltipPopup>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-pressed="true"
               aria-label={props.panelToggleTooltipLabel}
@@ -307,32 +369,51 @@ function RightSidePanelActionButtons(props: {
 }
 
 export function RightSidePanelTabStrip(props: {
-  activeMode: RightSidePanelMode;
+  activeMode: RightSidePanelMode | null;
   activeBrowserTabId: string | null;
+  bottomPanelAvailable?: boolean | undefined;
+  bottomPanelOpen?: boolean | undefined;
+  bottomPanelToggleShortcutLabel?: string | null | undefined;
   browserSession: BrowserSessionStorage | null;
   browserAvailable: boolean;
   browserShortcutLabel: string | null;
   className?: string | undefined;
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
-  editorOpen: boolean;
+  editorTabs: ReadonlyArray<EditorPanelTab>;
+  activeEditorTabId: string | null;
+  terminalShortcutLabel: string | null;
+  terminalOpen: boolean;
+  terminalTabs: ReadonlyArray<TerminalPanelTab>;
+  activeTerminalId: string;
   floatingChatShortcutLabel: string | null;
   fullscreen: boolean;
   fullscreenShortcutLabel: string | null;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
+  activeSubagentThreadId: string | null;
   floatingChatOpen: boolean;
   onBrowserTabClose: (tabId: string) => void;
   onBrowserTabReorder: (draggedTabId: string, targetTabId: string) => void;
   onBrowserTabSelect: (tabId: string) => void;
+  onToggleBottomPanel?: (() => void) | undefined;
   onDiffClose: () => void;
-  onEditorClose: () => void;
+  onEditorTabClose: (tabId: string) => void;
+  onEditorTabSelect: (tabId: string) => void;
+  onTerminalClose: () => void;
+  onTerminalTabClose: (terminalId: string) => void;
+  onTerminalTabSelect: (terminalId: string) => void;
   onNewBrowserTab: () => void;
+  onNewEditorTab: () => void;
+  onNewTerminalTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
+  onSelectSubagentThread: (threadId: string) => void;
   onTogglePanelVisibility: () => void;
   onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
   panelToggleShortcutLabel: string | null;
+  showPanelActions?: boolean | undefined;
+  subagentThreads: ReadonlyArray<SubagentThread>;
 }) {
   const { onBrowserTabReorder } = props;
   const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
@@ -347,9 +428,17 @@ export function RightSidePanelTabStrip(props: {
   const editorTooltipLabel = props.editorShortcutLabel
     ? `Editor (${props.editorShortcutLabel})`
     : "Editor";
+  const terminalTooltipLabel = props.terminalShortcutLabel
+    ? `Terminal (${props.terminalShortcutLabel})`
+    : "Terminal";
   const panelToggleTooltipLabel = props.panelToggleShortcutLabel
     ? `Close panel (${props.panelToggleShortcutLabel})`
     : "Close panel";
+  const bottomPanelToggleTooltipLabel = !props.bottomPanelAvailable
+    ? "Bottom panel is unavailable until this thread has an active project."
+    : props.bottomPanelToggleShortcutLabel
+      ? `Toggle bottom panel (${props.bottomPanelToggleShortcutLabel})`
+      : "Toggle bottom panel";
   const floatingChatTooltipLabel = props.floatingChatOpen
     ? "Hide floating chat input"
     : "Show floating chat input";
@@ -408,24 +497,64 @@ export function RightSidePanelTabStrip(props: {
         ref={tabStripRef}
         className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                className={tabClassName(props.activeMode === "summary")}
-                aria-pressed={props.activeMode === "summary"}
-                onClick={() => props.onSelectMode("summary")}
-              />
-            }
-          >
-            <ListTodoIcon className="size-4.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">Summary</span>
-          </TooltipTrigger>
-          <TooltipPopup side="bottom" align="start">
-            Summary
-          </TooltipPopup>
-        </Tooltip>
+        {props.activeMode === "summary" ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className={tabClassName(true)}
+                  aria-pressed
+                  onClick={() => props.onSelectMode("summary")}
+                />
+              }
+            >
+              <ListTodoIcon className="size-4.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">Summary</span>
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="start">
+              Summary
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {props.activeMode === "subagent" && props.subagentThreads.length > 0 ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            {props.subagentThreads.map((thread) => (
+              <Tooltip key={thread.id}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className={tabClassName(
+                        props.activeMode === "subagent" &&
+                          props.activeSubagentThreadId === thread.id,
+                      )}
+                      aria-pressed={
+                        props.activeMode === "subagent" &&
+                        props.activeSubagentThreadId === thread.id
+                      }
+                      onClick={() => {
+                        props.onSelectSubagentThread(thread.id);
+                        props.onSelectMode("subagent");
+                      }}
+                    />
+                  }
+                >
+                  <SubagentPersonaIcon
+                    className="size-4.5"
+                    status={thread.status}
+                    thread={thread}
+                  />
+                  <span className="truncate">{thread.label}</span>
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="start">
+                  {thread.label}
+                </TooltipPopup>
+              </Tooltip>
+            ))}
+          </>
+        ) : null}
         {props.reviewOpen ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
@@ -468,45 +597,107 @@ export function RightSidePanelTabStrip(props: {
             </Tooltip>
           </>
         ) : null}
-        {props.editorOpen ? (
+        {props.editorTabs.length > 0 ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    className={tabClassName(props.activeMode === "editor")}
-                    aria-pressed={props.activeMode === "editor"}
-                    onClick={() => props.onSelectMode("editor")}
+            {props.editorTabs.map((tab) => (
+              <Tooltip key={tab.id}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className={tabClassName(
+                        props.activeMode === "editor" && props.activeEditorTabId === tab.id,
+                      )}
+                      aria-pressed={
+                        props.activeMode === "editor" && props.activeEditorTabId === tab.id
+                      }
+                      onClick={() => props.onEditorTabSelect(tab.id)}
+                    />
+                  }
+                >
+                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                    <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                    <button
+                      type="button"
+                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                      aria-label={`Close ${tab.label}`}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        props.onEditorTabClose(tab.id);
+                      }}
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </span>
+                  <span className="min-w-0 truncate text-left">{tab.label}</span>
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="start">
+                  {editorTooltipLabel}: {tab.label}
+                </TooltipPopup>
+              </Tooltip>
+            ))}
+          </>
+        ) : null}
+        {props.terminalOpen && props.terminalTabs.length > 0 ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            {props.terminalTabs.map((tab) => (
+              <Tooltip key={tab.id}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className={tabClassName(
+                        props.activeMode === "terminal" && props.activeTerminalId === tab.id,
+                      )}
+                      aria-pressed={
+                        props.activeMode === "terminal" && props.activeTerminalId === tab.id
+                      }
+                      onClick={() => props.onTerminalTabSelect(tab.id)}
+                    />
+                  }
+                >
+                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                    <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                    <button
+                      type="button"
+                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                      aria-label={`Close ${tab.label}`}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (props.terminalTabs.length <= 1) {
+                          props.onTerminalClose();
+                        }
+                        props.onTerminalTabClose(tab.id);
+                      }}
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </span>
+                  <span className="min-w-0 truncate text-left">{tab.label}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full",
+                      tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+                    )}
                   />
-                }
-              >
-                <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                  <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                  <button
-                    type="button"
-                    className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                    aria-label="Close editor tab"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      props.onEditorClose();
-                    }}
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                </span>
-                <span className="min-w-0 truncate text-left">Editor</span>
-              </TooltipTrigger>
-              <TooltipPopup side="bottom" align="start">
-                {editorTooltipLabel}
-              </TooltipPopup>
-            </Tooltip>
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="start">
+                  {terminalTooltipLabel}: {tab.label}
+                </TooltipPopup>
+              </Tooltip>
+            ))}
           </>
         ) : null}
         {props.browserSession?.tabs.length ? (
@@ -547,10 +738,13 @@ export function RightSidePanelTabStrip(props: {
             browserShortcutLabel={props.browserShortcutLabel}
             diffAvailable={props.diffAvailable}
             editorShortcutLabel={props.editorShortcutLabel}
-            editorOpen={props.editorOpen}
+            terminalShortcutLabel={props.terminalShortcutLabel}
+            terminalOpen={props.terminalOpen}
             reviewShortcutLabel={props.reviewShortcutLabel}
             reviewOpen={props.reviewOpen}
             onNewBrowserTab={props.onNewBrowserTab}
+            onNewEditorTab={props.onNewEditorTab}
+            onNewTerminalTab={props.onNewTerminalTab}
             onSelectMode={props.onSelectMode}
           />
         )}
@@ -561,23 +755,32 @@ export function RightSidePanelTabStrip(props: {
           browserShortcutLabel={props.browserShortcutLabel}
           diffAvailable={props.diffAvailable}
           editorShortcutLabel={props.editorShortcutLabel}
-          editorOpen={props.editorOpen}
+          terminalShortcutLabel={props.terminalShortcutLabel}
+          terminalOpen={props.terminalOpen}
           reviewShortcutLabel={props.reviewShortcutLabel}
           reviewOpen={props.reviewOpen}
           onNewBrowserTab={props.onNewBrowserTab}
+          onNewEditorTab={props.onNewEditorTab}
+          onNewTerminalTab={props.onNewTerminalTab}
           onSelectMode={props.onSelectMode}
         />
       ) : null}
-      <RightSidePanelActionButtons
-        floatingChatOpen={props.floatingChatOpen}
-        floatingChatTooltipWithShortcut={floatingChatTooltipWithShortcut}
-        fullscreen={props.fullscreen}
-        fullscreenTooltipWithShortcut={fullscreenTooltipWithShortcut}
-        onToggleFloatingChat={props.onToggleFloatingChat}
-        onToggleFullscreen={props.onToggleFullscreen}
-        onTogglePanelVisibility={props.onTogglePanelVisibility}
-        panelToggleTooltipLabel={panelToggleTooltipLabel}
-      />
+      {props.showPanelActions !== false ? (
+        <RightSidePanelActionButtons
+          bottomPanelAvailable={props.bottomPanelAvailable ?? false}
+          bottomPanelOpen={props.bottomPanelOpen ?? false}
+          bottomPanelToggleTooltipLabel={bottomPanelToggleTooltipLabel}
+          floatingChatOpen={props.floatingChatOpen}
+          floatingChatTooltipWithShortcut={floatingChatTooltipWithShortcut}
+          fullscreen={props.fullscreen}
+          fullscreenTooltipWithShortcut={fullscreenTooltipWithShortcut}
+          onToggleBottomPanel={props.onToggleBottomPanel ?? (() => undefined)}
+          onToggleFloatingChat={props.onToggleFloatingChat}
+          onToggleFullscreen={props.onToggleFullscreen}
+          onTogglePanelVisibility={props.onTogglePanelVisibility}
+          panelToggleTooltipLabel={panelToggleTooltipLabel}
+        />
+      ) : null}
     </div>
   );
 }

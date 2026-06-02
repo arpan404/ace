@@ -61,7 +61,7 @@ type MediaQueryInput = {
   pointer?: "coarse" | "fine";
 };
 
-function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): boolean {
+export function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): boolean {
   const mediaQuery = parseQuery(query);
 
   const subscribe = useCallback(

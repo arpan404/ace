@@ -59,6 +59,9 @@ export interface WorkLogEntry {
   subagentType?: string;
   subagentName?: string;
   subagentModel?: string;
+  sideChatMessageId?: string;
+  sideChatMessageRole?: "user" | "assistant";
+  sideChatMessageText?: string;
   intentText?: string;
   diagnosticKind?: "runtime-error" | "runtime-warning";
 }

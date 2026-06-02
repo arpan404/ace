@@ -1,7 +1,7 @@
 import type { GitBranch } from "@ace/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, GitForkIcon } from "lucide-react";
 import {
   type CSSProperties,
   useCallback,
@@ -50,6 +50,7 @@ interface BranchToolbarBranchSelectorProps {
   branchCwd: string | null;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
+  presentation?: "toolbar" | "environment";
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -84,6 +85,7 @@ function BranchToolbarPickerList(props: {
   filteredBranchPickerItems: string[];
   onCheckoutPullRequestRequest: ((reference: string) => void) | undefined;
   onComposerFocusRequest: (() => void) | undefined;
+  itemClassName?: string;
   prReference: string | null;
   selectBranch: (branch: GitBranch) => void;
   setBranchListRef: (element: HTMLDivElement | null) => void;
@@ -102,6 +104,7 @@ function BranchToolbarPickerList(props: {
       return (
         <ComboboxItem
           hideIndicator
+          className={props.itemClassName}
           key={itemValue}
           index={index}
           value={itemValue}
@@ -125,6 +128,7 @@ function BranchToolbarPickerList(props: {
       return (
         <ComboboxItem
           hideIndicator
+          className={props.itemClassName}
           key={itemValue}
           index={index}
           value={itemValue}
@@ -153,6 +157,7 @@ function BranchToolbarPickerList(props: {
     return (
       <ComboboxItem
         hideIndicator
+        className={props.itemClassName}
         key={itemValue}
         index={index}
         value={itemValue}
@@ -336,6 +341,7 @@ export function BranchToolbarBranchSelector({
   branchCwd,
   effectiveEnvMode,
   envLocked,
+  presentation = "toolbar",
   onSetThreadBranch,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -484,6 +490,7 @@ export function BranchToolbarBranchSelector({
     effectiveEnvMode,
     resolvedActiveBranch,
   });
+  const isEnvironmentPresentation = presentation === "environment";
 
   return (
     <Combobox
@@ -502,17 +509,51 @@ export function BranchToolbarBranchSelector({
       value={resolvedActiveBranch}
     >
       <ComboboxTrigger
-        render={<Button variant="ghost" size="xs" />}
-        className="text-muted-foreground/70 hover:text-foreground/80"
+        render={<Button variant="ghost" size={isEnvironmentPresentation ? "default" : "xs"} />}
+        className={
+          isEnvironmentPresentation
+            ? "min-h-8 w-full justify-start gap-2 rounded-lg px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
+            : "text-muted-foreground/70 hover:text-foreground/80"
+        }
         disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
       >
-        <span className="max-w-[240px] truncate">{triggerLabel}</span>
-        <ChevronDownIcon />
+        {isEnvironmentPresentation ? (
+          <GitForkIcon className="size-3.5 text-muted-foreground" />
+        ) : null}
+        <span
+          className={
+            isEnvironmentPresentation
+              ? "min-w-0 flex-1 truncate text-left"
+              : "max-w-[240px] truncate"
+          }
+        >
+          {triggerLabel}
+        </span>
+        <ChevronDownIcon
+          className={isEnvironmentPresentation ? "size-3.5 text-muted-foreground" : undefined}
+        />
       </ComboboxTrigger>
-      <ComboboxPopup align="end" side="top" className="w-80">
-        <div className="border-b p-1">
+      <ComboboxPopup
+        align={isEnvironmentPresentation ? "start" : "end"}
+        side={isEnvironmentPresentation ? "bottom" : "top"}
+        sideOffset={isEnvironmentPresentation ? 6 : 4}
+        className={
+          isEnvironmentPresentation
+            ? "w-72 overflow-hidden rounded-2xl border-border/70 bg-popover/96 shadow-2xl shadow-black/25 supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
+            : "w-80"
+        }
+      >
+        <div
+          className={
+            isEnvironmentPresentation ? "border-border/45 border-b px-2 pt-2 pb-2" : "border-b p-1"
+          }
+        >
           <ComboboxInput
-            className="[&_input]:font-sans rounded-md"
+            className={
+              isEnvironmentPresentation
+                ? "[&_input]:font-sans rounded-xl border-border/50 bg-background/45 text-[13px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
+                : "[&_input]:font-sans rounded-md"
+            }
             inputClassName="ring-0"
             placeholder="Search branches..."
             showTrigger={false}
@@ -541,6 +582,9 @@ export function BranchToolbarBranchSelector({
           shouldVirtualizeBranchList={shouldVirtualizeBranchList}
           trimmedBranchQuery={trimmedBranchQuery}
           virtualBranchRows={virtualBranchRows}
+          {...(isEnvironmentPresentation
+            ? { itemClassName: "min-h-9 rounded-xl px-2 text-[13px] data-selected:bg-accent/45" }
+            : {})}
         />
       </ComboboxPopup>
     </Combobox>

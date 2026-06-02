@@ -80,12 +80,8 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { getDefaultServerModel } from "../providerModels";
 
 import { useThreadActions } from "../hooks/useThreadActions";
-import {
-  ProjectAvatar,
-  ProjectGlyphIcon,
-  PROJECT_ICON_COLOR_OPTIONS,
-  PROJECT_ICON_OPTIONS,
-} from "./ProjectAvatar";
+import { ProjectAvatar, ProjectGlyphIcon } from "./ProjectAvatar";
+import { PROJECT_ICON_COLOR_OPTIONS, PROJECT_ICON_OPTIONS } from "./projectAvatarOptions";
 import { toastManager } from "./ui/toast";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarSearchPaletteDialog } from "./sidebar/SidebarSearchPaletteDialog";

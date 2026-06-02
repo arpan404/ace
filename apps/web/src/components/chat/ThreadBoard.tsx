@@ -144,38 +144,20 @@ const ThreadBoardLayoutNode = memo(function ThreadBoardLayoutNode({
             />
           </div>
           {index < node.children.length - 1 ? (
-            <div
-              role="separator"
+            <hr
               aria-label={node.axis === "horizontal" ? "Resize thread panes" : "Resize thread rows"}
               aria-orientation={node.axis === "horizontal" ? "vertical" : "horizontal"}
               className={cn(
-                "group relative z-10 shrink-0 touch-none select-none outline-none transition-[background-color] duration-150",
+                "group relative z-10 shrink-0 touch-none select-none border-0 bg-transparent outline-none transition-[background-color] duration-150 before:absolute before:rounded-full before:bg-primary/0 before:transition-[background-color,transform,opacity] before:duration-150 before:ease-out before:content-[''] after:absolute after:bg-border/55 after:transition-colors after:duration-150 after:content-[''] hover:before:bg-primary/10 hover:after:bg-primary/45 focus-visible:before:bg-primary/10 focus-visible:after:bg-primary/45 active:before:bg-primary/15 active:after:bg-primary/60",
                 node.axis === "horizontal"
-                  ? "-mx-px flex w-2 cursor-col-resize items-center justify-center"
-                  : "-my-px flex h-2 cursor-row-resize items-center justify-center",
+                  ? "-mx-px h-auto w-2 cursor-col-resize before:inset-y-2 before:left-1/2 before:w-1 before:-translate-x-1/2 hover:before:scale-x-125 after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2"
+                  : "-my-px h-2 cursor-row-resize before:inset-x-2 before:top-1/2 before:h-1 before:-translate-y-1/2 hover:before:scale-y-125 after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2",
               )}
               onPointerDown={handleBranchResizeStart(node.id, node.axis, index)}
               onPointerMove={handleBranchResizeMove}
               onPointerUp={handleBranchResizeEnd}
               onPointerCancel={handleBranchResizeEnd}
-            >
-              <div
-                className={cn(
-                  "absolute rounded-full bg-primary/0 transition-[background-color,transform,opacity] duration-150 ease-out group-hover:bg-primary/10 group-focus-visible:bg-primary/10 group-active:bg-primary/15",
-                  node.axis === "horizontal"
-                    ? "inset-y-2 left-1/2 w-1 -translate-x-1/2 group-hover:scale-x-125"
-                    : "inset-x-2 top-1/2 h-1 -translate-y-1/2 group-hover:scale-y-125",
-                )}
-              />
-              <div
-                className={cn(
-                  "absolute bg-border/55 transition-colors duration-150 group-hover:bg-primary/45 group-focus-visible:bg-primary/45 group-active:bg-primary/60",
-                  node.axis === "horizontal"
-                    ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
-                    : "inset-x-0 top-1/2 h-px -translate-y-1/2",
-                )}
-              />
-            </div>
+            />
           ) : null}
         </Fragment>
       ))}

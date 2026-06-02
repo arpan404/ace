@@ -279,7 +279,6 @@ describe("CompactComposerControlsMenu", () => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Supervised");
       expect(text).toContain("Full access");
-      expect(text).toContain("Andy");
     });
 
     await page.getByRole("menuitemradio", { name: "Full access" }).click();

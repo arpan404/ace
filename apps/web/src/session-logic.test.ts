@@ -970,6 +970,106 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["t1-done", "t2-done"]);
   });
 
+  it("derives Codex child conversation ids as subagent metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "child-reasoning",
+        turnId: "turn-child",
+        kind: "reasoning.completed",
+        summary: "Thought",
+        payload: {
+          itemType: "reasoning",
+          detail: "Checking build and test health.",
+          data: {
+            ace: {
+              parentTurnId: "turn-parent",
+              childProviderThreadId: "child_provider_1",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "collab-call",
+        turnId: "turn-parent",
+        kind: "tool.completed",
+        summary: "Subagent",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent",
+          data: {
+            item: {
+              type: "collabAgentToolCall",
+              receiverThreadIds: ["child_provider_2"],
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      subagentId: "child_provider_1",
+      subagentType: "codex subagent",
+    });
+    expect(entries[1]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagentId: "child_provider_2",
+      subagentType: "codex subagent",
+    });
+  });
+
+  it("marks Codex side-chat activity as timeline messages", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "side-user-activity",
+        kind: "subagent.message.sent",
+        summary: "User message",
+        payload: {
+          detail: "Please keep checking the build.",
+          messageId: "side-user-message",
+          subagent: {
+            id: "child_provider_1",
+            type: "codex subagent",
+          },
+        },
+      }),
+      makeActivity({
+        id: "side-assistant-activity",
+        kind: "task.progress",
+        summary: "Subagent message",
+        payload: {
+          itemType: "assistant_message",
+          detail: "I am checking the build now.",
+          data: {
+            ace: {
+              childProviderThreadId: "child_provider_1",
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    const userMessage = entries.find((entry) => entry.sideChatMessageRole === "user");
+    const assistantMessage = entries.find((entry) => entry.sideChatMessageRole === "assistant");
+
+    expect(entries).toHaveLength(2);
+    expect(userMessage).toMatchObject({
+      sideChatMessageId: "side-user-message",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Please keep checking the build.",
+      subagentId: "child_provider_1",
+    });
+    expect(assistantMessage).toMatchObject({
+      sideChatMessageId: "side-assistant-activity",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "I am checking the build now.",
+      subagentId: "child_provider_1",
+    });
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

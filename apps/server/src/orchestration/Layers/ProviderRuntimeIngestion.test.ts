@@ -1261,6 +1261,69 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("keeps Codex child conversation assistant text out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-child-message-delta"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child"),
+      itemId: asItemId("child-message"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "child agent result",
+        data: {
+          ace: {
+            parentTurnId: "turn-parent",
+            childProviderThreadId: "child_provider_1",
+          },
+        },
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-child-message-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child"),
+      itemId: asItemId("child-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "child agent result",
+        data: {
+          ace: {
+            parentTurnId: "turn-parent",
+            childProviderThreadId: "child_provider_1",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.summary === "Subagent message" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "child agent result",
+      ),
+    );
+
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("child agent result"),
+      ),
+    ).toBe(false);
+  });
+
   it("splits assistant messages when tool activity interrupts the same assistant item", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

@@ -1281,6 +1281,45 @@ function normalizedToolOutputDeltaPayload(
   };
 }
 
+function firstTrimmedArrayString(value: unknown): string | undefined {
+  if (!Array.isArray(value)) {
+    return asTrimmedString(value);
+  }
+  for (const item of value) {
+    const normalized = asTrimmedString(item);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function subagentThreadIdFromRuntimePayload(payload: Record<string, unknown>): string | undefined {
+  const data = asRecord(payload.data);
+  const ace = asRecord(data?.ace);
+  const item = asRecord(data?.item);
+  const subagent = asRecord(data?.subagent) ?? asRecord(ace?.subagent);
+  return (
+    asTrimmedString(subagent?.id) ??
+    asTrimmedString(ace?.childProviderThreadId) ??
+    asTrimmedString(data?.childProviderThreadId) ??
+    asTrimmedString(data?.child_provider_thread_id) ??
+    asTrimmedString(item?.childProviderThreadId) ??
+    asTrimmedString(item?.child_provider_thread_id) ??
+    firstTrimmedArrayString(item?.receiverThreadIds)
+  );
+}
+
+function isSubagentRuntimePayload(payload: Record<string, unknown>): boolean {
+  return subagentThreadIdFromRuntimePayload(payload) !== undefined;
+}
+
+function subagentTaskIdFromEvent(
+  event: Pick<ProviderRuntimeEvent, "eventId" | "itemId" | "turnId">,
+) {
+  return `subagent:${event.itemId ?? event.turnId ?? event.eventId}`;
+}
+
 function reasoningTaskIdFromEvent(
   event: Pick<ProviderRuntimeEvent, "eventId" | "itemId" | "turnId">,
 ) {
@@ -1633,7 +1672,71 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "thread.goal.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "goal.updated",
+          summary: event.payload.goal.status === "paused" ? "Goal paused" : "Goal updated",
+          payload: {
+            ...event.payload.goal,
+            detail: event.payload.goal.objective,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "thread.goal.cleared": {
+      const payload = event.payload.providerThreadId
+        ? { providerThreadId: event.payload.providerThreadId }
+        : {};
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "goal.cleared",
+          summary: "Goal cleared",
+          payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "content.delta": {
+      if (
+        event.payload.streamKind === "assistant_text" &&
+        isSubagentRuntimePayload(event.payload)
+      ) {
+        const detail = event.payload.delta.trim();
+        if (!detail) {
+          return [];
+        }
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "task.progress",
+            summary: "Subagent message",
+            payload: {
+              taskId: subagentTaskIdFromEvent(event),
+              itemType: "assistant_message",
+              description: detail,
+              detail,
+              ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+
       if (
         event.payload.streamKind === "command_output" ||
         event.payload.streamKind === "file_change_output"
@@ -1721,6 +1824,29 @@ function runtimeEventToActivities(
     case "item.completed": {
       if (isImageGenerationPlaceholderPayload(event.payload)) {
         return [];
+      }
+      if (
+        event.payload.itemType === "assistant_message" &&
+        isSubagentRuntimePayload(event.payload)
+      ) {
+        const detail = event.payload.detail?.trim();
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "task.progress",
+            summary: event.payload.title ?? "Subagent message",
+            payload: {
+              taskId: subagentTaskIdFromEvent(event),
+              itemType: event.payload.itemType,
+              ...(detail ? { description: detail, detail } : {}),
+              ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
       }
       if (event.payload.itemType === "reasoning") {
         if (!streamingSettings.enableThinkingStreaming) {
@@ -3117,7 +3243,9 @@ const make = Effect.fn("make")(function* () {
       }
 
       const assistantDelta =
-        event.type === "content.delta" && event.payload.streamKind === "assistant_text"
+        event.type === "content.delta" &&
+        event.payload.streamKind === "assistant_text" &&
+        !isSubagentRuntimePayload(event.payload)
           ? event.payload.delta
           : undefined;
       const proposedPlanDelta =
@@ -3220,6 +3348,12 @@ const make = Effect.fn("make")(function* () {
       const assistantCompletion =
         event.type === "item.completed"
           ? (() => {
+              if (
+                event.payload.itemType === "assistant_message" &&
+                isSubagentRuntimePayload(event.payload)
+              ) {
+                return undefined;
+              }
               const isImageGenerationCompletion = isImageGenerationLifecyclePayload(event.payload);
               const isStructuredImageGenerationCompletion =
                 isStructuredImageGenerationToolLifecyclePayload(event.payload);

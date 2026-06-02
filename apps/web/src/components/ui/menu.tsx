@@ -79,13 +79,16 @@ function MenuPopup({
       >
         <MenuPrimitive.Popup
           className={cn(
-            "relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 shadow-none supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl outline-none focus:outline-none",
+            "relative flex max-w-(--available-width) not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 shadow-none supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl outline-none focus:outline-none",
             className,
           )}
           data-slot="menu-popup"
           {...props}
         >
-          <div className={cn("w-full overflow-y-auto p-1.5", listClassName)} style={listStyle}>
+          <div
+            className={cn("min-w-0 w-full overflow-y-auto p-1.5", listClassName)}
+            style={listStyle}
+          >
             {children}
           </div>
         </MenuPrimitive.Popup>
@@ -282,6 +285,7 @@ function MenuSubTrigger({
 
 function MenuSubPopup({
   className,
+  listClassName,
   sideOffset = 0,
   alignOffset,
   align = "start",
@@ -291,6 +295,7 @@ function MenuSubPopup({
   align?: MenuPrimitive.Positioner.Props["align"];
   sideOffset?: MenuPrimitive.Positioner.Props["sideOffset"];
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
+  listClassName?: string;
   listMaxHeight?: string;
 }) {
   const defaultAlignOffset = align !== "center" ? -5 : undefined;
@@ -303,6 +308,7 @@ function MenuSubPopup({
       data-slot="menu-sub-content"
       side="inline-end"
       sideOffset={sideOffset}
+      {...(listClassName !== undefined ? { listClassName } : {})}
       {...(listMaxHeight !== undefined ? { listMaxHeight } : {})}
       {...props}
     />
@@ -319,5 +325,8 @@ export {
   MenuRadioItem,
   MenuGroupLabel,
   MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuSubPopup,
   MenuShortcut,
 };

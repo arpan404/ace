@@ -8,7 +8,14 @@ import type {
   ThreadHandoffMode,
   ThreadId,
 } from "@ace/contracts";
-import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import {
+  BotIcon,
+  CircleAlertIcon,
+  ListTodoIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  XIcon,
+} from "lucide-react";
 import {
   memo,
   useMemo,
@@ -43,6 +50,7 @@ import {
 } from "./composerProviderRegistry";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import { nextRuntimeMode, RUNTIME_MODE_META } from "./runtimeModeControl";
 
 const EMPTY_TERMINAL_CONTEXTS: ComponentProps<typeof ComposerPromptEditor>["terminalContexts"] = [];
 
@@ -59,6 +67,51 @@ function renderInteractionModeTooltipContent(
         </Kbd>
       ) : null}
     </span>
+  );
+}
+
+function RuntimeModeButton(props: {
+  runtimeMode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"];
+  compact: boolean;
+  onRuntimeModeChange: (
+    mode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"],
+  ) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            className={cn(
+              "shrink-0 whitespace-nowrap px-2 transition-colors duration-150 sm:px-2.5",
+              RUNTIME_MODE_META[props.runtimeMode].textClassName,
+            )}
+            size="sm"
+            type="button"
+            onClick={() => props.onRuntimeModeChange(nextRuntimeMode(props.runtimeMode))}
+            aria-label={RUNTIME_MODE_META[props.runtimeMode].title}
+            data-chat-composer-runtime-mode={props.runtimeMode}
+          />
+        }
+      >
+        {props.runtimeMode === "full-access" ? (
+          <ShieldAlertIcon
+            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
+          />
+        ) : (
+          <ShieldCheckIcon
+            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
+          />
+        )}
+        <span className={props.compact ? "sr-only" : "sr-only sm:not-sr-only"}>
+          {RUNTIME_MODE_META[props.runtimeMode].label}
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="top" sideOffset={4}>
+        {RUNTIME_MODE_META[props.runtimeMode].title}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -250,12 +303,11 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span
-                    role="img"
-                    aria-label="Draft attachment may not persist"
-                    className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                  >
-                    <CircleAlertIcon className="size-3" />
+                  <span className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600">
+                    <CircleAlertIcon
+                      className="size-3"
+                      aria-label="Draft attachment may not persist"
+                    />
                   </span>
                 }
               />
@@ -666,6 +718,11 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  <RuntimeModeButton
+                    runtimeMode={props.runtimeMode}
+                    compact={props.isComposerFooterCompact || props.isComposerPrimaryActionsCompact}
+                    onRuntimeModeChange={props.onRuntimeModeChange}
+                  />
                   {props.activeContextWindow ? (
                     <ContextWindowMeter usage={props.activeContextWindow} />
                   ) : null}

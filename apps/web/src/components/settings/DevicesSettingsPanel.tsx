@@ -63,11 +63,8 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useHostConnectionStore } from "../../hostConnectionStore";
 import { useServerConfig } from "../../rpc/serverState";
 import { useStore } from "../../store";
-import {
-  PROJECT_ICON_COLOR_OPTIONS,
-  PROJECT_ICON_OPTIONS,
-  ProjectGlyphIcon,
-} from "../ProjectAvatar";
+import { PROJECT_ICON_COLOR_OPTIONS, PROJECT_ICON_OPTIONS } from "../projectAvatarOptions";
+import { ProjectGlyphIcon } from "../ProjectAvatar";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";

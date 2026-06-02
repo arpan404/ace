@@ -83,6 +83,11 @@ interface CodexRuntimeModelInfo {
   readonly isDefault: boolean;
 }
 
+interface CodexCollabReceiverRoute {
+  readonly parentTurnId?: TurnId;
+  readonly subagent?: Record<string, unknown>;
+}
+
 interface CodexUserInputAnswer {
   answers: string[];
 }
@@ -95,7 +100,7 @@ interface CodexSessionContext {
   pending: Map<PendingRequestKey, PendingRequest>;
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
-  collabReceiverTurns: Map<string, TurnId>;
+  collabReceiverTurns: Map<string, CodexCollabReceiverRoute>;
   modelsBySlug: Map<string, CodexRuntimeModelInfo>;
   nextRequestId: number;
   stopping: boolean;
@@ -126,6 +131,7 @@ interface JsonRpcNotification {
 
 export interface CodexAppServerSendTurnInput {
   readonly threadId: ThreadId;
+  readonly providerThreadId?: string;
   readonly input?: string;
   readonly attachments?: ReadonlyArray<{ type: "image"; url: string }>;
   readonly model?: string;
@@ -166,6 +172,24 @@ export interface CodexThreadTurnSnapshot {
 export interface CodexThreadSnapshot {
   threadId: string;
   turns: CodexThreadTurnSnapshot[];
+}
+
+export type CodexGoalStatus = "active" | "paused" | "completed" | "blocked" | "cleared";
+
+export interface CodexGoalSnapshot {
+  readonly threadId: string;
+  readonly objective: string;
+  readonly status: CodexGoalStatus;
+  readonly tokenBudget?: number;
+  readonly tokensUsed?: number;
+  readonly timeUsedSeconds?: number;
+}
+
+export interface CodexSetGoalInput {
+  readonly threadId: ThreadId;
+  readonly objective?: string;
+  readonly status?: CodexGoalStatus;
+  readonly tokenBudget?: number;
 }
 
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
@@ -1011,6 +1035,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         status: "ready",
         resumeCursor: { threadId: providerThreadId },
       });
+      await this.refreshThreadGoal(context, providerThreadId);
       this.emitLifecycleEvent(
         context,
         "session/threadOpenResolved",
@@ -1053,6 +1078,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
     context.collabReceiverTurns.clear();
+    const isChildProviderTurn = input.providerThreadId !== undefined;
 
     const turnInput: Array<
       { type: "text"; text: string; text_elements: [] } | { type: "image"; url: string }
@@ -1076,13 +1102,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("Turn input must include text or attachments.");
     }
 
-    const providerThreadId = readResumeThreadId({
-      threadId: context.session.threadId,
-      runtimeMode: context.session.runtimeMode,
-      resumeCursor: context.session.resumeCursor,
-    });
+    const providerThreadId =
+      input.providerThreadId ??
+      readResumeThreadId({
+        threadId: context.session.threadId,
+        runtimeMode: context.session.runtimeMode,
+        resumeCursor: context.session.resumeCursor,
+      });
     if (!providerThreadId) {
       throw new Error("Session is missing provider resume thread id.");
+    }
+    if (input.providerThreadId) {
+      context.collabReceiverTurns.set(input.providerThreadId, {
+        subagent: {
+          id: input.providerThreadId,
+          type: "codex subagent",
+        },
+      });
     }
     const turnStartParams: {
       threadId: string;
@@ -1139,13 +1175,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
 
-    this.updateSession(context, {
-      status: "running",
-      activeTurnId: turnId,
-      ...(context.session.resumeCursor !== undefined
-        ? { resumeCursor: context.session.resumeCursor }
-        : {}),
-    });
+    if (!isChildProviderTurn) {
+      this.updateSession(context, {
+        status: "running",
+        activeTurnId: turnId,
+        ...(context.session.resumeCursor !== undefined
+          ? { resumeCursor: context.session.resumeCursor }
+          : {}),
+      });
+    }
 
     return {
       threadId: context.session.threadId,
@@ -1280,6 +1318,51 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       activeTurnId: undefined,
     });
     return this.parseThreadSnapshot("thread/rollback", response);
+  }
+
+  async getThreadGoal(threadId: ThreadId): Promise<CodexGoalSnapshot | null> {
+    const context = this.requireSession(threadId);
+    const providerThreadId = this.requireProviderThreadId(context);
+    const response = await this.sendRequest(context, "thread/goal/get", {
+      threadId: providerThreadId,
+    });
+    return this.parseGoalFromResponse(response);
+  }
+
+  async setThreadGoal(input: CodexSetGoalInput): Promise<CodexGoalSnapshot> {
+    const context = this.requireSession(input.threadId);
+    const providerThreadId = this.requireProviderThreadId(context);
+    const response = await this.sendRequest(context, "thread/goal/set", {
+      threadId: providerThreadId,
+      ...(input.objective !== undefined ? { objective: input.objective } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+    });
+    const goal = this.parseGoalFromResponse(response);
+    if (!goal) {
+      throw new Error("thread/goal/set response did not include a goal.");
+    }
+    this.emitGoalUpdatedEvent(context, goal);
+    return goal;
+  }
+
+  async clearThreadGoal(threadId: ThreadId): Promise<void> {
+    const context = this.requireSession(threadId);
+    const providerThreadId = this.requireProviderThreadId(context);
+    await this.sendRequest(context, "thread/goal/clear", {
+      threadId: providerThreadId,
+    });
+    this.emitEvent({
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: "codex",
+      threadId: context.session.threadId,
+      createdAt: new Date().toISOString(),
+      method: "thread/goal/cleared",
+      payload: {
+        threadId: providerThreadId,
+      },
+    });
   }
 
   async respondToRequest(
@@ -1515,13 +1598,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const rawRoute = this.readRouteFields(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const childParentTurnId = this.readChildParentTurnId(context, notification.params);
-    const isChildConversation = childParentTurnId !== undefined;
-    if (
-      isChildConversation &&
-      this.shouldSuppressChildConversationNotification(notification.method)
-    ) {
-      return;
-    }
+    const isChildConversation =
+      childParentTurnId !== undefined ||
+      this.hasChildConversationRoute(context, notification.params);
     const textDelta =
       notification.method === "item/agentMessage/delta"
         ? this.readString(notification.params, "delta")
@@ -1534,15 +1613,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       createdAt: new Date().toISOString(),
       method: notification.method,
-      ...((childParentTurnId ?? rawRoute.turnId)
-        ? { turnId: childParentTurnId ?? rawRoute.turnId }
-        : {}),
+      ...(rawRoute.turnId ? { turnId: rawRoute.turnId } : {}),
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       textDelta,
-      payload: notification.params,
+      payload: this.withChildConversationRoute(context, notification.params, childParentTurnId),
     });
 
     if (notification.method === "thread/started") {
+      if (isChildConversation) {
+        return;
+      }
       const providerThreadId = normalizeProviderThreadId(
         this.readString(this.readObject(notification.params)?.thread, "id"),
       );
@@ -1617,7 +1697,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const rawRoute = this.readRouteFields(request.params);
     const childParentTurnId = this.readChildParentTurnId(context, request.params);
-    const effectiveTurnId = childParentTurnId ?? rawRoute.turnId;
+    const isChildConversation =
+      childParentTurnId !== undefined || this.hasChildConversationRoute(context, request.params);
+    const effectiveTurnId = rawRoute.turnId;
     const requestKind = this.requestKindForMethod(request.method);
     let requestId: ApprovalRequestId | undefined;
     if (requestKind) {
@@ -1661,7 +1743,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       requestId,
       requestKind,
-      payload: request.params,
+      payload: this.withChildConversationRoute(context, request.params, childParentTurnId),
     });
 
     if (requestKind) {
@@ -2072,12 +2154,126 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
   }
 
+  private requireProviderThreadId(context: CodexSessionContext): string {
+    const providerThreadId = readResumeThreadId({
+      threadId: context.session.threadId,
+      runtimeMode: context.session.runtimeMode,
+      resumeCursor: context.session.resumeCursor,
+    });
+    if (!providerThreadId) {
+      throw new Error("Session is missing provider resume thread id.");
+    }
+    return providerThreadId;
+  }
+
+  private parseGoalFromResponse(response: unknown): CodexGoalSnapshot | null {
+    const responseRecord = this.readObject(response);
+    const goal = this.readObject(responseRecord, "goal") ?? this.readObject(response);
+    return this.parseGoal(goal);
+  }
+
+  private parseGoal(goal: Record<string, unknown> | undefined): CodexGoalSnapshot | null {
+    const threadId = this.readString(goal, "threadId");
+    const objective = this.readString(goal, "objective");
+    if (!threadId || !objective) {
+      return null;
+    }
+    const rawStatus = this.readString(goal, "status");
+    const status: CodexGoalStatus =
+      rawStatus === "paused" ||
+      rawStatus === "completed" ||
+      rawStatus === "blocked" ||
+      rawStatus === "cleared"
+        ? rawStatus
+        : "active";
+    const tokenBudget = this.readPositiveInteger(goal, "tokenBudget");
+    const tokensUsed = this.readNonNegativeInteger(goal, "tokensUsed");
+    const timeUsedSeconds = this.readNonNegativeInteger(goal, "timeUsedSeconds");
+    return {
+      threadId,
+      objective,
+      status,
+      ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
+      ...(timeUsedSeconds !== undefined ? { timeUsedSeconds } : {}),
+    };
+  }
+
+  private async refreshThreadGoal(
+    context: CodexSessionContext,
+    providerThreadId: string,
+  ): Promise<void> {
+    try {
+      const response = await this.sendRequest(context, "thread/goal/get", {
+        threadId: providerThreadId,
+      });
+      const goal = this.parseGoalFromResponse(response);
+      if (goal) {
+        this.emitGoalUpdatedEvent(context, goal);
+      }
+    } catch (error) {
+      this.emitLifecycleEvent(
+        context,
+        "session/goal-warning",
+        `Failed to read Codex goal state: ${messageFromUnknownError(error)}`,
+      );
+    }
+  }
+
+  private emitGoalUpdatedEvent(context: CodexSessionContext, goal: CodexGoalSnapshot): void {
+    this.emitEvent({
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: "codex",
+      threadId: context.session.threadId,
+      createdAt: new Date().toISOString(),
+      method: "thread/goal/updated",
+      payload: {
+        threadId: goal.threadId,
+        goal,
+      },
+    });
+  }
+
   private readChildParentTurnId(context: CodexSessionContext, params: unknown): TurnId | undefined {
     const providerConversationId = this.readProviderConversationId(params);
     if (!providerConversationId) {
       return undefined;
     }
-    return context.collabReceiverTurns.get(providerConversationId);
+    return context.collabReceiverTurns.get(providerConversationId)?.parentTurnId;
+  }
+
+  private hasChildConversationRoute(context: CodexSessionContext, params: unknown): boolean {
+    const providerConversationId = this.readProviderConversationId(params);
+    return providerConversationId ? context.collabReceiverTurns.has(providerConversationId) : false;
+  }
+
+  private withChildConversationRoute(
+    context: CodexSessionContext,
+    params: unknown,
+    parentTurnId: TurnId | undefined,
+  ): unknown {
+    const record = this.readObject(params);
+    if (!record) {
+      return params;
+    }
+    const providerConversationId = this.readProviderConversationId(params);
+    const existingAce = this.readObject(record, "ace");
+    const route = providerConversationId
+      ? context.collabReceiverTurns.get(providerConversationId)
+      : undefined;
+    if (!parentTurnId && !route) {
+      return params;
+    }
+    return {
+      ...record,
+      ace: {
+        ...existingAce,
+        ...(parentTurnId ? { parentTurnId } : {}),
+        ...(providerConversationId ? { childProviderThreadId: providerConversationId } : {}),
+        ...(route?.subagent ? { subagent: route.subagent } : {}),
+      },
+    };
   }
 
   private rememberCollabReceiverTurns(
@@ -2089,6 +2285,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
     const payload = this.readObject(params);
+    if (!payload) {
+      return;
+    }
     const item = this.readObject(payload, "item") ?? payload;
     const itemType = this.readString(item, "type") ?? this.readString(item, "kind");
     if (itemType !== "collabAgentToolCall") {
@@ -2099,27 +2298,65 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readArray(item, "receiverThreadIds")
         ?.map((value) => (typeof value === "string" ? value : null))
         .filter((value): value is string => value !== null) ?? [];
+    const subagent = this.readCodexCollabSubagent(payload, item);
     for (const receiverThreadId of receiverThreadIds) {
-      context.collabReceiverTurns.set(receiverThreadId, parentTurnId);
+      context.collabReceiverTurns.set(receiverThreadId, {
+        ...(parentTurnId ? { parentTurnId } : {}),
+        ...(subagent ? { subagent: { ...subagent, id: receiverThreadId } } : {}),
+      });
     }
   }
 
-  private shouldSuppressChildConversationNotification(method: string): boolean {
-    return (
-      method === "thread/started" ||
-      method === "thread/status/changed" ||
-      method === "thread/archived" ||
-      method === "thread/unarchived" ||
-      method === "thread/closed" ||
-      method === "thread/compacted" ||
-      method === "thread/name/updated" ||
-      method === "thread/tokenUsage/updated" ||
-      method === "turn/started" ||
-      method === "turn/completed" ||
-      method === "turn/aborted" ||
-      method === "turn/plan/updated" ||
-      method === "item/plan/delta"
-    );
+  private readCodexCollabSubagent(
+    payload: Record<string, unknown>,
+    item: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    const input = this.readObject(payload, "input") ?? this.readObject(item, "input");
+    const args = this.readObject(payload, "arguments") ?? this.readObject(item, "arguments");
+    const subagent =
+      this.readObject(payload, "subagent") ??
+      this.readObject(item, "subagent") ??
+      this.readObject(input, "subagent") ??
+      this.readObject(args, "subagent");
+    const type =
+      this.readString(subagent, "type") ??
+      this.readString(payload, "subagentType") ??
+      this.readString(payload, "subagent_type") ??
+      this.readString(item, "subagentType") ??
+      this.readString(item, "subagent_type") ??
+      this.readString(input, "subagentType") ??
+      this.readString(input, "subagent_type") ??
+      this.readString(args, "subagentType") ??
+      this.readString(args, "subagent_type");
+    const name =
+      this.readString(subagent, "name") ??
+      this.readString(subagent, "displayName") ??
+      this.readString(payload, "agentName") ??
+      this.readString(payload, "agent_name") ??
+      this.readString(payload, "name") ??
+      this.readString(item, "agentName") ??
+      this.readString(item, "agent_name") ??
+      this.readString(item, "name") ??
+      this.readString(input, "agentName") ??
+      this.readString(input, "agent_name") ??
+      this.readString(input, "name") ??
+      this.readString(args, "agentName") ??
+      this.readString(args, "agent_name") ??
+      this.readString(args, "name");
+    const model =
+      this.readString(subagent, "model") ??
+      this.readString(payload, "model") ??
+      this.readString(item, "model") ??
+      this.readString(input, "model") ??
+      this.readString(args, "model");
+    if (!type && !name && !model) {
+      return undefined;
+    }
+    return {
+      ...(type ? { type } : {}),
+      ...(name ? { name } : {}),
+      ...(model ? { model } : {}),
+    };
   }
 
   private shouldApplyActiveTurnTerminalNotification(
@@ -2177,6 +2414,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     const candidate = (value as Record<string, unknown>)[key];
     return typeof candidate === "boolean" ? candidate : undefined;
+  }
+
+  private readPositiveInteger(value: unknown, key: string): number | undefined {
+    const candidate = this.readNumber(value, key);
+    return candidate !== undefined && Number.isInteger(candidate) && candidate > 0
+      ? candidate
+      : undefined;
+  }
+
+  private readNonNegativeInteger(value: unknown, key: string): number | undefined {
+    const candidate = this.readNumber(value, key);
+    return candidate !== undefined && Number.isInteger(candidate) && candidate >= 0
+      ? candidate
+      : undefined;
+  }
+
+  private readNumber(value: unknown, key: string): number | undefined {
+    if (!value || typeof value !== "object") {
+      return undefined;
+    }
+
+    const candidate = (value as Record<string, unknown>)[key];
+    return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : undefined;
   }
 }
 

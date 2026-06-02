@@ -558,11 +558,27 @@ label {
 
 .thread-terminal-drawer {
   background-color: var(--terminal-surface);
+  contain: layout paint style;
+  isolation: isolate;
+}
+
+.browser-render-island,
+.editor-render-island {
+  contain: layout paint style;
+  isolation: isolate;
+}
+
+.browser-render-island [data-in-app-browser-shell="true"],
+.editor-render-island .monaco-editor {
+  contain: layout paint style;
+  isolation: isolate;
 }
 
 .thread-terminal-drawer .terminal-viewport {
   background: var(--terminal-surface);
   box-shadow: none;
+  contain: layout paint style;
+  isolation: isolate;
 }
 
 .thread-terminal-drawer .xterm,

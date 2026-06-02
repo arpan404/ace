@@ -52,7 +52,7 @@ describe("terminalStateStore actions", () => {
     expect(terminalState.splitRatiosByGroupId["group-default"]).toEqual([0.5, 0.5]);
   });
 
-  it("caps splits at four terminals per group", () => {
+  it("allows additional split terminals in the active group", () => {
     const store = useTerminalStateStore.getState();
     store.splitTerminal(THREAD_ID, "terminal-2");
     store.splitTerminal(THREAD_ID, "terminal-3");
@@ -68,9 +68,13 @@ describe("terminalStateStore actions", () => {
       "terminal-2",
       "terminal-3",
       "terminal-4",
+      "terminal-5",
     ]);
     expect(terminalState.terminalGroups).toEqual([
-      { id: "group-default", terminalIds: ["default", "terminal-2", "terminal-3", "terminal-4"] },
+      {
+        id: "group-default",
+        terminalIds: ["default", "terminal-2", "terminal-3", "terminal-4", "terminal-5"],
+      },
     ]);
   });
 
@@ -92,6 +96,23 @@ describe("terminalStateStore actions", () => {
       "group-default": [1],
       "group-terminal-2": [1],
     });
+  });
+
+  it("creates background terminals without opening the bottom drawer", () => {
+    useTerminalStateStore.getState().newBackgroundTerminal(THREAD_ID, "terminal-2");
+
+    const terminalState = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+    );
+    expect(terminalState.terminalOpen).toBe(false);
+    expect(terminalState.terminalIds).toEqual(["default", "terminal-2"]);
+    expect(terminalState.activeTerminalId).toBe("terminal-2");
+    expect(terminalState.activeTerminalGroupId).toBe("group-terminal-2");
+    expect(terminalState.terminalGroups).toEqual([
+      { id: "group-default", terminalIds: ["default"] },
+      { id: "group-terminal-2", terminalIds: ["terminal-2"] },
+    ]);
   });
 
   it("allows unlimited groups while keeping each group capped at four terminals", () => {

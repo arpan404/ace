@@ -7,7 +7,7 @@ import {
 
 const CODEX_VERSION_PATTERN = /\bv?(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?)\b/;
 
-export const MINIMUM_CODEX_CLI_VERSION = "0.37.0";
+export const MINIMUM_CODEX_CLI_VERSION = "0.135.0";
 
 export function compareCodexCliVersions(left: string, right: string): number {
   return compareCliVersions(left, right);

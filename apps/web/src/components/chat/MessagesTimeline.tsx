@@ -68,7 +68,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
-import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
+import { DiffStatLabel } from "./DiffStatLabel";
+import { hasNonZeroStat } from "./diffStat";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
@@ -3610,7 +3611,7 @@ const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
   );
 });
 
-const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
+export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
   variant?: "nested" | "standalone";
