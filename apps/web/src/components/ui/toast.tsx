@@ -4,7 +4,13 @@ import { Toast } from "@base-ui/react/toast";
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { useParams } from "@tanstack/react-router";
 import { ThreadId } from "@ace/contracts";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CircleAlertIcon,
+  CopyIcon,
+  LoaderCircleIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { buttonVariants } from "~/components/ui/buttonVariants";
@@ -34,6 +40,11 @@ const TOAST_DESCRIPTION_CLASS_NAME =
   "min-w-0 select-text break-words text-[12px] leading-4.5 text-muted-foreground/76";
 const TOAST_ACTION_CLASS_NAME =
   "h-8 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-3 text-[13px] font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+const TOAST_STATUS_ICONS = {
+  error: CircleAlertIcon,
+  loading: LoaderCircleIcon,
+  warning: TriangleAlertIcon,
+} as const;
 
 function resolveToastProgressPercent(data: ThreadToastData | undefined): number | null {
   if (typeof data?.progressPercent !== "number" || !Number.isFinite(data.progressPercent)) {
@@ -79,20 +90,57 @@ function CopyErrorButton({ text }: { text: string }) {
   );
 }
 
+function resolveToastStatusIcon(type: string | null | undefined) {
+  if (type !== "error" && type !== "loading" && type !== "warning") {
+    return null;
+  }
+  return TOAST_STATUS_ICONS[type];
+}
+
+function ToastStatusIcon({
+  Icon,
+  type,
+}: {
+  Icon: (typeof TOAST_STATUS_ICONS)[keyof typeof TOAST_STATUS_ICONS];
+  type: keyof typeof TOAST_STATUS_ICONS;
+}) {
+  return (
+    <Icon
+      className={cn(
+        "mt-0.5 size-4 shrink-0",
+        type === "error" && "text-destructive",
+        type === "loading" && "animate-spin text-info/90",
+        type === "warning" && "text-warning",
+      )}
+      strokeWidth={2.25}
+      aria-hidden="true"
+    />
+  );
+}
+
 function ToastMessageContent({
   action,
   copyErrorText,
   progressPercent,
+  statusIcon,
+  statusType,
 }: {
   action: ReactNode;
   copyErrorText: string | null;
   progressPercent: number | null;
+  statusIcon: (typeof TOAST_STATUS_ICONS)[keyof typeof TOAST_STATUS_ICONS] | null;
+  statusType: keyof typeof TOAST_STATUS_ICONS | null;
 }) {
   return (
     <>
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex items-start justify-between gap-2">
-          <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
+          <div className="flex min-w-0 items-start gap-1.5">
+            {statusIcon && statusType ? (
+              <ToastStatusIcon Icon={statusIcon} type={statusType} />
+            ) : null}
+            <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
+          </div>
           {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
         </div>
         <Toast.Description className={TOAST_DESCRIPTION_CLASS_NAME} data-slot="toast-description" />
@@ -259,6 +307,11 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
         }
       >
         {visibleToastLayout.items.map(({ toast, visibleIndex, offsetY }) => {
+          const statusIcon = resolveToastStatusIcon(toast.type);
+          const statusType =
+            toast.type === "error" || toast.type === "loading" || toast.type === "warning"
+              ? toast.type
+              : null;
           const hideCollapsedContent = shouldHideCollapsedToastContent(
             visibleIndex,
             visibleToastLayout.items.length,
@@ -365,6 +418,8 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                       : null
                   }
                   progressPercent={progressPercent}
+                  statusIcon={statusIcon}
+                  statusType={statusType}
                 />
               </Toast.Content>
             </Toast.Root>
@@ -398,6 +453,11 @@ function AnchoredToasts() {
           const tooltipStyle = toast.data?.tooltipStyle ?? false;
           const positionerProps = toast.positionerProps;
           const progressPercent = resolveToastProgressPercent(toast.data);
+          const statusIcon = resolveToastStatusIcon(toast.type);
+          const statusType =
+            toast.type === "error" || toast.type === "loading" || toast.type === "warning"
+              ? toast.type
+              : null;
 
           if (!positionerProps?.anchor) {
             return null;
@@ -445,6 +505,8 @@ function AnchoredToasts() {
                           : null
                       }
                       progressPercent={progressPercent}
+                      statusIcon={statusIcon}
+                      statusType={statusType}
                     />
                   </Toast.Content>
                 )}
