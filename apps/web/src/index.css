@@ -557,11 +557,15 @@ label {
 
 .thread-terminal-drawer {
   background-color: var(--terminal-surface);
+  contain: layout paint style;
+  isolation: isolate;
 }
 
 .thread-terminal-drawer .terminal-viewport {
   background: var(--terminal-surface);
   box-shadow: none;
+  contain: layout paint style;
+  isolation: isolate;
 }
 
 .thread-terminal-drawer .xterm,

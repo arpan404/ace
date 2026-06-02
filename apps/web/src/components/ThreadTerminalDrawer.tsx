@@ -377,9 +377,9 @@ interface TerminalViewportProps {
   cwd: string;
   runtimeEnv?: Record<string, string>;
   interactive: boolean;
-  onSessionExited: () => void;
+  onSessionExited: (terminalId: string) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
-  onAutoTerminalTitleChange: (title: string | null) => void;
+  onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   focusRequestId: number;
   shouldFocusTerminal: boolean;
   drawerHeight: number;
@@ -710,6 +710,7 @@ function useTerminalViewportComponent({
       commandBufferRef.current = nextInputState.buffer;
       if (nextInputState.submittedCommand) {
         onAutoTerminalTitleChangeRef.current(
+          terminalId,
           deriveTerminalTitleFromCommand(nextInputState.submittedCommand),
         );
       }
@@ -830,7 +831,7 @@ function useTerminalViewportComponent({
       }
 
       if (event.type === "title") {
-        onAutoTerminalTitleChangeRef.current(event.title);
+        onAutoTerminalTitleChangeRef.current(terminalId, event.title);
         return;
       }
 
@@ -868,7 +869,7 @@ function useTerminalViewportComponent({
           if (!hasHandledExitRef.current) {
             return;
           }
-          onSessionExitedRef.current();
+          onSessionExitedRef.current(terminalId);
         }, 0);
       }
     });
@@ -984,9 +985,47 @@ function useTerminalViewportComponent({
   );
 }
 
-function TerminalViewport(props: TerminalViewportProps) {
-  return useTerminalViewportComponent(props);
+function shallowRuntimeEnvEqual(
+  left: Record<string, string> | undefined,
+  right: Record<string, string> | undefined,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  const leftEntries = Object.entries(left);
+  const rightKeys = Object.keys(right);
+  if (leftEntries.length !== rightKeys.length) {
+    return false;
+  }
+  return leftEntries.every(([key, value]) => right[key] === value);
 }
+
+function terminalViewportPropsEqual(
+  previous: TerminalViewportProps,
+  next: TerminalViewportProps,
+): boolean {
+  return (
+    previous.threadId === next.threadId &&
+    previous.terminalId === next.terminalId &&
+    previous.terminalLabel === next.terminalLabel &&
+    previous.cwd === next.cwd &&
+    previous.interactive === next.interactive &&
+    previous.focusRequestId === next.focusRequestId &&
+    previous.shouldFocusTerminal === next.shouldFocusTerminal &&
+    previous.drawerHeight === next.drawerHeight &&
+    previous.onSessionExited === next.onSessionExited &&
+    previous.onAddTerminalContext === next.onAddTerminalContext &&
+    previous.onAutoTerminalTitleChange === next.onAutoTerminalTitleChange &&
+    shallowRuntimeEnvEqual(previous.runtimeEnv, next.runtimeEnv)
+  );
+}
+
+const TerminalViewport = memo(function TerminalViewport(props: TerminalViewportProps) {
+  return useTerminalViewportComponent(props);
+}, terminalViewportPropsEqual);
 
 interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
@@ -1624,11 +1663,9 @@ export default memo(function ThreadTerminalDrawer({
                       cwd={cwd}
                       {...(runtimeEnv ? { runtimeEnv } : {})}
                       interactive={interactive && terminalId === resolvedActiveTerminalId}
-                      onSessionExited={() => onCloseTerminal(terminalId)}
+                      onSessionExited={onCloseTerminal}
                       onAddTerminalContext={onAddTerminalContext}
-                      onAutoTerminalTitleChange={(title) =>
-                        onAutoTerminalTitleChange(terminalId, title)
-                      }
+                      onAutoTerminalTitleChange={onAutoTerminalTitleChange}
                       focusRequestId={focusRequestId}
                       shouldFocusTerminal={interactive && terminalId === resolvedActiveTerminalId}
                       drawerHeight={drawerHeight}
