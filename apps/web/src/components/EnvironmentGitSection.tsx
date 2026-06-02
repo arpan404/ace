@@ -214,11 +214,13 @@ function getMenuActionDisabledReason({
   gitStatus,
   isBusy,
   hasOriginRemote,
+  isDefaultBranch,
 }: {
   item: GitActionMenuItem;
   gitStatus: GitStatusResult | null;
   isBusy: boolean;
   hasOriginRemote: boolean;
+  isDefaultBranch: boolean;
 }): string | null {
   if (!item.disabled) return null;
   if (isBusy) return "Git action in progress.";
@@ -268,7 +270,10 @@ function getMenuActionDisabledReason({
   if (!gitStatus.hasUpstream && !hasOriginRemote) {
     return 'Add an "origin" remote before creating a PR.';
   }
-  if (!isAhead) {
+  if (isDefaultBranch && !isAhead) {
+    return "Create PR from the default branch is unavailable.";
+  }
+  if (!gitStatus.hasUpstream && !isAhead) {
     return "No local commits to include in a PR.";
   }
   if (isBehind) {
@@ -512,8 +517,8 @@ function useEnvironmentGitSection({
   }, [branchList?.branches, gitStatusForActions?.branch]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote, isDefaultBranch),
+    [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
   );
   const quickAction = useMemo(
     () =>
@@ -1010,6 +1015,7 @@ function useEnvironmentGitSection({
                     gitStatus: gitStatusForActions,
                     isBusy: isGitActionRunning,
                     hasOriginRemote,
+                    isDefaultBranch,
                   });
                   return (
                     <MenuItem
