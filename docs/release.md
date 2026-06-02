@@ -233,6 +233,7 @@ Useful options:
 ```bash
 bun run release -- --tag v0.2.0 --previous-tag v0.2.0-beta
 bun run dist:desktop:all -- --tag v0.2.0 --output-dir release-v0.2.0
+bun run dist:desktop:all -- --tag v0.2.0 --parallel 4
 bun run release:desktop:local -- --tag v0.2.0 --skip-build --publish
 bun run release:desktop:local -- --tag v0.2.0 --skip-gates --publish
 bun run release:desktop:local -- --tag v0.2.0 --allow-dirty --publish
@@ -245,7 +246,7 @@ What the script does:
 3. Runs `bun fmt`, `bun lint`, and `bun typecheck` unless `--skip-gates` is passed.
 4. Runs `bun run build:desktop` unless `--skip-build` is passed.
 5. Requires macOS signing/notarization env before mac packaging.
-6. Builds:
+6. Builds the desktop targets sequentially by default, or with up to `--parallel <jobs>` concurrent target builds:
    - macOS `arm64` DMG and ZIP on the host.
    - macOS `x64` DMG and ZIP on the host.
    - Linux `x64` AppImage in Docker.

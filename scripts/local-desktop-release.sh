@@ -14,6 +14,7 @@ skip_build=0
 skip_push=0
 create_tag=0
 allow_dirty=0
+parallel_jobs=1
 
 usage() {
   printf '%s\n' \
@@ -32,6 +33,7 @@ usage() {
     "  --skip-build          Skip bun run build:desktop and reuse existing dist artifacts." \
     "  --skip-push           Do not push the tag before publishing." \
     "  --allow-dirty         Allow uncommitted tracked source changes." \
+    "  --parallel <jobs>     Build up to <jobs> desktop targets concurrently after shared artifacts." \
     "  -h, --help            Show this help."
 }
 
@@ -77,6 +79,19 @@ while [[ $# -gt 0 ]]; do
       allow_dirty=1
       shift
       ;;
+    --parallel)
+      if [[ -z "${2:-}" ]]; then
+        printf 'Missing value for --parallel.\n\n' >&2
+        usage >&2
+        exit 1
+      fi
+      parallel_jobs="${2:-}"
+      shift 2
+      ;;
+    --parallel=*)
+      parallel_jobs="${1#*=}"
+      shift
+      ;;
     -h | --help)
       usage
       exit 0
@@ -95,6 +110,12 @@ done
 
 if [[ -z "$tag" ]]; then
   printf 'Missing --tag.\n\n' >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ ! "$parallel_jobs" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'Parallel job count must be a positive integer: %s\n\n' "$parallel_jobs" >&2
   usage >&2
   exit 1
 fi
@@ -283,7 +304,7 @@ build_shared_artifacts() {
   run bun run build:desktop
 }
 
-build_macos() {
+build_macos_arm64() {
   require_macos_signing_env
   run bun run dist:desktop:artifact -- \
     --platform mac \
@@ -294,6 +315,10 @@ build_macos() {
     --skip-build \
     --signed \
     --verbose
+}
+
+build_macos_x64() {
+  require_macos_signing_env
   run bun run dist:desktop:artifact -- \
     --platform mac \
     --target dmg \
@@ -305,13 +330,20 @@ build_macos() {
     --verbose
 }
 
-build_linux_docker() {
+build_macos() {
+  build_macos_arm64
+  build_macos_x64
+}
+
+build_linux_docker_image() {
   run docker build \
     --platform linux/amd64 \
     --file "$repo_root/scripts/docker/desktop-linux.Dockerfile" \
     --tag "$linux_image" \
     "$repo_root/scripts/docker"
+}
 
+build_linux_docker_x64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=x64 \
@@ -326,7 +358,9 @@ build_linux_docker() {
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform linux --target "$ACE_DESKTOP_TARGET" --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
+}
 
+build_linux_docker_arm64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=arm64 \
@@ -343,13 +377,21 @@ build_linux_docker() {
     "$version"
 }
 
-build_windows_docker() {
+build_linux_docker() {
+  build_linux_docker_image
+  build_linux_docker_x64
+  build_linux_docker_arm64
+}
+
+build_windows_docker_image() {
   run docker build \
     --platform linux/amd64 \
     --file "$repo_root/scripts/docker/desktop-windows.Dockerfile" \
     --tag "$windows_image" \
     "$repo_root/scripts/docker"
+}
 
+build_windows_docker_x64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=x64 \
@@ -363,7 +405,9 @@ build_windows_docker() {
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
+}
 
+build_windows_docker_arm64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=arm64 \
@@ -377,6 +421,69 @@ build_windows_docker() {
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
+}
+
+build_windows_docker() {
+  build_windows_docker_image
+  build_windows_docker_x64
+  build_windows_docker_arm64
+}
+
+run_parallel() {
+  local pids=()
+  local names=()
+  local status=0
+
+  while [[ $# -gt 0 ]]; do
+    local name="$1"
+    local command="$2"
+    shift 2
+
+    while [[ "$(jobs -rp | wc -l | tr -d '[:space:]')" -ge "$parallel_jobs" ]]; do
+      sleep 1
+    done
+
+    printf '\n==> Starting %s\n' "$name"
+    (
+      set -euo pipefail
+      "$command"
+    ) &
+    pids+=("$!")
+    names+=("$name")
+  done
+
+  local index
+  for index in "${!pids[@]}"; do
+    if wait "${pids[$index]}"; then
+      printf '\n==> Finished %s\n' "${names[$index]}"
+    else
+      printf '\n==> Failed %s\n' "${names[$index]}" >&2
+      status=1
+    fi
+  done
+
+  return "$status"
+}
+
+build_release_targets() {
+  if [[ "$parallel_jobs" -eq 1 ]]; then
+    build_macos
+    build_linux_docker
+    build_windows_docker
+    return
+  fi
+
+  require_macos_signing_env
+  run_parallel \
+    "Linux Docker image" build_linux_docker_image \
+    "Windows Docker image" build_windows_docker_image
+  run_parallel \
+    "macOS arm64" build_macos_arm64 \
+    "macOS x64" build_macos_x64 \
+    "Linux x64" build_linux_docker_x64 \
+    "Linux arm64" build_linux_docker_arm64 \
+    "Windows x64" build_windows_docker_x64 \
+    "Windows arm64" build_windows_docker_arm64
 }
 
 collect_assets() {
@@ -511,8 +618,6 @@ resolve_git_common_mount
 run_gates
 build_shared_artifacts
 run rm -rf "$output_dir"
-build_macos
-build_linux_docker
-build_windows_docker
+build_release_targets
 collect_assets
 publish_release
