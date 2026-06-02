@@ -128,6 +128,7 @@ import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  DEFAULT_THREAD_TERMINAL_HEIGHT,
   DEFAULT_THREAD_TERMINAL_ID,
   type ChatMessage,
   type QueuedComposerImageAttachment,
@@ -405,7 +406,21 @@ const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+const MIN_BOTTOM_PANEL_HEIGHT = 180;
+const MAX_BOTTOM_PANEL_HEIGHT_RATIO = 0.75;
 type DockPanelMode = RightSidePanelMode;
+
+interface PanelEditorTab {
+  id: string;
+  label: string;
+}
+
+function createPanelEditorTab(index: number): PanelEditorTab {
+  return {
+    id: `editor-${randomUUID()}`,
+    label: index <= 1 ? "Editor" : `Editor ${index}`,
+  };
+}
 
 interface PanelChooserOption {
   description: string;
@@ -452,6 +467,22 @@ function PanelChooser(props: { className?: string | undefined; options: PanelCho
         })}
       </div>
     </div>
+  );
+}
+
+function maxBottomPanelHeight(): number {
+  if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
+  return Math.max(
+    MIN_BOTTOM_PANEL_HEIGHT,
+    Math.floor(window.innerHeight * MAX_BOTTOM_PANEL_HEIGHT_RATIO),
+  );
+}
+
+function clampBottomPanelHeight(height: number): number {
+  const safeHeight = Number.isFinite(height) ? height : DEFAULT_THREAD_TERMINAL_HEIGHT;
+  return Math.min(
+    Math.max(Math.round(safeHeight), MIN_BOTTOM_PANEL_HEIGHT),
+    maxBottomPanelHeight(),
   );
 }
 type ThreadTerminalDrawerProps = ComponentProps<typeof ThreadTerminalDrawer>;
@@ -1244,8 +1275,19 @@ function useChatViewComponent({
   } = useChatViewPersistentPanelState(threadId);
   const [bottomPanelMode, setBottomPanelMode] = useState<DockPanelMode | null>(null);
   const [bottomPanelBrowserOpen, setBottomPanelBrowserOpen] = useState(false);
-  const [bottomPanelEditorOpen, setBottomPanelEditorOpen] = useState(false);
   const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
+  const [rightPanelEditorTabs, setRightPanelEditorTabs] = useState<PanelEditorTab[]>(() =>
+    rightSidePanelEditorOpen ? [createPanelEditorTab(1)] : [],
+  );
+  const [activeRightPanelEditorTabId, setActiveRightPanelEditorTabId] = useState<string | null>(
+    () => (rightSidePanelEditorOpen ? (rightPanelEditorTabs[0]?.id ?? null) : null),
+  );
+  const [bottomPanelEditorTabs, setBottomPanelEditorTabs] = useState<PanelEditorTab[]>([]);
+  const [activeBottomPanelEditorTabId, setActiveBottomPanelEditorTabId] = useState<string | null>(
+    null,
+  );
+  const rightPanelEditorTabIndexRef = useRef(rightSidePanelEditorOpen ? 2 : 1);
+  const bottomPanelEditorTabIndexRef = useRef(1);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -4400,9 +4442,29 @@ function useChatViewComponent({
   const setTerminalHeight = useCallback(
     (height: number) => {
       if (!activeThreadId) return;
-      storeSetTerminalHeight(activeThreadId, height);
+      storeSetTerminalHeight(activeThreadId, clampBottomPanelHeight(height));
     },
     [activeThreadId, storeSetTerminalHeight],
+  );
+  const handleBottomPanelResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (!activeThreadId) return;
+      event.preventDefault();
+      const startY = event.clientY;
+      const startHeight = terminalState.terminalHeight;
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const nextHeight = startHeight + (startY - moveEvent.clientY);
+        storeSetTerminalHeight(activeThreadId, clampBottomPanelHeight(nextHeight));
+      };
+      const handlePointerUp = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.dispatchEvent(new CustomEvent(SIDEBAR_RESIZE_END_EVENT));
+      };
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp, { once: true });
+    },
+    [activeThreadId, storeSetTerminalHeight, terminalState.terminalHeight],
   );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
@@ -4483,11 +4545,68 @@ function useChatViewComponent({
     }
     setRightSidePanelVisible(true);
   }, [rightSidePanelOpen, setRightSidePanelVisible]);
-  const onOpenRightSidePanelEditor = useCallback(() => {
+  const onNewRightSidePanelEditorTab = useCallback(() => {
+    const tab = createPanelEditorTab(rightPanelEditorTabIndexRef.current);
+    rightPanelEditorTabIndexRef.current += 1;
+    setRightPanelEditorTabs((current) => [...current, tab]);
+    setActiveRightPanelEditorTabId(tab.id);
     setRightSidePanelEditorOpen(true);
     setRightSidePanelMode("editor");
     setRightSidePanelVisible(true);
   }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
+  const onSelectRightSidePanelEditorTab = useCallback(
+    (tabId: string) => {
+      setActiveRightPanelEditorTabId(tabId);
+      setRightSidePanelEditorOpen(true);
+      setRightSidePanelMode("editor");
+      setRightSidePanelVisible(true);
+    },
+    [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible],
+  );
+  const onCloseRightSidePanelEditorTab = useCallback(
+    (tabId: string) => {
+      const tabIndex = rightPanelEditorTabs.findIndex((tab) => tab.id === tabId);
+      if (tabIndex < 0) return;
+      const nextTabs = rightPanelEditorTabs.filter((tab) => tab.id !== tabId);
+      setRightPanelEditorTabs(nextTabs);
+      if (nextTabs.length === 0) {
+        setActiveRightPanelEditorTabId(null);
+        setRightSidePanelEditorOpen(false);
+        setRightSidePanelMode((current) => (current === "editor" ? null : current));
+        return;
+      }
+      setActiveRightPanelEditorTabId((current) => {
+        if (current && current !== tabId && nextTabs.some((tab) => tab.id === current)) {
+          return current;
+        }
+        return nextTabs[Math.min(tabIndex, nextTabs.length - 1)]?.id ?? null;
+      });
+    },
+    [
+      rightPanelEditorTabs,
+      setRightSidePanelEditorOpen,
+      setRightSidePanelMode,
+      setRightPanelEditorTabs,
+    ],
+  );
+  const onOpenRightSidePanelEditor = useCallback(() => {
+    if (rightPanelEditorTabs.length === 0) {
+      onNewRightSidePanelEditorTab();
+      return;
+    }
+    const activeEditorTabId = activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? null;
+    setActiveRightPanelEditorTabId(activeEditorTabId);
+    setRightSidePanelEditorOpen(true);
+    setRightSidePanelMode("editor");
+    setRightSidePanelVisible(true);
+  }, [
+    activeRightPanelEditorTabId,
+    onNewRightSidePanelEditorTab,
+    rightPanelEditorTabs,
+    setRightSidePanelEditorOpen,
+    setRightSidePanelMode,
+    setRightSidePanelVisible,
+  ]);
   const onOpenRightSidePanelTerminal = useCallback(() => {
     setRightSidePanelTerminalOpen(true);
     setRightSidePanelMode("terminal");
@@ -4631,20 +4750,76 @@ function useChatViewComponent({
     [],
   );
   const onCloseRightSidePanelEditor = useCallback(() => {
-    setRightSidePanelEditorOpen(false);
-    if (rightSidePanelMode === "editor") {
-      setRightSidePanelMode(null);
+    const activeEditorTabId = activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? null;
+    if (activeEditorTabId) {
+      onCloseRightSidePanelEditorTab(activeEditorTabId);
+      return;
     }
-  }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
-  const onCloseBottomPanelEditor = useCallback(() => {
-    setBottomPanelEditorOpen(false);
-    setBottomPanelMode((current) => (current === "editor" ? "terminal" : current));
-    setTerminalOpen(true);
-  }, [setTerminalOpen]);
-  const onOpenBottomPanelEditor = useCallback(() => {
-    setBottomPanelEditorOpen(true);
+    setRightSidePanelEditorOpen(false);
+    setRightSidePanelMode((current) => (current === "editor" ? null : current));
+  }, [
+    activeRightPanelEditorTabId,
+    onCloseRightSidePanelEditorTab,
+    rightPanelEditorTabs,
+    setRightSidePanelEditorOpen,
+    setRightSidePanelMode,
+  ]);
+  const onNewBottomPanelEditorTab = useCallback(() => {
+    const tab = createPanelEditorTab(bottomPanelEditorTabIndexRef.current);
+    bottomPanelEditorTabIndexRef.current += 1;
+    setBottomPanelEditorTabs((current) => [...current, tab]);
+    setActiveBottomPanelEditorTabId(tab.id);
     setBottomPanelMode("editor");
   }, []);
+  const onSelectBottomPanelEditorTab = useCallback((tabId: string) => {
+    setActiveBottomPanelEditorTabId(tabId);
+    setBottomPanelMode("editor");
+  }, []);
+  const onCloseBottomPanelEditorTab = useCallback(
+    (tabId: string) => {
+      const tabIndex = bottomPanelEditorTabs.findIndex((tab) => tab.id === tabId);
+      if (tabIndex < 0) return;
+      const nextTabs = bottomPanelEditorTabs.filter((tab) => tab.id !== tabId);
+      setBottomPanelEditorTabs(nextTabs);
+      if (nextTabs.length === 0) {
+        setActiveBottomPanelEditorTabId(null);
+        setBottomPanelMode((current) => (current === "editor" ? "terminal" : current));
+        setTerminalOpen(true);
+        return;
+      }
+      setActiveBottomPanelEditorTabId((current) => {
+        if (current && current !== tabId && nextTabs.some((tab) => tab.id === current)) {
+          return current;
+        }
+        return nextTabs[Math.min(tabIndex, nextTabs.length - 1)]?.id ?? null;
+      });
+    },
+    [bottomPanelEditorTabs, setTerminalOpen],
+  );
+  const onCloseBottomPanelEditor = useCallback(() => {
+    const activeEditorTabId = activeBottomPanelEditorTabId ?? bottomPanelEditorTabs[0]?.id ?? null;
+    if (activeEditorTabId) {
+      onCloseBottomPanelEditorTab(activeEditorTabId);
+      return;
+    }
+    setBottomPanelMode((current) => (current === "editor" ? "terminal" : current));
+    setTerminalOpen(true);
+  }, [
+    activeBottomPanelEditorTabId,
+    bottomPanelEditorTabs,
+    onCloseBottomPanelEditorTab,
+    setTerminalOpen,
+  ]);
+  const onOpenBottomPanelEditor = useCallback(() => {
+    if (bottomPanelEditorTabs.length === 0) {
+      onNewBottomPanelEditorTab();
+      return;
+    }
+    setActiveBottomPanelEditorTabId(
+      activeBottomPanelEditorTabId ?? bottomPanelEditorTabs[0]?.id ?? null,
+    );
+    setBottomPanelMode("editor");
+  }, [activeBottomPanelEditorTabId, bottomPanelEditorTabs, onNewBottomPanelEditorTab]);
   const onCloseRightSidePanelTerminal = useCallback(() => {
     setRightSidePanelTerminalOpen(false);
     if (rightSidePanelMode === "terminal") {
@@ -4749,14 +4924,15 @@ function useChatViewComponent({
   const bottomPanelOpen =
     bottomPanelMode !== null ||
     bottomPanelBrowserOpen ||
-    bottomPanelEditorOpen ||
+    bottomPanelEditorTabs.length > 0 ||
     bottomPanelReviewOpen ||
     terminalState.terminalOpen;
   const onToggleBottomPanel = useCallback(() => {
     if (bottomPanelOpen) {
       setBottomPanelMode(null);
       setBottomPanelBrowserOpen(false);
-      setBottomPanelEditorOpen(false);
+      setBottomPanelEditorTabs([]);
+      setActiveBottomPanelEditorTabId(null);
       setBottomPanelReviewOpen(false);
       setTerminalOpen(false);
       return;
@@ -8552,8 +8728,7 @@ function useChatViewComponent({
     () => (isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null),
     [isThreadHistoryLoading],
   );
-  const environmentPanelCanUseInlineLayout =
-    chatViewportSize.width >= 1120 && chatViewportSize.height >= 760;
+  const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
   const environmentPanelInlineOpen =
     environmentPanelVisible && !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
@@ -8737,7 +8912,11 @@ function useChatViewComponent({
     ? (effectiveRightSidePanelMode ?? (diffOpen ? "diff" : null))
     : null;
   const activeRightSidePanelMode =
-    requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
+    requestedRightSidePanelMode === "browser" && !browserPanel
+      ? null
+      : requestedRightSidePanelMode === "editor" && rightPanelEditorTabs.length === 0
+        ? null
+        : requestedRightSidePanelMode;
   const bottomPanelHasContent = bottomPanelOpen;
   const requestedBottomPanelMode: DockPanelMode | null = bottomPanelHasContent
     ? (bottomPanelMode ?? "terminal")
@@ -8787,7 +8966,8 @@ function useChatViewComponent({
         className={className}
         diffAvailable={isGitRepo}
         editorShortcutLabel={rightPanelEditorShortcutLabel}
-        editorOpen={rightSidePanelEditorOpen}
+        editorTabs={rightPanelEditorTabs}
+        activeEditorTabId={activeRightPanelEditorTabId}
         floatingChatShortcutLabel={rightSidePanelFloatingChatShortcutLabel}
         fullscreen={rightSidePanelFullscreen}
         fullscreenShortcutLabel={rightSidePanelFullscreenShortcutLabel}
@@ -8804,7 +8984,8 @@ function useChatViewComponent({
         onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
         onToggleBottomPanel={onToggleBottomPanel}
         onDiffClose={onCloseRightSidePanelDiff}
-        onEditorClose={onCloseRightSidePanelEditor}
+        onEditorTabClose={onCloseRightSidePanelEditorTab}
+        onEditorTabSelect={onSelectRightSidePanelEditorTab}
         onTerminalClose={onCloseRightSidePanelTerminal}
         onTerminalTabClose={closeTerminal}
         onTerminalTabSelect={(terminalId) => {
@@ -8812,6 +8993,7 @@ function useChatViewComponent({
           onOpenRightSidePanelTerminal();
         }}
         onNewBrowserTab={onOpenRightSidePanelBrowserTab}
+        onNewEditorTab={onNewRightSidePanelEditorTab}
         onNewTerminalTab={createNewPanelTerminal}
         onSelectMode={onSelectRightSidePanelMode}
         onSelectSubagentThread={setActiveSubagentThreadId}
@@ -8835,7 +9017,8 @@ function useChatViewComponent({
         className={className}
         diffAvailable={isGitRepo}
         editorShortcutLabel={rightPanelEditorShortcutLabel}
-        editorOpen={bottomPanelEditorOpen}
+        editorTabs={bottomPanelEditorTabs}
+        activeEditorTabId={activeBottomPanelEditorTabId}
         floatingChatShortcutLabel={null}
         fullscreen={false}
         fullscreenShortcutLabel={null}
@@ -8851,7 +9034,8 @@ function useChatViewComponent({
         onBrowserTabReorder={onReorderBottomPanelBrowserTab}
         onBrowserTabSelect={onSelectBottomPanelBrowserTab}
         onDiffClose={onCloseBottomPanelDiff}
-        onEditorClose={onCloseBottomPanelEditor}
+        onEditorTabClose={onCloseBottomPanelEditorTab}
+        onEditorTabSelect={onSelectBottomPanelEditorTab}
         onTerminalClose={onCloseBottomPanelTerminal}
         onTerminalTabClose={closeTerminal}
         onTerminalTabSelect={(terminalId) => {
@@ -8859,6 +9043,7 @@ function useChatViewComponent({
           onSelectBottomPanelMode("terminal");
         }}
         onNewBrowserTab={onOpenBottomPanelBrowserTab}
+        onNewEditorTab={onNewBottomPanelEditorTab}
         onNewTerminalTab={createNewTerminal}
         onSelectMode={onSelectBottomPanelMode}
         onSelectSubagentThread={setActiveSubagentThreadId}
@@ -9485,6 +9670,7 @@ function useChatViewComponent({
                               }
                             >
                               <ThreadWorkspaceEditor
+                                key={activeRightPanelEditorTabId ?? "right-panel-editor"}
                                 availableEditors={availableEditors}
                                 branch={activeThreadBranchName}
                                 connectionUrl={activeServerConnectionUrl}
@@ -9530,12 +9716,19 @@ function useChatViewComponent({
           {activeBottomPanelMode ? (
             <m.div
               key="thread-bottom-dock-panel"
-              className="absolute inset-x-0 bottom-0 z-40 flex min-h-0 min-w-0 flex-col overflow-hidden border-t border-border/70 bg-background shadow-2xl shadow-black/35"
+              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-background"
               initial={{ height: 0, opacity: 0, y: 18 }}
               animate={{ height: terminalState.terminalHeight + 48, opacity: 1, y: 0 }}
               exit={{ height: 0, opacity: 0, y: 18 }}
               transition={TERMINAL_DRAWER_TRANSITION}
             >
+              <hr
+                aria-orientation="horizontal"
+                aria-label="Resize bottom panel"
+                tabIndex={0}
+                className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-border/75 before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border hover:after:bg-foreground/5 focus-visible:before:bg-border focus-visible:after:bg-foreground/5"
+                onPointerDown={handleBottomPanelResizePointerDown}
+              />
               <div className="flex h-12 shrink-0 items-stretch border-b border-border/70 bg-sidebar">
                 {bottomPanelTabStripNode}
               </div>
@@ -9606,6 +9799,7 @@ function useChatViewComponent({
                     }
                   >
                     <ThreadWorkspaceEditor
+                      key={activeBottomPanelEditorTabId ?? "bottom-panel-editor"}
                       availableEditors={availableEditors}
                       branch={activeThreadBranchName}
                       connectionUrl={activeServerConnectionUrl}
