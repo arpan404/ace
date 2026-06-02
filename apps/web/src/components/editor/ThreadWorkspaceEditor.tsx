@@ -15,6 +15,7 @@ import {
   IconLayoutSidebarFilled,
   IconSearch,
 } from "@tabler/icons-react";
+import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -127,6 +128,7 @@ const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 48;
 const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 36;
 const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
 const WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT = 24;
+const WORKSPACE_CODE_SEARCH_DEBOUNCE_MS = 250;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 const WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY = "ace:workspace-code-search-recents:v1";
 const WORKSPACE_CODE_SEARCH_RECENT_LIMIT = 6;
@@ -1266,7 +1268,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [],
   );
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
-  const deferredCodeSearchQuery = useDeferredValue(codeSearchQuery.trim());
+  const trimmedCodeSearchQuery = codeSearchQuery.trim();
+  const [debouncedCodeSearchQuery, codeSearchDebouncer] = useDebouncedValue(
+    trimmedCodeSearchQuery,
+    { wait: WORKSPACE_CODE_SEARCH_DEBOUNCE_MS },
+    (debouncerState) => ({ isPending: debouncerState.isPending }),
+  );
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
@@ -1644,18 +1651,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       "code-search",
       inputProps.connectionUrl ?? null,
       props.gitCwd,
-      deferredCodeSearchQuery,
+      debouncedCodeSearchQuery,
     ],
     queryFn: async ({ signal }): Promise<readonly WorkspaceCodeSearchResult[]> => {
       if (!api || !props.gitCwd) {
         throw new Error("Workspace code search is unavailable.");
       }
 
-      const searchQueries = buildWorkspaceCodeSearchQueries(deferredCodeSearchQuery);
+      const searchQueries = buildWorkspaceCodeSearchQueries(debouncedCodeSearchQuery);
       const candidateEntriesByPath = new Map<string, ProjectEntry>();
       for (const entry of searchWorkspaceEntriesLocally(
         searchableFileEntries,
-        deferredCodeSearchQuery,
+        debouncedCodeSearchQuery,
         { limit: WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT },
       )) {
         candidateEntriesByPath.set(entry.path, entry);
@@ -1728,7 +1735,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           const result = createWorkspaceCodeSearchResult({
             contents: batchFile.file.contents,
             entry: batchFile.entry,
-            query: deferredCodeSearchQuery,
+            query: debouncedCodeSearchQuery,
           });
           if (result) {
             results.push(result);
@@ -1742,7 +1749,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       sidebarMode === "search" &&
       Boolean(api) &&
       props.gitCwd !== null &&
-      deferredCodeSearchQuery.length >= 2,
+      debouncedCodeSearchQuery.length >= 2,
     staleTime: 20_000,
     placeholderData: (previous) => previous ?? [],
   });
@@ -1756,15 +1763,21 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const codeSearchFileResults = useMemo(
     () =>
-      deferredCodeSearchQuery.length >= 2
-        ? searchWorkspaceEntriesLocally(searchableFileEntries, deferredCodeSearchQuery, {
+      debouncedCodeSearchQuery.length >= 2
+        ? searchWorkspaceEntriesLocally(searchableFileEntries, debouncedCodeSearchQuery, {
             limit: WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT,
           }).filter((entry) => !codeSearchResultPathSet.has(entry.path))
         : EMPTY_PROJECT_ENTRIES,
-    [codeSearchResultPathSet, deferredCodeSearchQuery, searchableFileEntries],
+    [codeSearchResultPathSet, debouncedCodeSearchQuery, searchableFileEntries],
   );
   const codeSearchResultCount =
     codeSearchFileResults.length + (codeSearchResultsQuery.data?.length ?? 0);
+  const codeSearchBusy =
+    (trimmedCodeSearchQuery.length >= 2 &&
+      codeSearchDebouncer.state.isPending &&
+      trimmedCodeSearchQuery !== debouncedCodeSearchQuery) ||
+    codeSearchResultsQuery.isPending ||
+    codeSearchResultsQuery.isFetching;
   const visibleRecentCodeSearches = useMemo(
     () =>
       recentCodeSearches
@@ -1775,17 +1788,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
 
   useEffect(() => {
-    if (
-      sidebarMode !== "search" ||
-      deferredCodeSearchQuery.length < 2 ||
-      codeSearchResultsQuery.isPending ||
-      codeSearchResultsQuery.isFetching
-    ) {
+    if (sidebarMode !== "search" || debouncedCodeSearchQuery.length < 2 || codeSearchBusy) {
       return;
     }
 
     setRecentCodeSearches((current) => {
-      const nextQuery = deferredCodeSearchQuery.trim();
+      const nextQuery = debouncedCodeSearchQuery.trim();
       if (nextQuery.length < 2) {
         return current;
       }
@@ -1798,13 +1806,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ? current
         : next;
     });
-  }, [
-    codeSearchResultsQuery.isFetching,
-    codeSearchResultsQuery.isPending,
-    deferredCodeSearchQuery,
-    setRecentCodeSearches,
-    sidebarMode,
-  ]);
+  }, [codeSearchBusy, debouncedCodeSearchQuery, setRecentCodeSearches, sidebarMode]);
 
   useEffect(() => {
     if (treeEntries.length === 0) {
@@ -3976,20 +3978,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       />
                     </div>
                   </div>
-                  {deferredCodeSearchQuery.length >= 2 ? (
+                  {trimmedCodeSearchQuery.length >= 2 ? (
                     <div className="flex h-6 items-center gap-1.5 border-b border-border/35 bg-background/35 px-3 text-[10px] text-muted-foreground/70">
                       <span className="min-w-0 flex-1 truncate">
-                        {codeSearchResultsQuery.isPending || codeSearchResultsQuery.isFetching
-                          ? "Searching"
-                          : "Code matches"}
+                        {codeSearchBusy ? "Searching" : "Matches"}
                       </span>
-                      <span className="shrink-0 tabular-nums">
-                        {codeSearchResultsQuery.data?.length ?? 0}
-                      </span>
+                      <span className="shrink-0 tabular-nums">{codeSearchResultCount}</span>
                     </div>
                   ) : null}
                   <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
-                    {deferredCodeSearchQuery.length < 2 ? (
+                    {trimmedCodeSearchQuery.length < 2 ? (
                       <div className="flex min-h-full flex-col justify-end px-2.5 py-3">
                         {visibleRecentCodeSearches.length > 0 ? (
                           <div className="space-y-3">
@@ -4048,153 +4046,198 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                           </div>
                         )}
                       </div>
-                    ) : codeSearchResultsQuery.isPending || codeSearchResultsQuery.isFetching ? (
-                      <div className="space-y-2 p-2">
-                        {Array.from({ length: 7 }, (_, index) => (
-                          <div
-                            key={`code-search-pending-${index}`}
-                            className="space-y-1 rounded-md border border-border/45 bg-background/50 p-2"
-                          >
-                            <div className="h-3 w-3/4 rounded bg-foreground/6" />
-                            <div className="h-3 w-full rounded bg-foreground/4" />
-                            <div className="h-3 w-5/6 rounded bg-foreground/4" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : codeSearchResultsQuery.isError ? (
-                      <div className="px-3 py-4 text-[11px] text-destructive">
-                        Code search failed.
-                      </div>
-                    ) : (codeSearchResultsQuery.data?.length ?? 0) === 0 ? (
-                      <div className="px-3 py-4 text-[11px] text-muted-foreground/72">
-                        No code matches.
-                      </div>
                     ) : (
                       <div className="space-y-2 py-0.5">
-                        {codeSearchResultGroups.map((group) => (
-                          <section key={group.id} className="space-y-1.5">
+                        {codeSearchFileResults.length > 0 ? (
+                          <section className="space-y-1.5">
                             <div className="px-3 pt-1 text-[10px] font-medium text-muted-foreground/62">
-                              {group.label}
+                              Files
                             </div>
-                            {group.results.map((result) => (
-                              <div
-                                key={result.entry.path}
-                                className="group/result mx-1 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/45"
+                            {codeSearchFileResults.map((entry) => (
+                              <button
+                                key={entry.path}
+                                type="button"
+                                className="mx-1 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/45 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:outline-none"
+                                onClick={() => handleOpenCodeSearchFileResult(entry)}
                               >
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                                    onClick={() => handleOpenCodeSearchResult(result)}
-                                  >
-                                    <VscodeEntryIcon
-                                      pathValue={result.entry.path}
-                                      kind="file"
-                                      theme={resolvedTheme}
-                                      className="size-[15px]"
-                                    />
-                                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/95">
-                                      {result.entry.path}
+                                <VscodeEntryIcon
+                                  pathValue={entry.path}
+                                  kind="file"
+                                  theme={resolvedTheme}
+                                  className="size-[15px] shrink-0"
+                                />
+                                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/88">
+                                  {highlightWorkspaceCodeSearchText(
+                                    entry.path,
+                                    debouncedCodeSearchQuery,
+                                  ).map((part, index) => (
+                                    <span
+                                      key={`${index}:${part.text}`}
+                                      className={
+                                        part.highlight
+                                          ? "rounded-sm bg-primary/18 text-foreground"
+                                          : undefined
+                                      }
+                                    >
+                                      {part.text}
                                     </span>
-                                    <span className="rounded-sm bg-info/10 px-1.5 py-px text-[9px] font-medium text-info-foreground">
-                                      {result.matchCount || "path"}
-                                    </span>
-                                  </button>
-                                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/result:opacity-100 focus-within:opacity-100">
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
-                                            onClick={() =>
-                                              handleSplitPane(activePane?.id, result.entry.path)
-                                            }
-                                            aria-label="Open to side"
-                                          />
-                                        }
-                                      >
-                                        <ExternalLinkIcon className="size-3" />
-                                      </TooltipTrigger>
-                                      <TooltipPopup side="bottom">Open to side</TooltipPopup>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
-                                            onClick={() => {
-                                              void handleSendCodeSearchResultToAgent(result);
-                                            }}
-                                            aria-label="Send to agent"
-                                          />
-                                        }
-                                      >
-                                        <MessageSquareTextIcon className="size-3" />
-                                      </TooltipTrigger>
-                                      <TooltipPopup side="bottom">Send to agent</TooltipPopup>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
-                                            onClick={() => handleQueueCodeSearchResult(result)}
-                                            aria-label="Queue as context"
-                                          />
-                                        }
-                                      >
-                                        <ClipboardListIcon className="size-3" />
-                                      </TooltipTrigger>
-                                      <TooltipPopup side="bottom">Queue as context</TooltipPopup>
-                                    </Tooltip>
-                                  </div>
-                                </div>
-                                {result.snippets.length > 0 ? (
-                                  <div className="mt-1 space-y-0.5 pl-5">
-                                    {result.snippets.map((snippet) => (
-                                      <button
-                                        key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
-                                        type="button"
-                                        className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-background/65 hover:text-foreground"
-                                        onClick={() =>
-                                          handleOpenCodeSearchResult(result, snippet.lineNumber)
-                                        }
-                                      >
-                                        <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/65">
-                                          {snippet.lineNumber}
-                                        </span>
-                                        <span className="min-w-0 flex-1 truncate font-mono">
-                                          {highlightWorkspaceCodeSearchText(
-                                            snippet.text || " ",
-                                            deferredCodeSearchQuery,
-                                          ).map((part, index) => (
-                                            <span
-                                              key={`${index}:${part.text}`}
-                                              className={
-                                                part.highlight
-                                                  ? "rounded-sm bg-primary/18 text-foreground"
-                                                  : undefined
-                                              }
-                                            >
-                                              {part.text}
-                                            </span>
-                                          ))}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/62">
-                                    Path match
-                                  </p>
-                                )}
-                              </div>
+                                  ))}
+                                </span>
+                              </button>
                             ))}
                           </section>
-                        ))}
+                        ) : null}
+                        {codeSearchBusy ? (
+                          <div className="space-y-2 p-1">
+                            {Array.from({ length: 5 }, (_, index) => (
+                              <div
+                                key={`code-search-pending-${index}`}
+                                className="space-y-1 rounded-md border border-border/35 bg-background/38 p-2"
+                              >
+                                <div className="h-3 w-3/4 rounded bg-foreground/6" />
+                                <div className="h-3 w-full rounded bg-foreground/4" />
+                                <div className="h-3 w-5/6 rounded bg-foreground/4" />
+                              </div>
+                            ))}
+                          </div>
+                        ) : codeSearchResultsQuery.isError ? (
+                          <div className="px-3 py-4 text-[11px] text-destructive">
+                            Code search failed.
+                          </div>
+                        ) : codeSearchResultGroups.length === 0 &&
+                          codeSearchFileResults.length === 0 ? (
+                          <div className="px-3 py-4 text-[11px] text-muted-foreground/72">
+                            No matches.
+                          </div>
+                        ) : null}
+                        {!codeSearchBusy && !codeSearchResultsQuery.isError
+                          ? codeSearchResultGroups.map((group) => (
+                              <section key={group.id} className="space-y-1.5">
+                                <div className="px-3 pt-1 text-[10px] font-medium text-muted-foreground/62">
+                                  {group.label}
+                                </div>
+                                {group.results.map((result) => (
+                                  <div
+                                    key={result.entry.path}
+                                    className="group/result mx-1 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/45"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                                        onClick={() => handleOpenCodeSearchResult(result)}
+                                      >
+                                        <VscodeEntryIcon
+                                          pathValue={result.entry.path}
+                                          kind="file"
+                                          theme={resolvedTheme}
+                                          className="size-[15px]"
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/95">
+                                          {result.entry.path}
+                                        </span>
+                                        <span className="rounded-sm bg-info/10 px-1.5 py-px text-[9px] font-medium text-info-foreground">
+                                          {result.matchCount || "path"}
+                                        </span>
+                                      </button>
+                                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/result:opacity-100 focus-within:opacity-100">
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                type="button"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                onClick={() =>
+                                                  handleSplitPane(activePane?.id, result.entry.path)
+                                                }
+                                                aria-label="Open to side"
+                                              />
+                                            }
+                                          >
+                                            <ExternalLinkIcon className="size-3" />
+                                          </TooltipTrigger>
+                                          <TooltipPopup side="bottom">Open to side</TooltipPopup>
+                                        </Tooltip>
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                type="button"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                onClick={() => {
+                                                  void handleSendCodeSearchResultToAgent(result);
+                                                }}
+                                                aria-label="Send to agent"
+                                              />
+                                            }
+                                          >
+                                            <MessageSquareTextIcon className="size-3" />
+                                          </TooltipTrigger>
+                                          <TooltipPopup side="bottom">Send to agent</TooltipPopup>
+                                        </Tooltip>
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                type="button"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                onClick={() => handleQueueCodeSearchResult(result)}
+                                                aria-label="Queue as context"
+                                              />
+                                            }
+                                          >
+                                            <ClipboardListIcon className="size-3" />
+                                          </TooltipTrigger>
+                                          <TooltipPopup side="bottom">
+                                            Queue as context
+                                          </TooltipPopup>
+                                        </Tooltip>
+                                      </div>
+                                    </div>
+                                    {result.snippets.length > 0 ? (
+                                      <div className="mt-1 space-y-0.5 pl-5">
+                                        {result.snippets.map((snippet) => (
+                                          <button
+                                            key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
+                                            type="button"
+                                            className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-background/65 hover:text-foreground"
+                                            onClick={() =>
+                                              handleOpenCodeSearchResult(result, snippet.lineNumber)
+                                            }
+                                          >
+                                            <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/65">
+                                              {snippet.lineNumber}
+                                            </span>
+                                            <span className="min-w-0 flex-1 truncate font-mono">
+                                              {highlightWorkspaceCodeSearchText(
+                                                snippet.text || " ",
+                                                debouncedCodeSearchQuery,
+                                              ).map((part, index) => (
+                                                <span
+                                                  key={`${index}:${part.text}`}
+                                                  className={
+                                                    part.highlight
+                                                      ? "rounded-sm bg-primary/18 text-foreground"
+                                                      : undefined
+                                                  }
+                                                >
+                                                  {part.text}
+                                                </span>
+                                              ))}
+                                            </span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/62">
+                                        Path match
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </section>
+                            ))
+                          : null}
                       </div>
                     )}
                   </div>
