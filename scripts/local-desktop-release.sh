@@ -9,12 +9,14 @@ previous_tag=""
 output_dir="release-local"
 repo=""
 publish=0
+no_release=0
 skip_gates=0
 skip_build=0
 skip_push=0
 create_tag=0
 allow_dirty=0
-parallel_jobs=1
+parallel_jobs="auto"
+release_target_count=6
 
 usage() {
   printf '%s\n' \
@@ -28,12 +30,13 @@ usage() {
     "  --output-dir <dir>     Output directory relative to the repo. Default: release-local." \
     "  --repo <owner/repo>    GitHub repo for publishing. Defaults to gh repo view." \
     "  --publish             Create the GitHub release or update it if the tag already exists." \
+    "  --norelease           Build local artifacts only; do not create tags or GitHub releases." \
     "  --create-tag          Create the tag at HEAD if it does not already exist." \
     "  --skip-gates          Skip bun fmt, bun lint, and bun typecheck." \
     "  --skip-build          Skip bun run build:desktop and reuse existing dist artifacts." \
     "  --skip-push           Do not push the tag before publishing." \
     "  --allow-dirty         Allow uncommitted tracked source changes." \
-    "  --parallel <jobs>     Build up to <jobs> desktop targets concurrently after shared artifacts." \
+    "  --parallel [jobs]     Build up to <jobs> desktop targets concurrently. Default: auto." \
     "  -h, --help            Show this help."
 }
 
@@ -59,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       publish=1
       shift
       ;;
+    --norelease | --no-release)
+      no_release=1
+      shift
+      ;;
     --create-tag)
       create_tag=1
       shift
@@ -80,13 +87,13 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --parallel)
-      if [[ -z "${2:-}" ]]; then
-        printf 'Missing value for --parallel.\n\n' >&2
-        usage >&2
-        exit 1
+      if [[ -z "${2:-}" || "${2:0:1}" = "-" ]]; then
+        parallel_jobs="auto"
+        shift
+      else
+        parallel_jobs="${2:-}"
+        shift 2
       fi
-      parallel_jobs="${2:-}"
-      shift 2
       ;;
     --parallel=*)
       parallel_jobs="${1#*=}"
@@ -108,14 +115,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$no_release" -eq 1 ]]; then
+  publish=0
+  create_tag=0
+  skip_push=1
+fi
+
 if [[ -z "$tag" ]]; then
   printf 'Missing --tag.\n\n' >&2
   usage >&2
   exit 1
 fi
 
-if [[ ! "$parallel_jobs" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'Parallel job count must be a positive integer: %s\n\n' "$parallel_jobs" >&2
+if [[ "$parallel_jobs" != "auto" && ! "$parallel_jobs" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'Parallel job count must be "auto" or a positive integer: %s\n\n' "$parallel_jobs" >&2
   usage >&2
   exit 1
 fi
@@ -180,6 +193,89 @@ is_truthy() {
   esac
 }
 
+detect_logical_cpu_count() {
+  local cpu_count
+  cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  if [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$cpu_count"
+    return
+  fi
+
+  cpu_count="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+  if [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$cpu_count"
+  fi
+}
+
+detect_memory_gib() {
+  local memory_bytes
+  memory_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+  if [[ "$memory_bytes" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$((memory_bytes / 1024 / 1024 / 1024))"
+    return
+  fi
+
+  local pages page_size
+  pages="$(getconf _PHYS_PAGES 2>/dev/null || true)"
+  page_size="$(getconf PAGE_SIZE 2>/dev/null || true)"
+  if [[ "$pages" =~ ^[1-9][0-9]*$ && "$page_size" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$((pages * page_size / 1024 / 1024 / 1024))"
+  fi
+}
+
+min_positive_job_count() {
+  local left="$1"
+  local right="$2"
+
+  if [[ "$left" -le 0 ]]; then
+    printf '%s\n' "$right"
+    return
+  fi
+  if [[ "$right" -le 0 ]]; then
+    printf '%s\n' "$left"
+    return
+  fi
+  if [[ "$left" -lt "$right" ]]; then
+    printf '%s\n' "$left"
+  else
+    printf '%s\n' "$right"
+  fi
+}
+
+resolve_parallel_jobs() {
+  local requested="$1"
+  if [[ "$requested" != "auto" ]]; then
+    if [[ "$requested" -gt "$release_target_count" ]]; then
+      printf '%s\n' "$release_target_count"
+    else
+      printf '%s\n' "$requested"
+    fi
+    return
+  fi
+
+  local cpu_count memory_gib cpu_jobs memory_jobs resolved
+  cpu_count="$(detect_logical_cpu_count)"
+  memory_gib="$(detect_memory_gib)"
+  cpu_jobs=0
+  memory_jobs=0
+
+  if [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    cpu_jobs=$((cpu_count / 4))
+  fi
+  if [[ "$memory_gib" =~ ^[1-9][0-9]*$ ]]; then
+    memory_jobs=$((memory_gib / 2))
+  fi
+
+  resolved="$(min_positive_job_count "$cpu_jobs" "$memory_jobs")"
+  if [[ "$resolved" -le 0 ]]; then
+    resolved=1
+  fi
+  if [[ "$resolved" -gt "$release_target_count" ]]; then
+    resolved="$release_target_count"
+  fi
+  printf '%s\n' "$resolved"
+}
+
 require_macos_signing_env() {
   if ! is_truthy "${ACE_DESKTOP_SIGNED:-}"; then
     printf 'macOS signing is required for local desktop releases. Set ACE_DESKTOP_SIGNED=true in .env.local.\n' >&2
@@ -211,6 +307,13 @@ publish_dir="$output_dir/publish"
 repo="${repo:-${ACE_DESKTOP_UPDATE_REPOSITORY:-}}"
 linux_image="${ACE_DESKTOP_LINUX_DOCKER_IMAGE:-ace-desktop-linux-builder:local}"
 windows_image="${ACE_DESKTOP_WINDOWS_DOCKER_IMAGE:-ace-desktop-windows-builder:local}"
+parallel_jobs_requested="$parallel_jobs"
+parallel_jobs="$(resolve_parallel_jobs "$parallel_jobs")"
+if [[ "$parallel_jobs_requested" = "auto" ]]; then
+  printf '\n==> Desktop release target concurrency: %s (auto)\n' "$parallel_jobs"
+else
+  printf '\n==> Desktop release target concurrency: %s\n' "$parallel_jobs"
+fi
 
 run() {
   printf '\n==> %s\n' "$*"
@@ -248,6 +351,11 @@ resolve_git_common_mount() {
 }
 
 ensure_tag() {
+  if [[ "$no_release" -eq 1 ]]; then
+    printf '\n==> Skipping tag verification for local-only build\n'
+    return
+  fi
+
   if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
     local tag_commit
     tag_commit="$(git rev-list -n 1 "$tag")"
@@ -569,6 +677,11 @@ write_release_notes() {
 }
 
 publish_release() {
+  if [[ "$no_release" -eq 1 ]]; then
+    printf '\n==> Skipping tag push and GitHub release creation (--norelease). Local assets are in %s.\n' "$publish_dir"
+    return
+  fi
+
   if [[ "$publish" -ne 1 ]]; then
     printf '\n==> Skipping GitHub release creation. Re-run with --publish to upload %s.\n' "$publish_dir"
     return
@@ -610,7 +723,9 @@ publish_release() {
 require_command bun
 require_command docker
 require_command git
-require_command gh
+if [[ "$publish" -eq 1 ]]; then
+  require_command gh
+fi
 
 ensure_clean_tracked_tree
 ensure_tag

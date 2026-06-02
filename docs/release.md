@@ -233,6 +233,8 @@ Useful options:
 ```bash
 bun run release -- --tag v0.2.0 --previous-tag v0.2.0-beta
 bun run dist:desktop:all -- --tag v0.2.0 --output-dir release-v0.2.0
+bun run release -- --tag v0.2.0 --norelease
+bun run dist:desktop:all -- --tag v0.2.0 --parallel 1
 bun run dist:desktop:all -- --tag v0.2.0 --parallel 4
 bun run release:desktop:local -- --tag v0.2.0 --skip-build --publish
 bun run release:desktop:local -- --tag v0.2.0 --skip-gates --publish
@@ -242,11 +244,11 @@ bun run release:desktop:local -- --tag v0.2.0 --allow-dirty --publish
 What the script does:
 
 1. Loads `.env.local` without printing secret values.
-2. Verifies the tag points at `HEAD` or creates it with `--create-tag`.
+2. Verifies the tag points at `HEAD` or creates it with `--create-tag`, unless `--norelease` is passed for a local-only build.
 3. Runs `bun fmt`, `bun lint`, and `bun typecheck` unless `--skip-gates` is passed.
 4. Runs `bun run build:desktop` unless `--skip-build` is passed.
 5. Requires macOS signing/notarization env before mac packaging.
-6. Builds the desktop targets sequentially by default, or with up to `--parallel <jobs>` concurrent target builds:
+6. Builds desktop targets concurrently by default. The automatic concurrency is capped by logical CPU cores and total memory, assuming roughly four cores and 2 GiB RAM per target build. Pass `--parallel <jobs>` to override it, including `--parallel 1` for one target at a time:
    - macOS `arm64` DMG and ZIP on the host.
    - macOS `x64` DMG and ZIP on the host.
    - Linux `x64` AppImage in Docker.
