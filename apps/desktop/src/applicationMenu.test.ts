@@ -28,6 +28,14 @@ describe("buildApplicationMenuTemplate", () => {
     ]);
     expect(template.some((item) => item.label === "File")).toBe(false);
 
+    const appMenu = template.find((item) => item.label === "ace");
+    expect(appMenu?.submenu).toMatchObject([
+      { role: "about" },
+      { label: "Check for Updates..." },
+      { type: "separator" },
+      { label: "New Window", accelerator: "CmdOrCtrl+Shift+N" },
+    ]);
+
     const chatMenu = template.find((item) => item.label === "Chat");
     expect(chatMenu?.submenu).toMatchObject([
       { label: "New Thread" },
@@ -88,6 +96,10 @@ describe("buildApplicationMenuTemplate", () => {
     chatItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
     chatItems[1]?.click?.(undefined as never, undefined as never, undefined as never);
 
+    const appMenu = template.find((item) => item.label === "ace");
+    const appItems = appMenu?.submenu as MenuItemConstructorOptions[];
+    appItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
+
     const connectionsMenu = template.find((item) => item.label === "Connections");
     const connectionItems = connectionsMenu?.submenu as MenuItemConstructorOptions[];
     connectionItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
@@ -100,8 +112,9 @@ describe("buildApplicationMenuTemplate", () => {
 
     expect(onMenuAction).toHaveBeenNthCalledWith(1, "new-thread");
     expect(onMenuAction).toHaveBeenNthCalledWith(2, "new-local-thread");
-    expect(onMenuAction).toHaveBeenNthCalledWith(3, "open-settings-devices");
-    expect(onMenuAction).toHaveBeenNthCalledWith(4, "open-settings-about");
+    expect(onMenuAction).toHaveBeenNthCalledWith(3, "new-window");
+    expect(onMenuAction).toHaveBeenNthCalledWith(4, "open-settings-devices");
+    expect(onMenuAction).toHaveBeenNthCalledWith(5, "open-settings-about");
     expect(onCheckForUpdates).toHaveBeenCalledTimes(2);
   });
 

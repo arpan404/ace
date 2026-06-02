@@ -162,6 +162,7 @@ export type BrowserShortcutAction =
   | "select-tab-9";
 
 export const DESKTOP_MENU_ACTIONS = [
+  "new-window",
   "new-thread",
   "new-local-thread",
   "toggle-plan-mode",

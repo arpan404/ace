@@ -36,6 +36,11 @@ export function buildApplicationMenuTemplate({
     accelerator: "CmdOrCtrl+,",
     click: () => onMenuAction("open-settings"),
   };
+  const newWindowItem: MenuItemConstructorOptions = {
+    label: "New Window",
+    accelerator: "CmdOrCtrl+Shift+N",
+    click: () => onMenuAction("new-window"),
+  };
 
   const template: MenuItemConstructorOptions[] = [];
 
@@ -48,6 +53,8 @@ export function buildApplicationMenuTemplate({
           label: "Check for Updates...",
           click: () => onCheckForUpdates(),
         },
+        { type: "separator" },
+        newWindowItem,
         { type: "separator" },
         settingsItem,
         { type: "separator" },
@@ -63,7 +70,13 @@ export function buildApplicationMenuTemplate({
   } else {
     template.push({
       label: appName,
-      submenu: [settingsItem, { type: "separator" }, { role: "quit" }],
+      submenu: [
+        newWindowItem,
+        { type: "separator" },
+        settingsItem,
+        { type: "separator" },
+        { role: "quit" },
+      ],
     });
   }
 

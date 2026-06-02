@@ -225,6 +225,7 @@ interface DesktopRendererBootstrapPayload {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const primaryWindows = new Set<BrowserWindow>();
 const detachedBrowserWindows = new Map<string, BrowserWindow>();
 const detachedChatWindows = new Map<string, BrowserWindow>();
 const detachedEditorWindows = new Map<string, BrowserWindow>();
@@ -428,14 +429,25 @@ function getSafeDesktopNotificationInput(rawInput: unknown): DesktopNotification
   };
 }
 
-function getOrCreatePrimaryWindow(): BrowserWindow {
-  const existingWindow =
-    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
-  const targetWindow = existingWindow ?? createWindow();
-  if (!existingWindow) {
-    mainWindow = targetWindow;
+function getFocusedPrimaryWindow(): BrowserWindow | null {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  return focusedWindow && primaryWindows.has(focusedWindow) ? focusedWindow : null;
+}
+
+function getFallbackPrimaryWindow(): BrowserWindow | null {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
   }
-  return targetWindow;
+  for (const window of primaryWindows) {
+    if (!window.isDestroyed()) {
+      return window;
+    }
+  }
+  return null;
+}
+
+function getOrCreatePrimaryWindow(): BrowserWindow {
+  return getFocusedPrimaryWindow() ?? getFallbackPrimaryWindow() ?? createWindow();
 }
 
 function focusPrimaryWindow(window: BrowserWindow): void {
@@ -500,8 +512,7 @@ function queueDesktopPairingUrl(input: string): void {
 }
 
 function isDesktopWindowFocusedForNotifications(): boolean {
-  const targetWindow =
-    mainWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const targetWindow = getFocusedPrimaryWindow() ?? getFallbackPrimaryWindow();
   if (!targetWindow || targetWindow.isDestroyed()) {
     return false;
   }
@@ -1454,6 +1465,11 @@ function registerDesktopProtocolClient(): void {
 }
 
 function dispatchMenuAction(action: DesktopMenuAction): void {
+  if (action === "new-window") {
+    focusPrimaryWindow(createWindow());
+    return;
+  }
+
   withReadyPrimaryWindow((window) => {
     window.webContents.send(MENU_ACTION_CHANNEL, action);
   });
@@ -3545,6 +3561,8 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  primaryWindows.add(window);
+  mainWindow = window;
   setupWebViewEventHandlers(window);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -3598,8 +3616,9 @@ function createWindow(): BrowserWindow {
 
   window.on("closed", () => {
     clearTimeout(revealFallbackTimer);
+    primaryWindows.delete(window);
     if (mainWindow === window) {
-      mainWindow = null;
+      mainWindow = getFallbackPrimaryWindow();
     }
   });
 
@@ -3624,12 +3643,15 @@ if (!hasSingleInstanceLock) {
       return;
     }
 
-    const window = getOrCreatePrimaryWindow();
-    focusPrimaryWindow(window);
     const pairingUrl = findDesktopPairingUrlInArgv(argv);
     if (pairingUrl) {
+      const window = getOrCreatePrimaryWindow();
+      focusPrimaryWindow(window);
       queueDesktopPairingUrl(pairingUrl);
+      return;
     }
+
+    focusPrimaryWindow(createWindow());
   });
 }
 
@@ -3755,14 +3777,14 @@ app
     });
     powerMonitor.on("resume", () => {
       writeDesktopLogHeader("power-monitor resume");
-      if (mainWindow) {
-        emitWindowResume(mainWindow, "resume");
+      for (const window of primaryWindows) {
+        emitWindowResume(window, "resume");
       }
     });
     powerMonitor.on("unlock-screen", () => {
       writeDesktopLogHeader("power-monitor unlock-screen");
-      if (mainWindow) {
-        emitWindowResume(mainWindow, "unlock-screen");
+      for (const window of primaryWindows) {
+        emitWindowResume(window, "unlock-screen");
       }
     });
   })
