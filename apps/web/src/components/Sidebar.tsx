@@ -6378,9 +6378,7 @@ function useSidebarComponent() {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>Edit project</DialogTitle>
-            <DialogDescription>
-              Rename the project and choose a favicon or custom icon.
-            </DialogDescription>
+            <DialogDescription>Update the project's name and icon.</DialogDescription>
           </DialogHeader>
           <DialogPanel>
             {editingProjectTarget ? (
@@ -6402,10 +6400,10 @@ function useSidebarComponent() {
                     <Button
                       type="button"
                       variant="ghost"
-                      className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
+                      className={`h-10 justify-start gap-2 rounded-md border px-2.5 text-xs focus-visible:border-border/80 focus-visible:ring-border/25 ${
                         editingProjectIcon === null
-                          ? "border-primary/50 bg-primary/8"
-                          : "border-border/50 hover:bg-accent/40"
+                          ? "border-border/62 bg-muted/20 text-foreground"
+                          : "border-border/24 bg-transparent text-muted-foreground/72 hover:border-border/48 hover:bg-muted/12 hover:text-foreground"
                       }`}
                       onClick={() => setEditingProjectIcon(null)}
                     >
@@ -6414,29 +6412,33 @@ function useSidebarComponent() {
                           cwd: editingProjectTarget.cwd,
                           icon: null,
                         }}
-                        className="size-5"
+                        className="size-4.5"
                       />
-                      <span>Favicon</span>
+                      <span className="min-w-0 truncate">Favicon</span>
                     </Button>
                     {PROJECT_ICON_OPTIONS.map((option) => {
                       const previewIcon = {
                         glyph: option.glyph,
-                        color: editingProjectIcon?.color ?? "blue",
+                        color: editingProjectIcon?.color ?? "slate",
                       } as const;
                       const isSelected = editingProjectIcon?.glyph === option.glyph;
+                      const displayIcon = isSelected
+                        ? previewIcon
+                        : ({ glyph: option.glyph, color: "slate" } as const);
                       return (
                         <Button
                           key={option.glyph}
                           type="button"
-                          className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
+                          variant="ghost"
+                          className={`h-10 justify-start gap-2 rounded-md border px-2.5 text-xs focus-visible:border-border/80 focus-visible:ring-border/25 ${
                             isSelected
-                              ? "border-primary/50 bg-primary/8"
-                              : "border-border/50 hover:bg-accent/40"
+                              ? "border-border/62 bg-muted/20 text-foreground"
+                              : "border-border/24 bg-transparent text-muted-foreground/72 hover:border-border/48 hover:bg-muted/12 hover:text-foreground"
                           }`}
                           onClick={() => setEditingProjectIcon(previewIcon)}
                         >
-                          <ProjectGlyphIcon icon={previewIcon} className="size-5" />
-                          <span>{option.label}</span>
+                          <ProjectGlyphIcon icon={displayIcon} className="size-4.5" />
+                          <span className="min-w-0 truncate">{option.label}</span>
                         </Button>
                       );
                     })}
@@ -6452,10 +6454,11 @@ function useSidebarComponent() {
                           <Button
                             key={option.color}
                             type="button"
-                            className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${
+                            variant="ghost"
+                            className={`h-8 justify-start gap-2 rounded-md border px-2.5 text-xs focus-visible:border-border/80 focus-visible:ring-border/25 ${
                               isSelected
-                                ? "border-primary/50 bg-primary/8"
-                                : "border-border/50 hover:bg-accent/40"
+                                ? "border-border/62 bg-muted/20 text-foreground"
+                                : "border-border/24 bg-transparent text-muted-foreground/72 hover:border-border/48 hover:bg-muted/12 hover:text-foreground"
                             }`}
                             onClick={() =>
                               setEditingProjectIcon((current) =>
@@ -6463,8 +6466,8 @@ function useSidebarComponent() {
                               )
                             }
                           >
-                            <span className={`size-3 rounded-full ${option.swatchClassName}`} />
-                            <span>{option.label}</span>
+                            <span className={`size-2.5 rounded-full ${option.swatchClassName}`} />
+                            <span className="min-w-0 truncate">{option.label}</span>
                           </Button>
                         );
                       })}
