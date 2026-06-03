@@ -6,7 +6,7 @@ import {
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "issue";
-export type ComposerSlashCommand = "model" | "plan" | "default" | "issues";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "issues" | "side";
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -247,6 +247,14 @@ export function parseStandaloneComposerSlashCommand(
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
   return "default";
+}
+
+export function parseComposerSideCommand(text: string): { prompt: string } | null {
+  const match = /^\/side(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  return { prompt: (match[1] ?? "").trim() };
 }
 
 function normalizeSlashCommandName(value: string): string {

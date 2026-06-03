@@ -7,6 +7,7 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
   parseComposerIssuesCommand,
+  parseComposerSideCommand,
   parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
@@ -352,6 +353,22 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+});
+
+describe("parseComposerSideCommand", () => {
+  it("parses /side without an initial prompt", () => {
+    expect(parseComposerSideCommand(" /side ")).toEqual({ prompt: "" });
+  });
+
+  it("parses /side with an initial prompt", () => {
+    expect(parseComposerSideCommand("/side inspect the server package")).toEqual({
+      prompt: "inspect the server package",
+    });
+  });
+
+  it("ignores non-side slash commands", () => {
+    expect(parseComposerSideCommand("/review src")).toBeNull();
   });
 });
 

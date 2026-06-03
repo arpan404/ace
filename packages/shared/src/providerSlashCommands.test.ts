@@ -101,4 +101,8 @@ describe("providerSlashCommands", () => {
       providerFallbackSlashCommands("cursor").some((command) => command.name === "model"),
     ).toBe(true);
   });
+
+  it("does not expose Codex CLI fallback commands", () => {
+    expect(providerFallbackSlashCommands("codex")).toEqual([]);
+  });
 });

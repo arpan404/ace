@@ -68,6 +68,7 @@ import {
 import {
   collapseExpandedComposerCursor,
   parseComposerIssuesCommand,
+  parseComposerSideCommand,
   parseProviderComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
@@ -428,6 +429,7 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
+const NEW_SIDE_CHAT_THREAD_ID = "__ace_new_side_chat__";
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 
 const SCRIPT_TERMINAL_COLS = 120;
@@ -2939,12 +2941,39 @@ function useChatViewComponent({
     [subagentProvider, timelineWorkEntries],
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
+  const newSideChatThread = useMemo<SubagentThread>(
+    () => ({
+      id: NEW_SIDE_CHAT_THREAD_ID,
+      label: "New side chat",
+      persona: {
+        avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
+        haloClassName: "bg-sky-500/14",
+        initials: "SC",
+        name: "New side chat",
+        pingClassName: "bg-sky-400",
+      },
+      roleLabel: "Codex side conversation",
+      status: "completed",
+      entries: [],
+    }),
+    [],
+  );
+  const subagentPanelThreads = useMemo(
+    () =>
+      activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID
+        ? [newSideChatThread, ...subagentThreads]
+        : subagentThreads,
+    [activeSubagentThreadId, newSideChatThread, subagentThreads],
+  );
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
     left: number;
     top: number;
   } | null>(null);
   useEffect(() => {
+    if (activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID) {
+      return;
+    }
     if (subagentThreads.length === 0) {
       if (activeSubagentThreadId !== null) {
         setActiveSubagentThreadId(null);
@@ -8085,6 +8114,27 @@ function useChatViewComponent({
     },
     [activeThread?.title],
   );
+  const openNewSideChat = useCallback(
+    (initialPrompt: string) => {
+      if (!activeThread) {
+        return;
+      }
+      const draftThreadId = ThreadId.makeUnsafe(
+        `subagent:${activeThread.id ?? threadId}:${NEW_SIDE_CHAT_THREAD_ID}`,
+      );
+      setActiveSubagentThreadId(NEW_SIDE_CHAT_THREAD_ID);
+      setRightSidePanelMode("subagent");
+      setRightSidePanelVisible(true);
+      setComposerDraftPrompt(draftThreadId, initialPrompt);
+    },
+    [
+      activeThread,
+      setComposerDraftPrompt,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+      threadId,
+    ],
+  );
 
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
@@ -8128,6 +8178,17 @@ function useChatViewComponent({
         text: followUp.text,
         interactionMode: followUp.interactionMode,
       });
+      return;
+    }
+    const composerSideCommandPayload =
+      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
+        ? parseComposerSideCommand(trimmed)
+        : null;
+    if (composerSideCommandPayload !== null) {
+      openNewSideChat(composerSideCommandPayload.prompt);
+      promptRef.current = "";
+      clearComposerDraftContent(activeThread.id);
+      composerPanelsRef.current?.resetUi("");
       return;
     }
     const providerSlashCommandPayload =
@@ -9932,6 +9993,41 @@ function useChatViewComponent({
         });
       }
       const createdAt = new Date().toISOString();
+      if (subagent.id === NEW_SIDE_CHAT_THREAD_ID) {
+        if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
+          toastManager.add({
+            type: "error",
+            title: "Wait for the current turn to finish.",
+          });
+          return;
+        }
+        try {
+          setThreadError(draftThreadId, null);
+          await api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: `/side ${outgoingMessageText}`,
+              attachments,
+            },
+            modelSelection,
+            runtimeMode,
+            interactionMode,
+            createdAt,
+          });
+          clearComposerDraftContent(draftThreadId);
+          subagentComposerPanelsRef.current?.resetUi("");
+        } catch (error) {
+          setThreadError(
+            draftThreadId,
+            error instanceof Error ? error.message : "Failed to start side chat.",
+          );
+        }
+        return;
+      }
       try {
         setThreadError(draftThreadId, null);
         await api.orchestration.dispatchCommand({
@@ -9963,6 +10059,9 @@ function useChatViewComponent({
       activeProject?.defaultModelSelection,
       activeThread,
       clearComposerDraftContent,
+      isConnecting,
+      isSendBusy,
+      liveTurnInProgress,
       modelSettings,
       providerStatuses,
       setThreadError,
@@ -10653,7 +10752,7 @@ function useChatViewComponent({
                               isForkConversationDisabled={isWorking || handoffInFlight}
                               onForkConversation={onForkSubagentConversation}
                               timelineProps={messagesTimelineProps}
-                              threads={subagentThreads}
+                              threads={subagentPanelThreads}
                             />
                           ) : activeRightSidePanelMode === "terminal" ? (
                             <ConnectedThreadTerminalPanel
@@ -10794,7 +10893,7 @@ function useChatViewComponent({
                       activeThreadId={activeSubagentThreadId}
                       composer={renderSubagentComposer}
                       timelineProps={messagesTimelineProps}
-                      threads={subagentThreads}
+                      threads={subagentPanelThreads}
                     />
                   ) : activeBottomPanelMode === "terminal" ? (
                     <ConnectedThreadTerminalPanel

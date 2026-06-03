@@ -115,19 +115,22 @@ function normalizeSlashCommandName(name: string): string {
     .toLowerCase();
 }
 
-function providerCommandKind(command: ProviderSlashCommand): ProviderExtensionCommandKind | null {
+type ComposerProviderCommandKind = "provider" | ProviderExtensionCommandKind;
+
+function composerProviderCommandKind(command: ProviderSlashCommand): ComposerProviderCommandKind {
   const normalizedName = normalizeSlashCommandName(command.name);
-  if (!normalizedName) {
-    return null;
-  }
-  return providerSlashCommandExtensionKind(command, normalizedName);
+  const extensionKind = normalizedName
+    ? providerSlashCommandExtensionKind(command, normalizedName)
+    : null;
+  return extensionKind ?? "provider";
 }
 
 function providerCommandDescription(
   command: ProviderSlashCommand,
-  commandKind: ProviderExtensionCommandKind,
+  commandKind: ComposerProviderCommandKind,
 ): string {
-  const noun = commandKind === "plugin" ? "Plugin" : "Skill";
+  const noun =
+    commandKind === "plugin" ? "Plugin" : commandKind === "skill" ? "Skill" : "Provider command";
   return command.inputHint
     ? `${command.description ?? noun} - ${command.inputHint}`
     : (command.description ?? noun);
@@ -647,18 +650,15 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         id: string;
         type: "provider-command";
         command: string;
-        commandKind: ProviderExtensionCommandKind;
+        commandKind: ComposerProviderCommandKind;
         label: string;
         description: string;
       }> = [];
       for (const command of props.providerCommands) {
-        const commandKind = providerCommandKind(command);
-        if (!commandKind) {
-          continue;
-        }
         if (!commandMatchesComposerQuery(command, query)) {
           continue;
         }
+        const commandKind = composerProviderCommandKind(command);
         providerCommandItems.push({
           id: `provider-slash:${commandKind}:${command.name}`,
           type: "provider-command",
@@ -699,6 +699,14 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
               ] as const)
             : [];
       const slashCommandItems = [
+        {
+          id: "slash:side",
+          type: "slash-command" as const,
+          command: "side" as const,
+          commandSource: "ace" as const,
+          label: formatCommandDisplayLabel("side"),
+          description: "Open a side chat composer",
+        },
         {
           id: "slash:model",
           type: "slash-command" as const,
@@ -1110,13 +1118,20 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         return;
       }
       if (item.type === "slash-command") {
-        if (item.command === "model" || item.command === "issues" || item.command === "goal") {
+        if (
+          item.command === "model" ||
+          item.command === "issues" ||
+          item.command === "goal" ||
+          item.command === "side"
+        ) {
           const replacement =
             item.command === "model"
               ? "/model "
               : item.command === "issues"
                 ? "/issues "
-                : `${createMarkedProviderCommandToken("goal")} `;
+                : item.command === "side"
+                  ? "/side "
+                  : `${createMarkedProviderCommandToken("goal")} `;
           const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
             snapshot.value,
             trigger.rangeEnd,

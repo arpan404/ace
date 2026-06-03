@@ -6,7 +6,7 @@ import { m, type MotionStyle } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import { formatSubagentSubtitle, statusLabel, SubagentPersonaIcon } from "./SubagentThreadsPanel";
+import { SubagentPersonaIcon } from "./SubagentThreadsPanel";
 import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanProgressState } from "../../session-logic";
 import { cn } from "~/lib/utils";
@@ -61,9 +61,6 @@ export const EnvironmentMiniPanel = forwardRef<
     props.workspaceChangeStat !== null &&
     (props.workspaceChangeStat.additions > 0 || props.workspaceChangeStat.deletions > 0);
   const workspaceChangeStat = props.workspaceChangeStat;
-  const activeSubagentThreads = props.subagentThreads.filter(
-    (thread) => thread.status === "running",
-  );
   const activeTodoProgress =
     props.isAgentWorking &&
     props.activePlanProgress &&
@@ -216,11 +213,11 @@ export const EnvironmentMiniPanel = forwardRef<
         </div>
       ) : null}
 
-      {activeSubagentThreads.length > 0 ? (
+      {props.subagentThreads.length > 0 ? (
         <div className="mt-1 border-t border-border/45 pt-1.5">
           <EnvironmentSectionTitle>Subagents</EnvironmentSectionTitle>
           <div className="space-y-1">
-            {activeSubagentThreads.map((thread) => (
+            {props.subagentThreads.map((thread) => (
               <button
                 key={thread.id}
                 type="button"
@@ -233,21 +230,6 @@ export const EnvironmentMiniPanel = forwardRef<
                 <SubagentPersonaIcon className="size-6" status={thread.status} thread={thread} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{thread.label}</span>
-                  {formatSubagentSubtitle(thread) ? (
-                    <span className="block truncate text-[11px] text-muted-foreground group-hover/subagent:text-accent-foreground/70">
-                      {formatSubagentSubtitle(thread)}
-                    </span>
-                  ) : null}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-normal",
-                    thread.status === "running" && "bg-sky-500/12 text-sky-500",
-                    thread.status === "completed" && "bg-emerald-500/12 text-emerald-500",
-                    thread.status === "failed" && "bg-destructive/12 text-destructive",
-                  )}
-                >
-                  {statusLabel(thread.status)}
                 </span>
               </button>
             ))}

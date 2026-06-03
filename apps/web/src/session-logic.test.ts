@@ -19,6 +19,8 @@ import {
   derivePendingUserInputs,
   deriveTimelineEntries,
   deriveWorkLogEntries,
+  filterMainTimelineMessages,
+  filterMainTimelineWorkLogEntries,
   filterVisibleWorkLogActivities,
   findLatestProposedPlan,
   findSidebarProposedPlan,
@@ -999,6 +1001,8 @@ describe("deriveWorkLogEntries", () => {
           data: {
             item: {
               type: "collabAgentToolCall",
+              agentNickname: "Dewey",
+              agentRole: "explorer",
               receiverThreadIds: ["child_provider_2"],
             },
           },
@@ -1016,7 +1020,8 @@ describe("deriveWorkLogEntries", () => {
     expect(entries[1]).toMatchObject({
       itemType: "collab_agent_tool_call",
       subagentId: "child_provider_2",
-      subagentType: "codex subagent",
+      subagentName: "Dewey",
+      subagentType: "explorer",
     });
   });
 
@@ -2046,6 +2051,63 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
+  it("filters subagent work entries from the main thread timeline source", () => {
+    const entries = filterMainTimelineWorkLogEntries([
+      {
+        id: "main-work",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        label: "Ran command",
+        tone: "tool",
+      },
+      {
+        id: "subagent-reasoning",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        label: "Thought",
+        tone: "thinking",
+        subagentId: "child-provider-thread-1",
+        subagentName: "Dewey",
+      },
+      {
+        id: "subagent-message",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        label: "Subagent message",
+        tone: "thinking",
+        sideChatMessageRole: "assistant",
+        sideChatMessageText: "I checked the project layout.",
+      },
+      {
+        id: "collab-call",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        label: "Subagent",
+        tone: "tool",
+        itemType: "collab_agent_tool_call",
+      },
+    ]);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["main-work"]);
+  });
+
+  it("filters native /side command messages from the main thread timeline source", () => {
+    const entries = filterMainTimelineMessages([
+      {
+        id: MessageId.makeUnsafe("main-message"),
+        role: "user",
+        text: "normal prompt",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.makeUnsafe("side-message"),
+        role: "user",
+        text: "/side inspect the server package",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        streaming: false,
+      },
+    ]);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["main-message"]);
+  });
+
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
     const entries = deriveTimelineEntries(
       [

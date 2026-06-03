@@ -153,6 +153,30 @@ function buildSortedTimelineEntries(
   return rawEntries;
 }
 
+export function isSubagentWorkLogEntry(entry: WorkLogEntry): boolean {
+  return Boolean(
+    entry.subagentId ||
+    entry.subagentName ||
+    entry.subagentType ||
+    entry.sideChatMessageRole ||
+    entry.itemType === "collab_agent_tool_call",
+  );
+}
+
+export function filterMainTimelineWorkLogEntries(
+  workEntries: ReadonlyArray<WorkLogEntry>,
+): WorkLogEntry[] {
+  return workEntries.filter((entry) => !isSubagentWorkLogEntry(entry));
+}
+
+export function isSideCommandMessage(message: ChatMessage): boolean {
+  return message.role === "user" && /^\/side(?:\s|$)/i.test(message.text.trim());
+}
+
+export function filterMainTimelineMessages(messages: ReadonlyArray<ChatMessage>): ChatMessage[] {
+  return messages.filter((message) => !isSideCommandMessage(message));
+}
+
 export function deriveTimelineEntries(
   messages: ReadonlyArray<ChatMessage>,
   proposedPlans: ReadonlyArray<ProposedPlan>,

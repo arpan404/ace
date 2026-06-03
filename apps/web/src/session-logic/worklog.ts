@@ -487,10 +487,20 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       undefined,
     type:
       asTrimmedString(subagent?.type) ??
+      asTrimmedString(subagent?.agentRole) ??
+      asTrimmedString(subagent?.agent_role) ??
+      asTrimmedString(data?.agentRole) ??
+      asTrimmedString(data?.agent_role) ??
       asTrimmedString(data?.subagentType) ??
       asTrimmedString(data?.subagent_type) ??
+      asTrimmedString(item?.agentRole) ??
+      asTrimmedString(item?.agent_role) ??
+      asTrimmedString(input?.agentRole) ??
+      asTrimmedString(input?.agent_role) ??
       asTrimmedString(input?.subagentType) ??
       asTrimmedString(input?.subagent_type) ??
+      asTrimmedString(args?.agentRole) ??
+      asTrimmedString(args?.agent_role) ??
       asTrimmedString(args?.subagentType) ??
       asTrimmedString(args?.subagent_type) ??
       (childProviderThreadId ? "codex subagent" : undefined) ??
@@ -499,15 +509,25 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       asTrimmedString(subagent?.name) ??
       asTrimmedString(subagent?.displayName) ??
       asTrimmedString(subagent?.display_name) ??
+      asTrimmedString(subagent?.agentNickname) ??
+      asTrimmedString(subagent?.agent_nickname) ??
+      asTrimmedString(data?.agentNickname) ??
+      asTrimmedString(data?.agent_nickname) ??
       asTrimmedString(data?.agentName) ??
       asTrimmedString(data?.agent_name) ??
       asTrimmedString(data?.name) ??
+      asTrimmedString(item?.agentNickname) ??
+      asTrimmedString(item?.agent_nickname) ??
       asTrimmedString(item?.agentName) ??
       asTrimmedString(item?.agent_name) ??
       asTrimmedString(item?.name) ??
+      asTrimmedString(input?.agentNickname) ??
+      asTrimmedString(input?.agent_nickname) ??
       asTrimmedString(input?.agentName) ??
       asTrimmedString(input?.agent_name) ??
       asTrimmedString(input?.name) ??
+      asTrimmedString(args?.agentNickname) ??
+      asTrimmedString(args?.agent_nickname) ??
       asTrimmedString(args?.agentName) ??
       asTrimmedString(args?.agent_name) ??
       asTrimmedString(args?.name) ??

@@ -1697,8 +1697,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const rawRoute = this.readRouteFields(request.params);
     const childParentTurnId = this.readChildParentTurnId(context, request.params);
-    const isChildConversation =
-      childParentTurnId !== undefined || this.hasChildConversationRoute(context, request.params);
     const effectiveTurnId = rawRoute.turnId;
     const requestKind = this.requestKindForMethod(request.method);
     let requestId: ApprovalRequestId | undefined;
@@ -2331,18 +2329,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readString(subagent, "type") ??
       this.readString(subagent, "agentType") ??
       this.readString(subagent, "agent_type") ??
+      this.readString(subagent, "agentRole") ??
+      this.readString(subagent, "agent_role") ??
+      this.readString(payload, "agentRole") ??
+      this.readString(payload, "agent_role") ??
       this.readString(payload, "subagentType") ??
       this.readString(payload, "subagent_type") ??
       this.readString(payload, "agentType") ??
       this.readString(payload, "agent_type") ??
+      this.readString(item, "agentRole") ??
+      this.readString(item, "agent_role") ??
       this.readString(item, "subagentType") ??
       this.readString(item, "subagent_type") ??
       this.readString(item, "agentType") ??
       this.readString(item, "agent_type") ??
+      this.readString(input, "agentRole") ??
+      this.readString(input, "agent_role") ??
       this.readString(input, "subagentType") ??
       this.readString(input, "subagent_type") ??
       this.readString(input, "agentType") ??
       this.readString(input, "agent_type") ??
+      this.readString(args, "agentRole") ??
+      this.readString(args, "agent_role") ??
       this.readString(args, "subagentType") ??
       this.readString(args, "subagent_type") ??
       this.readString(args, "agentType") ??
@@ -2351,25 +2359,35 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readString(subagent, "name") ??
       this.readString(subagent, "displayName") ??
       this.readString(subagent, "display_name") ??
+      this.readString(subagent, "agentNickname") ??
+      this.readString(subagent, "agent_nickname") ??
       this.readString(subagent, "nickname") ??
+      this.readString(payload, "agentNickname") ??
+      this.readString(payload, "agent_nickname") ??
       this.readString(payload, "agentName") ??
       this.readString(payload, "agent_name") ??
       this.readString(payload, "displayName") ??
       this.readString(payload, "display_name") ??
       this.readString(payload, "nickname") ??
       this.readString(payload, "name") ??
+      this.readString(item, "agentNickname") ??
+      this.readString(item, "agent_nickname") ??
       this.readString(item, "agentName") ??
       this.readString(item, "agent_name") ??
       this.readString(item, "displayName") ??
       this.readString(item, "display_name") ??
       this.readString(item, "nickname") ??
       this.readString(item, "name") ??
+      this.readString(input, "agentNickname") ??
+      this.readString(input, "agent_nickname") ??
       this.readString(input, "agentName") ??
       this.readString(input, "agent_name") ??
       this.readString(input, "displayName") ??
       this.readString(input, "display_name") ??
       this.readString(input, "nickname") ??
       this.readString(input, "name") ??
+      this.readString(args, "agentNickname") ??
+      this.readString(args, "agent_nickname") ??
       this.readString(args, "agentName") ??
       this.readString(args, "agent_name") ??
       this.readString(args, "displayName") ??

@@ -1354,8 +1354,8 @@ describe("collab child conversation routing", () => {
         item: {
           type: "collabAgentToolCall",
           id: "call_collab_1",
-          agentName: "Dewey",
-          subagentType: "explorer",
+          agentNickname: "Dewey",
+          agentRole: "explorer",
           receiverThreadIds: ["child_provider_1"],
         },
         threadId: "provider_parent",

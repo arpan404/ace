@@ -1,4 +1,4 @@
-import { BotIcon } from "lucide-react";
+import { BotIcon, SmileIcon } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { MessageId, type ProviderKind } from "@ace/contracts";
 
@@ -46,12 +46,14 @@ export function SubagentPersonaIcon(props: {
       />
       <span
         className={cn(
-          "relative inline-flex size-full items-center justify-center rounded-full text-[10px] font-semibold ring-1",
+          "relative inline-flex size-full items-center justify-center rounded-full ring-1 transition-transform duration-200 group-hover/subagent:scale-105",
           props.thread.persona.avatarClassName,
           props.status === "failed" && "bg-destructive/12 text-destructive ring-destructive/25",
+          isRunning && "motion-safe:animate-pulse",
         )}
+        aria-label={`${props.thread.label} persona`}
       >
-        {props.thread.persona.initials}
+        <SmileIcon className="size-[62%]" strokeWidth={2.25} />
       </span>
       <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-2.5 items-center justify-center">
         {isRunning ? (

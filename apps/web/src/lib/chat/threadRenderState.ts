@@ -6,6 +6,8 @@ import {
   deriveTimelineEntries,
   deriveVisibleTurnDiffSummaryByAssistantMessageId,
   deriveWorkLogEntries,
+  filterMainTimelineMessages,
+  filterMainTimelineWorkLogEntries,
   filterVisibleWorkLogActivities,
 } from "../../session-logic";
 import { type ChatMessage, type Thread, type TurnDiffSummary } from "../../types";
@@ -133,7 +135,11 @@ export function deriveThreadTimelineRenderState(input: {
 
   const nextState = {
     timelineEntries: measureRenderWork("chat.deriveTimelineEntries", () =>
-      deriveTimelineEntries(input.messages, input.proposedPlans, input.workLogEntries),
+      deriveTimelineEntries(
+        filterMainTimelineMessages(input.messages),
+        input.proposedPlans,
+        filterMainTimelineWorkLogEntries(input.workLogEntries),
+      ),
     ),
     turnDiffSummaryByAssistantMessageId,
     visibleTurnDiffSummaryByAssistantMessageId: deriveVisibleTurnDiffSummaryByAssistantMessageId(

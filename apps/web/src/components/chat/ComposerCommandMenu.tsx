@@ -29,7 +29,7 @@ export type ComposerCommandItem =
       id: string;
       type: "provider-command";
       command: string;
-      commandKind: "skill" | "plugin";
+      commandKind: "provider" | "skill" | "plugin";
       label: string;
       description: string;
     }
@@ -77,7 +77,13 @@ const COMPOSER_COMMAND_SECTION_LABELS = {
 
 function composerCommandSectionId(item: ComposerCommandItem): ComposerCommandSectionId {
   if (item.type === "provider-command") {
-    return item.commandKind === "plugin" ? "plugins" : "skills";
+    if (item.commandKind === "plugin") {
+      return "plugins";
+    }
+    if (item.commandKind === "skill") {
+      return "skills";
+    }
+    return "commands";
   }
   if (item.type === "slash-command") {
     return "commands";
@@ -184,7 +190,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                 ? "No matching files or folders."
                 : props.triggerKind === "issue"
                   ? "No matching GitHub issues."
-                  : "No matching skill or plugin command."}
+                  : "No matching command."}
           </p>
         )}
       </div>
@@ -236,8 +242,10 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       {props.item.type === "provider-command" ? (
         props.item.commandKind === "plugin" ? (
           <PlugIcon className="size-4 shrink-0 text-muted-foreground/80" />
-        ) : (
+        ) : props.item.commandKind === "skill" ? (
           <IconStack2 className="size-4 shrink-0 text-muted-foreground/80" />
+        ) : (
+          <BotIcon className="size-4 shrink-0 text-muted-foreground/80" />
         )
       ) : null}
       {props.item.type === "model" ? (

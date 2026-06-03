@@ -188,45 +188,7 @@ function providerCommand(
   };
 }
 
-const CODEX_SLASH_COMMANDS = [
-  providerCommand("permissions", "Set what Codex can do without asking first"),
-  providerCommand(
-    "sandbox-add-read-dir",
-    "Grant sandbox read access to an extra directory",
-    "<path>",
-  ),
-  providerCommand("agent", "Switch the active agent thread"),
-  providerCommand("apps", "Browse apps and insert them into your prompt"),
-  providerCommand("plugins", "Browse installed and discoverable plugins"),
-  providerCommand("clear", "Clear the terminal and start a fresh chat"),
-  providerCommand("compact", "Summarize the visible conversation to free tokens"),
-  providerCommand("copy", "Copy the latest completed Codex output"),
-  providerCommand("diff", "Show the Git diff"),
-  providerCommand("exit", "Exit the CLI"),
-  providerCommand("experimental", "Toggle experimental features"),
-  providerCommand("feedback", "Send logs to Codex maintainers"),
-  providerCommand("init", "Generate an AGENTS.md scaffold"),
-  providerCommand("logout", "Sign out of Codex"),
-  providerCommand("mcp", "List configured MCP tools", "verbose"),
-  providerCommand("mention", "Attach a file to the conversation", "<path>"),
-  providerCommand("model", "Choose the active model"),
-  providerCommand("fast", "Toggle Fast mode", "on|off|status"),
-  providerCommand("plan", "Switch to plan mode and optionally send a prompt", "<prompt>"),
-  providerCommand("personality", "Choose a response communication style"),
-  providerCommand("ps", "Show background terminals and recent output"),
-  providerCommand("stop", "Stop background terminals"),
-  providerCommand("fork", "Fork the current conversation"),
-  providerCommand("side", "Start an ephemeral side conversation", "<prompt>"),
-  providerCommand("resume", "Resume a saved conversation"),
-  providerCommand("new", "Start a new conversation"),
-  providerCommand("quit", "Exit the CLI"),
-  providerCommand("review", "Ask Codex to review your working tree"),
-  providerCommand("status", "Display session configuration and token usage"),
-  providerCommand("debug-config", "Print config layer and requirement diagnostics"),
-  providerCommand("statusline", "Configure TUI status-line fields"),
-  providerCommand("title", "Configure terminal title fields"),
-  providerCommand("keymap", "Remap TUI keyboard shortcuts"),
-] as const satisfies ReadonlyArray<ProviderSlashCommand>;
+const CODEX_SLASH_COMMANDS = [] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 const CLAUDE_SLASH_COMMANDS = [
   providerCommand("help", "Show Claude Code help"),
