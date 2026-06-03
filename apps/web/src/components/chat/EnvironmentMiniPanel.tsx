@@ -10,10 +10,12 @@ import * as Schema from "effect/Schema";
 import {
   CheckSquareIcon,
   ChevronDownIcon,
+  ExpandIcon,
   FileDiffIcon,
-  PenLineIcon,
+  NotebookPenIcon,
   PlusIcon,
   SettingsIcon,
+  XIcon,
 } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
@@ -40,6 +42,14 @@ import {
   ScratchPadCollectionSchema,
   type ScratchPadCollection,
 } from "./scratchPadStore";
+import {
+  EMPTY_PINNED_MESSAGES,
+  PINNED_MESSAGES_STORAGE_KEY,
+  PinnedMessagesSchema,
+  removePinnedMessageById,
+  togglePinnedMessageChecked,
+  type PinnedMessages,
+} from "./pinnedMessagesStore";
 
 function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -73,14 +83,22 @@ function EnvironmentPanelGroup(props: {
   );
 }
 
-type EnvironmentPanelGroupId = "actions" | "environment" | "progress" | "subagents";
+type EnvironmentPanelGroupId =
+  | "actions"
+  | "environment"
+  | "notes"
+  | "pinnedMessages"
+  | "progress"
+  | "subagents";
 type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
 
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v2";
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v3";
 
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
   environment: true,
+  notes: false,
+  pinnedMessages: false,
   progress: false,
   subagents: false,
 };
@@ -88,6 +106,8 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
 const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   actions: Schema.Boolean,
   environment: Schema.Boolean,
+  notes: Schema.Boolean,
+  pinnedMessages: Schema.Boolean,
   progress: Schema.Boolean,
   subagents: Schema.Boolean,
 });
@@ -271,6 +291,7 @@ export const EnvironmentMiniPanel = forwardRef<
     onDeleteProjectScript: (scriptId: string) => Promise<void>;
     onOpenDiffPanel: () => void;
     onOpenEnvironmentSettings: () => void;
+    onJumpToMessage: (messageId: string) => void;
     onOpenSummaryPanel: () => void;
     onRunProjectScript: (script: ProjectScript) => void;
     onSelectSubagentThread: (threadId: string) => void;
@@ -295,6 +316,12 @@ export const EnvironmentMiniPanel = forwardRef<
     ScratchPadCollection,
     ScratchPadCollection
   >(SCRATCH_PAD_STORAGE_KEY, EMPTY_SCRATCH_PAD_COLLECTION, ScratchPadCollectionSchema);
+  const [pinnedMessages, setPinnedMessages] = useLocalStorage<PinnedMessages, PinnedMessages>(
+    PINNED_MESSAGES_STORAGE_KEY,
+    EMPTY_PINNED_MESSAGES,
+    PinnedMessagesSchema,
+  );
+  const activeThreadId = String(props.activeThreadId);
   const setGroupOpen = (groupId: EnvironmentPanelGroupId, open: boolean) => {
     setGroupOpenState((current) => ({
       ...DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,
@@ -303,18 +330,48 @@ export const EnvironmentMiniPanel = forwardRef<
     }));
   };
   const scratchPadNotes = scratchPadCollection.notes
-    .slice()
-    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .filter((note) => note.threadId === undefined || note.threadId === activeThreadId)
+    .toSorted((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, 4);
+  const activeScratchPadNote =
+    scratchPadNotes.find((note) => note.id === scratchPadCollection.activeNoteId) ??
+    scratchPadNotes[0] ??
+    null;
+  const threadPinnedMessages = pinnedMessages
+    .filter((message) => message.threadId === activeThreadId)
+    .toSorted((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 5);
   const createAndOpenScratchPad = () => {
     const note = createScratchPadNote({
-      title: `Note ${scratchPadCollection.notes.length + 1}`,
+      threadId: activeThreadId,
+      title: `Scratch ${scratchPadNotes.length + 1}`,
     });
     setScratchPadCollection((current) => ({
       activeNoteId: note.id,
       notes: [note, ...current.notes],
     }));
     openScratchPadDialog(note.id);
+  };
+  const updateActiveScratchPadBody = (body: string) => {
+    if (!activeScratchPadNote) {
+      const note = createScratchPadNote({
+        body,
+        threadId: activeThreadId,
+        title: "Working scratch",
+      });
+      setScratchPadCollection((current) => ({
+        activeNoteId: note.id,
+        notes: [note, ...current.notes],
+      }));
+      return;
+    }
+    setScratchPadCollection((current) => ({
+      ...current,
+      activeNoteId: activeScratchPadNote.id,
+      notes: current.notes.map((note) =>
+        note.id === activeScratchPadNote.id ? { ...note, body, updatedAt: Date.now() } : note,
+      ),
+    }));
   };
   const demoEnabled = isEnvironmentPanelDemoEnabled();
   const activePlan = demoEnabled ? DEMO_ACTIVE_PLAN : props.activePlan;
@@ -444,66 +501,132 @@ export const EnvironmentMiniPanel = forwardRef<
           ) : props.gitCwd ? (
             <Skeleton className="mx-2 h-8 rounded-lg" />
           ) : null}
+        </EnvironmentPanelGroup>
 
-          <div className="mt-1 space-y-1 px-2 pt-1">
-            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              <CheckSquareIcon className="size-3.5" />
-              <span>Pinned Messages</span>
+        {threadPinnedMessages.length > 0 ? (
+          <EnvironmentPanelGroup
+            title="Pinned Messages"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "pinnedMessages")}
+            onOpenChange={(open) => setGroupOpen("pinnedMessages", open)}
+          >
+            <div className="space-y-0.5 px-2">
+              {threadPinnedMessages.map((message) => (
+                <div key={message.id} className="flex min-h-7 items-center gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-muted-foreground/50 text-foreground transition-colors hover:text-foreground"
+                    onClick={() =>
+                      setPinnedMessages((current) =>
+                        togglePinnedMessageChecked(current, message.id),
+                      )
+                    }
+                    aria-label={
+                      message.checked
+                        ? `Mark pinned message incomplete: ${message.title}`
+                        : `Mark pinned message complete: ${message.title}`
+                    }
+                  >
+                    {message.checked ? <CheckSquareIcon className="size-3" /> : null}
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left text-[12px] transition-colors hover:text-foreground",
+                      message.checked ? "text-muted-foreground/55 line-through" : "text-foreground",
+                    )}
+                    title={message.preview}
+                    onClick={() => props.onJumpToMessage(message.messageId)}
+                  >
+                    {message.title}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-foreground"
+                    onClick={() =>
+                      setPinnedMessages((current) => removePinnedMessageById(current, message.id))
+                    }
+                    aria-label={`Unpin message: ${message.title}`}
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
-            <button
-              type="button"
-              className="flex min-h-7 w-full items-center gap-2 rounded-lg py-0.5 text-left text-[11px] text-muted-foreground/72"
-              onClick={props.onOpenSummaryPanel}
-            >
-              <span className="size-3.5 rounded-[4px] border border-muted-foreground/50" />
-              <span className="min-w-0 flex-1 truncate">No pinned messages yet</span>
-            </button>
-          </div>
+          </EnvironmentPanelGroup>
+        ) : null}
 
-          <div className="space-y-1 px-2 pt-1.5">
-            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              <PenLineIcon className="size-3.5" />
-              <span className="min-w-0 flex-1">Notes</span>
+        <EnvironmentPanelGroup
+          title="Notes"
+          open={resolveEnvironmentPanelGroupOpen(groupOpenState, "notes")}
+          onOpenChange={(open) => setGroupOpen("notes", open)}
+          trailing={
+            <div className="-mr-1 flex items-center gap-0.5">
               <button
                 type="button"
-                className="-mr-1 inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
                 onClick={createAndOpenScratchPad}
-                aria-label="New note"
+                aria-label="New scratch note"
               >
                 <PlusIcon className="size-3.5" />
               </button>
+              <button
+                type="button"
+                className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => openScratchPadDialog(activeScratchPadNote?.id)}
+                aria-label="Open scratchpad board"
+              >
+                <ExpandIcon className="size-3.5" />
+              </button>
             </div>
-            {scratchPadNotes.length > 0 ? (
-              <div className="space-y-0.5">
+          }
+        >
+          <div className="space-y-2 px-2">
+            <div className="rounded-lg border border-border/55 bg-background/45">
+              <div className="flex items-center gap-1.5 border-b border-border/40 px-2 py-1.5 text-[11px] text-muted-foreground">
+                <NotebookPenIcon className="size-3.5" />
+                <span className="min-w-0 flex-1 truncate">
+                  {activeScratchPadNote
+                    ? resolveScratchPadTitle(activeScratchPadNote)
+                    : "Working scratch"}
+                </span>
+              </div>
+              <textarea
+                value={activeScratchPadNote?.body ?? ""}
+                onChange={(event) => updateActiveScratchPadBody(event.target.value)}
+                placeholder="Hold context, blockers, follow-ups, commands to run..."
+                className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-[12px] leading-5 outline-none placeholder:text-muted-foreground/45"
+              />
+            </div>
+            {scratchPadNotes.length > 1 ? (
+              <div className="flex gap-1 overflow-x-auto pb-0.5">
                 {scratchPadNotes.map((note) => (
                   <button
                     key={note.id}
                     type="button"
-                    className="flex min-h-8 w-full items-center gap-2 rounded-lg py-1 text-left text-[12px] transition-colors hover:text-accent-foreground"
-                    onClick={() => openScratchPadDialog(note.id)}
+                    className={cn(
+                      "max-w-28 shrink-0 truncate rounded-full border px-2 py-1 text-[10px] transition-colors",
+                      note.id === activeScratchPadNote?.id
+                        ? "border-border/70 bg-muted/55 text-foreground"
+                        : "border-border/35 text-muted-foreground hover:text-foreground",
+                    )}
+                    title={resolveScratchPadPreview(note)}
+                    onClick={() =>
+                      setScratchPadCollection((current) => ({ ...current, activeNoteId: note.id }))
+                    }
                   >
-                    <span className="mt-0.5 size-3.5 shrink-0 rounded-[4px] border border-muted-foreground/45" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        {resolveScratchPadTitle(note)}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted-foreground/72">
-                        {resolveScratchPadPreview(note)}
-                      </span>
-                    </span>
+                    {resolveScratchPadTitle(note)}
                   </button>
                 ))}
               </div>
-            ) : (
-              <button
-                type="button"
-                className="flex min-h-8 w-full items-center gap-2 rounded-lg py-1 text-left text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-                onClick={createAndOpenScratchPad}
-              >
-                <PlusIcon className="size-3.5" />
-                <span>New note</span>
-              </button>
-            )}
+            ) : null}
+            <button
+              type="button"
+              className="flex min-h-7 w-full items-center gap-2 rounded-lg text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => openScratchPadDialog(activeScratchPadNote?.id)}
+            >
+              <ExpandIcon className="size-3.5" />
+              <span className="min-w-0 flex-1 truncate">Open canvas board</span>
+            </button>
           </div>
         </EnvironmentPanelGroup>
 

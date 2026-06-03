@@ -9433,8 +9433,19 @@ function useChatViewComponent({
   const activeThreadProvider = activeThread?.session?.provider;
   const activeThreadModelProvider = activeThread?.modelSelection.provider;
   const canForkActiveThread = isServerThread && activeThreadMessagesLength > 0;
+  const [targetMessageNavigation, setTargetMessageNavigation] = useState<{
+    messageId: string;
+    requestId: number;
+  } | null>(null);
+  const jumpToTimelineMessage = useCallback((messageId: string) => {
+    setTargetMessageNavigation((current) => ({
+      messageId,
+      requestId: (current?.requestId ?? 0) + 1,
+    }));
+  }, []);
   const messagesTimelineProps = useMemo(
     () => ({
+      ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
       hasMessages:
         timelineEntries.length > 0 ||
         (isThreadHistoryLoading && activeThreadMessagesLength > 0) ||
@@ -9481,11 +9492,13 @@ function useChatViewComponent({
       isForkConversationDisabled: isWorking || handoffInFlight,
       enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
       resolvedTheme,
+      targetMessageNavigation,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
     }),
     [
       activeProject?.cwd,
+      activeThreadIdValue,
       activeThreadMessagesLength,
       activeThreadProvider,
       activeThreadModelProvider,
@@ -9521,6 +9534,7 @@ function useChatViewComponent({
       revertTurnCountByAssistantMessageId,
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
+      targetMessageNavigation,
       timelineEntries,
       timestampFormat,
       turnDiffSummaryByAssistantMessageId,
@@ -9713,6 +9727,7 @@ function useChatViewComponent({
         onAddProjectScript: saveProjectScript,
         onDeleteProjectScript: deleteProjectScript,
         onOpenDiffPanel: onOpenRightSidePanelDiff,
+        onJumpToMessage: jumpToTimelineMessage,
         onOpenEnvironmentSettings: () => {
           if (activeProject) {
             void navigate({

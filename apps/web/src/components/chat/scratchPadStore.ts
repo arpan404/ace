@@ -14,6 +14,7 @@ export const ScratchPadNoteSchema = Schema.Struct({
   createdAt: Schema.Number,
   id: Schema.String,
   imageDataUrl: Schema.NullOr(Schema.String),
+  threadId: Schema.optional(Schema.String),
   title: Schema.String,
   updatedAt: Schema.Number,
 });
@@ -31,13 +32,16 @@ export const EMPTY_SCRATCH_PAD_COLLECTION: ScratchPadCollection = {
   notes: [],
 };
 
-export function createScratchPadNote(input?: Partial<Pick<ScratchPadNote, "body" | "title">>) {
+export function createScratchPadNote(
+  input?: Partial<Pick<ScratchPadNote, "body" | "threadId" | "title">>,
+) {
   const now = Date.now();
   return {
     body: input?.body ?? "",
     createdAt: now,
     id: `note-${randomUUID()}`,
     imageDataUrl: null,
+    ...(input?.threadId ? { threadId: input.threadId } : {}),
     title: input?.title ?? "Untitled note",
     updatedAt: now,
   } satisfies ScratchPadNote;

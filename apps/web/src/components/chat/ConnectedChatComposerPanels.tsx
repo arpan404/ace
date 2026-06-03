@@ -1726,6 +1726,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onOpenChange={setScratchPadOpen}
         onAttachImage={attachScratchPadImage}
         requestedNoteId={scratchPadRequestedNoteId}
+        threadId={props.threadId}
       />
     </>
   );

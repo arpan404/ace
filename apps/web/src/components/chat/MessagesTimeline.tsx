@@ -54,6 +54,7 @@ import {
   FileDiffIcon,
   GlobeIcon,
   HammerIcon,
+  PinIcon,
   SplitIcon,
   type LucideIcon,
   PlugIcon,
@@ -71,9 +72,20 @@ import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { hasNonZeroStat } from "./diffStat";
 import { MessageCopyButton } from "./MessageCopyButton";
+import {
+  EMPTY_PINNED_MESSAGES,
+  getPinnedMessageId,
+  PINNED_MESSAGES_STORAGE_KEY,
+  PinnedMessagesSchema,
+  removePinnedMessage,
+  upsertPinnedMessage,
+  upsertPinnedSelectionMessage,
+  type PinnedMessages,
+} from "./pinnedMessagesStore";
 import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -137,6 +149,13 @@ const IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH = 54;
 const IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH = 46;
 const EMPTY_MESSAGE_TURN_COUNT_MAP = new Map<MessageId, number>();
 const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
+
+type AssistantSelectionPinTarget = {
+  left: number;
+  messageId: string;
+  text: string;
+  top: number;
+};
 
 interface AssistantImageGenerationPlaceholder {
   readonly width: number;
@@ -372,6 +391,7 @@ function toTimelineWidthCacheKey(timelineWidthPx: number | null): string {
 }
 
 interface MessagesTimelineProps {
+  activeThreadId?: string;
   hasMessages: boolean;
   isWorking: boolean;
   onStartConversationFromMessage?: (() => void) | null;
@@ -407,14 +427,18 @@ interface MessagesTimelineProps {
   enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
   onForkConversation?: (() => void) | null;
+  isPinned?: boolean;
+  onTogglePinnedMessage?: (() => void) | null;
   isForkConversationDisabled?: boolean;
   enableGoalWorkingState?: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
+  targetMessageNavigation?: { messageId: string; requestId: number } | null;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
+  activeThreadId,
   hasMessages,
   isWorking,
   onStartConversationFromMessage = null,
@@ -455,12 +479,83 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
+  targetMessageNavigation = null,
 }: MessagesTimelineProps) {
   const userMessageProviderCommandLookup = useMemo(
     () => buildUserMessageProviderCommandLookup(providerCommands),
     [providerCommands],
   );
   const supportsForkConversation = Boolean(onForkConversation);
+  const [pinnedMessages, setPinnedMessages] = useLocalStorage<PinnedMessages, PinnedMessages>(
+    PINNED_MESSAGES_STORAGE_KEY,
+    EMPTY_PINNED_MESSAGES,
+    PinnedMessagesSchema,
+  );
+  const pinnedMessageIdSet = useMemo(
+    () => new Set(pinnedMessages.map((message) => message.id)),
+    [pinnedMessages],
+  );
+  const [selectionPinTarget, setSelectionPinTarget] = useState<AssistantSelectionPinTarget | null>(
+    null,
+  );
+  const updateSelectionPinTarget = useCallback(() => {
+    if (!activeThreadId) {
+      setSelectionPinTarget(null);
+      return;
+    }
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setSelectionPinTarget(null);
+      return;
+    }
+    const selectedText = selection.toString().replace(/\s+/g, " ").trim();
+    if (selectedText.length === 0) {
+      setSelectionPinTarget(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const ancestorNode = range.commonAncestorContainer;
+    const ancestorElement =
+      ancestorNode.nodeType === Node.ELEMENT_NODE
+        ? (ancestorNode as Element)
+        : ancestorNode.parentNode instanceof Element
+          ? ancestorNode.parentNode
+          : null;
+    const messageRow = ancestorElement?.closest<HTMLElement>(
+      '[data-message-role="assistant"][data-message-id]',
+    );
+    if (!messageRow) {
+      setSelectionPinTarget(null);
+      return;
+    }
+
+    const messageId = messageRow.dataset.messageId;
+    const rect = range.getBoundingClientRect();
+    if (!messageId || rect.width <= 0 || rect.height <= 0) {
+      setSelectionPinTarget(null);
+      return;
+    }
+
+    setSelectionPinTarget({
+      left: Math.min(window.innerWidth - 120, Math.max(8, rect.left + rect.width / 2 - 54)),
+      messageId,
+      text: selectedText,
+      top: Math.max(8, rect.top - 38),
+    });
+  }, [activeThreadId]);
+  const pinSelectedAssistantText = useCallback(() => {
+    if (!activeThreadId || !selectionPinTarget) return;
+    setPinnedMessages((current) =>
+      upsertPinnedSelectionMessage(current, {
+        threadId: activeThreadId,
+        messageId: selectionPinTarget.messageId,
+        text: selectionPinTarget.text,
+      }),
+    );
+    window.getSelection()?.removeAllRanges();
+    setSelectionPinTarget(null);
+  }, [activeThreadId, selectionPinTarget, setPinnedMessages]);
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
       timelineEntries,
@@ -560,16 +655,43 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         !row.message.streaming &&
         row.message.completedAt !== undefined &&
         row.message.completedAt !== null;
-      const copyText = shouldShowAssistantTurnActions
-        ? collectVisibleAssistantTurnCopyText(rows, index)
+      const assistantTurnPinTarget = shouldShowAssistantTurnActions
+        ? collectVisibleAssistantTurnPinTarget(rows, index)
         : null;
+      const copyText = assistantTurnPinTarget?.text ?? null;
       const onForkConversationForRow =
         shouldShowAssistantTurnActions &&
         supportsForkConversation &&
         String(row.message.id) === latestForkableAssistantMessageId
           ? onForkConversation
           : null;
-      if (!copyText && !timing && !onForkConversationForRow) {
+      const pinMessageId =
+        shouldShowAssistantTurnActions && assistantTurnPinTarget && activeThreadId
+          ? assistantTurnPinTarget.messageId
+          : null;
+      const pinnedMessageId =
+        pinMessageId && activeThreadId
+          ? getPinnedMessageId({ threadId: activeThreadId, messageId: pinMessageId })
+          : null;
+      const isPinned = pinnedMessageId ? pinnedMessageIdSet.has(pinnedMessageId) : false;
+      const onTogglePinnedMessage =
+        pinMessageId && activeThreadId && assistantTurnPinTarget
+          ? () => {
+              setPinnedMessages((current) =>
+                isPinned
+                  ? removePinnedMessage(current, {
+                      threadId: activeThreadId,
+                      messageId: pinMessageId,
+                    })
+                  : upsertPinnedMessage(current, {
+                      threadId: activeThreadId,
+                      messageId: pinMessageId,
+                      text: assistantTurnPinTarget.text,
+                    }),
+              );
+            }
+          : null;
+      if (!copyText && !timing && !onForkConversationForRow && !onTogglePinnedMessage) {
         continue;
       }
 
@@ -592,17 +714,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }
       footerByRowId.set(placementRow.id, {
         copyText,
+        isPinned,
         isForkConversationDisabled,
         onForkConversation: onForkConversationForRow,
+        onTogglePinnedMessage,
         timing,
       });
     }
     return footerByRowId;
   }, [
     isForkConversationDisabled,
+    activeThreadId,
     latestForkableAssistantMessageId,
     onForkConversation,
+    pinnedMessageIdSet,
     rows,
+    setPinnedMessages,
     supportsForkConversation,
     timestampFormat,
   ]);
@@ -718,6 +845,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
+
   const shouldUseVirtualizedBuffer = virtualizedRows.length > 0;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
   const shouldPrewarmAssistantMarkdown =
@@ -748,6 +876,66 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
+  useEffect(() => {
+    if (!targetMessageNavigation) return;
+    const targetMessageId = targetMessageNavigation.messageId;
+    const rowIndex = rows.findIndex(
+      (row) => row.kind === "message" && String(row.message.id) === targetMessageId,
+    );
+    if (rowIndex < 0) return;
+
+    const scrollContainer = getScrollContainer();
+    if (!scrollContainer) return;
+
+    const escapedMessageId =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(targetMessageId)
+        : targetMessageId.replace(/["\\]/gu, "\\$&");
+    const selector = `[data-message-id="${escapedMessageId}"]`;
+    let clearHighlightTimeoutId: number | null = null;
+    const highlightMountedRow = () => {
+      const row = scrollContainer.querySelector<HTMLElement>(selector);
+      if (!row) return;
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.dataset.pinnedMessageTarget = "true";
+      clearHighlightTimeoutId = window.setTimeout(() => {
+        if (row.dataset.pinnedMessageTarget === "true") {
+          delete row.dataset.pinnedMessageTarget;
+        }
+      }, 1200);
+    };
+
+    if (rowIndex < virtualizedRows.length && shouldRenderVirtualizedBuffer) {
+      let secondFrameId: number | null = null;
+      rowVirtualizer.scrollToIndex(rowIndex, { align: "center" });
+      const firstFrameId = window.requestAnimationFrame(() => {
+        secondFrameId = window.requestAnimationFrame(highlightMountedRow);
+      });
+      return () => {
+        window.cancelAnimationFrame(firstFrameId);
+        if (secondFrameId !== null) {
+          window.cancelAnimationFrame(secondFrameId);
+        }
+        if (clearHighlightTimeoutId !== null) {
+          window.clearTimeout(clearHighlightTimeoutId);
+        }
+      };
+    }
+
+    highlightMountedRow();
+    return () => {
+      if (clearHighlightTimeoutId !== null) {
+        window.clearTimeout(clearHighlightTimeoutId);
+      }
+    };
+  }, [
+    getScrollContainer,
+    rowVirtualizer,
+    rows,
+    shouldRenderVirtualizedBuffer,
+    targetMessageNavigation,
+    virtualizedRows.length,
+  ]);
   const virtualizedBufferHeight =
     renderedVirtualItems.length > 0
       ? Math.max(rowVirtualizer.getTotalSize(), renderedVirtualItems.at(-1)?.end ?? 0)
@@ -1097,7 +1285,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
-        className="group/timeline relative pb-3"
+        className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
@@ -1298,8 +1486,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         {detachedAssistantFooter && (
           <AssistantTurnFooter
             copyText={detachedAssistantFooter.copyText}
+            isPinned={detachedAssistantFooter.isPinned}
             onForkConversation={detachedAssistantFooter.onForkConversation}
             isForkConversationDisabled={detachedAssistantFooter.isForkConversationDisabled}
+            onTogglePinnedMessage={detachedAssistantFooter.onTogglePinnedMessage}
             timing={detachedAssistantFooter.timing}
           />
         )}
@@ -1362,7 +1552,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ref={setTimelineRootElement}
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      onKeyUp={updateSelectionPinTarget}
+      onMouseUp={updateSelectionPinTarget}
     >
+      {selectionPinTarget ? (
+        <button
+          type="button"
+          className="fixed z-50 inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-popover px-2.5 text-[11px] font-medium text-popover-foreground shadow-lg transition-colors hover:bg-accent hover:text-accent-foreground"
+          style={{ left: selectionPinTarget.left, top: selectionPinTarget.top }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={pinSelectedAssistantText}
+          aria-label="Pin selected assistant text"
+        >
+          <PinIcon className="size-3" />
+          Pin
+        </button>
+      ) : null}
       {shouldRenderVirtualizedBuffer ? (
         <div
           data-virtualizer-buffer="true"
@@ -2862,6 +3067,8 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
   onForkConversation?: (() => void) | null;
+  isPinned?: boolean;
+  onTogglePinnedMessage?: (() => void) | null;
   isForkConversationDisabled?: boolean;
   renderMarkdown: boolean;
   showCopyAction: boolean;
@@ -2951,8 +3158,10 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       {!props.suppressFooter && (
         <AssistantTurnFooter
           copyText={copyText}
+          isPinned={props.isPinned ?? false}
           onForkConversation={props.onForkConversation ?? null}
           isForkConversationDisabled={props.isForkConversationDisabled ?? false}
+          onTogglePinnedMessage={props.onTogglePinnedMessage ?? null}
           timing={timing}
         />
       )}
@@ -2984,15 +3193,17 @@ function resolveAssistantTurnTiming(input: {
 
 type AssistantTurnFooterModel = {
   copyText: string | null;
+  isPinned: boolean;
   onForkConversation: (() => void) | null;
+  onTogglePinnedMessage: (() => void) | null;
   isForkConversationDisabled: boolean;
   timing: { completedAtLabel: string; elapsedLabel: string } | null;
 };
 
-function collectVisibleAssistantTurnCopyText(
+function collectVisibleAssistantTurnPinTarget(
   rows: ReadonlyArray<TimelineRow>,
   terminalRowIndex: number,
-): string | null {
+): { messageId: string; text: string } | null {
   const terminalRow = rows[terminalRowIndex];
   if (
     terminalRow?.kind !== "message" ||
@@ -3004,6 +3215,7 @@ function collectVisibleAssistantTurnCopyText(
 
   const turnId = terminalRow.message.turnId ?? null;
   const visibleAssistantTexts: string[] = [];
+  let firstAssistantMessageId: string | null = null;
   for (let index = 0; index <= terminalRowIndex; index += 1) {
     const row = rows[index];
     if (row?.kind !== "message" || !isAssistantTimelineMessage(row.message)) {
@@ -3018,20 +3230,30 @@ function collectVisibleAssistantTurnCopyText(
 
     const renderedText = getChatMessageRenderableText(row.message).trim();
     if (renderedText.length > 0) {
+      firstAssistantMessageId ??= String(row.message.id);
       visibleAssistantTexts.push(renderedText);
     }
   }
 
-  return visibleAssistantTexts.length > 0 ? visibleAssistantTexts.join("\n\n") : null;
+  return visibleAssistantTexts.length > 0 && firstAssistantMessageId
+    ? {
+        messageId: firstAssistantMessageId,
+        text: visibleAssistantTexts.join("\n\n"),
+      }
+    : null;
 }
 
 const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
   copyText: string | null;
+  isPinned?: boolean;
   onForkConversation?: (() => void) | null;
+  onTogglePinnedMessage?: (() => void) | null;
   isForkConversationDisabled?: boolean;
   timing: { completedAtLabel: string; elapsedLabel: string } | null;
 }) {
-  const hasActions = Boolean(props.copyText || props.onForkConversation);
+  const hasActions = Boolean(
+    props.copyText || props.onTogglePinnedMessage || props.onForkConversation,
+  );
   if (!props.timing && !hasActions) {
     return null;
   }
@@ -3067,19 +3289,47 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
           <span>{props.timing.elapsedLabel}</span>
         </span>
       )}
-      {props.onForkConversation && (
+      {(props.onTogglePinnedMessage || props.onForkConversation) && (
         <div
           className={cn(
-            "flex items-center",
+            "flex items-center gap-1",
             hoverOnlyClass,
             !props.timing && !props.copyText && "ml-auto",
           )}
           data-assistant-turn-actions="true"
         >
-          <AssistantForkButton
-            disabled={props.isForkConversationDisabled ?? false}
-            onClick={props.onForkConversation}
-          />
+          {props.onTogglePinnedMessage ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    className={cn(
+                      "text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground",
+                      props.isPinned && "text-foreground",
+                    )}
+                    onClick={props.onTogglePinnedMessage}
+                    aria-label={
+                      props.isPinned ? "Unpin assistant message" : "Pin assistant message"
+                    }
+                  />
+                }
+              >
+                <PinIcon className={cn("size-3", props.isPinned && "fill-current")} />
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {props.isPinned ? "Unpin message" : "Pin message"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {props.onForkConversation ? (
+            <AssistantForkButton
+              disabled={props.isForkConversationDisabled ?? false}
+              onClick={props.onForkConversation}
+            />
+          ) : null}
         </div>
       )}
     </div>

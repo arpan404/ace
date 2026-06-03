@@ -1,8 +1,10 @@
 import {
+  BrushIcon,
   EraserIcon,
   ImagePlusIcon,
   PenLineIcon,
   PlusIcon,
+  StickyNoteIcon,
   Trash2Icon,
   Undo2Icon,
   XIcon,
@@ -135,6 +137,7 @@ export function ScratchPadDialog(props: {
   onOpenChange: (open: boolean) => void;
   onAttachImage: (file: File) => void;
   requestedNoteId: string | null;
+  threadId: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -148,10 +151,15 @@ export function ScratchPadDialog(props: {
   const [color, setColor] = useState(DEFAULT_SCRATCH_PAD_COLOR);
   const [brushSize, setBrushSize] = useState<(typeof BRUSH_SIZES)[number]>(BRUSH_SIZES[1]);
   const [history, setHistory] = useState<string[]>([]);
+  const threadNotes = useMemo(
+    () =>
+      collection.notes
+        .filter((note) => note.threadId === undefined || note.threadId === props.threadId)
+        .toSorted((left, right) => right.updatedAt - left.updatedAt),
+    [collection.notes, props.threadId],
+  );
   const activeNote =
-    collection.notes.find((note) => note.id === collection.activeNoteId) ??
-    collection.notes[0] ??
-    null;
+    threadNotes.find((note) => note.id === collection.activeNoteId) ?? threadNotes[0] ?? null;
 
   const updateActiveNote = useCallback(
     (updater: (note: ScratchPadNote) => ScratchPadNote) => {
@@ -168,25 +176,31 @@ export function ScratchPadDialog(props: {
   );
 
   const createNote = useCallback(() => {
-    const note = createScratchPadNote({ title: `Note ${collection.notes.length + 1}` });
+    const note = createScratchPadNote({
+      threadId: props.threadId,
+      title: `Scratch ${threadNotes.length + 1}`,
+    });
     setCollection((current) => ({
       activeNoteId: note.id,
       notes: [note, ...current.notes],
     }));
     setHistory([]);
-  }, [collection.notes.length, setCollection]);
+  }, [props.threadId, setCollection, threadNotes.length]);
 
   const deleteActiveNote = useCallback(() => {
     if (!activeNote) return;
     setCollection((current) => {
       const notes = current.notes.filter((note) => note.id !== activeNote.id);
+      const nextThreadNote = notes
+        .filter((note) => note.threadId === undefined || note.threadId === props.threadId)
+        .toSorted((left, right) => right.updatedAt - left.updatedAt)[0];
       return {
-        activeNoteId: notes[0]?.id ?? null,
+        activeNoteId: nextThreadNote?.id ?? null,
         notes,
       };
     });
     setHistory([]);
-  }, [activeNote, setCollection]);
+  }, [activeNote, props.threadId, setCollection]);
 
   const drawSavedImage = useCallback((imageDataUrl: string | null) => {
     const canvas = canvasRef.current;
@@ -236,14 +250,21 @@ export function ScratchPadDialog(props: {
       );
       return;
     }
-    if (collection.notes.length === 0) {
-      const note = createScratchPadNote({ title: "Working note" });
+    if (threadNotes.length === 0) {
+      const note = createScratchPadNote({ threadId: props.threadId, title: "Working scratch" });
       setCollection({
         activeNoteId: note.id,
-        notes: [note],
+        notes: [note, ...collection.notes],
       });
     }
-  }, [collection.notes.length, props.open, props.requestedNoteId, setCollection]);
+  }, [
+    collection.notes,
+    props.open,
+    props.requestedNoteId,
+    props.threadId,
+    setCollection,
+    threadNotes.length,
+  ]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -379,7 +400,7 @@ export function ScratchPadDialog(props: {
 
   const hasCanvasContent = Boolean(activeNote?.imageDataUrl);
   const notesPlaceholder = useMemo(
-    () => "Keep notes, sketch flows, or mark up an idea. Attach sends the current pad as an image.",
+    () => "Keep assumptions, file paths, commands, blockers, review notes, and follow-ups here.",
     [],
   );
 
@@ -388,29 +409,25 @@ export function ScratchPadDialog(props: {
       <DialogPopup
         bottomStickOnMobile={false}
         showCloseButton={false}
-        className="h-[calc(100dvh-1rem)] max-h-none w-[calc(100vw-1rem)] max-w-none overflow-hidden p-0"
+        className="flex h-[min(44rem,calc(100dvh-1rem))] max-h-none w-[min(64rem,calc(100vw-1rem))] max-w-none flex-col overflow-hidden border-border/80 bg-background p-0 shadow-2xl"
       >
-        <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 px-4 py-3 sm:px-5">
-          <div className="min-w-0 flex-1">
+        <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 bg-muted/10 px-4 py-3">
+          <div className="min-w-0">
             <DialogTitle className="sr-only">Notes</DialogTitle>
-            <input
-              value={activeNote?.title ?? ""}
-              onChange={(event) =>
-                updateActiveNote((note) => ({
-                  ...note,
-                  title: event.target.value,
-                }))
-              }
-              placeholder="Untitled note"
-              className="h-8 w-full min-w-0 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
-            />
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <StickyNoteIcon className="size-4 text-muted-foreground" />
+              Scratchpad
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              Working memory for this coding thread
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button size="sm" type="button" variant="ghost" onClick={createNote}>
+            <Button size="sm" type="button" variant="ghost" className="h-8" onClick={createNote}>
               <PlusIcon className="size-4" />
               New
             </Button>
-            <Button size="sm" type="button" variant="outline" onClick={attachImage}>
+            <Button size="sm" type="button" variant="outline" className="h-8" onClick={attachImage}>
               <ImagePlusIcon className="size-4" />
               Attach
             </Button>
@@ -426,10 +443,10 @@ export function ScratchPadDialog(props: {
           </div>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col bg-background lg:flex-row">
-          <aside className="flex min-h-44 shrink-0 flex-col border-b border-border/60 bg-muted/18 lg:h-full lg:w-72 lg:border-r lg:border-b-0">
-            <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
-              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <div className="grid min-h-0 flex-1 bg-background md:grid-cols-[15rem_minmax(0,1fr)]">
+          <aside className="flex min-h-32 flex-col border-b border-border/55 bg-muted/12 md:min-h-0 md:border-r md:border-b-0">
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 Notes
               </span>
               <Button
@@ -442,26 +459,26 @@ export function ScratchPadDialog(props: {
                 <PlusIcon className="size-4" />
               </Button>
             </div>
-            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-              {collection.notes.map((note) => (
+            <div className="flex min-h-0 flex-1 gap-1 overflow-x-auto overflow-y-hidden px-2 pb-2 md:block md:space-y-1 md:overflow-y-auto md:overflow-x-hidden">
+              {threadNotes.map((note) => (
                 <button
                   key={note.id}
                   type="button"
                   className={cn(
-                    "w-full rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors",
+                    "w-40 shrink-0 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors md:w-full",
                     note.id === activeNote?.id
-                      ? "border-border/65 bg-accent/70 text-accent-foreground"
-                      : "hover:bg-accent/40",
+                      ? "border-border/70 bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/65 hover:text-foreground",
                   )}
                   onClick={() => {
                     setCollection((current) => ({ ...current, activeNoteId: note.id }));
                     setHistory([]);
                   }}
                 >
-                  <span className="block truncate text-[12px] font-medium">
+                  <span className="block truncate text-[12px] font-medium leading-5">
                     {resolveScratchPadTitle(note)}
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                  <span className="block truncate text-[11px] leading-4 text-muted-foreground">
                     {resolveScratchPadPreview(note)}
                   </span>
                 </button>
@@ -469,135 +486,161 @@ export function ScratchPadDialog(props: {
             </div>
           </aside>
 
-          <main className="grid min-h-0 flex-1 grid-rows-[minmax(10rem,0.34fr)_auto_minmax(14rem,0.66fr)]">
-            <textarea
-              value={activeNote?.body ?? ""}
-              onChange={(event) =>
-                updateActiveNote((note) => ({
-                  ...note,
-                  body: event.target.value,
-                }))
-              }
-              placeholder={notesPlaceholder}
-              className="min-h-0 resize-none border-b border-border/60 bg-transparent px-4 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground/55 sm:px-5"
-            />
-            <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-              <div className="flex items-center rounded-lg border border-border/60 bg-muted/20 p-0.5">
-                <Button
-                  size="sm"
-                  type="button"
-                  variant={tool === "pen" ? "secondary" : "ghost"}
-                  className="h-8 px-2"
-                  onClick={() => setTool("pen")}
-                >
-                  <PenLineIcon className="size-4" />
-                  Pen
-                </Button>
-                <Button
-                  size="sm"
-                  type="button"
-                  variant={tool === "eraser" ? "secondary" : "ghost"}
-                  className="h-8 px-2"
-                  onClick={() => setTool("eraser")}
-                >
-                  <EraserIcon className="size-4" />
-                  Eraser
-                </Button>
-              </div>
-
-              <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/20 px-2 py-1">
-                {COLOR_SWATCHES.map((swatch) => (
-                  <button
-                    key={swatch}
-                    type="button"
-                    className={cn(
-                      "size-5 rounded-full border border-border/60 transition-transform",
-                      color === swatch &&
-                        "scale-110 ring-2 ring-ring/70 ring-offset-2 ring-offset-background",
-                    )}
-                    style={{ backgroundColor: swatch }}
-                    aria-label={`Use color ${swatch}`}
-                    onClick={() => {
-                      setColor(swatch);
-                      setTool("pen");
-                    }}
+          <main className="min-h-0 overflow-y-auto p-3">
+            <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3">
+              <section className="overflow-hidden rounded-xl border border-border/65 bg-card shadow-sm">
+                <div className="flex items-center gap-2 border-b border-border/55 px-3 py-2">
+                  <StickyNoteIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <input
+                    value={activeNote?.title ?? ""}
+                    onChange={(event) =>
+                      updateActiveNote((note) => ({
+                        ...note,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="Working scratch"
+                    className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold outline-none placeholder:text-muted-foreground/50"
                   />
-                ))}
-              </div>
+                </div>
+                <textarea
+                  value={activeNote?.body ?? ""}
+                  onChange={(event) =>
+                    updateActiveNote((note) => ({
+                      ...note,
+                      body: event.target.value,
+                    }))
+                  }
+                  placeholder={notesPlaceholder}
+                  className="h-28 w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-6 outline-none placeholder:text-muted-foreground/45"
+                />
+              </section>
 
-              <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/20 px-2 py-1">
-                {BRUSH_SIZES.map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    className={cn(
-                      "flex size-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
-                      brushSize === size && "bg-accent text-accent-foreground",
-                    )}
-                    aria-label={`Use ${size}px brush`}
-                    onClick={() => setBrushSize(size)}
-                  >
-                    <span
-                      className="rounded-full bg-current"
-                      style={{ width: size, height: size }}
+              <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border/65 bg-card shadow-sm">
+                <div className="flex flex-wrap items-center gap-2 border-b border-border/55 bg-muted/12 px-3 py-2">
+                  <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    <BrushIcon className="size-3.5" />
+                    Canvas
+                  </div>
+                  <div className="ml-auto flex items-center gap-1 rounded-lg border border-border/55 bg-background p-0.5">
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant={tool === "pen" ? "secondary" : "ghost"}
+                      className="size-7"
+                      onClick={() => setTool("pen")}
+                      aria-label="Pen"
+                    >
+                      <PenLineIcon className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant={tool === "eraser" ? "secondary" : "ghost"}
+                      className="size-7"
+                      onClick={() => setTool("eraser")}
+                      aria-label="Eraser"
+                    >
+                      <EraserIcon className="size-4" />
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-1 rounded-lg border border-border/55 bg-background px-1.5 py-1">
+                    {COLOR_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch}
+                        type="button"
+                        className={cn(
+                          "size-4 rounded-full border border-border/70",
+                          color === swatch && "ring-1 ring-ring",
+                        )}
+                        style={{ backgroundColor: swatch }}
+                        aria-label={`Use color ${swatch}`}
+                        onClick={() => {
+                          setColor(swatch);
+                          setTool("pen");
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1 rounded-lg border border-border/55 bg-background px-1 py-0.5">
+                    {BRUSH_SIZES.map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        className={cn(
+                          "flex size-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
+                          brushSize === size && "bg-accent text-accent-foreground",
+                        )}
+                        aria-label={`Use ${size}px brush`}
+                        onClick={() => setBrushSize(size)}
+                      >
+                        <span
+                          className="rounded-full bg-current"
+                          style={{ width: size, height: size }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                      disabled={history.length === 0}
+                      aria-label="Undo stroke"
+                      onClick={undo}
+                    >
+                      <Undo2Icon className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                      disabled={!hasCanvasContent}
+                      aria-label="Clear drawing"
+                      onClick={clearCanvas}
+                    >
+                      <Trash2Icon className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                      disabled={!activeNote}
+                      aria-label="Delete note"
+                      onClick={deleteActiveNote}
+                    >
+                      <XIcon className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                      aria-label="Attach note"
+                      onClick={attachImage}
+                    >
+                      <ImagePlusIcon className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/10 p-3">
+                  <div className="w-full max-w-2xl rounded-xl border border-border/65 bg-background p-2 shadow-sm">
+                    <canvas
+                      ref={canvasRef}
+                      className="aspect-[16/10] max-h-[24rem] min-h-[15rem] w-full touch-none rounded-lg border border-border/70 bg-white shadow-inner"
+                      onPointerDown={beginStroke}
+                      onPointerMove={drawStroke}
+                      onPointerUp={endStroke}
+                      onPointerCancel={endStroke}
+                      onPointerLeave={endStroke}
                     />
-                  </button>
-                ))}
-              </div>
-
-              <div className="ms-auto flex items-center gap-1">
-                <Button
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                  disabled={history.length === 0}
-                  aria-label="Undo stroke"
-                  onClick={undo}
-                >
-                  <Undo2Icon className="size-4" />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                  disabled={!hasCanvasContent}
-                  aria-label="Clear drawing"
-                  onClick={clearCanvas}
-                >
-                  <Trash2Icon className="size-4" />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                  disabled={!activeNote}
-                  aria-label="Delete note"
-                  onClick={deleteActiveNote}
-                >
-                  <XIcon className="size-4" />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                  aria-label="Attach note"
-                  onClick={attachImage}
-                >
-                  <ImagePlusIcon className="size-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="min-h-0 bg-[radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] bg-[length:22px_22px] p-3 sm:p-4">
-              <canvas
-                ref={canvasRef}
-                className="h-full w-full touch-none rounded-xl border border-border/65 bg-white shadow-sm"
-                onPointerDown={beginStroke}
-                onPointerMove={drawStroke}
-                onPointerUp={endStroke}
-                onPointerCancel={endStroke}
-                onPointerLeave={endStroke}
-              />
+                  </div>
+                </div>
+              </section>
             </div>
           </main>
         </div>
