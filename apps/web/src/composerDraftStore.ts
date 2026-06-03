@@ -257,6 +257,7 @@ interface ComposerDraftStoreState {
     nextProviderOptions: ProviderModelOptions[ProviderKind] | null | undefined,
     options?: {
       persistSticky?: boolean;
+      baseModelSelection?: ModelSelection | null | undefined;
     },
   ) => void;
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
@@ -1926,6 +1927,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         if (normalizedProvider === null) {
           return;
         }
+        const normalizedBaseSelection = normalizeModelSelection(options?.baseModelSelection);
+        const baseSelectionForProvider =
+          normalizedBaseSelection?.provider === normalizedProvider ? normalizedBaseSelection : null;
         // Normalize just this provider's options
         const normalizedOpts = normalizeProviderModelOptions(
           { [normalizedProvider]: nextProviderOptions },
@@ -1939,7 +1943,12 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 
           // Update the map entry for this provider
           const nextMap = { ...base.modelSelectionByProvider };
-          const currentForProvider = nextMap[normalizedProvider];
+          const currentForProvider =
+            (baseSelectionForProvider
+              ? nextMap[modelSelectionEntryKeyFromSelection(baseSelectionForProvider)]
+              : undefined) ??
+            nextMap[normalizedProvider] ??
+            baseSelectionForProvider;
           let nextSelectionForProvider: ModelSelection | null = null;
           if (providerOpts) {
             nextSelectionForProvider = buildProviderModelSelection(
@@ -1966,6 +1975,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             const stickyBase =
               nextStickyMap[normalizedProvider] ??
               base.modelSelectionByProvider[normalizedProvider] ??
+              baseSelectionForProvider ??
               buildProviderModelSelection(
                 normalizedProvider,
                 DEFAULT_MODEL_BY_PROVIDER[normalizedProvider],

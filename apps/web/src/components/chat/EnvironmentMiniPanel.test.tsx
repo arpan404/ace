@@ -17,7 +17,7 @@ const activePlan: ActivePlanState = {
 };
 
 describe("EnvironmentMiniPanel", () => {
-  it("renders active todo progress with loading and completed strike-through states", () => {
+  it("renders active todo progress with loading and completed states", () => {
     const markup = renderToStaticMarkup(
       <EnvironmentMiniPanel
         activeProjectScripts={undefined}

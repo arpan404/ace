@@ -554,6 +554,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const baseModelSelection = model ? buildProviderModelSelection(provider, model) : null;
   const updateModelOptions = useCallback(
     (nextOptions: ProviderOptions | undefined) => {
       if ("onModelOptionsChange" in persistence) {
@@ -562,9 +563,10 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       }
       setProviderModelOptions(persistence.threadId, provider, nextOptions, {
         persistSticky: true,
+        baseModelSelection,
       });
     },
-    [persistence, provider, setProviderModelOptions],
+    [baseModelSelection, persistence, provider, setProviderModelOptions],
   );
   const piThoughtOption =
     provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;

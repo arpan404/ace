@@ -1,6 +1,6 @@
-import { ProviderInteractionMode, RuntimeMode } from "@ace/contracts";
+import { ProviderInteractionMode } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
-import { EllipsisIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react";
+import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -11,16 +11,13 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
-import { RUNTIME_MODE_META } from "./runtimeModeControl";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
-  runtimeMode: RuntimeMode;
   interactionModeShortcutLabel: string | null;
   interactionModeDisabledReason?: string | null;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   return (
     <Menu>
@@ -78,24 +75,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             {props.interactionModeDisabledReason}
           </div>
         ) : null}
-        <MenuDivider />
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Access</div>
-        <MenuRadioGroup
-          value={props.runtimeMode}
-          onValueChange={(value) => {
-            if (!value || value === props.runtimeMode) return;
-            props.onRuntimeModeChange(value as RuntimeMode);
-          }}
-        >
-          <MenuRadioItem value="approval-required">
-            <ShieldCheckIcon className={RUNTIME_MODE_META["approval-required"].iconClassName} />
-            {RUNTIME_MODE_META["approval-required"].label}
-          </MenuRadioItem>
-          <MenuRadioItem value="full-access">
-            <ShieldAlertIcon className={RUNTIME_MODE_META["full-access"].iconClassName} />
-            {RUNTIME_MODE_META["full-access"].label}
-          </MenuRadioItem>
-        </MenuRadioGroup>
       </MenuPopup>
     </Menu>
   );
