@@ -1006,7 +1006,7 @@ function useEnvironmentGitSection({
             <MenuPopup
               align="start"
               side="bottom"
-              className="w-[min(22rem,var(--anchor-width))] max-w-[calc(100vw-1rem)] shadow-2xl shadow-black/25"
+              className="w-[18rem] max-w-[calc(100vw-1rem)] shadow-2xl shadow-black/25"
               listClassName="p-3"
               sideOffset={6}
             >
@@ -1018,7 +1018,7 @@ function useEnvironmentGitSection({
                   onClick={runQuickAction}
                 >
                   <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
-                  <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
+                  <span className="whitespace-nowrap">{quickAction.label}</span>
                 </MenuItem>
               </MenuGroup>
               <MenuSeparator className="mx-2 my-2" />
@@ -1042,7 +1042,7 @@ function useEnvironmentGitSection({
                       }}
                     >
                       <GitActionItemIcon icon={item.icon} />
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      <span className="whitespace-nowrap">{item.label}</span>
                     </MenuItem>
                   );
                 })}
@@ -1056,7 +1056,7 @@ function useEnvironmentGitSection({
                   }}
                 >
                   <KeyRoundIcon />
-                  <span className="min-w-0 flex-1 truncate">SSH key passphrase</span>
+                  <span className="whitespace-nowrap">SSH key passphrase</span>
                 </MenuItem>
               </MenuGroup>
             </MenuPopup>
