@@ -1,9 +1,10 @@
 import { ProviderInteractionMode, RuntimeMode } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
-import { EllipsisIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react";
+import { EllipsisIcon, PenLineIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
+  MenuItem,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
@@ -19,6 +20,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionModeShortcutLabel: string | null;
   interactionModeDisabledReason?: string | null;
   traitsMenuContent?: ReactNode;
+  onOpenScratchPad: () => void;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
@@ -43,6 +45,11 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             <MenuDivider />
           </>
         ) : null}
+        <MenuItem onClick={props.onOpenScratchPad}>
+          <PenLineIcon />
+          Scratch pad
+        </MenuItem>
+        <MenuDivider />
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
         <MenuRadioGroup
           value={props.interactionMode}

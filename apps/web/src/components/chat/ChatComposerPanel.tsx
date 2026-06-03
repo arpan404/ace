@@ -12,6 +12,7 @@ import {
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
+  PenLineIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
   XIcon,
@@ -258,6 +259,7 @@ interface ChatComposerPanelProps {
   ) => void;
   readonly onHandoffToProvider: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
   readonly onToggleInteractionMode: () => void;
+  readonly onOpenScratchPad: () => void;
   readonly onRuntimeModeChange: (
     mode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"],
   ) => void;
@@ -651,6 +653,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                       interactionModeShortcutLabel={props.interactionModeShortcutLabel}
                       interactionModeDisabledReason={interactionModeDisabledReason}
                       traitsMenuContent={providerTraitsMenuContent}
+                      onOpenScratchPad={props.onOpenScratchPad}
                       onToggleInteractionMode={props.onToggleInteractionMode}
                       onRuntimeModeChange={props.onRuntimeModeChange}
                     />
@@ -665,6 +668,32 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                           {providerTraitsPicker}
                         </>
                       ) : null}
+
+                      <Separator
+                        orientation="vertical"
+                        className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
+                      />
+
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
+                              size="sm"
+                              type="button"
+                              onClick={props.onOpenScratchPad}
+                              aria-label="Open scratch pad"
+                            />
+                          }
+                        >
+                          <PenLineIcon className="size-4" />
+                          <span className="sr-only">Scratch pad</span>
+                        </TooltipTrigger>
+                        <TooltipPopup side="top" sideOffset={4}>
+                          Scratch pad
+                        </TooltipPopup>
+                      </Tooltip>
 
                       <Separator
                         orientation="vertical"

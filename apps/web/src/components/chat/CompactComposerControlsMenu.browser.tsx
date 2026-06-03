@@ -137,6 +137,7 @@ async function mountMenu(props?: {
         />
       }
       onToggleInteractionMode={vi.fn()}
+      onOpenScratchPad={vi.fn()}
       onRuntimeModeChange={props?.onRuntimeModeChange ?? vi.fn()}
     />,
     { container: host },

@@ -5,7 +5,8 @@ import type {
   ResolvedKeybindingsConfig,
   ThreadId,
 } from "@ace/contracts";
-import { type ComponentProps, forwardRef, type ReactNode, useState } from "react";
+import { type ComponentProps, forwardRef, type ReactNode } from "react";
+import * as Schema from "effect/Schema";
 import { ChevronDownIcon, FileDiffIcon, SettingsIcon } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
@@ -21,6 +22,7 @@ import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 
 function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -28,30 +30,56 @@ function formatDiffCount(value: number): string {
 
 function EnvironmentPanelGroup(props: {
   children: ReactNode;
-  defaultOpen?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   title: string;
   trailing?: ReactNode;
 }) {
-  const [open, setOpen] = useState(props.defaultOpen ?? true);
   return (
     <section className="border-t border-border/45 py-1.5 first:border-t-0 first:pt-0">
       <div className="flex min-h-7 items-center gap-1 px-2">
         <button
           type="button"
           className="-ml-1 inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
+          onClick={() => props.onOpenChange(!props.open)}
+          aria-expanded={props.open}
         >
           <span className="truncate">{props.title}</span>
           <ChevronDownIcon
-            className={cn("size-3.5 shrink-0 transition-transform", !open && "-rotate-90")}
+            className={cn("size-3.5 shrink-0 transition-transform", !props.open && "-rotate-90")}
           />
         </button>
         {props.trailing ? <div className="ml-auto shrink-0">{props.trailing}</div> : null}
       </div>
-      {open ? <div className="mt-0.5 space-y-1">{props.children}</div> : null}
+      {props.open ? <div className="mt-0.5 space-y-1">{props.children}</div> : null}
     </section>
   );
+}
+
+type EnvironmentPanelGroupId = "actions" | "environment" | "progress" | "subagents";
+type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
+
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v1";
+
+const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
+  actions: true,
+  environment: true,
+  progress: false,
+  subagents: true,
+};
+
+const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
+  actions: Schema.Boolean,
+  environment: Schema.Boolean,
+  progress: Schema.Boolean,
+  subagents: Schema.Boolean,
+});
+
+function resolveEnvironmentPanelGroupOpen(
+  state: EnvironmentPanelGroupOpenState,
+  groupId: EnvironmentPanelGroupId,
+): boolean {
+  return state[groupId];
 }
 
 function ProgressStepMarker({ status }: { status: ActivePlanState["steps"][number]["status"] }) {
@@ -238,6 +266,21 @@ export const EnvironmentMiniPanel = forwardRef<
     workspaceMode: ThreadWorkspaceMode;
   }
 >(function EnvironmentMiniPanel(props, ref) {
+  const [groupOpenState, setGroupOpenState] = useLocalStorage<
+    EnvironmentPanelGroupOpenState,
+    EnvironmentPanelGroupOpenState
+  >(
+    ENVIRONMENT_PANEL_GROUP_STORAGE_KEY,
+    DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,
+    EnvironmentPanelGroupOpenStateSchema,
+  );
+  const setGroupOpen = (groupId: EnvironmentPanelGroupId, open: boolean) => {
+    setGroupOpenState((current) => ({
+      ...DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,
+      ...current,
+      [groupId]: open,
+    }));
+  };
   const demoEnabled = isEnvironmentPanelDemoEnabled();
   const activePlan = demoEnabled ? DEMO_ACTIVE_PLAN : props.activePlan;
   const activeProjectScripts = demoEnabled ? DEMO_PROJECT_SCRIPTS : props.activeProjectScripts;
@@ -257,8 +300,10 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "pointer-events-auto z-50 max-h-[calc(100vh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-2.5 text-popover-foreground shadow-lg backdrop-blur-xl",
-        props.layoutMode === "inline" ? "absolute top-3 right-3" : "fixed",
+        "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-2 text-popover-foreground shadow-lg backdrop-blur-xl sm:p-2.5",
+        props.layoutMode === "inline"
+          ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"
+          : "fixed max-h-[min(42rem,calc(100vh-1rem))]",
         props.layoutMode === "inline" ? "shadow-black/5" : "shadow-black/10",
       )}
       initial={{ opacity: 0, scale: 0.985, x: 22 }}
@@ -270,13 +315,17 @@ export const EnvironmentMiniPanel = forwardRef<
     >
       <div className="space-y-0">
         {activeTodoSteps.length > 0 ? (
-          <EnvironmentPanelGroup title="Progress">
+          <EnvironmentPanelGroup
+            title="Progress"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "progress")}
+            onOpenChange={(open) => setGroupOpen("progress", open)}
+          >
             <div className="space-y-0.5">
               {activeTodoSteps.map((step) => (
                 <button
                   key={`${step.status}-${step.step}`}
                   type="button"
-                  className="flex min-h-7 w-full items-center gap-2 rounded-lg px-2 py-0.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex min-h-7 w-full items-center gap-2 rounded-lg px-2 py-0.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
                   onClick={props.onOpenSummaryPanel}
                 >
                   <ProgressStepMarker status={step.status} />
@@ -289,6 +338,8 @@ export const EnvironmentMiniPanel = forwardRef<
 
         <EnvironmentPanelGroup
           title="Environment"
+          open={resolveEnvironmentPanelGroupOpen(groupOpenState, "environment")}
+          onOpenChange={(open) => setGroupOpen("environment", open)}
           trailing={
             <Tooltip>
               <TooltipTrigger
@@ -297,7 +348,7 @@ export const EnvironmentMiniPanel = forwardRef<
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="-mr-1 size-7 shrink-0 rounded-full bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    className="-mr-1 size-7 shrink-0 rounded-full bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={props.onOpenEnvironmentSettings}
                     aria-label="Open environment settings"
                   />
@@ -311,7 +362,7 @@ export const EnvironmentMiniPanel = forwardRef<
         >
           <button
             type="button"
-            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
+            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
             disabled={!props.isGitRepo}
             onClick={props.onOpenDiffPanel}
           >
@@ -323,7 +374,7 @@ export const EnvironmentMiniPanel = forwardRef<
                 <span className="sr-only">Checking changes</span>
               </span>
             ) : hasChanges && workspaceChangeStat ? (
-              <span className="inline-flex items-center gap-1 font-medium tabular-nums">
+              <span className="inline-flex min-w-0 shrink-0 items-center gap-1 font-medium tabular-nums">
                 {workspaceChangeStat.additions > 0 ? (
                   <span className="text-success">
                     +{formatDiffCount(workspaceChangeStat.additions)}
@@ -361,7 +412,11 @@ export const EnvironmentMiniPanel = forwardRef<
         </EnvironmentPanelGroup>
 
         {activeProjectScripts ? (
-          <EnvironmentPanelGroup title="Actions">
+          <EnvironmentPanelGroup
+            title="Actions"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "actions")}
+            onOpenChange={(open) => setGroupOpen("actions", open)}
+          >
             <ProjectScriptsControl
               scripts={activeProjectScripts}
               keybindings={props.keybindings}
@@ -375,13 +430,17 @@ export const EnvironmentMiniPanel = forwardRef<
         ) : null}
 
         {activeSubagentThreads.length > 0 ? (
-          <EnvironmentPanelGroup title="Subagents">
+          <EnvironmentPanelGroup
+            title="Subagents"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "subagents")}
+            onOpenChange={(open) => setGroupOpen("subagents", open)}
+          >
             <div className="space-y-1">
               {activeSubagentThreads.map((thread) => (
                 <button
                   key={thread.id}
                   type="button"
-                  className="group/subagent flex min-h-8 w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:text-accent-foreground"
+                  className="group/subagent flex min-h-8 w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
                   onClick={() => {
                     props.onSelectSubagentThread(thread.id);
                     props.onSubagentPanelOpen();

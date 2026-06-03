@@ -86,6 +86,7 @@ import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { resolveSelectableProvider } from "../../providerModels";
 import { ChatComposerPanel } from "./ChatComposerPanel";
 import { ProviderStatusBanner } from "./ProviderStatusBanner";
+import { ScratchPadDialog } from "./ScratchPadDialog";
 import { deriveComposerSendState, readFileAsDataUrl } from "~/lib/chat/chatView";
 import { toastManager } from "../ui/toast";
 import { useChatViewProviderSelectionState } from "./useChatViewModelState";
@@ -455,6 +456,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     onPreviewExpandedImage,
   } = props;
   const isComposerApprovalState = props.activePendingApproval !== null;
+  const [scratchPadOpen, setScratchPadOpen] = useState(false);
   const hasComposerHeader =
     isComposerApprovalState || (showPlanFollowUpPrompt && props.planFollowUpId !== null);
   const composerFooterHasWideActions =
@@ -852,6 +854,15 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }
     props.onSetThreadError(props.threadId, error);
   });
+
+  const attachScratchPadImage = useCallback(
+    (file: File) => {
+      addComposerImages([file]);
+      setScratchPadOpen(false);
+      scheduleComposerFocus();
+    },
+    [addComposerImages, scheduleComposerFocus],
+  );
 
   const onComposerPaste = useCallback((event: ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
@@ -1567,6 +1578,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onProviderModelSelect={onProviderModelSelect}
         onHandoffToProvider={props.onHandoffToProvider}
         onToggleInteractionMode={toggleInteractionMode}
+        onOpenScratchPad={() => setScratchPadOpen(true)}
         onRuntimeModeChange={props.onRuntimeModeChange}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
@@ -1682,6 +1694,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onProviderModelSelect={onProviderModelSelect}
         onHandoffToProvider={props.onHandoffToProvider}
         onToggleInteractionMode={toggleInteractionMode}
+        onOpenScratchPad={() => setScratchPadOpen(true)}
         onRuntimeModeChange={props.onRuntimeModeChange}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
@@ -1694,6 +1707,11 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
           ? createPortal(floatingDock, props.floatingDockPortalHost)
           : floatingDock
         : null}
+      <ScratchPadDialog
+        open={scratchPadOpen}
+        onOpenChange={setScratchPadOpen}
+        onAttachImage={attachScratchPadImage}
+      />
     </>
   );
 });

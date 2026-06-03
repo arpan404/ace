@@ -380,7 +380,7 @@ const BOTTOM_EDGE_PANEL_SPRING_ANIMATION = {
   animate: { opacity: 1, scaleY: 1, y: 0 },
   exit: { opacity: 0, scaleY: 0.985, y: 18 },
 } as const;
-const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
+const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 352;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
   ENVIRONMENT_MINI_PANEL_WIDTH_PX + ENVIRONMENT_MINI_PANEL_GAP_PX;
@@ -2978,6 +2978,7 @@ function useChatViewComponent({
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
     left: number;
+    maxHeight?: number;
     top: number;
   } | null>(null);
   useEffect(() => {
@@ -9564,10 +9565,16 @@ function useChatViewComponent({
           )
         : window.innerWidth - panelWidth - panelMargin;
       const clampLeft = (left: number) => Math.max(minLeft, Math.min(left, maxLeft));
+      const maxPanelBottom = workspaceRect
+        ? Math.min(window.innerHeight - panelMargin, workspaceRect.bottom - panelMargin)
+        : window.innerHeight - panelMargin;
+      const resolveMaxHeight = (top: number) => Math.max(160, maxPanelBottom - top);
       if (!triggerRect) {
+        const top = fallbackTop;
         setEnvironmentPanelPopoverStyle({
           left: clampLeft(maxLeft),
-          top: fallbackTop,
+          maxHeight: resolveMaxHeight(top),
+          top,
         });
         return;
       }
@@ -9575,7 +9582,7 @@ function useChatViewComponent({
       const preferredLeft = triggerRect.right - panelWidth;
       const left = clampLeft(preferredLeft);
       const top = Math.max(panelMargin, triggerRect.bottom + 8);
-      setEnvironmentPanelPopoverStyle({ left, top });
+      setEnvironmentPanelPopoverStyle({ left, maxHeight: resolveMaxHeight(top), top });
     };
 
     updatePopoverPosition();

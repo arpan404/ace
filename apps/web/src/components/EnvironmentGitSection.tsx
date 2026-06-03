@@ -1006,7 +1006,7 @@ function useEnvironmentGitSection({
             <MenuPopup
               align="start"
               side="bottom"
-              className="w-72 shadow-2xl shadow-black/25"
+              className="w-[min(22rem,var(--anchor-width))] max-w-[calc(100vw-1rem)] shadow-2xl shadow-black/25"
               listClassName="p-3"
               sideOffset={6}
             >
