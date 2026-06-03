@@ -99,9 +99,10 @@ Important macOS signing rule:
 
 - Runtime updater: `electron-updater` in `apps/desktop/src/main.ts`.
 - Update UX:
-  - Background checks run on startup delay + interval.
-  - No automatic download or install.
-  - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install.
+  - Background checks run 15 seconds after startup and then every 5 minutes.
+  - Available updates download automatically.
+  - No automatic install.
+  - The desktop UI shows a rocket update button while downloading and after download; click after download to restart/install.
 - Provider: GitHub Releases (`provider: github`) configured at build time.
 - Repository slug source:
   - `ACE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.

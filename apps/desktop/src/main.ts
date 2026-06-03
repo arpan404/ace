@@ -180,7 +180,7 @@ const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
-const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const AUTO_UPDATE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS = 15_000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
 const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
@@ -2463,6 +2463,7 @@ function configureAutoUpdater(): void {
     );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
+    void downloadAvailableUpdate();
   });
   autoUpdater.on("update-not-available", () => {
     setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
