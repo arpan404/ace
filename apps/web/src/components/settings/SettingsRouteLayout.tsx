@@ -1,4 +1,4 @@
-import { RotateCcwIcon } from "lucide-react";
+import { RotateCcwIcon, Settings2Icon } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
@@ -35,11 +35,14 @@ export function SettingsRouteLayout() {
   }, [navigate]);
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
+    <SidebarInset className="isolate h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <AppPageTopBar>
+        <AppPageTopBar className="border-border/35 bg-sidebar/96">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+              <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/45 text-muted-foreground/72">
+                <Settings2Icon className="size-3.5" strokeWidth={2.2} />
+              </span>
               <h1 className="min-w-0 shrink truncate text-[13px] leading-none font-semibold tracking-tight text-foreground">
                 Settings
               </h1>
@@ -59,7 +62,9 @@ export function SettingsRouteLayout() {
                 className={HEADER_PILL_CONTROL_CLASS_NAME}
               >
                 <RotateCcwIcon className="size-3.5" />
-                Restore defaults
+                {changedSettingLabels.length > 0
+                  ? `Restore ${changedSettingLabels.length}`
+                  : "Restore defaults"}
               </Button>
             </TopBarCluster>
           </div>
