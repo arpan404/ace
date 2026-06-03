@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 
@@ -16,10 +16,6 @@ vi.mock("../nativeApi", () => ({
 }));
 
 describe("PlanSummaryPanel", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("renders workspace summary as a toggleable section header", () => {
     const html = renderToStaticMarkup(
       <PlanSummaryPanel
@@ -97,7 +93,7 @@ describe("PlanSummaryPanel", () => {
     expect(html).not.toContain("No changes");
   });
 
-  it("renders a no changes state when summary generation is available but there is no diff", () => {
+  it("renders a no changes state without summary generation controls when there is no diff", () => {
     const html = renderToStaticMarkup(
       <PlanSummaryPanel
         activePlan={null}
@@ -114,7 +110,7 @@ describe("PlanSummaryPanel", () => {
     expect(html).toContain(">Changes<");
     expect(html).toContain("No changes");
     expect(html).toContain("There are no uncommitted code changes.");
-    expect(html).toContain('aria-label="Generate summary"');
+    expect(html).not.toContain('aria-label="Generate summary"');
   });
 
   it("renders todos without generated status labels", () => {
@@ -144,53 +140,5 @@ describe("PlanSummaryPanel", () => {
     expect(html).not.toContain(">In progress<");
     expect(html).not.toContain(">Ready<");
     expect(html).not.toContain(">Done<");
-  });
-
-  it("renders seeded demo content when summary demo mode is enabled", () => {
-    vi.stubGlobal("window", {
-      location: {
-        search: "?summaryDemo=full",
-      },
-    });
-
-    const html = renderToStaticMarkup(
-      <PlanSummaryPanel
-        activePlan={null}
-        activeProposedPlan={null}
-        generatedWorkspaceSummary={null}
-        activeProvider="codex"
-        markdownCwd={undefined}
-        workspaceDiffSummary={null}
-        workspaceRoot={undefined}
-      />,
-    );
-
-    expect(html).toContain("Summary panel demo");
-    expect(html).toContain("Summary side panel redesign");
-    expect(html).toContain("Wire demo data across summary, plan, todos, and diff");
-    expect(html).toContain("changes across");
-  });
-
-  it("renders seeded demo content from the shared environment demo switch", () => {
-    vi.stubGlobal("window", {
-      location: {
-        search: "?environmentDemo=full",
-      },
-    });
-
-    const html = renderToStaticMarkup(
-      <PlanSummaryPanel
-        activePlan={null}
-        activeProposedPlan={null}
-        generatedWorkspaceSummary={null}
-        activeProvider="codex"
-        markdownCwd={undefined}
-        workspaceDiffSummary={null}
-        workspaceRoot={undefined}
-      />,
-    );
-
-    expect(html).toContain("Summary panel demo");
-    expect(html).toContain("Summary side panel redesign");
   });
 });

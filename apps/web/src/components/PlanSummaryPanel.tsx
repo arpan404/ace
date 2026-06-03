@@ -154,73 +154,6 @@ function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: b
   );
 }
 
-const DEMO_ACTIVE_PLAN: ActivePlanState = {
-  createdAt: "2026-06-03T00:00:00.000Z",
-  source: "plan-update",
-  turnId: null,
-  explanation: "Tighten the side panel into a calmer review cockpit.",
-  steps: [
-    { step: "Map current panel routes and tab affordances", status: "completed" },
-    { step: "Restyle summary tabs for dense review work", status: "completed" },
-    { step: "Wire demo data across summary, plan, todos, and diff", status: "inProgress" },
-    { step: "Verify responsive scroll and action states", status: "pending" },
-    { step: "Run format, lint, typecheck, and focused tests", status: "pending" },
-  ],
-};
-
-const DEMO_PROPOSED_PLAN: LatestProposedPlanState = {
-  id: "summary-panel-demo-plan",
-  turnId: null,
-  createdAt: "2026-06-03T00:00:00.000Z",
-  updatedAt: "2026-06-03T00:00:00.000Z",
-  implementedAt: null,
-  implementationThreadId: null,
-  planMarkdown: [
-    "# Summary side panel redesign",
-    "",
-    "1. Preserve existing tab routing, reorder, overflow, and close behavior.",
-    "2. Replace the pill-heavy tab chrome with a quieter segmented surface.",
-    "3. Keep summary, plan, todo, and diff states visible in dev demo mode.",
-    "4. Validate that long content still scrolls inside the panel body.",
-  ].join("\n"),
-};
-
-const DEMO_WORKSPACE_SUMMARY: GeneratedWorkspaceSummary = {
-  createdAt: "2026-06-03T00:00:00.000Z",
-  turnId: null,
-  headline: "Summary panel demo",
-  summary: "Redesigned the side panel tabs and added seeded summary-panel demo content.",
-  keyChanges: [
-    "Made the tab strip feel more like a compact work surface.",
-    "Added demo data for summary, plan, todos, and diff metadata.",
-  ],
-  risks: ["Confirm the tab strip still reads well with many open editor and browser tabs."],
-  markdown: [
-    "### Summary panel demo",
-    "",
-    "The summary side panel now has a calmer tab treatment and seeded demo content for review.",
-    "",
-    "- Summary markdown renders with local link handling intact.",
-    "- Plan content includes action menu coverage.",
-    "- Todos show completed, running, and pending states.",
-    "- Diff metadata is populated without requiring real workspace changes.",
-  ].join("\n"),
-};
-
-const DEMO_WORKSPACE_DIFF_SUMMARY: WorkspaceDiffSummary = {
-  additions: 1284,
-  deletions: 326,
-  fileCount: 7,
-};
-
-function isSummaryPanelDemoEnabled(): boolean {
-  if (!import.meta.env.DEV || typeof window === "undefined") return false;
-  const searchParams = new URLSearchParams(window.location.search);
-  return (
-    searchParams.get("summaryDemo") === "full" || searchParams.get("environmentDemo") === "full"
-  );
-}
-
 function DiffSummaryOverview({
   workspaceDiffSummary,
   actions,
@@ -280,15 +213,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const [summaryRequestStartedAt, setSummaryRequestStartedAt] = useState<string | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
-  const demoEnabled = isSummaryPanelDemoEnabled();
-  const effectivePlan = demoEnabled ? DEMO_ACTIVE_PLAN : activePlan;
-  const effectiveProposedPlan = demoEnabled ? DEMO_PROPOSED_PLAN : activeProposedPlan;
-  const effectiveGeneratedWorkspaceSummary = demoEnabled
-    ? DEMO_WORKSPACE_SUMMARY
-    : generatedWorkspaceSummary;
-  const effectiveWorkspaceDiffSummary = demoEnabled
-    ? DEMO_WORKSPACE_DIFF_SUMMARY
-    : workspaceDiffSummary;
+  const effectivePlan = activePlan;
+  const effectiveProposedPlan = activeProposedPlan;
+  const effectiveGeneratedWorkspaceSummary = generatedWorkspaceSummary;
+  const effectiveWorkspaceDiffSummary = workspaceDiffSummary;
   const effectivePlanMarkdown = effectiveProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = effectivePlanMarkdown
     ? stripDisplayedPlanMarkdown(effectivePlanMarkdown)
@@ -535,15 +463,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           There are no uncommitted code changes.
                         </p>
                       </div>
-                      {regenerateSummaryButton ? (
-                        <div className="flex items-center gap-2">{regenerateSummaryButton}</div>
-                      ) : null}
                     </div>
-                    {isRegeneratingSummary ? (
-                      <div className="mt-3">
-                        <SummaryGenerationNotice hasExistingSummary={false} />
-                      </div>
-                    ) : null}
                   </SummaryPanelSection>
                 ) : null}
 

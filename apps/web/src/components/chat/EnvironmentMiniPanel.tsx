@@ -225,77 +225,6 @@ function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
   );
 }
 
-const DEMO_ACTIVE_PLAN: ActivePlanState = {
-  createdAt: "2026-06-03T00:00:00.000Z",
-  source: "plan-update",
-  turnId: null,
-  steps: [
-    { step: "Map repository surfaces", status: "completed" },
-    { step: "Run parallel audit agents", status: "completed" },
-    { step: "Inspect critical paths locally", status: "inProgress" },
-    { step: "Run quality gates", status: "pending" },
-    { step: "Consolidate findings", status: "pending" },
-  ],
-};
-
-const DEMO_PROJECT_SCRIPTS: ProjectScript[] = [
-  {
-    id: "demo-lint",
-    name: "Lint",
-    command: "bun lint",
-    icon: "lint",
-    runOnWorktreeCreate: false,
-  },
-  {
-    id: "demo-typecheck",
-    name: "Typecheck",
-    command: "bun typecheck",
-    icon: "test",
-    runOnWorktreeCreate: false,
-  },
-];
-
-const DEMO_SUBAGENT_THREADS: readonly SubagentThread[] = [
-  {
-    id: "demo-review-agent",
-    label: "Alan Touring",
-    model: "gpt-5.4",
-    persona: {
-      avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
-      haloClassName: "bg-sky-500/14",
-      initials: "AT",
-      name: "Alan Touring",
-      pingClassName: "bg-sky-400",
-    },
-    roleLabel: "UI review",
-    status: "running",
-    entries: [],
-  },
-  {
-    id: "demo-test-agent",
-    label: "Marie Query",
-    model: "gpt-5.4-mini",
-    persona: {
-      avatarClassName: "bg-emerald-500/14 text-emerald-500 ring-emerald-500/24",
-      haloClassName: "bg-emerald-500/14",
-      initials: "MQ",
-      name: "Marie Query",
-      pingClassName: "bg-emerald-400",
-    },
-    roleLabel: "Verification",
-    status: "running",
-    entries: [],
-  },
-];
-
-function isEnvironmentPanelDemoEnabled(): boolean {
-  return (
-    import.meta.env.DEV &&
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("environmentDemo") === "full"
-  );
-}
-
 export const EnvironmentMiniPanel = forwardRef<
   HTMLElement,
   {
@@ -387,13 +316,10 @@ export const EnvironmentMiniPanel = forwardRef<
       ),
     }));
   };
-  const demoEnabled = isEnvironmentPanelDemoEnabled();
-  const activePlan = demoEnabled ? DEMO_ACTIVE_PLAN : props.activePlan;
-  const activeProjectScripts = demoEnabled ? DEMO_PROJECT_SCRIPTS : props.activeProjectScripts;
-  const subagentThreads = demoEnabled ? DEMO_SUBAGENT_THREADS : props.subagentThreads;
-  const workspaceChangeStat = demoEnabled
-    ? { additions: 1284, deletions: 326 }
-    : props.workspaceChangeStat;
+  const activePlan = props.activePlan;
+  const activeProjectScripts = props.activeProjectScripts;
+  const subagentThreads = props.subagentThreads;
+  const workspaceChangeStat = props.workspaceChangeStat;
   const hasChanges =
     workspaceChangeStat !== null &&
     (workspaceChangeStat.additions > 0 || workspaceChangeStat.deletions > 0);
