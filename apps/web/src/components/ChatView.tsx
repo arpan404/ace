@@ -10811,6 +10811,11 @@ function useChatViewComponent({
                                 keybindings={keybindings}
                                 browserOpen={anyBrowserOpen}
                                 workspaceMode="split"
+                                editorStateInstanceId={
+                                  activeRightPanelEditorTabId
+                                    ? `right:${activeRightPanelEditorTabId}`
+                                    : "right"
+                                }
                                 terminalOpen={terminalState.terminalOpen}
                                 threadId={activeThread.id}
                                 worktreePath={activeThread.worktreePath ?? null}
@@ -10953,6 +10958,11 @@ function useChatViewComponent({
                         keybindings={keybindings}
                         browserOpen={anyBrowserOpen}
                         workspaceMode="split"
+                        editorStateInstanceId={
+                          activeBottomPanelEditorTabId
+                            ? `bottom:${activeBottomPanelEditorTabId}`
+                            : "bottom"
+                        }
                         terminalOpen={terminalState.terminalOpen}
                         threadId={activeThread.id}
                         worktreePath={activeThread.worktreePath ?? null}

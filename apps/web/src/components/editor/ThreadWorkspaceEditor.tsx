@@ -1041,6 +1041,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   lspCwd?: string | null;
   detachEnabled?: boolean;
   detachedReturnPlacement?: "bottom" | "right" | "workspace";
+  editorStateInstanceId?: string | null;
   onDetached?: () => void;
   onReturnToMainWindow?: () => void;
   terminalOpen: boolean;
@@ -1050,8 +1051,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
   const editorStateScopeId = useMemo(
-    () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
-    [inputProps.gitCwd, inputProps.threadId],
+    () => {
+      const baseScopeId = resolveEditorStateScopeId({
+        gitCwd: inputProps.gitCwd,
+        threadId: inputProps.threadId,
+      });
+      const instanceId = inputProps.editorStateInstanceId?.trim();
+      return instanceId ? `${baseScopeId}:instance:${instanceId}` : baseScopeId;
+    },
+    [inputProps.editorStateInstanceId, inputProps.gitCwd, inputProps.threadId],
   );
   const agentNoteThreadId = inputProps.threadId;
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
