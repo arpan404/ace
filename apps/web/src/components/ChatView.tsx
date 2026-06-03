@@ -351,14 +351,6 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
   width: { duration: 0 },
   x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
-const RIGHT_SIDE_PANEL_TRANSITION = {
-  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-  x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
-} as const;
-const BOTTOM_PANEL_TRANSITION = {
-  opacity: { duration: 0.12, ease: [0.16, 1, 0.3, 1] },
-  y: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-} as const;
 const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
@@ -10329,13 +10321,12 @@ function useChatViewComponent({
           )}
           style={{
             width: dockedRightSidePanelWidth,
-            minWidth: dockedRightSidePanelWidth,
-            flexBasis: dockedRightSidePanelWidth,
+            transformOrigin: "right center",
           }}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 20 }}
-          transition={RIGHT_SIDE_PANEL_TRANSITION}
+          initial={{ opacity: 0, scaleX: 0.92, x: 20 }}
+          animate={{ opacity: 1, scaleX: 1, x: 0 }}
+          exit={{ opacity: 0, scaleX: 0.92, x: 20 }}
+          transition={PANEL_SPRING_TRANSITION}
         >
           <div className="relative h-full w-3 shrink-0" aria-hidden="true">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
@@ -10739,13 +10730,24 @@ function useChatViewComponent({
                 )}
                 style={{
                   width: rightSidePanelInlineWidth,
-                  minWidth: rightSidePanelInlineWidth,
-                  flexBasis: rightSidePanelInlineWidth,
+                  transformOrigin: "right center",
                 }}
-                initial={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 24 }}
-                animate={avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }}
-                exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 24 }}
-                transition={RIGHT_SIDE_PANEL_TRANSITION}
+                initial={
+                  avoidNativeBrowserPanelTransforms
+                    ? { opacity: 0 }
+                    : { opacity: 0, scaleX: 0.92, x: 24 }
+                }
+                animate={
+                  avoidNativeBrowserPanelTransforms
+                    ? { opacity: 1 }
+                    : { opacity: 1, scaleX: 1, x: 0 }
+                }
+                exit={
+                  avoidNativeBrowserPanelTransforms
+                    ? { opacity: 0 }
+                    : { opacity: 0, scaleX: 0.92, x: 24 }
+                }
+                transition={PANEL_SPRING_TRANSITION}
               >
                 {!rightSidePanelFullscreen ? (
                   <hr
@@ -10901,15 +10903,16 @@ function useChatViewComponent({
               key="thread-bottom-dock-panel"
               ref={bottomPanelElementRef}
               className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-background shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,transform,opacity]"
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              transition={BOTTOM_PANEL_TRANSITION}
               style={
                 {
                   height: bottomPanelHeightPx,
+                  transformOrigin: "center bottom",
                 } as NonNullable<ComponentProps<typeof m.div>["style"]>
               }
+              initial={{ opacity: 0, scaleY: 0.92, y: 14 }}
+              animate={{ opacity: 1, scaleY: 1, y: 0 }}
+              exit={{ opacity: 0, scaleY: 0.92, y: 10 }}
+              transition={PANEL_SPRING_TRANSITION}
             >
               <hr
                 aria-orientation="horizontal"
