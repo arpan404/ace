@@ -280,6 +280,7 @@ export interface DesktopDetachedBrowserOpenInput {
 export interface DesktopDetachedEditorOpenInput {
   threadId: string;
   connectionUrl?: string;
+  editorStateInstanceId?: string;
   placement?: "bottom" | "right" | "workspace";
   workspaceMode?: "editor" | "split";
 }
@@ -292,6 +293,7 @@ export type DesktopDetachedWindowReturnRequest =
   | {
       kind: "editor";
       connectionUrl?: string;
+      editorStateInstanceId?: string;
       placement?: "bottom" | "right" | "workspace";
       threadId: string;
       workspaceMode?: "editor" | "split";

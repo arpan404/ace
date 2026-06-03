@@ -289,6 +289,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       if (typeof request !== "object" || request === null) return;
       const payload = request as {
         connectionUrl?: unknown;
+        editorStateInstanceId?: unknown;
         kind?: unknown;
         placement?: unknown;
         scopeId?: unknown;
@@ -310,6 +311,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         threadId: payload.threadId,
         ...(typeof payload.connectionUrl === "string" && payload.connectionUrl.length > 0
           ? { connectionUrl: payload.connectionUrl }
+          : {}),
+        ...(typeof payload.editorStateInstanceId === "string" &&
+        payload.editorStateInstanceId.length > 0
+          ? { editorStateInstanceId: payload.editorStateInstanceId }
           : {}),
         ...(payload.placement === "bottom" ||
         payload.placement === "right" ||

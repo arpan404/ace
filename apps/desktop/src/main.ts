@@ -1853,6 +1853,7 @@ function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
 function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   threadId: string;
   connectionUrl?: string;
+  editorStateInstanceId?: string;
   placement?: "bottom" | "right" | "workspace";
   workspaceMode?: "editor" | "split";
 } | null {
@@ -1861,6 +1862,7 @@ function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   }
   const input = rawInput as {
     connectionUrl?: unknown;
+    editorStateInstanceId?: unknown;
     placement?: unknown;
     threadId?: unknown;
     workspaceMode?: unknown;
@@ -1872,9 +1874,14 @@ function normalizeDetachedEditorOpenInput(rawInput: unknown): {
     typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
       ? input.connectionUrl.trim()
       : undefined;
+  const editorStateInstanceId =
+    typeof input.editorStateInstanceId === "string" && input.editorStateInstanceId.trim().length > 0
+      ? input.editorStateInstanceId.trim()
+      : undefined;
   return {
     threadId: input.threadId.trim(),
     ...(connectionUrl ? { connectionUrl } : {}),
+    ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
     ...(input.placement === "bottom" ||
     input.placement === "right" ||
     input.placement === "workspace"
@@ -1894,6 +1901,7 @@ function normalizeDetachedWindowReturnRequest(rawInput: unknown):
   | {
       kind: "editor";
       connectionUrl?: string;
+      editorStateInstanceId?: string;
       placement?: "bottom" | "right" | "workspace";
       threadId: string;
       workspaceMode?: "editor" | "split";
@@ -1904,6 +1912,7 @@ function normalizeDetachedWindowReturnRequest(rawInput: unknown):
   }
   const input = rawInput as {
     connectionUrl?: unknown;
+    editorStateInstanceId?: unknown;
     kind?: unknown;
     placement?: unknown;
     scopeId?: unknown;
@@ -1931,10 +1940,15 @@ function normalizeDetachedWindowReturnRequest(rawInput: unknown):
     typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
       ? input.connectionUrl.trim()
       : undefined;
+  const editorStateInstanceId =
+    typeof input.editorStateInstanceId === "string" && input.editorStateInstanceId.trim().length > 0
+      ? input.editorStateInstanceId.trim()
+      : undefined;
   return {
     kind: "editor",
     threadId,
     ...(connectionUrl ? { connectionUrl } : {}),
+    ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
     ...(input.placement === "bottom" ||
     input.placement === "right" ||
     input.placement === "workspace"
@@ -3466,12 +3480,15 @@ function createBrowserAuthWindow(rawUrl: unknown): boolean {
 function createDetachedEditorWindow(input: {
   threadId: string;
   connectionUrl?: string;
+  editorStateInstanceId?: string;
   placement?: "bottom" | "right" | "workspace";
   workspaceMode?: "editor" | "split";
 }): boolean {
-  const windowKey = input.connectionUrl
-    ? `${input.connectionUrl}\0${input.threadId}`
-    : input.threadId;
+  const windowKey = [
+    input.connectionUrl ?? "",
+    input.threadId,
+    input.editorStateInstanceId ?? "",
+  ].join("\0");
   const existingWindow = detachedEditorWindows.get(windowKey);
   if (existingWindow && !existingWindow.isDestroyed()) {
     if (existingWindow.isMinimized()) {
@@ -3544,6 +3561,7 @@ function createDetachedEditorWindow(input: {
     aceDetachedEditor: "1",
     threadId: input.threadId,
     ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
+    ...(input.editorStateInstanceId ? { editorStateInstanceId: input.editorStateInstanceId } : {}),
     ...(input.placement ? { placement: input.placement } : {}),
     ...(input.workspaceMode ? { workspaceMode: input.workspaceMode } : {}),
   });

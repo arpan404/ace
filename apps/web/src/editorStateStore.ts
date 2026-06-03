@@ -156,6 +156,19 @@ export function resolveEditorStateScopeId(input: {
   return input.threadId;
 }
 
+export function resolveEditorInstanceStateScopeId(input: {
+  gitCwd: string | null | undefined;
+  instanceId: string | null | undefined;
+  threadId: ThreadId;
+}): EditorStateScopeId {
+  const baseScopeId = resolveEditorStateScopeId({
+    gitCwd: input.gitCwd,
+    threadId: input.threadId,
+  });
+  const normalizedInstanceId = input.instanceId?.trim();
+  return normalizedInstanceId ? `${baseScopeId}:instance:${normalizedInstanceId}` : baseScopeId;
+}
+
 function normalizePathList(paths: readonly string[]): string[] {
   const unique: string[] = [];
   const seen = new Set<string>();

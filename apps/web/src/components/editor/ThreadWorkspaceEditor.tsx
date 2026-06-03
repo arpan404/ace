@@ -51,7 +51,7 @@ import {
 } from "react";
 
 import {
-  resolveEditorStateScopeId,
+  resolveEditorInstanceStateScopeId,
   type ThreadEditorRowState,
   MAX_THREAD_EDITOR_PANES,
   selectThreadEditorState,
@@ -1041,7 +1041,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   lspCwd?: string | null;
   detachEnabled?: boolean;
   detachedReturnPlacement?: "bottom" | "right" | "workspace";
-  editorStateInstanceId?: string | null;
+  editorStateInstanceId?: string | null | undefined;
   onDetached?: () => void;
   onReturnToMainWindow?: () => void;
   terminalOpen: boolean;
@@ -1050,21 +1050,24 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   workspaceMode?: ThreadWorkspaceMode | undefined;
   onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
+  const editorStateInstanceId =
+    typeof inputProps.editorStateInstanceId === "string"
+      ? inputProps.editorStateInstanceId.trim() || undefined
+      : undefined;
   const editorStateScopeId = useMemo(
-    () => {
-      const baseScopeId = resolveEditorStateScopeId({
+    () =>
+      resolveEditorInstanceStateScopeId({
         gitCwd: inputProps.gitCwd,
+        instanceId: editorStateInstanceId,
         threadId: inputProps.threadId,
-      });
-      const instanceId = inputProps.editorStateInstanceId?.trim();
-      return instanceId ? `${baseScopeId}:instance:${instanceId}` : baseScopeId;
-    },
-    [inputProps.editorStateInstanceId, inputProps.gitCwd, inputProps.threadId],
+      }),
+    [editorStateInstanceId, inputProps.gitCwd, inputProps.threadId],
   );
   const agentNoteThreadId = inputProps.threadId;
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
   const detachedEditorConnectionUrl = inputProps.connectionUrl;
   const detachedEditorThreadId = inputProps.threadId;
+  const detachedEditorStateInstanceId = editorStateInstanceId;
   const detachedReturnPlacement = inputProps.detachedReturnPlacement;
   const detachedWorkspaceMode =
     detachedReturnPlacement === "workspace" &&
@@ -1083,6 +1086,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     const detached = await openDetachedEditor({
       threadId: detachedEditorThreadId,
       ...(detachedEditorConnectionUrl ? { connectionUrl: detachedEditorConnectionUrl } : {}),
+      ...(detachedEditorStateInstanceId
+        ? { editorStateInstanceId: detachedEditorStateInstanceId }
+        : {}),
       ...(detachedReturnPlacement ? { placement: detachedReturnPlacement } : {}),
       ...(detachedWorkspaceMode ? { workspaceMode: detachedWorkspaceMode } : {}),
     });
@@ -1097,6 +1103,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     });
   }, [
     detachedEditorConnectionUrl,
+    detachedEditorStateInstanceId,
     detachedEditorThreadId,
     detachedReturnPlacement,
     detachedWorkspaceMode,

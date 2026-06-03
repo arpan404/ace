@@ -21,7 +21,7 @@ import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { resolveEditorStateScopeId, useEditorStateStore } from "../editorStateStore";
+import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "../editorStateStore";
 import { clearBrowserSessionStorage } from "../lib/browser/session";
 import type { BrowserDesignRequestSubmission } from "../lib/browser/types";
 import {
@@ -107,6 +107,7 @@ function RootRouteView() {
         return {
           kind: "editor" as const,
           connectionUrl: searchParams.get("connectionUrl"),
+          editorStateInstanceId: searchParams.get("editorStateInstanceId"),
           placement: searchParams.get("placement"),
           threadId: searchParams.get("threadId"),
           workspaceMode: searchParams.get("workspaceMode"),
@@ -409,6 +410,7 @@ function DetachedEditorWindow(props: {
     kind: "editor";
     threadId: string | null;
     connectionUrl: string | null;
+    editorStateInstanceId: string | null;
     placement: string | null;
     workspaceMode: string | null;
   };
@@ -424,6 +426,7 @@ function DetachedEditorWindow(props: {
         />
         <DetachedEditorWindowContent
           connectionUrl={props.search.connectionUrl}
+          editorStateInstanceId={props.search.editorStateInstanceId}
           placement={props.search.placement}
           threadId={props.search.threadId}
           workspaceMode={props.search.workspaceMode}
@@ -476,6 +479,7 @@ function DetachedThreadSnapshotBootstrap(props: {
 function DetachedEditorWindowContent(props: {
   threadId: string | null;
   connectionUrl: string | null;
+  editorStateInstanceId: string | null;
   placement: string | null;
   workspaceMode: string | null;
 }) {
@@ -497,15 +501,20 @@ function DetachedEditorWindowContent(props: {
   const availableEditors = useServerAvailableEditors();
   const clearEditorThreadState = useEditorStateStore((state) => state.clearThreadState);
   const returningToMainWindowRef = useRef(false);
+  const editorStateInstanceId =
+    typeof props.editorStateInstanceId === "string"
+      ? props.editorStateInstanceId.trim() || undefined
+      : undefined;
   const editorStateScopeId = useMemo(() => {
     if (!threadId || !thread || !project) {
       return null;
     }
-    return resolveEditorStateScopeId({
+    return resolveEditorInstanceStateScopeId({
       gitCwd: thread.worktreePath ?? project.cwd,
+      instanceId: editorStateInstanceId,
       threadId,
     });
-  }, [project, thread, threadId]);
+  }, [editorStateInstanceId, project, thread, threadId]);
   const moveEditorBackToAce = useCallback(async () => {
     const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
     if (!returnDetachedWindow || !props.threadId) {
@@ -523,6 +532,7 @@ function DetachedEditorWindowContent(props: {
       kind: "editor",
       threadId: props.threadId,
       ...(props.connectionUrl ? { connectionUrl: props.connectionUrl } : {}),
+      ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
       ...(placement ? { placement } : {}),
       ...(workspaceMode ? { workspaceMode } : {}),
     });
@@ -536,7 +546,13 @@ function DetachedEditorWindowContent(props: {
       title: "Could not move editor back",
       description: "The desktop app did not restore the editor panel.",
     });
-  }, [props.connectionUrl, props.placement, props.threadId, props.workspaceMode]);
+  }, [
+    props.connectionUrl,
+    editorStateInstanceId,
+    props.placement,
+    props.threadId,
+    props.workspaceMode,
+  ]);
 
   useEffect(() => {
     if (!editorStateScopeId) {
@@ -582,6 +598,7 @@ function DetachedEditorWindowContent(props: {
           terminalOpen={false}
           threadId={threadId}
           worktreePath={thread.worktreePath}
+          editorStateInstanceId={editorStateInstanceId}
           workspaceMode="editor"
           detachEnabled={false}
           onReturnToMainWindow={() => {
