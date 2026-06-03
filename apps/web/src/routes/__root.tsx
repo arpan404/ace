@@ -21,6 +21,8 @@ import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
+import { resolveEditorStateScopeId, useEditorStateStore } from "../editorStateStore";
+import { clearBrowserSessionStorage } from "../lib/browser/session";
 import type { BrowserDesignRequestSubmission } from "../lib/browser/types";
 import {
   applyTransportConnectionHealthState,
@@ -233,6 +235,7 @@ function DetachedBrowserWindow(props: {
   search: { kind: "browser"; scopeId: string | null; initialUrl: string | null };
 }) {
   const openedInitialUrlRef = useRef(false);
+  const returningToMainWindowRef = useRef(false);
   const [controller, setController] = useState<InAppBrowserController | null>(null);
   const threadId = useMemo(
     () => resolveThreadIdFromBrowserScope(props.search.scopeId),
@@ -329,6 +332,7 @@ function DetachedBrowserWindow(props: {
       ...(props.search.scopeId ? { scopeId: props.search.scopeId } : {}),
     });
     if (returned) {
+      returningToMainWindowRef.current = true;
       window.close();
       return;
     }
@@ -337,6 +341,21 @@ function DetachedBrowserWindow(props: {
       title: "Could not move browser back",
       description: "The desktop app did not restore the browser panel.",
     });
+  }, [props.search.scopeId]);
+
+  useEffect(() => {
+    const clearDetachedBrowserState = () => {
+      if (returningToMainWindowRef.current) {
+        return;
+      }
+      clearBrowserSessionStorage(props.search.scopeId);
+    };
+    window.addEventListener("pagehide", clearDetachedBrowserState);
+    window.addEventListener("beforeunload", clearDetachedBrowserState);
+    return () => {
+      window.removeEventListener("pagehide", clearDetachedBrowserState);
+      window.removeEventListener("beforeunload", clearDetachedBrowserState);
+    };
   }, [props.search.scopeId]);
 
   useEffect(() => {
@@ -476,6 +495,17 @@ function DetachedEditorWindowContent(props: {
   );
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
+  const clearEditorThreadState = useEditorStateStore((state) => state.clearThreadState);
+  const returningToMainWindowRef = useRef(false);
+  const editorStateScopeId = useMemo(() => {
+    if (!threadId || !thread || !project) {
+      return null;
+    }
+    return resolveEditorStateScopeId({
+      gitCwd: thread.worktreePath ?? project.cwd,
+      threadId,
+    });
+  }, [project, thread, threadId]);
   const moveEditorBackToAce = useCallback(async () => {
     const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
     if (!returnDetachedWindow || !props.threadId) {
@@ -497,6 +527,7 @@ function DetachedEditorWindowContent(props: {
       ...(workspaceMode ? { workspaceMode } : {}),
     });
     if (returned) {
+      returningToMainWindowRef.current = true;
       window.close();
       return;
     }
@@ -506,6 +537,24 @@ function DetachedEditorWindowContent(props: {
       description: "The desktop app did not restore the editor panel.",
     });
   }, [props.connectionUrl, props.placement, props.threadId, props.workspaceMode]);
+
+  useEffect(() => {
+    if (!editorStateScopeId) {
+      return;
+    }
+    const clearDetachedEditorState = () => {
+      if (returningToMainWindowRef.current) {
+        return;
+      }
+      clearEditorThreadState(editorStateScopeId);
+    };
+    window.addEventListener("pagehide", clearDetachedEditorState);
+    window.addEventListener("beforeunload", clearDetachedEditorState);
+    return () => {
+      window.removeEventListener("pagehide", clearDetachedEditorState);
+      window.removeEventListener("beforeunload", clearDetachedEditorState);
+    };
+  }, [clearEditorThreadState, editorStateScopeId]);
 
   if (!threadId) {
     return <DetachedWindowMessage title="Editor unavailable" description="Missing thread id." />;

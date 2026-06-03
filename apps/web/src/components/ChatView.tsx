@@ -479,10 +479,10 @@ interface PanelEditorTab {
   label: string;
 }
 
-function createPanelEditorTab(index: number): PanelEditorTab {
+function createPanelEditorTab(): PanelEditorTab {
   return {
     id: `editor-${randomUUID()}`,
-    label: index <= 1 ? "Editor" : `Editor ${index}`,
+    label: "Editor",
   };
 }
 
@@ -1353,7 +1353,7 @@ function useChatViewComponent({
   ]);
   const [bottomPanelTabOrder, setBottomPanelTabOrder] = useState<PanelTabOrderEntry[]>([]);
   const [rightPanelEditorTabs, setRightPanelEditorTabs] = useState<PanelEditorTab[]>(() =>
-    rightSidePanelEditorOpen ? [createPanelEditorTab(1)] : [],
+    rightSidePanelEditorOpen ? [createPanelEditorTab()] : [],
   );
   const [activeRightPanelEditorTabId, setActiveRightPanelEditorTabId] = useState<string | null>(
     () => (rightSidePanelEditorOpen ? (rightPanelEditorTabs[0]?.id ?? null) : null),
@@ -1362,8 +1362,6 @@ function useChatViewComponent({
   const [activeBottomPanelEditorTabId, setActiveBottomPanelEditorTabId] = useState<string | null>(
     null,
   );
-  const rightPanelEditorTabIndexRef = useRef(rightSidePanelEditorOpen ? 2 : 1);
-  const bottomPanelEditorTabIndexRef = useRef(1);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -4764,8 +4762,7 @@ function useChatViewComponent({
     setRightSidePanelVisible(true);
   }, [rightSidePanelOpen, setRightSidePanelVisible]);
   const onNewRightSidePanelEditorTab = useCallback(() => {
-    const tab = createPanelEditorTab(rightPanelEditorTabIndexRef.current);
-    rightPanelEditorTabIndexRef.current += 1;
+    const tab = createPanelEditorTab();
     appendRightPanelTabOrder(`editor:${tab.id}`);
     setRightPanelEditorTabs((current) => [...current, tab]);
     setActiveRightPanelEditorTabId(tab.id);
@@ -5040,8 +5037,7 @@ function useChatViewComponent({
     setRightSidePanelMode,
   ]);
   const onNewBottomPanelEditorTab = useCallback(() => {
-    const tab = createPanelEditorTab(bottomPanelEditorTabIndexRef.current);
-    bottomPanelEditorTabIndexRef.current += 1;
+    const tab = createPanelEditorTab();
     appendBottomPanelTabOrder(`editor:${tab.id}`);
     setBottomPanelEditorTabs((current) => [...current, tab]);
     setActiveBottomPanelEditorTabId(tab.id);

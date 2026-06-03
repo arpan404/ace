@@ -75,6 +75,7 @@ interface PersistedEditorStoreSnapshot {
 
 interface EditorStoreState {
   addCodeComment: (threadId: EditorStateScopeId, comment: WorkspaceCodeComment) => void;
+  clearThreadState: (threadId: EditorStateScopeId) => void;
   closeFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeFilesToRight: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeOtherFiles: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
@@ -688,6 +689,25 @@ export const useEditorStateStore = create<EditorStoreState>()(
                 codeComments: nextCodeComments,
               },
             },
+          };
+        }),
+      clearThreadState: (threadId) =>
+        set((state) => {
+          threadEditorStateCache.delete(threadId);
+          if (
+            state.threadStateByThreadId[threadId] === undefined &&
+            state.runtimeStateByThreadId[threadId] === undefined
+          ) {
+            return state;
+          }
+          const nextThreadStateByThreadId = { ...state.threadStateByThreadId };
+          const nextRuntimeStateByThreadId = { ...state.runtimeStateByThreadId };
+          delete nextThreadStateByThreadId[threadId];
+          delete nextRuntimeStateByThreadId[threadId];
+          return {
+            ...state,
+            runtimeStateByThreadId: nextRuntimeStateByThreadId,
+            threadStateByThreadId: nextThreadStateByThreadId,
           };
         }),
       closeFile: (threadId, filePath, paneId) =>
