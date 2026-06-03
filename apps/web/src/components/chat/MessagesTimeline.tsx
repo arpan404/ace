@@ -706,33 +706,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       setSelectionPinTarget(null);
       return;
     }
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      setSelectionPinTarget(null);
-      return;
-    }
-    const selectedText = selection.toString().replace(/\s+/g, " ").trim();
-    if (selectedText.length === 0) {
+    const currentSelectionPinTarget = readCurrentAssistantSelectionPinTarget();
+    if (!currentSelectionPinTarget) {
       setSelectionPinTarget(null);
       return;
     }
 
-    const range = selection.getRangeAt(0);
-    const ancestorElement = elementFromNode(range.commonAncestorContainer);
-    const messageRow = ancestorElement?.closest<HTMLElement>(
-      '[data-message-role="assistant"][data-message-id]',
-    );
-    if (!messageRow) {
-      setSelectionPinTarget(null);
-      return;
-    }
-
-    const messageId = messageRow.dataset.messageId;
-    const selectionRects = [...range.getClientRects()].filter(
+    const selectionRects = [...currentSelectionPinTarget.range.getClientRects()].filter(
       (rect) => rect.width > 0 && rect.height > 0,
     );
-    const anchorRect = selectionRects.at(-1) ?? range.getBoundingClientRect();
-    if (!messageId || anchorRect.width <= 0 || anchorRect.height <= 0) {
+    const anchorRect =
+      selectionRects.at(-1) ?? currentSelectionPinTarget.range.getBoundingClientRect();
+    if (anchorRect.width <= 0 || anchorRect.height <= 0) {
       setSelectionPinTarget(null);
       return;
     }
@@ -747,8 +732,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         window.innerWidth - SELECTION_PIN_BUTTON_WIDTH_PX - 8,
         Math.max(8, anchorRect.right - SELECTION_PIN_BUTTON_WIDTH_PX),
       ),
-      messageId,
-      text: selectedText,
+      messageId: currentSelectionPinTarget.messageId,
+      text: currentSelectionPinTarget.text,
       top,
     });
   }, [activeThreadId]);
@@ -899,7 +884,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         pinMessageId && activeThreadId && assistantTurnPinTarget
           ? () => {
               const selectedPinTarget =
-                selectionPinTarget ?? readCurrentAssistantSelectionPinTarget();
+                readCurrentAssistantSelectionPinTarget() ?? selectionPinTarget;
               if (selectedPinTarget) {
                 setPinnedMessages((current) =>
                   upsertPinnedSelectionMessage(current, {
@@ -1134,11 +1119,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const highlightMountedRow = () => {
       const row = scrollContainer.querySelector<HTMLElement>(selector);
       if (!row) return;
+      const isSelectionTarget = targetMessageNavigation.targetKind === "selection";
       const selectedText = targetMessageNavigation.selectedText;
-      const cleanupSelectedTextHighlight = selectedText
-        ? highlightPinnedSelectionText(row, selectedText, scrollContainer)
-        : null;
-      if (selectedText) {
+      const cleanupSelectedTextHighlight =
+        isSelectionTarget && selectedText
+          ? highlightPinnedSelectionText(row, selectedText, scrollContainer)
+          : null;
+      if (isSelectionTarget) {
         if (!cleanupSelectedTextHighlight) {
           row.scrollIntoView({ behavior: "smooth", block: "center" });
           return;

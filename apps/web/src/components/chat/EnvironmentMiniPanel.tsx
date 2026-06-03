@@ -13,7 +13,6 @@ import {
   ExpandIcon,
   FileDiffIcon,
   NotebookPenIcon,
-  PlusIcon,
   SettingsIcon,
   XIcon,
 } from "lucide-react";
@@ -36,8 +35,6 @@ import {
   createScratchPadNote,
   EMPTY_SCRATCH_PAD_COLLECTION,
   openScratchPadDialog,
-  resolveScratchPadPreview,
-  resolveScratchPadTitle,
   SCRATCH_PAD_STORAGE_KEY,
   ScratchPadCollectionSchema,
   type ScratchPadCollection,
@@ -361,17 +358,6 @@ export const EnvironmentMiniPanel = forwardRef<
     .filter((message) => message.threadId === activeThreadId)
     .toSorted((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, 5);
-  const createAndOpenScratchPad = () => {
-    const note = createScratchPadNote({
-      threadId: activeThreadId,
-      title: `Scratch ${scratchPadNotes.length + 1}`,
-    });
-    setScratchPadCollection((current) => ({
-      activeNoteId: note.id,
-      notes: [note, ...current.notes],
-    }));
-    openScratchPadDialog(note.id);
-  };
   const updateActiveScratchPadBody = (body: string) => {
     if (!activeScratchPadNote) {
       const note = createScratchPadNote({
@@ -592,21 +578,6 @@ export const EnvironmentMiniPanel = forwardRef<
                     <button
                       type="button"
                       className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
-                      onClick={createAndOpenScratchPad}
-                      aria-label="New scratch note"
-                    />
-                  }
-                >
-                  <PlusIcon className="size-3.5" />
-                </TooltipTrigger>
-                <TooltipPopup side="left">New note</TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
                       onClick={() => openScratchPadDialog(activeScratchPadNote?.id)}
                       aria-label="Open scratchpad board"
                     />
@@ -626,12 +597,7 @@ export const EnvironmentMiniPanel = forwardRef<
                   <NotebookPenIcon className="size-3.5" />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
-                  {activeScratchPadNote
-                    ? resolveScratchPadTitle(activeScratchPadNote)
-                    : "Working scratch"}
-                </span>
-                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary/80">
-                  Active
+                  Quick note
                 </span>
               </div>
               <textarea
@@ -641,45 +607,6 @@ export const EnvironmentMiniPanel = forwardRef<
                 className="min-h-24 w-full resize-none bg-transparent px-2.5 py-2.5 font-sans text-[12px] leading-5 outline-none placeholder:text-muted-foreground/42"
               />
             </div>
-            {scratchPadNotes.length > 1 ? (
-              <div className="flex gap-1 overflow-x-auto pb-0.5">
-                {scratchPadNotes.map((note) => (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className={cn(
-                      "inline-flex h-6 max-w-28 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
-                      note.id === activeScratchPadNote?.id
-                        ? "border-border/70 bg-muted/70 text-foreground shadow-[0_1px_0_hsl(var(--foreground)/0.04)]"
-                        : "border-transparent text-muted-foreground hover:bg-accent/45 hover:text-foreground",
-                    )}
-                    title={resolveScratchPadPreview(note)}
-                    onClick={() =>
-                      setScratchPadCollection((current) => ({ ...current, activeNoteId: note.id }))
-                    }
-                  >
-                    <span
-                      className={cn(
-                        "size-1.5 shrink-0 rounded-full",
-                        note.id === activeScratchPadNote?.id
-                          ? "bg-primary/70"
-                          : "bg-muted-foreground/35",
-                      )}
-                    />
-                    <span className="min-w-0 truncate">{resolveScratchPadTitle(note)}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <button
-              type="button"
-              className="flex min-h-8 w-full items-center gap-2 rounded-lg border border-transparent px-2 text-left text-[11px] text-muted-foreground transition-colors hover:border-border/45 hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              onClick={() => openScratchPadDialog(activeScratchPadNote?.id)}
-            >
-              <ExpandIcon className="size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Open canvas board</span>
-              <ChevronDownIcon className="size-3 shrink-0 -rotate-90 opacity-55" />
-            </button>
           </div>
         </EnvironmentPanelGroup>
 
