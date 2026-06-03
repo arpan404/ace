@@ -65,6 +65,7 @@ describe("PlanSummaryPanel", () => {
     );
 
     expect(html).toContain("Diff summary");
+    expect(html).toContain("Working tree changes");
     expect(html).toContain("+15");
     expect(html).toContain("-19");
     expect(html).toContain("changes across");
@@ -92,7 +93,7 @@ describe("PlanSummaryPanel", () => {
     expect(html).not.toContain("No changes");
   });
 
-  it("renders a no changes state when summary generation is available but there is no diff", () => {
+  it("renders a no changes state without summary generation controls when there is no diff", () => {
     const html = renderToStaticMarkup(
       <PlanSummaryPanel
         activePlan={null}
@@ -109,7 +110,7 @@ describe("PlanSummaryPanel", () => {
     expect(html).toContain(">Changes<");
     expect(html).toContain("No changes");
     expect(html).toContain("There are no uncommitted code changes.");
-    expect(html).toContain('aria-label="Generate summary"');
+    expect(html).not.toContain('aria-label="Generate summary"');
   });
 
   it("renders todos without generated status labels", () => {

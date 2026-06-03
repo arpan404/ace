@@ -7,7 +7,14 @@ import type {
 } from "@ace/contracts";
 import { type ComponentProps, forwardRef, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
-import { CheckSquareIcon, ChevronDownIcon, FileDiffIcon, SettingsIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CheckSquareIcon,
+  ChevronDownIcon,
+  FileDiffIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
@@ -89,7 +96,7 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
   environment: true,
   notes: false,
   pinnedMessages: false,
-  progress: false,
+  progress: true,
   subagents: false,
 };
 
@@ -128,19 +135,29 @@ function resolvePinnedMessageNavigationTarget(
 }
 
 function ProgressStepMarker({ status }: { status: ActivePlanState["steps"][number]["status"] }) {
+  if (status === "completed") {
+    return (
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/45 text-muted-foreground/70">
+        <CheckIcon className="size-2.5" strokeWidth={3} />
+      </span>
+    );
+  }
+
+  if (status === "inProgress") {
+    return (
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <Spinner className="size-3.5" />
+      </span>
+    );
+  }
+
   return (
     <span
       className={cn(
         "relative inline-flex size-3.5 shrink-0 rounded-full border",
-        status === "completed" && "border-success bg-success/80",
-        status === "inProgress" && "border-muted-foreground/70 bg-transparent",
         status === "pending" && "border-muted-foreground/55 bg-transparent",
       )}
-    >
-      {status === "inProgress" ? (
-        <span className="absolute inset-1 rounded-full bg-muted-foreground/70" />
-      ) : null}
-    </span>
+    />
   );
 }
 
@@ -205,77 +222,6 @@ function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
         })}
       </svg>
     </span>
-  );
-}
-
-const DEMO_ACTIVE_PLAN: ActivePlanState = {
-  createdAt: "2026-06-03T00:00:00.000Z",
-  source: "plan-update",
-  turnId: null,
-  steps: [
-    { step: "Map repository surfaces", status: "inProgress" },
-    { step: "Run parallel audit agents", status: "pending" },
-    { step: "Inspect critical paths locally", status: "pending" },
-    { step: "Run quality gates", status: "pending" },
-    { step: "Consolidate findings", status: "pending" },
-  ],
-};
-
-const DEMO_PROJECT_SCRIPTS: ProjectScript[] = [
-  {
-    id: "demo-lint",
-    name: "Lint",
-    command: "bun lint",
-    icon: "lint",
-    runOnWorktreeCreate: false,
-  },
-  {
-    id: "demo-typecheck",
-    name: "Typecheck",
-    command: "bun typecheck",
-    icon: "test",
-    runOnWorktreeCreate: false,
-  },
-];
-
-const DEMO_SUBAGENT_THREADS: readonly SubagentThread[] = [
-  {
-    id: "demo-review-agent",
-    label: "Alan Touring",
-    model: "gpt-5.4",
-    persona: {
-      avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
-      haloClassName: "bg-sky-500/14",
-      initials: "AT",
-      name: "Alan Touring",
-      pingClassName: "bg-sky-400",
-    },
-    roleLabel: "UI review",
-    status: "running",
-    entries: [],
-  },
-  {
-    id: "demo-test-agent",
-    label: "Marie Query",
-    model: "gpt-5.4-mini",
-    persona: {
-      avatarClassName: "bg-emerald-500/14 text-emerald-500 ring-emerald-500/24",
-      haloClassName: "bg-emerald-500/14",
-      initials: "MQ",
-      name: "Marie Query",
-      pingClassName: "bg-emerald-400",
-    },
-    roleLabel: "Verification",
-    status: "running",
-    entries: [],
-  },
-];
-
-function isEnvironmentPanelDemoEnabled(): boolean {
-  return (
-    import.meta.env.DEV &&
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("environmentDemo") === "full"
   );
 }
 
@@ -370,13 +316,10 @@ export const EnvironmentMiniPanel = forwardRef<
       ),
     }));
   };
-  const demoEnabled = isEnvironmentPanelDemoEnabled();
-  const activePlan = demoEnabled ? DEMO_ACTIVE_PLAN : props.activePlan;
-  const activeProjectScripts = demoEnabled ? DEMO_PROJECT_SCRIPTS : props.activeProjectScripts;
-  const subagentThreads = demoEnabled ? DEMO_SUBAGENT_THREADS : props.subagentThreads;
-  const workspaceChangeStat = demoEnabled
-    ? { additions: 1284, deletions: 326 }
-    : props.workspaceChangeStat;
+  const activePlan = props.activePlan;
+  const activeProjectScripts = props.activeProjectScripts;
+  const subagentThreads = props.subagentThreads;
+  const workspaceChangeStat = props.workspaceChangeStat;
   const hasChanges =
     workspaceChangeStat !== null &&
     (workspaceChangeStat.additions > 0 || workspaceChangeStat.deletions > 0);
@@ -390,6 +333,7 @@ export const EnvironmentMiniPanel = forwardRef<
       ref={ref}
       className={cn(
         "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border border-border/70 bg-popover/90 p-2 text-popover-foreground shadow-lg backdrop-blur-xl sm:p-2.5",
+        "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"
           : "fixed max-h-[min(42rem,calc(100vh-1rem))]",
@@ -418,7 +362,15 @@ export const EnvironmentMiniPanel = forwardRef<
                   onClick={props.onOpenSummaryPanel}
                 >
                   <ProgressStepMarker status={step.status} />
-                  <span className="min-w-0 flex-1 truncate">{step.step}</span>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      step.status === "completed" && "text-muted-foreground/60",
+                      step.status === "inProgress" && "text-foreground",
+                    )}
+                  >
+                    {step.step}
+                  </span>
                 </button>
               ))}
             </div>

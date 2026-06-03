@@ -7,8 +7,19 @@ import type {
   ThreadId,
 } from "@ace/contracts";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  AlertTriangleIcon,
   ChevronDownIcon,
   CloudUploadIcon,
   GitBranchPlusIcon,
@@ -45,14 +56,6 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import {
-  Menu,
-  MenuGroup,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuTrigger,
-} from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
@@ -320,6 +323,142 @@ function GitQuickActionIcon({
   return <InfoIcon className={iconClassName} />;
 }
 
+function EnvironmentGitStatusMessage({
+  children,
+  tone = "muted",
+}: {
+  children: ReactNode;
+  tone?: "muted" | "warning" | "error";
+}) {
+  const Icon = tone === "muted" ? Spinner : AlertTriangleIcon;
+  return (
+    <output
+      className={cn(
+        "flex min-h-7 items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-[11px] leading-4",
+        tone === "muted" && "bg-muted/18 text-muted-foreground",
+        tone === "warning" && "bg-warning/8 text-warning",
+        tone === "error" && "bg-destructive/8 text-destructive",
+      )}
+      {...(tone === "muted" ? { "aria-live": "polite" as const } : { role: "status" })}
+    >
+      <Icon className="size-3 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+    </output>
+  );
+}
+
+interface GitActionMenuPosition {
+  left: number;
+  maxHeight: number;
+  top: number;
+  width: number;
+}
+
+function resolveGitActionMenuPosition(anchorElement: HTMLElement): GitActionMenuPosition {
+  const anchorRow = anchorElement.parentElement ?? anchorElement;
+  const rect = anchorRow.getBoundingClientRect();
+  const viewportPadding = 8;
+  const sideOffset = 6;
+  const preferredWidth = 232;
+  const minimumWidth = 184;
+  const width = Math.max(
+    minimumWidth,
+    Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
+  );
+  const rightSideLeft = rect.right + sideOffset;
+  const canOpenRight = rightSideLeft + width <= window.innerWidth - viewportPadding;
+  const left = canOpenRight
+    ? rightSideLeft
+    : Math.max(viewportPadding, rect.left - sideOffset - width);
+  const top = Math.min(
+    Math.max(viewportPadding, rect.top),
+    Math.max(viewportPadding, window.innerHeight - viewportPadding - 160),
+  );
+  const maxHeight = Math.max(160, window.innerHeight - top - viewportPadding);
+
+  return { left, maxHeight, top, width };
+}
+
+function EnvironmentGitActionMenuPortal({
+  children,
+  onClose,
+  open,
+  triggerRef,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  open: boolean;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState<GitActionMenuPosition | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const triggerElement = triggerRef.current;
+    if (!triggerElement) return;
+    setPosition(resolveGitActionMenuPosition(triggerElement));
+  }, [triggerRef]);
+
+  useEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return;
+    }
+
+    updatePosition();
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const triggerElement = triggerRef.current;
+      if (triggerElement?.contains(target) || popupRef.current?.contains(target)) {
+        return;
+      }
+      onClose();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [onClose, open, triggerRef, updatePosition]);
+
+  if (!open || !position || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={popupRef}
+      role="menu"
+      className="fixed z-[110] flex max-w-[calc(100vw-1rem)] rounded-[calc(var(--panel-radius)-2px)] border border-border/72 bg-popover/96 text-popover-foreground shadow-xl shadow-black/20 outline-none supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
+      style={{
+        left: position.left,
+        maxHeight: position.maxHeight,
+        top: position.top,
+        width: position.width,
+      }}
+    >
+      <div className="min-w-0 w-full overflow-y-auto p-1.5">{children}</div>
+    </div>,
+    document.body,
+  );
+}
+
+const gitActionMenuItemClassName =
+  "flex w-full cursor-default select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-0.5 text-left text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:pointer-events-none [&>svg]:shrink-0";
+
 function useEnvironmentGitSection({
   connectionUrl,
   gitCwd,
@@ -354,6 +493,8 @@ function useEnvironmentGitSection({
     sshPassphraseDraft,
   } = state;
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
+  const gitActionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [isGitActionMenuOpen, setGitActionMenuOpen] = useState(false);
   const openFileInWorkspace = useEditorStateStore((state) => state.openFile);
   const configuredGitSshKeyPassphrase = useSettings((settings) => settings.gitSshKeyPassphrase);
 
@@ -947,6 +1088,14 @@ function useEnvironmentGitSection({
     ],
   );
 
+  const closeGitActionMenu = useCallback(() => {
+    setGitActionMenuOpen(false);
+  }, []);
+
+  const toggleGitActionMenu = useCallback(() => {
+    setGitActionMenuOpen((open) => !open);
+  }, []);
+
   if (!gitCwd) return null;
 
   return (
@@ -967,116 +1116,125 @@ function useEnvironmentGitSection({
             <span>{initMutation.isPending ? "Initializing Git" : "Initialize Git"}</span>
           </button>
           {gitStatusError ? (
-            <p className="px-2 text-xs leading-5 text-destructive">{gitStatusError.message}</p>
+            <EnvironmentGitStatusMessage tone="error">
+              {gitStatusError.message}
+            </EnvironmentGitStatusMessage>
           ) : null}
         </div>
       ) : (
         <div className="space-y-2">
           {isGitStatusOutOfSync ? (
-            <output
-              className="flex min-h-7 items-center gap-2 rounded-[var(--control-radius)] bg-muted/22 px-2 py-1 text-[11px] text-muted-foreground"
-              aria-live="polite"
-            >
-              <Spinner className="size-3" />
-              <span className="min-w-0 flex-1 truncate">Refreshing git state</span>
-            </output>
+            <EnvironmentGitStatusMessage>Refreshing git state</EnvironmentGitStatusMessage>
           ) : null}
-          <Menu>
-            <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
-              <button
-                type="button"
-                className={cn(
-                  gitCardRowClassName,
-                  "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1 hover:bg-accent",
-                )}
-                disabled={isGitActionRunning || quickAction.disabled}
-                title={quickActionDisabledReason ?? undefined}
-                onClick={runQuickAction}
-              >
-                <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
-                <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
-              </button>
-              <MenuTrigger
-                className="flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 data-popup-open:bg-accent data-popup-open:text-accent-foreground"
-                aria-label="Open git actions"
-              >
-                <ChevronDownIcon className="size-3.5" />
-              </MenuTrigger>
-            </div>
-            <MenuPopup
-              align="start"
-              side="bottom"
-              className="w-[18rem] max-w-[calc(100vw-1rem)] shadow-2xl shadow-black/25"
-              listClassName="p-3"
-              sideOffset={6}
+          <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
+            <button
+              type="button"
+              className={cn(
+                gitCardRowClassName,
+                "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1 hover:bg-accent",
+              )}
+              disabled={isGitActionRunning || quickAction.disabled}
+              title={quickActionDisabledReason ?? undefined}
+              onClick={runQuickAction}
             >
-              <MenuGroup>
-                <MenuItem
-                  className="min-h-10 gap-2 px-2 text-[14px]"
-                  disabled={isGitActionRunning || quickAction.disabled}
-                  title={quickActionDisabledReason ?? undefined}
-                  onClick={runQuickAction}
-                >
-                  <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
-                  <span className="whitespace-nowrap">{quickAction.label}</span>
-                </MenuItem>
-              </MenuGroup>
-              <MenuSeparator className="mx-2 my-2" />
-              <MenuGroup>
-                {gitActionMenuItems.map((item) => {
-                  const disabledReason = getMenuActionDisabledReason({
-                    item,
-                    gitStatus: gitStatusForActions,
-                    isBusy: isGitActionRunning,
-                    hasOriginRemote,
-                    isDefaultBranch,
-                  });
-                  return (
-                    <MenuItem
-                      key={`${item.id}-${item.label}`}
-                      className="min-h-9 gap-2 px-2 text-[13px]"
-                      disabled={item.disabled}
-                      title={disabledReason ?? undefined}
-                      onClick={() => {
-                        openDialogForMenuItem(item);
-                      }}
-                    >
-                      <GitActionItemIcon icon={item.icon} />
-                      <span className="whitespace-nowrap">{item.label}</span>
-                    </MenuItem>
-                  );
-                })}
-              </MenuGroup>
-              <MenuSeparator className="mx-2 my-2" />
-              <MenuGroup>
-                <MenuItem
-                  className="min-h-9 gap-2 px-2 text-[13px]"
-                  onClick={() => {
-                    dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
-                  }}
-                >
-                  <KeyRoundIcon />
-                  <span className="whitespace-nowrap">SSH key passphrase</span>
-                </MenuItem>
-              </MenuGroup>
-            </MenuPopup>
-          </Menu>
+              <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
+              <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
+            </button>
+            <button
+              ref={gitActionMenuTriggerRef}
+              type="button"
+              className={cn(
+                "flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0",
+                isGitActionMenuOpen && "bg-accent text-accent-foreground",
+              )}
+              aria-expanded={isGitActionMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Open git actions"
+              onClick={toggleGitActionMenu}
+            >
+              <ChevronDownIcon className="size-3.5" />
+            </button>
+          </div>
+          <EnvironmentGitActionMenuPortal
+            open={isGitActionMenuOpen}
+            triggerRef={gitActionMenuTriggerRef}
+            onClose={closeGitActionMenu}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={cn(gitActionMenuItemClassName, "min-h-8 text-[13px]")}
+              disabled={isGitActionRunning || quickAction.disabled}
+              title={quickActionDisabledReason ?? undefined}
+              onClick={() => {
+                closeGitActionMenu();
+                runQuickAction();
+              }}
+            >
+              <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
+              <span className="whitespace-nowrap">{quickAction.label}</span>
+            </button>
+            <div className="mx-2 my-1 h-px bg-border" />
+            <div className="space-y-0">
+              {gitActionMenuItems.map((item) => {
+                const disabledReason = getMenuActionDisabledReason({
+                  item,
+                  gitStatus: gitStatusForActions,
+                  isBusy: isGitActionRunning,
+                  hasOriginRemote,
+                  isDefaultBranch,
+                });
+                return (
+                  <button
+                    key={`${item.id}-${item.label}`}
+                    type="button"
+                    role="menuitem"
+                    className={cn(gitActionMenuItemClassName, "min-h-7 text-[12px]")}
+                    disabled={item.disabled}
+                    title={disabledReason ?? undefined}
+                    onClick={() => {
+                      closeGitActionMenu();
+                      openDialogForMenuItem(item);
+                    }}
+                  >
+                    <GitActionItemIcon icon={item.icon} />
+                    <span className="whitespace-nowrap">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mx-2 my-1 h-px bg-border" />
+            <button
+              type="button"
+              role="menuitem"
+              className={cn(gitActionMenuItemClassName, "min-h-7 text-[12px]")}
+              onClick={() => {
+                closeGitActionMenu();
+                dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
+              }}
+            >
+              <KeyRoundIcon />
+              <span className="whitespace-nowrap">SSH key passphrase</span>
+            </button>
+          </EnvironmentGitActionMenuPortal>
           {gitStatusForActions?.branch === null ? (
-            <p className="px-2 text-[11px] leading-4 text-warning">
+            <EnvironmentGitStatusMessage tone="warning">
               Detached HEAD: create and checkout a branch to enable push and PR actions.
-            </p>
+            </EnvironmentGitStatusMessage>
           ) : null}
           {gitStatusForActions &&
           gitStatusForActions.branch !== null &&
           !gitStatusForActions.hasWorkingTreeChanges &&
           gitStatusForActions.behindCount > 0 &&
           gitStatusForActions.aheadCount === 0 ? (
-            <p className="px-2 text-[11px] leading-4 text-warning">
+            <EnvironmentGitStatusMessage tone="warning">
               Behind upstream. Pull/rebase first.
-            </p>
+            </EnvironmentGitStatusMessage>
           ) : null}
           {gitStatusError ? (
-            <p className="px-2 text-xs leading-5 text-destructive">{gitStatusError.message}</p>
+            <EnvironmentGitStatusMessage tone="error">
+              {gitStatusError.message}
+            </EnvironmentGitStatusMessage>
           ) : null}
         </div>
       )}

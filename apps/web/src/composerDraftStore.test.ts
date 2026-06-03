@@ -972,6 +972,35 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
+  it("uses the visible model selection as the base when option changes create a draft selection", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProviderModelOptions(
+      threadId,
+      "codex",
+      {
+        reasoningEffort: "high",
+      },
+      {
+        persistSticky: true,
+        baseModelSelection: modelSelection("codex", "gpt-5.3-codex"),
+      },
+    );
+
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
+    ).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "high",
+      }),
+    );
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "high",
+      }),
+    );
+  });
+
   it("updates only the draft when sticky persistence is disabled", () => {
     const store = useComposerDraftStore.getState();
 

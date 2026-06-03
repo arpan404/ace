@@ -3,6 +3,7 @@ import type {
   ProviderInteractionMode,
   ProviderModelOptions,
   ProviderSessionConfigOption,
+  RuntimeMode,
   ServerProvider,
   ServerProviderModel,
   ThreadHandoffMode,
@@ -71,11 +72,9 @@ function renderInteractionModeTooltipContent(
 }
 
 function RuntimeModeButton(props: {
-  runtimeMode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"];
+  runtimeMode: RuntimeMode;
   compact: boolean;
-  onRuntimeModeChange: (
-    mode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"],
-  ) => void;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   return (
     <Tooltip>
@@ -167,7 +166,7 @@ interface ChatComposerPanelProps {
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
   readonly interactionMode: ComponentProps<typeof CompactComposerControlsMenu>["interactionMode"];
-  readonly runtimeMode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"];
+  readonly runtimeMode: RuntimeMode;
   readonly interactionModeShortcutLabel: string | null;
   readonly activeContextWindow: ComponentProps<typeof ContextWindowMeter>["usage"] | null;
   readonly promptHasText: boolean;
@@ -258,9 +257,7 @@ interface ChatComposerPanelProps {
   ) => void;
   readonly onHandoffToProvider: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
   readonly onToggleInteractionMode: () => void;
-  readonly onRuntimeModeChange: (
-    mode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"],
-  ) => void;
+  readonly onRuntimeModeChange: (mode: RuntimeMode) => void;
   readonly onPreviousPendingQuestion: () => void;
   readonly onInterrupt: () => void;
   readonly onImplementPlanInNewThread: () => void;
@@ -647,12 +644,10 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   {props.isComposerFooterCompact ? (
                     <CompactComposerControlsMenu
                       interactionMode={props.interactionMode}
-                      runtimeMode={props.runtimeMode}
                       interactionModeShortcutLabel={props.interactionModeShortcutLabel}
                       interactionModeDisabledReason={interactionModeDisabledReason}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={props.onToggleInteractionMode}
-                      onRuntimeModeChange={props.onRuntimeModeChange}
                     />
                   ) : (
                     <>
