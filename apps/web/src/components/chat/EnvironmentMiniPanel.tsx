@@ -7,7 +7,14 @@ import type {
 } from "@ace/contracts";
 import { type ComponentProps, forwardRef, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
-import { CheckSquareIcon, ChevronDownIcon, FileDiffIcon, SettingsIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CheckSquareIcon,
+  ChevronDownIcon,
+  FileDiffIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
@@ -89,7 +96,7 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
   environment: true,
   notes: false,
   pinnedMessages: false,
-  progress: false,
+  progress: true,
   subagents: false,
 };
 
@@ -128,19 +135,29 @@ function resolvePinnedMessageNavigationTarget(
 }
 
 function ProgressStepMarker({ status }: { status: ActivePlanState["steps"][number]["status"] }) {
+  if (status === "completed") {
+    return (
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/45 text-muted-foreground/70">
+        <CheckIcon className="size-2.5" strokeWidth={3} />
+      </span>
+    );
+  }
+
+  if (status === "inProgress") {
+    return (
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <Spinner className="size-3.5" />
+      </span>
+    );
+  }
+
   return (
     <span
       className={cn(
         "relative inline-flex size-3.5 shrink-0 rounded-full border",
-        status === "completed" && "border-success bg-success/80",
-        status === "inProgress" && "border-muted-foreground/70 bg-transparent",
         status === "pending" && "border-muted-foreground/55 bg-transparent",
       )}
-    >
-      {status === "inProgress" ? (
-        <span className="absolute inset-1 rounded-full bg-muted-foreground/70" />
-      ) : null}
-    </span>
+    />
   );
 }
 
@@ -213,9 +230,9 @@ const DEMO_ACTIVE_PLAN: ActivePlanState = {
   source: "plan-update",
   turnId: null,
   steps: [
-    { step: "Map repository surfaces", status: "inProgress" },
-    { step: "Run parallel audit agents", status: "pending" },
-    { step: "Inspect critical paths locally", status: "pending" },
+    { step: "Map repository surfaces", status: "completed" },
+    { step: "Run parallel audit agents", status: "completed" },
+    { step: "Inspect critical paths locally", status: "inProgress" },
     { step: "Run quality gates", status: "pending" },
     { step: "Consolidate findings", status: "pending" },
   ],
@@ -418,7 +435,16 @@ export const EnvironmentMiniPanel = forwardRef<
                   onClick={props.onOpenSummaryPanel}
                 >
                   <ProgressStepMarker status={step.status} />
-                  <span className="min-w-0 flex-1 truncate">{step.step}</span>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      step.status === "completed" &&
+                        "text-muted-foreground/60 line-through decoration-muted-foreground/70",
+                      step.status === "inProgress" && "text-foreground",
+                    )}
+                  >
+                    {step.step}
+                  </span>
                 </button>
               ))}
             </div>
