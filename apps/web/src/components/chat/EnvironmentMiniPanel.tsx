@@ -6,7 +6,7 @@ import type {
   ThreadId,
 } from "@ace/contracts";
 import { type ComponentProps, forwardRef } from "react";
-import { ClipboardListIcon, ListTodoIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
+import { ClipboardListIcon, FileDiffIcon, ListTodoIcon, SettingsIcon } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
@@ -19,6 +19,8 @@ import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
+import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function formatDiffCount(value: number): string {
@@ -30,6 +32,72 @@ function EnvironmentSectionTitle({ children }: { children: string }) {
     <div className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/55">
       {children}
     </div>
+  );
+}
+
+const DEMO_ACTIVE_PLAN_PROGRESS: ActivePlanProgressState = {
+  completed: 2,
+  currentIndex: 3,
+  currentStatus: "inProgress",
+  currentStep: "Refine environment card loading states",
+  total: 5,
+};
+
+const DEMO_PROJECT_SCRIPTS: ProjectScript[] = [
+  {
+    id: "demo-lint",
+    name: "Lint",
+    command: "bun lint",
+    icon: "lint",
+    runOnWorktreeCreate: false,
+  },
+  {
+    id: "demo-typecheck",
+    name: "Typecheck",
+    command: "bun typecheck",
+    icon: "test",
+    runOnWorktreeCreate: false,
+  },
+];
+
+const DEMO_SUBAGENT_THREADS: readonly SubagentThread[] = [
+  {
+    id: "demo-review-agent",
+    label: "Review agent",
+    model: "gpt-5.4",
+    persona: {
+      avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
+      haloClassName: "bg-sky-500/14",
+      initials: "RA",
+      name: "Review agent",
+      pingClassName: "bg-sky-400",
+    },
+    roleLabel: "UI review",
+    status: "running",
+    entries: [],
+  },
+  {
+    id: "demo-test-agent",
+    label: "Test agent",
+    model: "gpt-5.4-mini",
+    persona: {
+      avatarClassName: "bg-emerald-500/14 text-emerald-500 ring-emerald-500/24",
+      haloClassName: "bg-emerald-500/14",
+      initials: "TA",
+      name: "Test agent",
+      pingClassName: "bg-emerald-400",
+    },
+    roleLabel: "Verification",
+    status: "running",
+    entries: [],
+  },
+];
+
+function isEnvironmentPanelDemoEnabled(): boolean {
+  return (
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("environmentDemo") === "full"
   );
 }
 
@@ -66,28 +134,33 @@ export const EnvironmentMiniPanel = forwardRef<
     workspaceMode: ThreadWorkspaceMode;
   }
 >(function EnvironmentMiniPanel(props, ref) {
+  const demoEnabled = isEnvironmentPanelDemoEnabled();
+  const activePlanProgress = demoEnabled ? DEMO_ACTIVE_PLAN_PROGRESS : props.activePlanProgress;
+  const activeProjectScripts = demoEnabled ? DEMO_PROJECT_SCRIPTS : props.activeProjectScripts;
+  const subagentThreads = demoEnabled ? DEMO_SUBAGENT_THREADS : props.subagentThreads;
+  const workspaceChangeStat = demoEnabled
+    ? { additions: 1284, deletions: 326 }
+    : props.workspaceChangeStat;
+  const isAgentWorking = demoEnabled || props.isAgentWorking;
   const hasChanges =
-    props.workspaceChangeStat !== null &&
-    (props.workspaceChangeStat.additions > 0 || props.workspaceChangeStat.deletions > 0);
-  const workspaceChangeStat = props.workspaceChangeStat;
-  const activeSubagentThreads = props.subagentThreads.filter(
-    (thread) => thread.status === "running",
-  );
+    workspaceChangeStat !== null &&
+    (workspaceChangeStat.additions > 0 || workspaceChangeStat.deletions > 0);
+  const isCheckingChanges =
+    props.isGitRepo && workspaceChangeStat === null && props.gitStatusError === null;
+  const activeSubagentThreads = subagentThreads.filter((thread) => thread.status === "running");
   const activeTodoProgress =
-    props.isAgentWorking &&
-    props.activePlanProgress &&
-    props.activePlanProgress.currentIndex !== null
+    isAgentWorking && activePlanProgress && activePlanProgress.currentIndex !== null
       ? {
-          currentIndex: props.activePlanProgress.currentIndex,
-          currentStep: props.activePlanProgress.currentStep,
-          total: props.activePlanProgress.total,
+          currentIndex: activePlanProgress.currentIndex,
+          currentStep: activePlanProgress.currentStep,
+          total: activePlanProgress.total,
         }
       : null;
   const todoProgressWidth = activeTodoProgress
     ? Math.max(2, String(activeTodoProgress.total).length)
     : 2;
-  const planProgressWidth = props.activePlanProgress
-    ? Math.max(2, String(props.activePlanProgress.total).length)
+  const planProgressWidth = activePlanProgress
+    ? Math.max(2, String(activePlanProgress.total).length)
     : 2;
 
   return (
@@ -134,9 +207,14 @@ export const EnvironmentMiniPanel = forwardRef<
             disabled={!props.isGitRepo}
             onClick={props.onOpenDiffPanel}
           >
-            <SlidersHorizontalIcon className="size-3.5 text-muted-foreground" />
+            <FileDiffIcon className="size-3.5 text-muted-foreground" />
             <span className="min-w-0 flex-1">Changes</span>
-            {hasChanges && workspaceChangeStat ? (
+            {isCheckingChanges ? (
+              <span className="inline-flex items-center text-muted-foreground">
+                <Spinner className="size-3.5" />
+                <span className="sr-only">Checking changes</span>
+              </span>
+            ) : hasChanges && workspaceChangeStat ? (
               <span className="inline-flex items-center gap-1 font-medium tabular-nums">
                 {workspaceChangeStat.additions > 0 ? (
                   <span className="text-success">
@@ -161,10 +239,28 @@ export const EnvironmentMiniPanel = forwardRef<
           </section>
         ) : null}
 
-        {props.activePlanProgress || activeTodoProgress ? (
+        {props.isGitRepo ? (
+          <section>
+            <EnvironmentGitSection
+              activeThreadId={props.activeThreadId}
+              branchList={props.branchList}
+              connectionUrl={props.branchToolbarProps?.connectionUrl ?? null}
+              gitCwd={props.gitCwd}
+              gitStatus={props.gitStatus}
+              gitStatusError={props.gitStatusError}
+              workspaceMode={props.workspaceMode}
+              onWorkspaceModeChange={props.onWorkspaceModeChange}
+            />
+          </section>
+        ) : props.gitCwd ? (
+          <section>
+            <Skeleton className="mx-2 h-8 rounded-lg" />
+          </section>
+        ) : null}
+
+        {activePlanProgress || activeTodoProgress ? (
           <section className="space-y-1 border-t border-border/45 pt-1.5">
-            <EnvironmentSectionTitle>Activity</EnvironmentSectionTitle>
-            {props.activePlanProgress ? (
+            {activePlanProgress ? (
               <button
                 type="button"
                 className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
@@ -173,8 +269,8 @@ export const EnvironmentMiniPanel = forwardRef<
                 <ClipboardListIcon className="size-3.5 text-muted-foreground" />
                 <span className="min-w-0 flex-1">Plan</span>
                 <span className="font-medium tabular-nums text-foreground">
-                  {String(props.activePlanProgress.completed).padStart(planProgressWidth, "0")}/
-                  {String(props.activePlanProgress.total).padStart(planProgressWidth, "0")}
+                  {String(activePlanProgress.completed).padStart(planProgressWidth, "0")}/
+                  {String(activePlanProgress.total).padStart(planProgressWidth, "0")}
                 </span>
               </button>
             ) : null}
@@ -198,26 +294,11 @@ export const EnvironmentMiniPanel = forwardRef<
         ) : null}
       </div>
 
-      {props.isGitRepo ? (
-        <div className="mt-1">
-          <EnvironmentGitSection
-            activeThreadId={props.activeThreadId}
-            branchList={props.branchList}
-            connectionUrl={props.branchToolbarProps?.connectionUrl ?? null}
-            gitCwd={props.gitCwd}
-            gitStatus={props.gitStatus}
-            gitStatusError={props.gitStatusError}
-            workspaceMode={props.workspaceMode}
-            onWorkspaceModeChange={props.onWorkspaceModeChange}
-          />
-        </div>
-      ) : null}
-
-      {props.activeProjectScripts ? (
+      {activeProjectScripts ? (
         <div className="mt-1 border-t border-border/45 pt-1.5">
           <EnvironmentSectionTitle>Actions</EnvironmentSectionTitle>
           <ProjectScriptsControl
-            scripts={props.activeProjectScripts}
+            scripts={activeProjectScripts}
             keybindings={props.keybindings}
             preferredScriptId={props.preferredScriptId}
             onRunScript={props.onRunProjectScript}

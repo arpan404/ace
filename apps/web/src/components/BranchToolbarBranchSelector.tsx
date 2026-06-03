@@ -33,6 +33,7 @@ import {
   shouldIncludeBranchPickerItem,
 } from "../lib/git/branchToolbar";
 import { Button } from "./ui/button";
+import { Spinner } from "./ui/spinner";
 import {
   Combobox,
   ComboboxEmpty,
@@ -506,6 +507,7 @@ export function BranchToolbarBranchSelector({
     resolvedActiveBranch,
   });
   const isEnvironmentPresentation = presentation === "environment";
+  const isBranchListLoading = branchesQuery.isLoading && branches.length === 0;
 
   return (
     <Combobox
@@ -530,10 +532,14 @@ export function BranchToolbarBranchSelector({
             ? "min-h-8 w-full justify-start gap-2 rounded-lg px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
             : "text-muted-foreground/70 hover:text-foreground/80"
         }
-        disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
+        disabled={isBranchListLoading || isBranchActionPending}
       >
         {isEnvironmentPresentation ? (
-          <GitBranchIcon className="size-3.5 text-muted-foreground" />
+          isBranchListLoading ? (
+            <Spinner className="size-3.5 text-muted-foreground" />
+          ) : (
+            <GitBranchIcon className="size-3.5 text-muted-foreground" />
+          )
         ) : null}
         <span
           className={
@@ -542,7 +548,7 @@ export function BranchToolbarBranchSelector({
               : "max-w-[240px] truncate"
           }
         >
-          {triggerLabel}
+          {isBranchListLoading ? "Loading branches" : triggerLabel}
         </span>
         <ChevronDownIcon
           className={isEnvironmentPresentation ? "size-3.5 text-muted-foreground" : undefined}

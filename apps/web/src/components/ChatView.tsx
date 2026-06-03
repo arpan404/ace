@@ -9673,7 +9673,7 @@ function useChatViewComponent({
           onEnvModeChange,
           envModeOverride: envMode,
           envLocked,
-          localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
+          localEnvironmentLabel: activeRemoteHost?.name ?? "Locally",
           localEnvironmentIcon: activeEnvironmentIcon,
           onComposerFocusRequest: scheduleComposerFocus,
           onNewWorktreeRequest,

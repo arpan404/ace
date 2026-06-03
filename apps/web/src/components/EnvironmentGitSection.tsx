@@ -15,7 +15,7 @@ import {
   GitCommitIcon,
   InfoIcon,
   KeyRoundIcon,
-  LoaderCircleIcon,
+  RefreshCwIcon,
 } from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import { runAsyncTask } from "../lib/async";
@@ -54,6 +54,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
 import {
@@ -297,10 +298,17 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
 const gitCardRowClassName =
   "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
 
-function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
+function GitQuickActionIcon({
+  busy = false,
+  quickAction,
+}: {
+  busy?: boolean;
+  quickAction: GitQuickAction;
+}) {
   const iconClassName = "size-3.5";
+  if (busy) return <Spinner className={iconClassName} />;
   if (quickAction.kind === "open_pr") return <GitHubIcon className={iconClassName} />;
-  if (quickAction.kind === "run_pull") return <InfoIcon className={iconClassName} />;
+  if (quickAction.kind === "run_pull") return <RefreshCwIcon className={iconClassName} />;
   if (quickAction.kind === "run_action") {
     if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
     if (quickAction.action === "push" || quickAction.action === "commit_push") {
@@ -952,7 +960,7 @@ function useEnvironmentGitSection({
             onClick={() => initMutation.mutate()}
           >
             {initMutation.isPending ? (
-              <LoaderCircleIcon className="size-3.5 animate-spin" />
+              <Spinner className="size-3.5" />
             ) : (
               <GitBranchPlusIcon className="size-3.5" />
             )}
@@ -965,7 +973,13 @@ function useEnvironmentGitSection({
       ) : (
         <div className="space-y-2">
           {isGitStatusOutOfSync ? (
-            <div className="px-2 text-[11px] text-muted-foreground">Refreshing...</div>
+            <output
+              className="flex min-h-7 items-center gap-2 rounded-[var(--control-radius)] bg-muted/22 px-2 py-1 text-[11px] text-muted-foreground"
+              aria-live="polite"
+            >
+              <Spinner className="size-3" />
+              <span className="min-w-0 flex-1 truncate">Refreshing git state</span>
+            </output>
           ) : null}
           <Menu>
             <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
@@ -979,7 +993,7 @@ function useEnvironmentGitSection({
                 title={quickActionDisabledReason ?? undefined}
                 onClick={runQuickAction}
               >
-                <GitQuickActionIcon quickAction={quickAction} />
+                <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
                 <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
               </button>
               <MenuTrigger
@@ -1003,7 +1017,7 @@ function useEnvironmentGitSection({
                   title={quickActionDisabledReason ?? undefined}
                   onClick={runQuickAction}
                 >
-                  <GitQuickActionIcon quickAction={quickAction} />
+                  <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
                   <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
                 </MenuItem>
               </MenuGroup>
