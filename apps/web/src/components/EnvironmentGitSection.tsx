@@ -358,9 +358,9 @@ function resolveGitActionMenuPosition(anchorElement: HTMLElement): GitActionMenu
   const anchorRow = anchorElement.parentElement ?? anchorElement;
   const rect = anchorRow.getBoundingClientRect();
   const viewportPadding = 8;
-  const sideOffset = 8;
-  const preferredWidth = 288;
-  const minimumWidth = 192;
+  const sideOffset = 6;
+  const preferredWidth = 232;
+  const minimumWidth = 184;
   const width = Math.max(
     minimumWidth,
     Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
@@ -442,7 +442,7 @@ function EnvironmentGitActionMenuPortal({
     <div
       ref={popupRef}
       role="menu"
-      className="fixed z-[110] flex max-w-[calc(100vw-1rem)] rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 text-popover-foreground shadow-2xl shadow-black/25 outline-none supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
+      className="fixed z-[110] flex max-w-[calc(100vw-1rem)] rounded-[calc(var(--panel-radius)-2px)] border border-border/72 bg-popover/96 text-popover-foreground shadow-xl shadow-black/20 outline-none supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
       style={{
         left: position.left,
         maxHeight: position.maxHeight,
@@ -450,14 +450,14 @@ function EnvironmentGitActionMenuPortal({
         width: position.width,
       }}
     >
-      <div className="min-w-0 w-full overflow-y-auto p-3">{children}</div>
+      <div className="min-w-0 w-full overflow-y-auto p-1.5">{children}</div>
     </div>,
     document.body,
   );
 }
 
 const gitActionMenuItemClassName =
-  "flex w-full cursor-default select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-1 text-left text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-4 [&>svg]:pointer-events-none [&>svg]:shrink-0";
+  "flex w-full cursor-default select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-0.5 text-left text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:pointer-events-none [&>svg]:shrink-0";
 
 function useEnvironmentGitSection({
   connectionUrl,
@@ -1163,7 +1163,7 @@ function useEnvironmentGitSection({
             <button
               type="button"
               role="menuitem"
-              className={cn(gitActionMenuItemClassName, "min-h-10 text-[14px]")}
+              className={cn(gitActionMenuItemClassName, "min-h-8 text-[13px]")}
               disabled={isGitActionRunning || quickAction.disabled}
               title={quickActionDisabledReason ?? undefined}
               onClick={() => {
@@ -1174,7 +1174,7 @@ function useEnvironmentGitSection({
               <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
               <span className="whitespace-nowrap">{quickAction.label}</span>
             </button>
-            <div className="mx-2 my-2 h-px bg-border" />
+            <div className="mx-2 my-1 h-px bg-border" />
             <div className="space-y-0">
               {gitActionMenuItems.map((item) => {
                 const disabledReason = getMenuActionDisabledReason({
@@ -1189,7 +1189,7 @@ function useEnvironmentGitSection({
                     key={`${item.id}-${item.label}`}
                     type="button"
                     role="menuitem"
-                    className={cn(gitActionMenuItemClassName, "min-h-9 text-[13px]")}
+                    className={cn(gitActionMenuItemClassName, "min-h-7 text-[12px]")}
                     disabled={item.disabled}
                     title={disabledReason ?? undefined}
                     onClick={() => {
@@ -1203,11 +1203,11 @@ function useEnvironmentGitSection({
                 );
               })}
             </div>
-            <div className="mx-2 my-2 h-px bg-border" />
+            <div className="mx-2 my-1 h-px bg-border" />
             <button
               type="button"
               role="menuitem"
-              className={cn(gitActionMenuItemClassName, "min-h-9 text-[13px]")}
+              className={cn(gitActionMenuItemClassName, "min-h-7 text-[12px]")}
               onClick={() => {
                 closeGitActionMenu();
                 dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
