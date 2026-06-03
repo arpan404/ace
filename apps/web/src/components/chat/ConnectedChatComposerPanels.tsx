@@ -86,8 +86,6 @@ import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { resolveSelectableProvider } from "../../providerModels";
 import { ChatComposerPanel } from "./ChatComposerPanel";
 import { ProviderStatusBanner } from "./ProviderStatusBanner";
-import { ScratchPadDialog } from "./ScratchPadDialog";
-import { OPEN_SCRATCH_PAD_EVENT, type OpenScratchPadDetail } from "./scratchPadStore";
 import { deriveComposerSendState, readFileAsDataUrl } from "~/lib/chat/chatView";
 import { toastManager } from "../ui/toast";
 import { useChatViewProviderSelectionState } from "./useChatViewModelState";
@@ -457,22 +455,6 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     onPreviewExpandedImage,
   } = props;
   const isComposerApprovalState = props.activePendingApproval !== null;
-  const [scratchPadOpen, setScratchPadOpen] = useState(false);
-  const [scratchPadRequestedNoteId, setScratchPadRequestedNoteId] = useState<string | null>(null);
-  useEffect(() => {
-    const openScratchPad = (event: Event) => {
-      const detail =
-        event instanceof CustomEvent
-          ? (event.detail as OpenScratchPadDetail | undefined)
-          : undefined;
-      setScratchPadRequestedNoteId(detail?.noteId ?? null);
-      setScratchPadOpen(true);
-    };
-    window.addEventListener(OPEN_SCRATCH_PAD_EVENT, openScratchPad);
-    return () => {
-      window.removeEventListener(OPEN_SCRATCH_PAD_EVENT, openScratchPad);
-    };
-  }, []);
   const hasComposerHeader =
     isComposerApprovalState || (showPlanFollowUpPrompt && props.planFollowUpId !== null);
   const composerFooterHasWideActions =
@@ -870,15 +852,6 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }
     props.onSetThreadError(props.threadId, error);
   });
-
-  const attachScratchPadImage = useCallback(
-    (file: File) => {
-      addComposerImages([file]);
-      setScratchPadOpen(false);
-      scheduleComposerFocus();
-    },
-    [addComposerImages, scheduleComposerFocus],
-  );
 
   const onComposerPaste = useCallback((event: ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
@@ -1721,13 +1694,6 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
           ? createPortal(floatingDock, props.floatingDockPortalHost)
           : floatingDock
         : null}
-      <ScratchPadDialog
-        open={scratchPadOpen}
-        onOpenChange={setScratchPadOpen}
-        onAttachImage={attachScratchPadImage}
-        requestedNoteId={scratchPadRequestedNoteId}
-        threadId={props.threadId}
-      />
     </>
   );
 });

@@ -7,15 +7,7 @@ import type {
 } from "@ace/contracts";
 import { type ComponentProps, forwardRef, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
-import {
-  CheckSquareIcon,
-  ChevronDownIcon,
-  ExpandIcon,
-  FileDiffIcon,
-  NotebookPenIcon,
-  SettingsIcon,
-  XIcon,
-} from "lucide-react";
+import { CheckSquareIcon, ChevronDownIcon, FileDiffIcon, SettingsIcon, XIcon } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
@@ -34,7 +26,6 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   createScratchPadNote,
   EMPTY_SCRATCH_PAD_COLLECTION,
-  openScratchPadDialog,
   SCRATCH_PAD_STORAGE_KEY,
   ScratchPadCollectionSchema,
   type ScratchPadCollection,
@@ -566,50 +557,6 @@ export const EnvironmentMiniPanel = forwardRef<
           </EnvironmentPanelGroup>
         ) : null}
 
-        <EnvironmentPanelGroup
-          title="Notes"
-          open={resolveEnvironmentPanelGroupOpen(groupOpenState, "notes")}
-          onOpenChange={(open) => setGroupOpen("notes", open)}
-          trailing={
-            <div className="-mr-0.5 flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
-                      onClick={() => openScratchPadDialog(activeScratchPadNote?.id)}
-                      aria-label="Open scratchpad board"
-                    />
-                  }
-                >
-                  <ExpandIcon className="size-3.5" />
-                </TooltipTrigger>
-                <TooltipPopup side="left">Open canvas</TooltipPopup>
-              </Tooltip>
-            </div>
-          }
-        >
-          <div className="space-y-2 px-2 pt-0.5">
-            <div className="overflow-hidden rounded-xl border border-border/60 bg-background/70 shadow-[0_1px_0_hsl(var(--foreground)/0.04)] transition-colors focus-within:border-ring/45 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10">
-              <div className="flex min-h-8 items-center gap-2 border-b border-border/45 bg-muted/24 px-2.5 py-1.5">
-                <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-background/75 text-muted-foreground ring-1 ring-border/55">
-                  <NotebookPenIcon className="size-3.5" />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
-                  Quick note
-                </span>
-              </div>
-              <textarea
-                value={activeScratchPadNote?.body ?? ""}
-                onChange={(event) => updateActiveScratchPadBody(event.target.value)}
-                placeholder="Context, blockers, follow-ups, commands..."
-                className="min-h-24 w-full resize-none bg-transparent px-2.5 py-2.5 font-sans text-[12px] leading-5 outline-none placeholder:text-muted-foreground/42"
-              />
-            </div>
-          </div>
-        </EnvironmentPanelGroup>
-
         {activeProjectScripts ? (
           <EnvironmentPanelGroup
             title="Actions"
@@ -652,6 +599,23 @@ export const EnvironmentMiniPanel = forwardRef<
             </div>
           </EnvironmentPanelGroup>
         ) : null}
+
+        <EnvironmentPanelGroup
+          title="Notes"
+          open={resolveEnvironmentPanelGroupOpen(groupOpenState, "notes")}
+          onOpenChange={(open) => setGroupOpen("notes", open)}
+        >
+          <div className="space-y-2 px-2 pt-0.5">
+            <div className="overflow-hidden rounded-xl border border-border/60 bg-background/70 shadow-[0_1px_0_hsl(var(--foreground)/0.04)] transition-colors focus-within:border-ring/45 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10">
+              <textarea
+                value={activeScratchPadNote?.body ?? ""}
+                onChange={(event) => updateActiveScratchPadBody(event.target.value)}
+                placeholder="Quick note..."
+                className="min-h-24 w-full resize-none bg-transparent px-3 py-3 font-sans text-[12px] leading-5 outline-none placeholder:text-muted-foreground/42"
+              />
+            </div>
+          </div>
+        </EnvironmentPanelGroup>
       </div>
     </m.aside>
   );

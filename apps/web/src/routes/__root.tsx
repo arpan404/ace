@@ -9,6 +9,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
+import { ChevronDownIcon, CircleAlertIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
@@ -676,35 +677,52 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
   const details = errorDetails(error);
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
-      <section className="relative w-full max-w-xl rounded-xl border border-border bg-card p-6 sm:p-8">
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-          {APP_BASE_NAME}
-        </p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
-          Something went wrong.
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{message}</p>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => reset()}>
-            Try again
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
-            Reload app
-          </Button>
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="flex h-12 items-center justify-between border-b border-border/55 px-4">
+        <div className="flex items-center gap-2">
+          <span className="flex size-6 items-center justify-center rounded-md border border-border/70 bg-muted/20 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+            {APP_BASE_NAME.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="text-sm font-medium">{APP_BASE_NAME}</span>
         </div>
+        <span className="text-[11px] text-muted-foreground">App error</span>
+      </header>
 
-        <details className="group mt-5 overflow-hidden rounded-lg border border-border bg-background">
-          <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-muted-foreground">
-            <span className="group-open:hidden">Show error details</span>
-            <span className="hidden group-open:inline">Hide error details</span>
-          </summary>
-          <pre className="max-h-56 overflow-auto border-t border-border bg-muted/60 px-3 py-2 text-xs text-foreground">
-            {details}
-          </pre>
-        </details>
-      </section>
+      <main className="flex flex-1 items-start justify-center px-4 py-16 sm:px-6">
+        <section className="w-full max-w-2xl overflow-hidden rounded-[var(--panel-radius)] border border-border/70 bg-background shadow-[0_1px_0_hsl(var(--foreground)/0.04)]">
+          <div className="flex items-start gap-3 border-b border-border/55 bg-muted/10 px-4 py-3">
+            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+              <CircleAlertIcon className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-sm font-semibold leading-6">Something went wrong</h1>
+              <p className="truncate text-xs leading-5 text-muted-foreground">{message}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <Button size="sm" variant="ghost" onClick={() => reset()}>
+              <RotateCcwIcon className="size-4" />
+              Try again
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => window.location.reload()}>
+              <RefreshCwIcon className="size-4" />
+              Reload app
+            </Button>
+          </div>
+
+          <details className="group border-t border-border/55">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/18 hover:text-foreground">
+              <span className="group-open:hidden">Show error details</span>
+              <span className="hidden group-open:inline">Hide error details</span>
+              <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
+            </summary>
+            <pre className="max-h-72 overflow-auto border-t border-border/55 bg-muted/18 px-4 py-3 font-mono text-[11px] leading-5 text-muted-foreground">
+              {details}
+            </pre>
+          </details>
+        </section>
+      </main>
     </div>
   );
 }
