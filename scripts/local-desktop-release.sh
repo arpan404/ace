@@ -412,30 +412,42 @@ build_shared_artifacts() {
   run bun run build:desktop
 }
 
-build_macos_arm64() {
-  require_macos_signing_env
-  run bun run dist:desktop:artifact -- \
+run_macos_artifact() {
+  local arch="$1"
+  local artifact_output_dir="$2"
+  local bun_state_dir
+  local status
+
+  bun_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/ace-desktop-macos-${arch}-bun.XXXXXX")"
+  if run env \
+    BUN_INSTALL_CACHE_DIR="$bun_state_dir/install-cache" \
+    BUN_RUNTIME_TRANSPILER_CACHE_PATH="$bun_state_dir/transpiler-cache" \
+    bun run dist:desktop:artifact -- \
     --platform mac \
     --target dmg \
-    --arch arm64 \
+    --arch "$arch" \
     --build-version "$version" \
-    --output-dir "$output_dir/macos-arm64" \
+    --output-dir "$artifact_output_dir" \
     --skip-build \
     --signed \
-    --verbose
+    --verbose; then
+    status=0
+  else
+    status=$?
+  fi
+
+  rm -rf "$bun_state_dir"
+  return "$status"
+}
+
+build_macos_arm64() {
+  require_macos_signing_env
+  run_macos_artifact arm64 "$output_dir/macos-arm64"
 }
 
 build_macos_x64() {
   require_macos_signing_env
-  run bun run dist:desktop:artifact -- \
-    --platform mac \
-    --target dmg \
-    --arch x64 \
-    --build-version "$version" \
-    --output-dir "$output_dir/macos-x64" \
-    --skip-build \
-    --signed \
-    --verbose
+  run_macos_artifact x64 "$output_dir/macos-x64"
 }
 
 build_macos() {
@@ -537,6 +549,63 @@ build_windows_docker() {
   build_windows_docker_arm64
 }
 
+cleanup_docker_images() {
+  local status=0
+  local image
+
+  for image in "$linux_image" "$windows_image"; do
+    if docker image inspect "$image" >/dev/null 2>&1; then
+      if ! run docker image rm "$image"; then
+        status=1
+      fi
+    fi
+  done
+
+  return "$status"
+}
+
+background_pids=()
+background_names=()
+background_label_width=0
+
+start_background_job() {
+  local name="$1"
+  local command="$2"
+
+  if [[ "${#name}" -gt "$background_label_width" ]]; then
+    background_label_width="${#name}"
+  fi
+
+  printf "%-${background_label_width}s | started\n" "$name"
+  (
+    set -euo pipefail
+    "$command" 2>&1 | while IFS= read -r line; do
+      printf "%-${background_label_width}s | %s\n" "$name" "$line"
+    done
+  ) &
+  background_pids+=("$!")
+  background_names+=("$name")
+}
+
+wait_background_jobs() {
+  local status=0
+  local index
+
+  for index in "${!background_pids[@]}"; do
+    if wait "${background_pids[$index]}"; then
+      printf "%-${background_label_width}s | finished\n" "${background_names[$index]}"
+    else
+      printf "%-${background_label_width}s | failed\n" "${background_names[$index]}" >&2
+      status=1
+    fi
+  done
+
+  background_pids=()
+  background_names=()
+  background_label_width=0
+  return "$status"
+}
+
 run_parallel() {
   local items=("$@")
   local pids=()
@@ -587,23 +656,66 @@ run_parallel() {
 
 build_release_targets() {
   if [[ "$parallel_jobs" -eq 1 ]]; then
-    build_macos
-    build_linux_docker
-    build_windows_docker
-    return
+    local serial_status=0
+
+    if ! run_parallel \
+      "macOS arm64" build_macos_arm64 \
+      "macOS x64" build_macos_x64; then
+      return 1
+    fi
+
+    if ! run_parallel \
+      "Linux Docker image" build_linux_docker_image \
+      "Windows Docker image" build_windows_docker_image; then
+      serial_status=1
+    fi
+
+    if [[ "$serial_status" -eq 0 ]]; then
+      if ! run_parallel \
+        "Linux x64" build_linux_docker_x64 \
+        "Linux arm64" build_linux_docker_arm64 \
+        "Windows x64" build_windows_docker_x64 \
+        "Windows arm64" build_windows_docker_arm64; then
+        serial_status=1
+      fi
+    fi
+
+    if ! cleanup_docker_images; then
+      serial_status=1
+    fi
+    return "$serial_status"
   fi
 
   require_macos_signing_env
-  run_parallel \
+  printf '\n==> macOS artifacts (background)\n'
+  start_background_job "macOS arm64" build_macos_arm64
+  start_background_job "macOS x64" build_macos_x64
+
+  local status=0
+  if ! run_parallel \
     "Linux Docker image" build_linux_docker_image \
-    "Windows Docker image" build_windows_docker_image
-  run_parallel \
-    "macOS arm64" build_macos_arm64 \
-    "macOS x64" build_macos_x64 \
-    "Linux x64" build_linux_docker_x64 \
-    "Linux arm64" build_linux_docker_arm64 \
-    "Windows x64" build_windows_docker_x64 \
-    "Windows arm64" build_windows_docker_arm64
+    "Windows Docker image" build_windows_docker_image; then
+    status=1
+  fi
+
+  if [[ "$status" -eq 0 ]]; then
+    if ! run_parallel \
+      "Linux x64" build_linux_docker_x64 \
+      "Linux arm64" build_linux_docker_arm64 \
+      "Windows x64" build_windows_docker_x64 \
+      "Windows arm64" build_windows_docker_arm64; then
+      status=1
+    fi
+  fi
+
+  if ! cleanup_docker_images; then
+    status=1
+  fi
+
+  if ! wait_background_jobs; then
+    status=1
+  fi
+  return "$status"
 }
 
 collect_assets() {
