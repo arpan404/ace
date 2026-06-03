@@ -11,7 +11,10 @@ interface SetAppVersionsOptions {
   readonly rootDir?: string;
 }
 
-function collectWorkspacePackagePaths(rootDir: string, workspaceDirNames: readonly string[]): string[] {
+function collectWorkspacePackagePaths(
+  rootDir: string,
+  workspaceDirNames: readonly string[],
+): string[] {
   const packagePaths: string[] = [];
 
   for (const workspaceDirName of workspaceDirNames) {
