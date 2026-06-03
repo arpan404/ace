@@ -37,16 +37,26 @@ function subagentThreadKey(entry: WorkLogEntry): string | null {
 }
 
 const GENERATED_SUBAGENT_NAMES = [
-  "Ada",
-  "Cora",
-  "Dax",
-  "Iris",
-  "Mira",
-  "Nova",
-  "Orion",
-  "Rhea",
-  "Sol",
-  "Vega",
+  "Ada Lovelint",
+  "Alan Touring",
+  "Marie Query",
+  "Isaac Newtask",
+  "Grace Hopperton",
+  "Nikola Testla",
+  "Rosie Franklin",
+  "Katherine Johnsons",
+  "Galileo Debuglei",
+  "Hypatia Trace",
+  "Albert Einsight",
+  "Emmy Noteworthy",
+  "Blaise Passcal",
+  "Sophie Germainframe",
+  "Claude Shannone",
+  "Barbara Liskovitz",
+  "Donald Knuthatch",
+  "Noether Nullguard",
+  "Carl Saganize",
+  "Dorothy Vaughanilla",
 ] as const;
 
 const SUBAGENT_PERSONA_TONES = [
@@ -93,12 +103,30 @@ function initialsForName(name: string): string {
   return (parts[0]?.slice(0, 2) ?? "AI").toUpperCase();
 }
 
-function resolveSubagentPersona(input: { id: string; identityLabel: string }): SubagentPersona {
+function resolveGeneratedSubagentName(hash: number, usedNames: Set<string>): string {
+  for (let offset = 0; offset < GENERATED_SUBAGENT_NAMES.length; offset += 1) {
+    const candidate =
+      GENERATED_SUBAGENT_NAMES[(hash + offset) % GENERATED_SUBAGENT_NAMES.length] ?? "Ada Lovelint";
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+  }
+  const fallback = `Ada Lovelint ${usedNames.size + 1}`;
+  usedNames.add(fallback);
+  return fallback;
+}
+
+function resolveSubagentPersona(input: {
+  id: string;
+  identityLabel: string;
+  usedNames: Set<string>;
+}): SubagentPersona {
   const hash = hashSubagentId(input.id);
-  const generatedName = GENERATED_SUBAGENT_NAMES[hash % GENERATED_SUBAGENT_NAMES.length] ?? "Nova";
   const name = isGenericSubagentLabel(input.identityLabel)
-    ? `${generatedName} Agent`
+    ? resolveGeneratedSubagentName(hash, input.usedNames)
     : input.identityLabel;
+  input.usedNames.add(name);
   const tone =
     SUBAGENT_PERSONA_TONES[hash % SUBAGENT_PERSONA_TONES.length] ?? SUBAGENT_PERSONA_TONES[0];
   return {
@@ -142,10 +170,11 @@ export function deriveSubagentThreads(
     }
   }
 
+  const usedNames = new Set<string>();
   return [...grouped.entries()]
     .map(([id, group]) => {
       const identity = resolveSubagentIdentity({ entries: group, fallbackId: id, provider });
-      const persona = resolveSubagentPersona({ id, identityLabel: identity.label });
+      const persona = resolveSubagentPersona({ id, identityLabel: identity.label, usedNames });
       const roleLabel = persona.name === identity.label ? null : identity.label;
       return {
         id,

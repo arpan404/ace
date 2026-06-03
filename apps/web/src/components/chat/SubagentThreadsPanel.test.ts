@@ -84,7 +84,25 @@ describe("deriveSubagentThreads", () => {
     expect(threads[0]?.label).toBe("Pauli");
   });
 
-  it("generates a stable named persona for generic subagent identities", () => {
+  it("removes agent suffixes from supplied subagent names", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "codex-named-agent",
+          label: "Reasoning",
+          subagentId: "child-provider-thread-1",
+          subagentName: "review agent",
+          subagentType: "codex subagent",
+        }),
+      ],
+      "codex",
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0]?.label).toBe("Review");
+  });
+
+  it("generates a stable parody name for generic subagent identities", () => {
     const first = deriveSubagentThreads(
       [
         workEntry({
@@ -111,12 +129,36 @@ describe("deriveSubagentThreads", () => {
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(1);
     expect(first[0]?.label).toBe(second[0]?.label);
-    expect(first[0]?.label).toMatch(/ Agent$/);
+    expect(first[0]?.label).toMatch(/\w+ \w+/);
+    expect(first[0]?.label).not.toMatch(/ Agent$/);
     expect(first[0]?.label).not.toBe("Codex Subagent");
     expect(first[0]?.persona).toMatchObject({
       initials: expect.any(String),
       name: first[0]?.label,
     });
+  });
+
+  it("keeps generated generic subagent names unique within a thread", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "generic-created-one",
+          label: "Reasoning",
+          subagentId: "child-provider-thread-99",
+          subagentType: "codex subagent",
+        }),
+        workEntry({
+          id: "generic-created-two",
+          label: "Reasoning",
+          subagentId: "child-provider-thread-100",
+          subagentType: "codex subagent",
+        }),
+      ],
+      "codex",
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(new Set(threads.map((thread) => thread.label))).toHaveLength(2);
   });
 
   it("marks subagent threads completed when the latest status is completed", () => {

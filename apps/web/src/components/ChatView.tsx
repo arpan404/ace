@@ -88,7 +88,6 @@ import {
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
-  summarizeActivePlan,
   formatElapsed,
 } from "../session-logic";
 import {
@@ -210,6 +209,7 @@ import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "../edito
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
+import type { PinnedMessageNavigationTarget } from "./chat/pinnedMessagesStore";
 import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
@@ -381,7 +381,7 @@ const BOTTOM_EDGE_PANEL_SPRING_ANIMATION = {
   animate: { opacity: 1, scaleY: 1, y: 0 },
   exit: { opacity: 0, scaleY: 0.985, y: 18 },
 } as const;
-const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
+const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 352;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
 const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
   ENVIRONMENT_MINI_PANEL_WIDTH_PX + ENVIRONMENT_MINI_PANEL_GAP_PX;
@@ -2756,7 +2756,6 @@ function useChatViewComponent({
     () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
     [threadActivities],
   );
-  const activePlanProgress = useMemo(() => summarizeActivePlan(activePlan), [activePlan]);
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -2980,6 +2979,7 @@ function useChatViewComponent({
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
     left: number;
+    maxHeight?: number;
     top: number;
   } | null>(null);
   useEffect(() => {
@@ -9434,8 +9434,28 @@ function useChatViewComponent({
   const activeThreadProvider = activeThread?.session?.provider;
   const activeThreadModelProvider = activeThread?.modelSelection.provider;
   const canForkActiveThread = isServerThread && activeThreadMessagesLength > 0;
+  const [targetMessageNavigation, setTargetMessageNavigation] = useState<{
+    messageId: string;
+    requestId: number;
+    targetKind: "message" | "selection";
+    selectedText?: string;
+  } | null>(null);
+  const jumpToTimelineMessage = useCallback(
+    (messageId: string, target: PinnedMessageNavigationTarget) => {
+      setTargetMessageNavigation((current) => ({
+        messageId,
+        requestId: (current?.requestId ?? 0) + 1,
+        targetKind: target.kind,
+        ...(target.kind === "selection" && target.selectedText
+          ? { selectedText: target.selectedText }
+          : {}),
+      }));
+    },
+    [],
+  );
   const messagesTimelineProps = useMemo(
     () => ({
+      ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
       hasMessages:
         timelineEntries.length > 0 ||
         (isThreadHistoryLoading && activeThreadMessagesLength > 0) ||
@@ -9482,11 +9502,13 @@ function useChatViewComponent({
       isForkConversationDisabled: isWorking || handoffInFlight,
       enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
       resolvedTheme,
+      targetMessageNavigation,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
     }),
     [
       activeProject?.cwd,
+      activeThreadIdValue,
       activeThreadMessagesLength,
       activeThreadProvider,
       activeThreadModelProvider,
@@ -9522,6 +9544,7 @@ function useChatViewComponent({
       revertTurnCountByAssistantMessageId,
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
+      targetMessageNavigation,
       timelineEntries,
       timestampFormat,
       turnDiffSummaryByAssistantMessageId,
@@ -9566,10 +9589,16 @@ function useChatViewComponent({
           )
         : window.innerWidth - panelWidth - panelMargin;
       const clampLeft = (left: number) => Math.max(minLeft, Math.min(left, maxLeft));
+      const maxPanelBottom = workspaceRect
+        ? Math.min(window.innerHeight - panelMargin, workspaceRect.bottom - panelMargin)
+        : window.innerHeight - panelMargin;
+      const resolveMaxHeight = (top: number) => Math.max(160, maxPanelBottom - top);
       if (!triggerRect) {
+        const top = fallbackTop;
         setEnvironmentPanelPopoverStyle({
           left: clampLeft(maxLeft),
-          top: fallbackTop,
+          maxHeight: resolveMaxHeight(top),
+          top,
         });
         return;
       }
@@ -9577,7 +9606,7 @@ function useChatViewComponent({
       const preferredLeft = triggerRect.right - panelWidth;
       const left = clampLeft(preferredLeft);
       const top = Math.max(panelMargin, triggerRect.bottom + 8);
-      setEnvironmentPanelPopoverStyle({ left, top });
+      setEnvironmentPanelPopoverStyle({ left, maxHeight: resolveMaxHeight(top), top });
     };
 
     updatePopoverPosition();
@@ -9673,7 +9702,7 @@ function useChatViewComponent({
           onEnvModeChange,
           envModeOverride: envMode,
           envLocked,
-          localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
+          localEnvironmentLabel: activeRemoteHost?.name ?? "Locally",
           localEnvironmentIcon: activeEnvironmentIcon,
           onComposerFocusRequest: scheduleComposerFocus,
           onNewWorktreeRequest,
@@ -9688,7 +9717,7 @@ function useChatViewComponent({
   > | null = activeThread
     ? {
         activeProjectScripts: activeProject?.scripts,
-        activePlanProgress,
+        activePlan,
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
         branchToolbarProps,
@@ -9698,7 +9727,6 @@ function useChatViewComponent({
         gitStatusError:
           workspaceStatusQuery.error instanceof Error ? workspaceStatusQuery.error : null,
         isGitRepo,
-        isAgentWorking: isWorking,
         keybindings,
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
@@ -9709,6 +9737,7 @@ function useChatViewComponent({
         onAddProjectScript: saveProjectScript,
         onDeleteProjectScript: deleteProjectScript,
         onOpenDiffPanel: onOpenRightSidePanelDiff,
+        onJumpToMessage: jumpToTimelineMessage,
         onOpenEnvironmentSettings: () => {
           if (activeProject) {
             void navigate({

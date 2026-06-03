@@ -15,7 +15,11 @@ interface SubagentIdentityAdapter {
 }
 
 function formatSubagentLabel(value: string | undefined): string | null {
-  const normalized = value?.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const normalized = value
+    ?.replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\bagent$/i, "")
+    .trim();
   if (!normalized) {
     return null;
   }
