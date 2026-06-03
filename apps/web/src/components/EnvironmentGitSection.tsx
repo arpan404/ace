@@ -1,11 +1,12 @@
 import type {
   GitActionProgressEvent,
+  GitListBranchesResult,
   GitRunStackedActionResult,
   GitStackedAction,
   GitStatusResult,
   ThreadId,
 } from "@ace/contracts";
-import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import {
   ChevronDownIcon,
@@ -65,12 +66,10 @@ import {
   HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
 } from "~/components/thread/topBarClusterStyles";
 import {
-  gitBranchesQueryOptions,
   gitInitMutationOptions,
   gitMutationKeys,
   gitPullMutationOptions,
   gitRunStackedActionMutationOptions,
-  gitStatusQueryOptions,
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
 import { cn, newCommandId, randomUUID } from "~/lib/utils";
@@ -84,6 +83,9 @@ import { applySettingsUpdated } from "~/rpc/serverState";
 interface EnvironmentGitSectionProps {
   connectionUrl?: string | null;
   gitCwd: string | null;
+  gitStatus: GitStatusResult | null;
+  gitStatusError: Error | null;
+  branchList: GitListBranchesResult | null;
   activeThreadId: ThreadId | null;
   workspaceMode: ThreadWorkspaceMode;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
@@ -313,6 +315,9 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
 function useEnvironmentGitSection({
   connectionUrl,
   gitCwd,
+  gitStatus,
+  gitStatusError,
+  branchList,
   activeThreadId,
   workspaceMode,
   onWorkspaceModeChange,
@@ -445,11 +450,6 @@ function useEnvironmentGitSection({
     [persistThreadBranchSync],
   );
 
-  const { data: gitStatus = null, error: gitStatusError } = useQuery(
-    gitStatusQueryOptions(gitCwd, connectionUrl),
-  );
-
-  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitCwd, connectionUrl));
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
   const hasOriginRemote = branchList?.hasOriginRemote ?? false;

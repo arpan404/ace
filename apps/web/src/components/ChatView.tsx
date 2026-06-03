@@ -3052,7 +3052,7 @@ function useChatViewComponent({
   const codingGitCwd = gitCwd;
   const workspaceStatusPollingMs = latestTurnSettled ? 10_000 : 5_000;
   const workspaceStatusQuery = useQuery({
-    ...gitStatusQueryOptions(codingGitCwd),
+    ...gitStatusQueryOptions(codingGitCwd, activeServerConnectionUrl),
     enabled: codingGitCwd !== null && activeForSideEffects,
     staleTime: workspaceStatusPollingMs,
     refetchInterval: workspaceStatusPollingMs,
@@ -3096,7 +3096,7 @@ function useChatViewComponent({
     });
   }, [activeThread]);
   const branchesQuery = useQuery({
-    ...gitBranchesQueryOptions(codingGitCwd),
+    ...gitBranchesQueryOptions(codingGitCwd, activeServerConnectionUrl),
     enabled: codingGitCwd !== null && activeForSideEffects,
   });
   // Default true while loading to avoid toolbar flicker.
@@ -9504,7 +9504,11 @@ function useChatViewComponent({
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
         branchToolbarProps,
+        branchList: branchesQuery.data ?? null,
         gitCwd,
+        gitStatus: workspaceStatusQuery.data ?? null,
+        gitStatusError:
+          workspaceStatusQuery.error instanceof Error ? workspaceStatusQuery.error : null,
         isGitRepo,
         isAgentWorking: isWorking,
         keybindings,

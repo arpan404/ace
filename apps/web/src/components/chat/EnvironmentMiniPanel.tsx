@@ -1,4 +1,10 @@
-import type { ProjectScript, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
+import type {
+  GitListBranchesResult,
+  GitStatusResult,
+  ProjectScript,
+  ResolvedKeybindingsConfig,
+  ThreadId,
+} from "@ace/contracts";
 import { type ComponentProps, forwardRef } from "react";
 import { ClipboardListIcon, ListTodoIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
@@ -36,6 +42,9 @@ export const EnvironmentMiniPanel = forwardRef<
     activeThreadId: ThreadId;
     branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
     gitCwd: string | null;
+    gitStatus: GitStatusResult | null;
+    gitStatusError: Error | null;
+    branchList: GitListBranchesResult | null;
     isGitRepo: boolean;
     isAgentWorking: boolean;
     keybindings: ResolvedKeybindingsConfig;
@@ -193,8 +202,11 @@ export const EnvironmentMiniPanel = forwardRef<
         <div className="mt-1">
           <EnvironmentGitSection
             activeThreadId={props.activeThreadId}
+            branchList={props.branchList}
             connectionUrl={props.branchToolbarProps?.connectionUrl ?? null}
             gitCwd={props.gitCwd}
+            gitStatus={props.gitStatus}
+            gitStatusError={props.gitStatusError}
             workspaceMode={props.workspaceMode}
             onWorkspaceModeChange={props.onWorkspaceModeChange}
           />
