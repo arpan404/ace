@@ -69,12 +69,11 @@ describe("PlanSummaryPanel", () => {
     );
 
     expect(html).toContain("Diff summary");
-    expect(html).toContain("Working tree");
-    expect(html).toContain("2 files changed");
-    expect(html).toContain("Added");
+    expect(html).toContain("Working tree changes");
     expect(html).toContain("+15");
-    expect(html).toContain("Removed");
     expect(html).toContain("-19");
+    expect(html).toContain("changes across");
+    expect(html).toContain("files");
     expect(html).toContain('aria-label="Regenerate summary"');
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Files<");
@@ -169,7 +168,7 @@ describe("PlanSummaryPanel", () => {
     expect(html).toContain("Summary panel demo");
     expect(html).toContain("Summary side panel redesign");
     expect(html).toContain("Wire demo data across summary, plan, todos, and diff");
-    expect(html).toContain("7 files changed");
+    expect(html).toContain("changes across");
   });
 
   it("renders seeded demo content from the shared environment demo switch", () => {

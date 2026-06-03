@@ -4,9 +4,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  DiffIcon,
   EllipsisIcon,
-  RotateCwIcon,
+  DiffIcon,
   SparklesIcon,
 } from "lucide-react";
 
@@ -128,11 +127,29 @@ function summaryGeneratedAfterRequest(summaryCreatedAt: string | null, requested
   return Number.isFinite(summaryTime) && Number.isFinite(requestTime) && summaryTime >= requestTime;
 }
 
+function SummaryWorkingIndicator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="working-activity-indicator text-[13px]"
+      data-working-activity-indicator="true"
+    >
+      <span className="working-activity-indicator-dot" />
+      <span className="working-activity-indicator-dot" />
+      <span className="working-activity-indicator-dot" />
+    </span>
+  );
+}
+
 function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: boolean }) {
   return (
-    <output className="flex items-center gap-2 text-xs text-blue-300">
-      <Spinner aria-hidden="true" className="size-3.5 text-blue-300" role="presentation" />
-      <span>{hasExistingSummary ? "Updating summary..." : "Generating summary..."}</span>
+    <output
+      className="inline-flex items-center gap-2 text-xs text-muted-foreground"
+      aria-live="polite"
+      role="status"
+    >
+      <SummaryWorkingIndicator />
+      <span>{hasExistingSummary ? "Updating summary" : "Generating summary"}</span>
     </output>
   );
 }
@@ -211,37 +228,33 @@ function DiffSummaryOverview({
   workspaceDiffSummary: WorkspaceDiffSummary;
   actions: ReactNode;
 }) {
-  const changedFilesLabel =
-    workspaceDiffSummary.fileCount === 1
-      ? "1 file changed"
-      : `${formatDiffCount(workspaceDiffSummary.fileCount)} files changed`;
-
   return (
-    <div className="space-y-3">
+    <div className="space-y-3.5">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-1">
           <SummaryPanelSectionLabel>Diff summary</SummaryPanelSectionLabel>
-          <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-            <p className="text-sm font-medium text-foreground">Working tree</p>
-            <p className="text-xs text-muted-foreground">{changedFilesLabel}</p>
-          </div>
+          <p className="text-sm font-semibold text-foreground">Working tree changes</p>
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      <dl className="grid max-w-[18rem] grid-cols-[auto_auto] gap-x-6 gap-y-1 text-xs leading-5">
-        <div className="contents">
-          <dt className="text-muted-foreground">Added</dt>
-          <dd className="text-right font-medium tabular-nums text-foreground/85">
-            +{formatDiffCount(workspaceDiffSummary.additions)}
-          </dd>
-        </div>
-        <div className="contents">
-          <dt className="text-muted-foreground">Removed</dt>
-          <dd className="text-right font-medium tabular-nums text-foreground/85">
-            -{formatDiffCount(workspaceDiffSummary.deletions)}
-          </dd>
-        </div>
-      </dl>
+      <p className="text-sm text-muted-foreground">
+        <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="inline-flex items-baseline gap-x-1.5">
+            <span className="font-semibold tabular-nums text-success">
+              +{formatDiffCount(workspaceDiffSummary.additions)}
+            </span>
+            <span className="tabular-nums">/</span>
+            <span className="font-semibold tabular-nums text-destructive">
+              -{formatDiffCount(workspaceDiffSummary.deletions)}
+            </span>
+          </span>
+          <span>changes across</span>
+          <span className="inline-flex items-baseline gap-x-1">
+            <span className="tabular-nums">{formatDiffCount(workspaceDiffSummary.fileCount)}</span>
+            <span>{workspaceDiffSummary.fileCount === 1 ? "file" : "files"}</span>
+          </span>
+        </span>
+      </p>
     </div>
   );
 }
@@ -395,7 +408,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
           <Button
             type="button"
             size="icon-sm"
-            variant="outline"
+            variant="ghost"
             onClick={handleRegenerateSummary}
             disabled={isRegeneratingSummary}
             aria-busy={isRegeneratingSummary}
@@ -406,13 +419,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
         {isRegeneratingSummary ? (
           <Spinner className="size-3.5" />
         ) : (
-          <>
-            {effectiveGeneratedWorkspaceSummary ? (
-              <RotateCwIcon className="size-3" />
-            ) : (
-              <SparklesIcon className="size-3" />
-            )}
-          </>
+          <SparklesIcon className="size-3" />
         )}
       </TooltipTrigger>
       <TooltipPopup side="top">{regenerateSummaryTooltipLabel}</TooltipPopup>
@@ -429,13 +436,13 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
               <Button
                 type="button"
                 size="icon-sm"
-                variant="outline"
+                variant="ghost"
                 onClick={onOpenDiffPanel}
                 aria-label="Open review"
               />
             }
           >
-            <DiffIcon className="size-3" />
+            <DiffIcon className="size-3.5" strokeWidth={1.75} />
           </TooltipTrigger>
           <TooltipPopup side="top">Open review</TooltipPopup>
         </Tooltip>
