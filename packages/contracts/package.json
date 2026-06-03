@@ -1,6 +1,6 @@
 {
   "name": "@ace/contracts",
-  "version": "0.1.7",
+  "version": "0.3.1",
   "private": true,
   "files": [
     "dist"
