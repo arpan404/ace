@@ -7,7 +7,14 @@ import type {
 } from "@ace/contracts";
 import { type ComponentProps, forwardRef, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
-import { ChevronDownIcon, FileDiffIcon, SettingsIcon } from "lucide-react";
+import {
+  CheckSquareIcon,
+  ChevronDownIcon,
+  FileDiffIcon,
+  PenLineIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
 
 import BranchToolbar from "../BranchToolbar";
@@ -23,6 +30,16 @@ import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import {
+  createScratchPadNote,
+  EMPTY_SCRATCH_PAD_COLLECTION,
+  openScratchPadDialog,
+  resolveScratchPadPreview,
+  resolveScratchPadTitle,
+  SCRATCH_PAD_STORAGE_KEY,
+  ScratchPadCollectionSchema,
+  type ScratchPadCollection,
+} from "./scratchPadStore";
 
 function formatDiffCount(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -59,13 +76,13 @@ function EnvironmentPanelGroup(props: {
 type EnvironmentPanelGroupId = "actions" | "environment" | "progress" | "subagents";
 type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
 
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v1";
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v2";
 
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
-  actions: true,
+  actions: false,
   environment: true,
   progress: false,
-  subagents: true,
+  subagents: false,
 };
 
 const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
@@ -274,12 +291,30 @@ export const EnvironmentMiniPanel = forwardRef<
     DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,
     EnvironmentPanelGroupOpenStateSchema,
   );
+  const [scratchPadCollection, setScratchPadCollection] = useLocalStorage<
+    ScratchPadCollection,
+    ScratchPadCollection
+  >(SCRATCH_PAD_STORAGE_KEY, EMPTY_SCRATCH_PAD_COLLECTION, ScratchPadCollectionSchema);
   const setGroupOpen = (groupId: EnvironmentPanelGroupId, open: boolean) => {
     setGroupOpenState((current) => ({
       ...DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,
       ...current,
       [groupId]: open,
     }));
+  };
+  const scratchPadNotes = scratchPadCollection.notes
+    .slice()
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 4);
+  const createAndOpenScratchPad = () => {
+    const note = createScratchPadNote({
+      title: `Note ${scratchPadCollection.notes.length + 1}`,
+    });
+    setScratchPadCollection((current) => ({
+      activeNoteId: note.id,
+      notes: [note, ...current.notes],
+    }));
+    openScratchPadDialog(note.id);
   };
   const demoEnabled = isEnvironmentPanelDemoEnabled();
   const activePlan = demoEnabled ? DEMO_ACTIVE_PLAN : props.activePlan;
@@ -409,6 +444,67 @@ export const EnvironmentMiniPanel = forwardRef<
           ) : props.gitCwd ? (
             <Skeleton className="mx-2 h-8 rounded-lg" />
           ) : null}
+
+          <div className="mt-1 space-y-1 px-2 pt-1">
+            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <CheckSquareIcon className="size-3.5" />
+              <span>Pinned Messages</span>
+            </div>
+            <button
+              type="button"
+              className="flex min-h-7 w-full items-center gap-2 rounded-lg py-0.5 text-left text-[11px] text-muted-foreground/72"
+              onClick={props.onOpenSummaryPanel}
+            >
+              <span className="size-3.5 rounded-[4px] border border-muted-foreground/50" />
+              <span className="min-w-0 flex-1 truncate">No pinned messages yet</span>
+            </button>
+          </div>
+
+          <div className="space-y-1 px-2 pt-1.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <PenLineIcon className="size-3.5" />
+              <span className="min-w-0 flex-1">Notes</span>
+              <button
+                type="button"
+                className="-mr-1 inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                onClick={createAndOpenScratchPad}
+                aria-label="New note"
+              >
+                <PlusIcon className="size-3.5" />
+              </button>
+            </div>
+            {scratchPadNotes.length > 0 ? (
+              <div className="space-y-0.5">
+                {scratchPadNotes.map((note) => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    className="flex min-h-8 w-full items-center gap-2 rounded-lg py-1 text-left text-[12px] transition-colors hover:text-accent-foreground"
+                    onClick={() => openScratchPadDialog(note.id)}
+                  >
+                    <span className="mt-0.5 size-3.5 shrink-0 rounded-[4px] border border-muted-foreground/45" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        {resolveScratchPadTitle(note)}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground/72">
+                        {resolveScratchPadPreview(note)}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="flex min-h-8 w-full items-center gap-2 rounded-lg py-1 text-left text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+                onClick={createAndOpenScratchPad}
+              >
+                <PlusIcon className="size-3.5" />
+                <span>New note</span>
+              </button>
+            )}
+          </div>
         </EnvironmentPanelGroup>
 
         {activeProjectScripts ? (

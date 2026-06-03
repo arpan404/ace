@@ -1,5 +1,12 @@
-import * as Schema from "effect/Schema";
-import { EraserIcon, ImagePlusIcon, PenLineIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import {
+  EraserIcon,
+  ImagePlusIcon,
+  PenLineIcon,
+  PlusIcon,
+  Trash2Icon,
+  Undo2Icon,
+  XIcon,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -13,20 +20,16 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Dialog, DialogHeader, DialogPopup, DialogTitle } from "../ui/dialog";
-
-const SCRATCH_PAD_STORAGE_KEY = "ace:scratch-pad:v1";
-
-const ScratchPadStateSchema = Schema.Struct({
-  imageDataUrl: Schema.NullOr(Schema.String),
-  notes: Schema.String,
-});
-
-type ScratchPadState = typeof ScratchPadStateSchema.Type;
-
-const EMPTY_SCRATCH_PAD_STATE: ScratchPadState = {
-  imageDataUrl: null,
-  notes: "",
-};
+import {
+  createScratchPadNote,
+  EMPTY_SCRATCH_PAD_COLLECTION,
+  resolveScratchPadPreview,
+  resolveScratchPadTitle,
+  SCRATCH_PAD_STORAGE_KEY,
+  ScratchPadCollectionSchema,
+  type ScratchPadCollection,
+  type ScratchPadNote,
+} from "./scratchPadStore";
 
 const BRUSH_SIZES = [3, 6, 10, 16] as const;
 const DEFAULT_SCRATCH_PAD_COLOR = "#111827";
@@ -78,9 +81,9 @@ function wrapCanvasText(
 
 async function buildScratchPadExportBlob(
   canvas: HTMLCanvasElement,
-  notes: string,
+  note: ScratchPadNote,
 ): Promise<Blob | null> {
-  const trimmedNotes = notes.trim();
+  const trimmedNotes = note.body.trim();
   const notesWidth = trimmedNotes
     ? Math.min(420, Math.max(280, Math.round(canvas.width * 0.32)))
     : 0;
@@ -110,7 +113,7 @@ async function buildScratchPadExportBlob(
 
   context.fillStyle = "#0f172a";
   context.font = "600 24px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-  context.fillText("Scratch pad", canvas.width + padding, padding + 8);
+  context.fillText(resolveScratchPadTitle(note), canvas.width + padding, padding + 8);
   context.font = "18px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   context.fillStyle = "#334155";
   const lines = wrapCanvasText(context, trimmedNotes, notesWidth - padding * 2);
@@ -131,19 +134,59 @@ export function ScratchPadDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAttachImage: (file: File) => void;
+  requestedNoteId: string | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
-  const [padState, setPadState] = useLocalStorage<ScratchPadState, ScratchPadState>(
+  const [collection, setCollection] = useLocalStorage<ScratchPadCollection, ScratchPadCollection>(
     SCRATCH_PAD_STORAGE_KEY,
-    EMPTY_SCRATCH_PAD_STATE,
-    ScratchPadStateSchema,
+    EMPTY_SCRATCH_PAD_COLLECTION,
+    ScratchPadCollectionSchema,
   );
   const [tool, setTool] = useState<ScratchPadTool>("pen");
   const [color, setColor] = useState(DEFAULT_SCRATCH_PAD_COLOR);
   const [brushSize, setBrushSize] = useState<(typeof BRUSH_SIZES)[number]>(BRUSH_SIZES[1]);
   const [history, setHistory] = useState<string[]>([]);
+  const activeNote =
+    collection.notes.find((note) => note.id === collection.activeNoteId) ??
+    collection.notes[0] ??
+    null;
+
+  const updateActiveNote = useCallback(
+    (updater: (note: ScratchPadNote) => ScratchPadNote) => {
+      if (!activeNote) return;
+      setCollection((current) => ({
+        ...current,
+        activeNoteId: activeNote.id,
+        notes: current.notes.map((note) =>
+          note.id === activeNote.id ? updater({ ...note, updatedAt: Date.now() }) : note,
+        ),
+      }));
+    },
+    [activeNote, setCollection],
+  );
+
+  const createNote = useCallback(() => {
+    const note = createScratchPadNote({ title: `Note ${collection.notes.length + 1}` });
+    setCollection((current) => ({
+      activeNoteId: note.id,
+      notes: [note, ...current.notes],
+    }));
+    setHistory([]);
+  }, [collection.notes.length, setCollection]);
+
+  const deleteActiveNote = useCallback(() => {
+    if (!activeNote) return;
+    setCollection((current) => {
+      const notes = current.notes.filter((note) => note.id !== activeNote.id);
+      return {
+        activeNoteId: notes[0]?.id ?? null,
+        notes,
+      };
+    });
+    setHistory([]);
+  }, [activeNote, setCollection]);
 
   const drawSavedImage = useCallback((imageDataUrl: string | null) => {
     const canvas = canvasRef.current;
@@ -180,8 +223,27 @@ export function ScratchPadDialog(props: {
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.lineCap = "round";
     context.lineJoin = "round";
-    drawSavedImage(padState.imageDataUrl);
-  }, [drawSavedImage, padState.imageDataUrl]);
+    drawSavedImage(activeNote?.imageDataUrl ?? null);
+  }, [activeNote?.imageDataUrl, drawSavedImage]);
+
+  useEffect(() => {
+    if (!props.open) return;
+    if (props.requestedNoteId) {
+      setCollection((current) =>
+        current.notes.some((note) => note.id === props.requestedNoteId)
+          ? { ...current, activeNoteId: props.requestedNoteId }
+          : current,
+      );
+      return;
+    }
+    if (collection.notes.length === 0) {
+      const note = createScratchPadNote({ title: "Working note" });
+      setCollection({
+        activeNoteId: note.id,
+        notes: [note],
+      });
+    }
+  }, [collection.notes.length, props.open, props.requestedNoteId, setCollection]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -195,9 +257,9 @@ export function ScratchPadDialog(props: {
 
   useEffect(() => {
     if (props.open) {
-      drawSavedImage(padState.imageDataUrl);
+      drawSavedImage(activeNote?.imageDataUrl ?? null);
     }
-  }, [drawSavedImage, padState.imageDataUrl, props.open]);
+  }, [activeNote?.imageDataUrl, activeNote?.id, drawSavedImage, props.open]);
 
   const currentCanvasDataUrl = useCallback(() => {
     const canvas = canvasRef.current;
@@ -208,11 +270,11 @@ export function ScratchPadDialog(props: {
   const persistCanvas = useCallback(() => {
     const imageDataUrl = currentCanvasDataUrl();
     if (!imageDataUrl) return;
-    setPadState((current) => ({
-      ...current,
+    updateActiveNote((note) => ({
+      ...note,
       imageDataUrl,
     }));
-  }, [currentCanvasDataUrl, setPadState]);
+  }, [currentCanvasDataUrl, updateActiveNote]);
 
   const getCanvasPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -280,13 +342,13 @@ export function ScratchPadDialog(props: {
     setHistory((current) => {
       const previous = current.at(-1);
       if (!previous) return current;
-      setPadState((pad) => ({
-        ...pad,
+      updateActiveNote((note) => ({
+        ...note,
         imageDataUrl: previous,
       }));
       return current.slice(0, -1);
     });
-  }, [setPadState]);
+  }, [updateActiveNote]);
 
   const clearCanvas = useCallback(() => {
     const snapshot = currentCanvasDataUrl();
@@ -297,25 +359,25 @@ export function ScratchPadDialog(props: {
       setHistory((current) => [...current.slice(-14), snapshot]);
     }
     context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    setPadState((current) => ({
-      ...current,
+    updateActiveNote((note) => ({
+      ...note,
       imageDataUrl: null,
     }));
-  }, [currentCanvasDataUrl, setPadState]);
+  }, [currentCanvasDataUrl, updateActiveNote]);
 
   const attachImage = useCallback(async () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const blob = await buildScratchPadExportBlob(canvas, padState.notes);
+    if (!canvas || !activeNote) return;
+    const blob = await buildScratchPadExportBlob(canvas, activeNote);
     if (!blob) return;
     props.onAttachImage(
-      new File([blob], "scratch-pad.png", {
+      new File([blob], `${resolveScratchPadTitle(activeNote)}.png`, {
         type: "image/png",
       }),
     );
-  }, [padState.notes, props]);
+  }, [activeNote, props]);
 
-  const hasCanvasContent = Boolean(padState.imageDataUrl);
+  const hasCanvasContent = Boolean(activeNote?.imageDataUrl);
   const notesPlaceholder = useMemo(
     () => "Keep notes, sketch flows, or mark up an idea. Attach sends the current pad as an image.",
     [],
@@ -329,10 +391,25 @@ export function ScratchPadDialog(props: {
         className="h-[calc(100dvh-1rem)] max-h-none w-[calc(100vw-1rem)] max-w-none overflow-hidden p-0"
       >
         <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 px-4 py-3 sm:px-5">
-          <div className="min-w-0">
-            <DialogTitle className="text-base">Scratch Pad</DialogTitle>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="sr-only">Notes</DialogTitle>
+            <input
+              value={activeNote?.title ?? ""}
+              onChange={(event) =>
+                updateActiveNote((note) => ({
+                  ...note,
+                  title: event.target.value,
+                }))
+              }
+              placeholder="Untitled note"
+              className="h-8 w-full min-w-0 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
+            />
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Button size="sm" type="button" variant="ghost" onClick={createNote}>
+              <PlusIcon className="size-4" />
+              New
+            </Button>
             <Button size="sm" type="button" variant="outline" onClick={attachImage}>
               <ImagePlusIcon className="size-4" />
               Attach
@@ -341,7 +418,7 @@ export function ScratchPadDialog(props: {
               size="icon-sm"
               type="button"
               variant="ghost"
-              aria-label="Close scratch pad"
+              aria-label="Close notes"
               onClick={() => props.onOpenChange(false)}
             >
               <XIcon className="size-4" />
@@ -350,24 +427,60 @@ export function ScratchPadDialog(props: {
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col bg-background lg:flex-row">
-          <aside className="flex min-h-36 shrink-0 flex-col border-b border-border/60 bg-muted/18 lg:h-full lg:w-80 lg:border-r lg:border-b-0">
-            <div className="border-b border-border/50 px-4 py-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              Notes
+          <aside className="flex min-h-44 shrink-0 flex-col border-b border-border/60 bg-muted/18 lg:h-full lg:w-72 lg:border-r lg:border-b-0">
+            <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                Notes
+              </span>
+              <Button
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+                onClick={createNote}
+                aria-label="New note"
+              >
+                <PlusIcon className="size-4" />
+              </Button>
             </div>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+              {collection.notes.map((note) => (
+                <button
+                  key={note.id}
+                  type="button"
+                  className={cn(
+                    "w-full rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors",
+                    note.id === activeNote?.id
+                      ? "border-border/65 bg-accent/70 text-accent-foreground"
+                      : "hover:bg-accent/40",
+                  )}
+                  onClick={() => {
+                    setCollection((current) => ({ ...current, activeNoteId: note.id }));
+                    setHistory([]);
+                  }}
+                >
+                  <span className="block truncate text-[12px] font-medium">
+                    {resolveScratchPadTitle(note)}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                    {resolveScratchPadPreview(note)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <main className="grid min-h-0 flex-1 grid-rows-[minmax(10rem,0.34fr)_auto_minmax(14rem,0.66fr)]">
             <textarea
-              value={padState.notes}
+              value={activeNote?.body ?? ""}
               onChange={(event) =>
-                setPadState((current) => ({
-                  ...current,
-                  notes: event.target.value,
+                updateActiveNote((note) => ({
+                  ...note,
+                  body: event.target.value,
                 }))
               }
               placeholder={notesPlaceholder}
-              className="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground/55"
+              className="min-h-0 resize-none border-b border-border/60 bg-transparent px-4 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground/55 sm:px-5"
             />
-          </aside>
-
-          <main className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
               <div className="flex items-center rounded-lg border border-border/60 bg-muted/20 p-0.5">
                 <Button
@@ -457,7 +570,17 @@ export function ScratchPadDialog(props: {
                   size="icon-sm"
                   type="button"
                   variant="ghost"
-                  aria-label="Attach drawing"
+                  disabled={!activeNote}
+                  aria-label="Delete note"
+                  onClick={deleteActiveNote}
+                >
+                  <XIcon className="size-4" />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                  aria-label="Attach note"
                   onClick={attachImage}
                 >
                   <ImagePlusIcon className="size-4" />
@@ -465,7 +588,7 @@ export function ScratchPadDialog(props: {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 bg-[radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] bg-[length:22px_22px] p-3 sm:p-4">
+            <div className="min-h-0 bg-[radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] bg-[length:22px_22px] p-3 sm:p-4">
               <canvas
                 ref={canvasRef}
                 className="h-full w-full touch-none rounded-xl border border-border/65 bg-white shadow-sm"
