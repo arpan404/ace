@@ -152,6 +152,9 @@ const EMPTY_MESSAGE_TURN_COUNT_MAP = new Map<MessageId, number>();
 const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
 const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
 const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
+const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
+const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
+  "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
 
 type AssistantSelectionPinTarget = {
   left: number;
@@ -163,6 +166,7 @@ type AssistantSelectionPinTarget = {
 type TargetMessageNavigation = {
   messageId: string;
   requestId: number;
+  targetKind: "message" | "selection";
   selectedText?: string;
 };
 
@@ -178,19 +182,28 @@ function elementFromNode(node: Node): Element | null {
       : null;
 }
 
-function readCurrentAssistantSelectionPinTarget(): { messageId: string; text: string } | null {
+function assistantMessageRowFromNode(node: Node): HTMLElement | null {
+  return elementFromNode(node)?.closest<HTMLElement>(ASSISTANT_MESSAGE_ROW_SELECTOR) ?? null;
+}
+
+function readCurrentAssistantSelectionPinTarget(): {
+  messageId: string;
+  range: Range;
+  text: string;
+} | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
   const text = normalizePinnedSelectionText(selection.toString());
   if (!text) return null;
 
   const range = selection.getRangeAt(0);
-  const ancestorElement = elementFromNode(range.commonAncestorContainer);
-  const messageRow = ancestorElement?.closest<HTMLElement>(
-    '[data-message-role="assistant"][data-message-id]',
-  );
+  const startMessageRow = assistantMessageRowFromNode(range.startContainer);
+  const endMessageRow = assistantMessageRowFromNode(range.endContainer);
+  if (!startMessageRow || !endMessageRow || startMessageRow !== endMessageRow) return null;
+
+  const messageRow = startMessageRow;
   const messageId = messageRow?.dataset.messageId;
-  return messageId ? { messageId, text } : null;
+  return messageId ? { messageId, range, text } : null;
 }
 
 function resolvePinnedSelectionNeedle(selectedText: string): string {
@@ -199,14 +212,25 @@ function resolvePinnedSelectionNeedle(selectedText: string): string {
   return normalized.slice(0, -1).trimEnd();
 }
 
+function closestPinnedSelectionTextBlock(node: Text): Element | null {
+  return node.parentElement?.closest(PINNED_SELECTION_TEXT_BLOCK_SELECTOR) ?? null;
+}
+
+function shouldSeparatePinnedSelectionTextNodes(previousNode: Text | null, node: Text): boolean {
+  if (!previousNode) return false;
+  const previousBlock = closestPinnedSelectionTextBlock(previousNode);
+  const nextBlock = closestPinnedSelectionTextBlock(node);
+  return Boolean(previousBlock && nextBlock && previousBlock !== nextBlock);
+}
+
 function findPinnedSelectionRange(root: HTMLElement, selectedText: string): Range | null {
   const needle = resolvePinnedSelectionNeedle(selectedText);
   if (!needle) return null;
 
+  const searchRoot = root.querySelector<HTMLElement>("[data-assistant-message-content]") ?? root;
   const textNodes: Text[] = [];
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+  const walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
       const parentElement = node.parentElement;
       if (
         parentElement?.closest(
@@ -227,8 +251,19 @@ function findPinnedSelectionRange(root: HTMLElement, selectedText: string): Rang
   const positions: Array<{ node: Text; offset: number }> = [];
   let haystack = "";
   let previousWasWhitespace = true;
+  let previousNode: Text | null = null;
   for (const node of textNodes) {
     const text = node.data;
+    if (
+      shouldSeparatePinnedSelectionTextNodes(previousNode, node) &&
+      !previousWasWhitespace &&
+      !/^\s/u.test(text)
+    ) {
+      haystack += " ";
+      positions.push({ node, offset: 0 });
+      previousWasWhitespace = true;
+    }
+
     for (let offset = 0; offset < text.length; offset += 1) {
       const character = text[offset] ?? "";
       if (/\s/u.test(character)) {
@@ -243,6 +278,7 @@ function findPinnedSelectionRange(root: HTMLElement, selectedText: string): Rang
       positions.push({ node, offset });
       previousWasWhitespace = false;
     }
+    previousNode = node;
   }
 
   const startIndex = haystack.indexOf(needle);
@@ -1102,7 +1138,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       const cleanupSelectedTextHighlight = selectedText
         ? highlightPinnedSelectionText(row, selectedText, scrollContainer)
         : null;
-      if (cleanupSelectedTextHighlight) {
+      if (selectedText) {
+        if (!cleanupSelectedTextHighlight) {
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+
         cleanupTextHighlight = cleanupSelectedTextHighlight;
         clearHighlightTimeoutId = window.setTimeout(() => {
           cleanupTextHighlight?.();
@@ -3339,38 +3380,42 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           ))}
         </div>
       )}
-      {messageText.length === 0 ? null : props.renderMarkdown ? (
-        <ChatMarkdown
-          key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
-          analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
-            {
-              text: messageText,
-              isStreaming: Boolean(props.message.streaming),
-              renderPlainText: false,
-              ...(props.message.streamingTextState
-                ? {
-                    streamingTextState: {
-                      totalLineCount: props.message.streamingTextState.totalLineCount,
-                      truncatedCharCount: props.message.streamingTextState.truncatedCharCount,
-                      truncatedLineCount: props.message.streamingTextState.truncatedLineCount,
-                    },
-                  }
-                : {}),
-            },
-            buildAssistantMarkdownAnalysisStableKey(props.message, messageText),
+      {messageText.length === 0 ? null : (
+        <div className="min-w-0" data-assistant-message-content="true">
+          {props.renderMarkdown ? (
+            <ChatMarkdown
+              key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
+              analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
+                {
+                  text: messageText,
+                  isStreaming: Boolean(props.message.streaming),
+                  renderPlainText: false,
+                  ...(props.message.streamingTextState
+                    ? {
+                        streamingTextState: {
+                          totalLineCount: props.message.streamingTextState.totalLineCount,
+                          truncatedCharCount: props.message.streamingTextState.truncatedCharCount,
+                          truncatedLineCount: props.message.streamingTextState.truncatedLineCount,
+                        },
+                      }
+                    : {}),
+                },
+                buildAssistantMarkdownAnalysisStableKey(props.message, messageText),
+              )}
+              text={messageText}
+              cwd={props.markdownCwd}
+              isStreaming={Boolean(props.message.streaming)}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+              onOpenFilePath={onOpenFilePath}
+              enableLocalFileLinks={props.enableLocalFileLinks ?? true}
+              {...(props.message.streamingTextState
+                ? { streamingTextState: props.message.streamingTextState }
+                : {})}
+            />
+          ) : (
+            <AssistantMarkdownPendingPlaceholder />
           )}
-          text={messageText}
-          cwd={props.markdownCwd}
-          isStreaming={Boolean(props.message.streaming)}
-          onOpenBrowserUrl={onOpenBrowserUrl}
-          onOpenFilePath={onOpenFilePath}
-          enableLocalFileLinks={props.enableLocalFileLinks ?? true}
-          {...(props.message.streamingTextState
-            ? { streamingTextState: props.message.streamingTextState }
-            : {})}
-        />
-      ) : (
-        <AssistantMarkdownPendingPlaceholder />
+        </div>
       )}
       {!props.suppressFooter && (
         <AssistantTurnFooter
@@ -3527,6 +3572,9 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
                       "text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground",
                       props.isPinned && "text-foreground",
                     )}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
                     onClick={props.onTogglePinnedMessage}
                     aria-label={
                       props.isPinned ? "Unpin assistant message" : "Pin assistant message"

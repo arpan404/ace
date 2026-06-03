@@ -6,6 +6,7 @@ export const PinnedMessageSchema = Schema.Struct({
   id: Schema.String,
   threadId: Schema.String,
   messageId: Schema.String,
+  kind: Schema.optional(Schema.Literals(["message", "selection"])),
   title: Schema.String,
   preview: Schema.String,
   selectedText: Schema.optional(Schema.String),
@@ -18,6 +19,9 @@ export const PinnedMessagesSchema = Schema.Array(PinnedMessageSchema);
 
 export type PinnedMessage = Schema.Schema.Type<typeof PinnedMessageSchema>;
 export type PinnedMessages = Schema.Schema.Type<typeof PinnedMessagesSchema>;
+export type PinnedMessageNavigationTarget =
+  | { kind: "message" }
+  | { kind: "selection"; selectedText?: string };
 
 export const EMPTY_PINNED_MESSAGES: PinnedMessages = [];
 
@@ -65,16 +69,17 @@ export function upsertPinnedMessage(
   const preview = resolvePinnedMessagePreview(input.text);
   const existingIndex = messages.findIndex((message) => message.id === id);
   if (existingIndex >= 0) {
-    return messages.map((message, index) =>
-      index === existingIndex
-        ? {
-            ...message,
-            preview,
-            title,
-            updatedAt: now,
-          }
-        : message,
-    );
+    return messages.map((message, index) => {
+      if (index !== existingIndex) return message;
+      const { selectedText: _selectedText, ...messageWithoutSelection } = message;
+      return {
+        ...messageWithoutSelection,
+        kind: "message",
+        preview,
+        title,
+        updatedAt: now,
+      };
+    });
   }
 
   return [
@@ -82,6 +87,7 @@ export function upsertPinnedMessage(
       id,
       threadId: input.threadId,
       messageId: input.messageId,
+      kind: "message",
       title,
       preview,
       checked: false,
@@ -107,6 +113,7 @@ export function upsertPinnedSelectionMessage(
       index === existingIndex
         ? {
             ...message,
+            kind: "selection",
             preview,
             selectedText: normalizedText,
             title,
@@ -121,6 +128,7 @@ export function upsertPinnedSelectionMessage(
       id,
       threadId: input.threadId,
       messageId: input.messageId,
+      kind: "selection",
       title,
       preview,
       selectedText: normalizedText,

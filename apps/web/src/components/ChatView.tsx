@@ -209,6 +209,7 @@ import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "../edito
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
+import type { PinnedMessageNavigationTarget } from "./chat/pinnedMessagesStore";
 import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
@@ -9436,15 +9437,22 @@ function useChatViewComponent({
   const [targetMessageNavigation, setTargetMessageNavigation] = useState<{
     messageId: string;
     requestId: number;
+    targetKind: "message" | "selection";
     selectedText?: string;
   } | null>(null);
-  const jumpToTimelineMessage = useCallback((messageId: string, selectedText?: string) => {
-    setTargetMessageNavigation((current) => ({
-      messageId,
-      requestId: (current?.requestId ?? 0) + 1,
-      ...(selectedText ? { selectedText } : {}),
-    }));
-  }, []);
+  const jumpToTimelineMessage = useCallback(
+    (messageId: string, target: PinnedMessageNavigationTarget) => {
+      setTargetMessageNavigation((current) => ({
+        messageId,
+        requestId: (current?.requestId ?? 0) + 1,
+        targetKind: target.kind,
+        ...(target.kind === "selection" && target.selectedText
+          ? { selectedText: target.selectedText }
+          : {}),
+      }));
+    },
+    [],
+  );
   const messagesTimelineProps = useMemo(
     () => ({
       ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
