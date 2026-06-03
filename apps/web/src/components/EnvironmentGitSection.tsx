@@ -1126,87 +1126,97 @@ function useEnvironmentGitSection({
           {isGitStatusOutOfSync ? (
             <EnvironmentGitStatusMessage>Refreshing git state</EnvironmentGitStatusMessage>
           ) : null}
-          <Menu onOpenChange={preserveEnvironmentPanelScrollOnMenuOpen}>
-            <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
-              <button
-                type="button"
-                className={cn(
-                  gitCardRowClassName,
-                  "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1 hover:bg-accent",
-                )}
-                disabled={isGitActionRunning || quickAction.disabled}
-                title={quickActionDisabledReason ?? undefined}
-                onClick={runQuickAction}
-              >
-                <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
-                <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
-              </button>
-              <MenuTrigger
-                ref={gitActionMenuTriggerRef}
-                className="flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 data-popup-open:bg-accent data-popup-open:text-accent-foreground"
-                aria-label="Open git actions"
-              >
-                <ChevronDownIcon className="size-3.5" />
-              </MenuTrigger>
-            </div>
-            <MenuPopup
-              align="start"
-              side="right"
-              className="w-[18rem] max-w-[calc(100vw-1rem)] shadow-2xl shadow-black/25"
-              listClassName="p-3"
-              sideOffset={8}
+          <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
+            <button
+              type="button"
+              className={cn(
+                gitCardRowClassName,
+                "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1 hover:bg-accent",
+              )}
+              disabled={isGitActionRunning || quickAction.disabled}
+              title={quickActionDisabledReason ?? undefined}
+              onClick={runQuickAction}
             >
-              <MenuGroup>
-                <MenuItem
-                  className="min-h-10 gap-2 px-2 text-[14px]"
-                  disabled={isGitActionRunning || quickAction.disabled}
-                  title={quickActionDisabledReason ?? undefined}
-                  onClick={runQuickAction}
-                >
-                  <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
-                  <span className="whitespace-nowrap">{quickAction.label}</span>
-                </MenuItem>
-              </MenuGroup>
-              <MenuSeparator className="mx-2 my-2" />
-              <MenuGroup>
-                {gitActionMenuItems.map((item) => {
-                  const disabledReason = getMenuActionDisabledReason({
-                    item,
-                    gitStatus: gitStatusForActions,
-                    isBusy: isGitActionRunning,
-                    hasOriginRemote,
-                    isDefaultBranch,
-                  });
-                  return (
-                    <MenuItem
-                      key={`${item.id}-${item.label}`}
-                      className="min-h-9 gap-2 px-2 text-[13px]"
-                      disabled={item.disabled}
-                      title={disabledReason ?? undefined}
-                      onClick={() => {
-                        openDialogForMenuItem(item);
-                      }}
-                    >
-                      <GitActionItemIcon icon={item.icon} />
-                      <span className="whitespace-nowrap">{item.label}</span>
-                    </MenuItem>
-                  );
-                })}
-              </MenuGroup>
-              <MenuSeparator className="mx-2 my-2" />
-              <MenuGroup>
-                <MenuItem
-                  className="min-h-9 gap-2 px-2 text-[13px]"
-                  onClick={() => {
-                    dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
-                  }}
-                >
-                  <KeyRoundIcon />
-                  <span className="whitespace-nowrap">SSH key passphrase</span>
-                </MenuItem>
-              </MenuGroup>
-            </MenuPopup>
-          </Menu>
+              <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
+              <span className="min-w-0 flex-1 truncate">{quickAction.label}</span>
+            </button>
+            <button
+              ref={gitActionMenuTriggerRef}
+              type="button"
+              className={cn(
+                "flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0",
+                isGitActionMenuOpen && "bg-accent text-accent-foreground",
+              )}
+              aria-expanded={isGitActionMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Open git actions"
+              onClick={toggleGitActionMenu}
+            >
+              <ChevronDownIcon className="size-3.5" />
+            </button>
+          </div>
+          <EnvironmentGitActionMenuPortal
+            open={isGitActionMenuOpen}
+            triggerRef={gitActionMenuTriggerRef}
+            onClose={closeGitActionMenu}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={cn(gitActionMenuItemClassName, "min-h-10 text-[14px]")}
+              disabled={isGitActionRunning || quickAction.disabled}
+              title={quickActionDisabledReason ?? undefined}
+              onClick={() => {
+                closeGitActionMenu();
+                runQuickAction();
+              }}
+            >
+              <GitQuickActionIcon busy={isGitActionRunning} quickAction={quickAction} />
+              <span className="whitespace-nowrap">{quickAction.label}</span>
+            </button>
+            <div className="mx-2 my-2 h-px bg-border" />
+            <div className="space-y-0">
+              {gitActionMenuItems.map((item) => {
+                const disabledReason = getMenuActionDisabledReason({
+                  item,
+                  gitStatus: gitStatusForActions,
+                  isBusy: isGitActionRunning,
+                  hasOriginRemote,
+                  isDefaultBranch,
+                });
+                return (
+                  <button
+                    key={`${item.id}-${item.label}`}
+                    type="button"
+                    role="menuitem"
+                    className={cn(gitActionMenuItemClassName, "min-h-9 text-[13px]")}
+                    disabled={item.disabled}
+                    title={disabledReason ?? undefined}
+                    onClick={() => {
+                      closeGitActionMenu();
+                      openDialogForMenuItem(item);
+                    }}
+                  >
+                    <GitActionItemIcon icon={item.icon} />
+                    <span className="whitespace-nowrap">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mx-2 my-2 h-px bg-border" />
+            <button
+              type="button"
+              role="menuitem"
+              className={cn(gitActionMenuItemClassName, "min-h-9 text-[13px]")}
+              onClick={() => {
+                closeGitActionMenu();
+                dispatch({ type: "set-ssh-passphrase-dialog-open", value: true });
+              }}
+            >
+              <KeyRoundIcon />
+              <span className="whitespace-nowrap">SSH key passphrase</span>
+            </button>
+          </EnvironmentGitActionMenuPortal>
           {gitStatusForActions?.branch === null ? (
             <EnvironmentGitStatusMessage tone="warning">
               Detached HEAD: create and checkout a branch to enable push and PR actions.
