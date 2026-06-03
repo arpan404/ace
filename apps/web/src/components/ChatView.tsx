@@ -88,7 +88,6 @@ import {
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
-  summarizeActivePlan,
   formatElapsed,
 } from "../session-logic";
 import {
@@ -2756,7 +2755,6 @@ function useChatViewComponent({
     () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
     [threadActivities],
   );
-  const activePlanProgress = useMemo(() => summarizeActivePlan(activePlan), [activePlan]);
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -9688,7 +9686,7 @@ function useChatViewComponent({
   > | null = activeThread
     ? {
         activeProjectScripts: activeProject?.scripts,
-        activePlanProgress,
+        activePlan,
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
         branchToolbarProps,
@@ -9698,7 +9696,6 @@ function useChatViewComponent({
         gitStatusError:
           workspaceStatusQuery.error instanceof Error ? workspaceStatusQuery.error : null,
         isGitRepo,
-        isAgentWorking: isWorking,
         keybindings,
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
