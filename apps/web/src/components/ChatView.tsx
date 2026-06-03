@@ -294,7 +294,7 @@ import {
   MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
-import type { BrowserSessionStorage } from "~/lib/browser/session";
+import { clearBrowserSessionStorage, type BrowserSessionStorage } from "~/lib/browser/session";
 import { setActiveBrowserTab } from "~/lib/browser/session";
 import {
   clearBrowserSessions,
@@ -3445,7 +3445,10 @@ function useChatViewComponent({
   );
   const primaryBrowserInstanceId = activeBrowserInstanceIds[0] ?? null;
   const cleanupBrowserInstanceState = useCallback(
-    (browserInstanceId: string, options?: { resetVisibleState?: boolean }) => {
+    (
+      browserInstanceId: string,
+      options?: { clearPersistentSession?: boolean; resetVisibleState?: boolean },
+    ) => {
       browserControllerByThreadRef.current.delete(browserInstanceId);
       browserRuntimeStateByThreadRef.current.delete(browserInstanceId);
       browserSessionChangeHandlerByThreadRef.current.delete(browserInstanceId);
@@ -3453,6 +3456,9 @@ function useChatViewComponent({
       browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserInstanceId);
       browserViewportResizeHandlerByThreadRef.current.delete(browserInstanceId);
       deleteBrowserSession(browserInstanceId);
+      if (options?.clearPersistentSession) {
+        clearBrowserSessionStorage(browserInstanceId);
+      }
       if (activeBrowserThreadIdRef.current !== browserInstanceId) {
         return;
       }
@@ -4731,7 +4737,10 @@ function useChatViewComponent({
     removeRightPanelTabOrder("browser");
     setRightSidePanelMode((current) => (current === "browser" ? "summary" : current));
     if (rightBrowserInstanceId) {
-      cleanupBrowserInstanceState(rightBrowserInstanceId);
+      setMountedBrowserInstances((current) =>
+        current.filter((entry) => entry.instanceId !== rightBrowserInstanceId),
+      );
+      cleanupBrowserInstanceState(rightBrowserInstanceId, { clearPersistentSession: true });
     }
   }, [
     cleanupBrowserInstanceState,
@@ -5234,7 +5243,10 @@ function useChatViewComponent({
     setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
     setTerminalOpen(true);
     if (bottomBrowserInstanceId) {
-      cleanupBrowserInstanceState(bottomBrowserInstanceId);
+      setMountedBrowserInstances((current) =>
+        current.filter((entry) => entry.instanceId !== bottomBrowserInstanceId),
+      );
+      cleanupBrowserInstanceState(bottomBrowserInstanceId, { clearPersistentSession: true });
     }
   }, [
     bottomBrowserInstanceId,

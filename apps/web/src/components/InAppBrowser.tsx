@@ -643,6 +643,30 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setDesignerModeActive(!designerState.active);
   }, [designerModeAvailable, designerState.active, setDesignerModeActive]);
   useEffect(() => {
+    if (!visible || !designerState.active) {
+      return;
+    }
+
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.key !== "Escape" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+      setDesignerModeActive(false);
+    };
+
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDown);
+    };
+  }, [designerState.active, setDesignerModeActive, visible]);
+  useEffect(() => {
     if (!visible || !designerModeAvailable) {
       updateDesignerToolShortcutHintsVisibility(false);
       return;

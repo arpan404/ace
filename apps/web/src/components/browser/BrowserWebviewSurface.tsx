@@ -147,7 +147,9 @@ interface ActiveDragSelection {
 }
 
 interface BrowserDesignCaptureDraft {
-  capture: BrowserDesignCaptureResult;
+  capture: BrowserDesignCaptureResult | null;
+  requestId: string;
+  selection: BrowserDesignSelectionRect;
   tool: BrowserDesignerTool;
   viewportWidth: number;
   viewportHeight: number;
@@ -214,6 +216,11 @@ type BrowserDesignOverlayAction =
   | { type: "set-selection-rect"; selectionRect: BrowserDesignSelectionRect | null }
   | { type: "set-hovered-element-capture"; hoveredElementCapture: BrowserPageElementCapture | null }
   | { type: "set-design-draft"; designDraft: BrowserDesignCaptureDraft | null }
+  | {
+      type: "resolve-design-draft-capture";
+      capture: BrowserDesignCaptureResult;
+      requestId: string;
+    }
   | { type: "set-design-instructions"; designInstructions: string }
   | { type: "set-submitting-design-request"; isSubmittingDesignRequest: boolean }
   | { type: "set-overlay-viewport-size"; overlayViewportSize: OverlayViewportSize | null }
@@ -254,6 +261,17 @@ function browserDesignOverlayStateReducer(
       return state.designDraft === action.designDraft
         ? state
         : { ...state, designDraft: action.designDraft };
+    case "resolve-design-draft-capture":
+      return state.designDraft?.requestId === action.requestId
+        ? {
+            ...state,
+            designDraft: {
+              ...state.designDraft,
+              capture: action.capture,
+              selection: action.capture.selection,
+            },
+          }
+        : state;
     case "set-design-instructions":
       return state.designInstructions === action.designInstructions
         ? state
@@ -374,7 +392,7 @@ function resolveDefaultDesignRequestPanelPosition(
   viewport: OverlayViewportSize,
   panelSize: FloatingOverlaySize = DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
 ): DesignRequestPanelPosition {
-  const selection = draft.capture.selection;
+  const selection = draft.selection;
   const desiredX = selection.x + selection.width + 12;
   const desiredY = selection.y;
   const fallbackY = selection.y + selection.height + 10;
@@ -1647,18 +1665,18 @@ function useBrowserTabWebviewComponent(props: {
   const [agentPointer, setAgentPointer] = useState<AgentBrowserPointerState | null>(null);
   const commentPlaceholder = useWorkspaceCommentPlaceholder(
     "design",
-    designDraft?.capture.requestId ?? null,
+    designDraft?.requestId ?? null,
   );
   const setDesignRequestInputRef = useCallback(
     (node: HTMLInputElement | null) => {
-      const requestId = designDraft?.capture.requestId ?? null;
+      const requestId = designDraft?.requestId ?? null;
       if (!node || !requestId || focusedDesignRequestIdRef.current === requestId) {
         return;
       }
       focusedDesignRequestIdRef.current = requestId;
       node.focus();
     },
-    [designDraft?.capture.requestId],
+    [designDraft?.requestId],
   );
   const emitTabSnapshotChange = useEffectEvent(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
@@ -2798,20 +2816,27 @@ function useBrowserTabWebviewComponent(props: {
       const host = overlayRef.current;
       const viewportWidth = host?.clientWidth ?? 0;
       const viewportHeight = host?.clientHeight ?? 0;
+      dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
+      dispatchDesignOverlayState({
+        type: "set-design-draft",
+        designDraft: {
+          capture: null,
+          requestId,
+          selection,
+          tool: designerTool,
+          viewportWidth,
+          viewportHeight,
+        },
+      });
       void captureDesignSelection(selection, requestId, inspectedPoint)
         .then((capture) => {
           if (!mountedRef.current) {
             return;
           }
-          dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
           dispatchDesignOverlayState({
-            type: "set-design-draft",
-            designDraft: {
-              capture,
-              tool: designerTool,
-              viewportWidth,
-              viewportHeight,
-            },
+            type: "resolve-design-draft-capture",
+            capture,
+            requestId,
           });
         })
         .catch((error: unknown) => {
@@ -3057,7 +3082,7 @@ function useBrowserTabWebviewComponent(props: {
   );
 
   const submitDesignDraft = useCallback(async () => {
-    if (!designDraft || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
+    if (!designDraft?.capture || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
       return;
     }
     const trimmedInstructions = normalizeDesignCommentToSingleLine(designInstructions).trim();
@@ -3068,9 +3093,10 @@ function useBrowserTabWebviewComponent(props: {
       type: "set-submitting-design-request",
       isSubmittingDesignRequest: true,
     });
+    const capture = designDraft.capture;
     try {
       await onDesignCaptureSubmit({
-        ...designDraft.capture,
+        ...capture,
         instructions: trimmedInstructions,
       });
       cancelDesignCapture();
@@ -3182,10 +3208,10 @@ function useBrowserTabWebviewComponent(props: {
       });
       return;
     }
-    if (designRequestPanelRequestIdRef.current === designDraft.capture.requestId) {
+    if (designRequestPanelRequestIdRef.current === designDraft.requestId) {
       return;
     }
-    designRequestPanelRequestIdRef.current = designDraft.capture.requestId;
+    designRequestPanelRequestIdRef.current = designDraft.requestId;
     previousDesignRequestPanelLayoutRef.current = null;
     dispatchDesignOverlayState({
       type: "set-design-request-panel-position",
@@ -3284,7 +3310,7 @@ function useBrowserTabWebviewComponent(props: {
       : agentPointerScrollDirection >= 0
         ? 0
         : 180;
-  const canSubmitDesignDraft = designDraft ? designInstructions.trim().length > 0 : false;
+  const canSubmitDesignDraft = designDraft?.capture ? designInstructions.trim().length > 0 : false;
   const retryFailedLoad = useCallback(() => {
     const failedUrl = loadFailure?.url;
     if (!failedUrl) {
