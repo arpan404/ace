@@ -351,10 +351,35 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
   width: { duration: 0 },
   x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
-const RIGHT_SIDE_PANEL_RESIZE_TRANSITION = {
+const PANEL_OPACITY_SPRING_ANIMATION = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+} as const;
+const PANEL_RESIZE_LAYOUT_TRANSITION = {
+  height: { duration: 0 },
   opacity: { duration: 0 },
   width: { duration: 0 },
-  x: { duration: 0 },
+} as const;
+const RESIZABLE_PANEL_WIDTH_CSS_VAR = "--ace-resizable-panel-width";
+const RESIZABLE_PANEL_HEIGHT_CSS_VAR = "--ace-resizable-panel-height";
+const RESIZABLE_PANEL_WIDTH_STYLE = {
+  flexBasis: `var(${RESIZABLE_PANEL_WIDTH_CSS_VAR})`,
+  minWidth: `var(${RESIZABLE_PANEL_WIDTH_CSS_VAR})`,
+  width: `var(${RESIZABLE_PANEL_WIDTH_CSS_VAR})`,
+} as const;
+const RESIZABLE_PANEL_HEIGHT_STYLE = {
+  height: `var(${RESIZABLE_PANEL_HEIGHT_CSS_VAR})`,
+} as const;
+const RIGHT_EDGE_PANEL_SPRING_ANIMATION = {
+  initial: { opacity: 0, scaleX: 0.985, x: 22 },
+  animate: { opacity: 1, scaleX: 1, x: 0 },
+  exit: { opacity: 0, scaleX: 0.985, x: 18 },
+} as const;
+const BOTTOM_EDGE_PANEL_SPRING_ANIMATION = {
+  initial: { opacity: 0, scaleY: 0.985, y: 22 },
+  animate: { opacity: 1, scaleY: 1, y: 0 },
+  exit: { opacity: 0, scaleY: 0.985, y: 18 },
 } as const;
 const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 288;
 const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
@@ -403,8 +428,10 @@ function applyResizablePanelWidth(element: HTMLElement | null, width: number): v
     return;
   }
   const widthPx = `${Math.round(width)}px`;
-  element.style.setProperty("width", widthPx);
-  element.style.setProperty("min-width", widthPx);
+  element.style.setProperty(RESIZABLE_PANEL_WIDTH_CSS_VAR, widthPx);
+  element.style.setProperty("width", `var(${RESIZABLE_PANEL_WIDTH_CSS_VAR})`);
+  element.style.setProperty("flex-basis", `var(${RESIZABLE_PANEL_WIDTH_CSS_VAR})`);
+  element.style.setProperty("min-width", `var(${RESIZABLE_PANEL_WIDTH_CSS_VAR})`);
 }
 
 function clearResizablePanelWidth(element: HTMLElement | null): void {
@@ -412,14 +439,17 @@ function clearResizablePanelWidth(element: HTMLElement | null): void {
     return;
   }
   element.style.removeProperty("width");
+  element.style.removeProperty("flex-basis");
   element.style.removeProperty("min-width");
+  element.style.removeProperty(RESIZABLE_PANEL_WIDTH_CSS_VAR);
 }
 
 function applyResizablePanelHeight(element: HTMLElement | null, height: number): void {
   if (!element) {
     return;
   }
-  element.style.setProperty("height", `${Math.round(height)}px`);
+  element.style.setProperty(RESIZABLE_PANEL_HEIGHT_CSS_VAR, `${Math.round(height)}px`);
+  element.style.setProperty("height", `var(${RESIZABLE_PANEL_HEIGHT_CSS_VAR})`);
 }
 
 function clearResizablePanelHeight(element: HTMLElement | null): void {
@@ -427,6 +457,7 @@ function clearResizablePanelHeight(element: HTMLElement | null): void {
     return;
   }
   element.style.removeProperty("height");
+  element.style.removeProperty(RESIZABLE_PANEL_HEIGHT_CSS_VAR);
 }
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -1345,6 +1376,7 @@ function useChatViewComponent({
   const [bottomPanelMode, setBottomPanelMode] = useState<DockPanelMode | null>(null);
   const [bottomPanelBrowserOpen, setBottomPanelBrowserOpen] = useState(false);
   const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
+  const [bottomPanelResizing, setBottomPanelResizing] = useState(false);
   const [rightSidePanelResizing, setRightSidePanelResizing] = useState(false);
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<PanelTabOrderEntry[]>(() => [
     "summary",
@@ -4639,6 +4671,7 @@ function useChatViewComponent({
       if (!activeThreadId) return;
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
+      setBottomPanelResizing(true);
       bottomPanelResizePointerIdRef.current = event.pointerId;
       bottomPanelResizeStateRef.current = {
         contentElement: bottomPanelContentElementRef.current,
@@ -5443,11 +5476,13 @@ function useChatViewComponent({
       if (!didResizeBottomPanelDuringDragRef.current) {
         clearResizablePanelHeight(resizeState?.panelElement ?? null);
         clearResizablePanelHeight(resizeState?.contentElement ?? null);
+        setBottomPanelResizing(false);
         return;
       }
       didResizeBottomPanelDuringDragRef.current = false;
       syncBottomPanelHeightEvent(resizeState?.pendingHeight ?? terminalState.terminalHeight);
       window.requestAnimationFrame(() => {
+        setBottomPanelResizing(false);
         window.requestAnimationFrame(() => {
           clearResizablePanelHeight(resizeState?.panelElement ?? null);
           clearResizablePanelHeight(resizeState?.contentElement ?? null);
@@ -6275,10 +6310,10 @@ function useChatViewComponent({
       didResizeRightSidePanelDuringDragRef.current = false;
       syncRightSidePanelWidthEvent(rightSidePanelWidthRef.current);
       window.requestAnimationFrame(() => {
+        setRightSidePanelResizing(false);
         window.requestAnimationFrame(() => {
           clearResizablePanelWidth(resizeState?.panelElement ?? null);
           clearResizablePanelWidth(resizeState?.headerElement ?? null);
-          setRightSidePanelResizing(false);
         });
       });
     };
@@ -6326,6 +6361,7 @@ function useChatViewComponent({
       clearResizablePanelHeight(bottomPanelResizeState?.contentElement ?? null);
       bottomPanelResizePointerIdRef.current = null;
       bottomPanelResizeStateRef.current = null;
+      setBottomPanelResizing(false);
       if (didResizeBottomPanelDuringDragRef.current) {
         didResizeBottomPanelDuringDragRef.current = false;
         syncBottomPanelHeightEvent(
@@ -9853,12 +9889,63 @@ function useChatViewComponent({
     ],
   );
   const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
+  const rightSidePanelSurfaceAnimation = avoidNativeBrowserPanelTransforms
+    ? PANEL_OPACITY_SPRING_ANIMATION
+    : RIGHT_EDGE_PANEL_SPRING_ANIMATION;
   const showDockedRightSidePanelChrome = rightSidePanelOpen && !rightSidePanelFullscreen;
   const dockedRightSidePanelWidth = constrainedPanelWidth(
     rightSidePanelWidth,
     MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
     MIN_RIGHT_SIDE_PANEL_WIDTH,
   );
+  const rightSidePanelInlineWidth = rightSidePanelFullscreen ? "100%" : dockedRightSidePanelWidth;
+  const rightSidePanelLayoutAnimation =
+    rightSidePanelFullscreen || rightSidePanelResizing
+      ? PANEL_OPACITY_SPRING_ANIMATION
+      : {
+          initial: { opacity: 0, width: 0 },
+          animate: { opacity: 1, width: dockedRightSidePanelWidth },
+          exit: { opacity: 0, width: 0 },
+        };
+  const dockedRightSidePanelHeaderLayoutAnimation = rightSidePanelResizing
+    ? PANEL_OPACITY_SPRING_ANIMATION
+    : {
+        initial: { opacity: 0, width: 0 },
+        animate: { opacity: 1, width: dockedRightSidePanelWidth },
+        exit: { opacity: 0, width: 0 },
+      };
+  const rightSidePanelLayoutTransition = rightSidePanelResizing
+    ? PANEL_RESIZE_LAYOUT_TRANSITION
+    : PANEL_SPRING_TRANSITION;
+  const bottomPanelHeight = terminalState.terminalHeight + 48;
+  const bottomPanelLayoutAnimation = bottomPanelResizing
+    ? PANEL_OPACITY_SPRING_ANIMATION
+    : {
+        initial: { height: 0, opacity: 0 },
+        animate: { height: bottomPanelHeight, opacity: 1 },
+        exit: { height: 0, opacity: 0 },
+      };
+  const bottomPanelLayoutTransition = bottomPanelResizing
+    ? PANEL_RESIZE_LAYOUT_TRANSITION
+    : PANEL_SPRING_TRANSITION;
+  const bottomPanelContentHeightPx = `${terminalState.terminalHeight}px`;
+  const dockedRightSidePanelSurfaceStyle = rightSidePanelResizing
+    ? RESIZABLE_PANEL_WIDTH_STYLE
+    : {
+        minWidth: dockedRightSidePanelWidth,
+        width: dockedRightSidePanelWidth,
+      };
+  const rightSidePanelSurfaceStyle = rightSidePanelFullscreen
+    ? { width: rightSidePanelInlineWidth }
+    : rightSidePanelResizing
+      ? RESIZABLE_PANEL_WIDTH_STYLE
+      : {
+          minWidth: dockedRightSidePanelWidth,
+          width: dockedRightSidePanelWidth,
+        };
+  const bottomPanelSurfaceStyle = bottomPanelResizing
+    ? RESIZABLE_PANEL_HEIGHT_STYLE
+    : { height: bottomPanelHeight };
   const rightSidePanelTabStrip = (className?: string) =>
     rightSidePanelOpen ? (
       <RightSidePanelTabStrip
@@ -10311,27 +10398,26 @@ function useChatViewComponent({
           key="thread-right-side-panel-top-bar"
           ref={dockedRightSidePanelHeaderRef}
           className={cn(
-            "relative z-30 flex min-h-[44px] shrink-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
+            "relative z-30 min-h-[44px] shrink-0 overflow-hidden will-change-[width,opacity]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
-          initial={{ width: 0, opacity: 0, x: 20 }}
-          animate={{ width: dockedRightSidePanelWidth, opacity: 1, x: 0 }}
-          exit={{ width: 0, opacity: 0, x: 20 }}
-          transition={
-            rightSidePanelResizing ? RIGHT_SIDE_PANEL_RESIZE_TRANSITION : PANEL_SPRING_TRANSITION
-          }
+          {...dockedRightSidePanelHeaderLayoutAnimation}
+          {...(rightSidePanelResizing ? { style: RESIZABLE_PANEL_WIDTH_STYLE } : {})}
+          transition={rightSidePanelLayoutTransition}
         >
-          <div className="relative h-full w-3 shrink-0" aria-hidden="true">
-            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
-          </div>
           <m.div
-            className="min-w-0 flex-1 overflow-hidden"
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 8 }}
+            className="flex h-full min-h-[44px] items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
+            style={{
+              ...dockedRightSidePanelSurfaceStyle,
+              transformOrigin: "right center",
+            }}
+            {...RIGHT_EDGE_PANEL_SPRING_ANIMATION}
             transition={PANEL_SPRING_TRANSITION}
           >
-            {rightSidePanelTabStripNode}
+            <div className="relative h-full w-3 shrink-0" aria-hidden="true">
+              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75" />
+            </div>
+            <div className="min-w-0 flex-1 overflow-hidden">{rightSidePanelTabStripNode}</div>
           </m.div>
         </m.div>
       ) : null}
@@ -10351,15 +10437,7 @@ function useChatViewComponent({
           exit={{ opacity: 0, y: -10 }}
           transition={PANEL_SPRING_TRANSITION}
         >
-          <m.div
-            className="min-w-0 flex-1 overflow-hidden"
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 8 }}
-            transition={PANEL_SPRING_TRANSITION}
-          >
-            {rightSidePanelTabStripNode}
-          </m.div>
+          <div className="min-w-0 flex-1 overflow-hidden">{rightSidePanelTabStripNode}</div>
         </m.div>
       ) : null}
     </AnimatePresence>
@@ -10712,190 +10790,165 @@ function useChatViewComponent({
                 key="thread-right-side-panel"
                 ref={rightSidePanelElementRef}
                 className={cn(
-                  "flex h-full min-h-0 overflow-hidden bg-background",
-                  avoidNativeBrowserPanelTransforms
-                    ? "will-change-[width,opacity]"
-                    : "transform-gpu will-change-[width,transform,opacity]",
+                  "h-full min-h-0 overflow-hidden will-change-[width,opacity]",
                   !rightSidePanelInteractive && "pointer-events-none select-none",
                   rightSidePanelFullscreen
                     ? "absolute inset-y-0 right-0 z-40"
                     : "relative shrink-0",
                 )}
-                initial={
-                  avoidNativeBrowserPanelTransforms
-                    ? { width: 0, opacity: 0 }
-                    : { width: 0, opacity: 0, x: 24 }
-                }
-                animate={
-                  avoidNativeBrowserPanelTransforms
-                    ? {
-                        width: rightSidePanelFullscreen
-                          ? "100%"
-                          : constrainedPanelWidth(
-                              rightSidePanelWidth,
-                              MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                              MIN_RIGHT_SIDE_PANEL_WIDTH,
-                            ),
-                        opacity: 1,
-                      }
-                    : {
-                        width: rightSidePanelFullscreen
-                          ? "100%"
-                          : constrainedPanelWidth(
-                              rightSidePanelWidth,
-                              MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                              MIN_RIGHT_SIDE_PANEL_WIDTH,
-                            ),
-                        opacity: 1,
-                        x: 0,
-                      }
-                }
-                exit={
-                  avoidNativeBrowserPanelTransforms
-                    ? { width: 0, opacity: 0 }
-                    : { width: 0, opacity: 0, x: 24 }
-                }
-                transition={
-                  rightSidePanelResizing
-                    ? RIGHT_SIDE_PANEL_RESIZE_TRANSITION
-                    : PANEL_SPRING_TRANSITION
-                }
+                {...rightSidePanelLayoutAnimation}
+                {...(rightSidePanelResizing && !rightSidePanelFullscreen
+                  ? { style: RESIZABLE_PANEL_WIDTH_STYLE }
+                  : rightSidePanelFullscreen
+                    ? { style: { width: rightSidePanelInlineWidth } }
+                    : {})}
+                transition={rightSidePanelLayoutTransition}
               >
-                {!rightSidePanelFullscreen ? (
-                  <hr
-                    aria-orientation="vertical"
-                    aria-label="Resize right side panel"
-                    tabIndex={0}
-                    className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/75 before:transition-colors before:duration-200 before:ease-out before:content-[''] after:absolute after:inset-y-1 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-[background-color,transform] after:duration-200 after:ease-out after:content-[''] hover:before:bg-border hover:after:scale-x-100 hover:after:bg-foreground/5 focus-visible:before:bg-border focus-visible:after:scale-x-100 focus-visible:after:bg-foreground/5"
-                    onKeyDown={handleRightSidePanelResizeKeyDown}
-                    onPointerDown={handleRightSidePanelResizePointerDown}
-                  />
-                ) : null}
                 <m.div
-                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                  initial={
-                    avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 8 }
-                  }
-                  animate={
-                    avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }
-                  }
-                  exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 6 }}
+                  className={cn(
+                    "flex h-full min-h-0 min-w-0 overflow-hidden bg-background",
+                    avoidNativeBrowserPanelTransforms
+                      ? "will-change-[opacity]"
+                      : "transform-gpu will-change-[transform,opacity]",
+                  )}
+                  style={{
+                    ...rightSidePanelSurfaceStyle,
+                    transformOrigin: "right center",
+                  }}
+                  {...rightSidePanelSurfaceAnimation}
                   transition={PANEL_SPRING_TRANSITION}
                 >
-                  <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                    <AnimatePresence mode="wait" initial={false}>
-                      {activeRightSidePanelMode !== "browser" ? (
-                        <m.div
-                          key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
-                          className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
-                          initial={{ opacity: 0, x: 8 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -6 }}
-                          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                        >
-                          {activeRightSidePanelMode === "summary" ? (
-                            <PlanSummaryPanel
-                              activePlan={activePlan}
-                              activeProposedPlan={sidebarProposedPlan}
-                              generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
-                              activeProvider={activeThread?.session?.provider ?? null}
-                              markdownCwd={gitCwd ?? undefined}
-                              onOpenDiffPanel={
-                                isGitRepo ? () => setRightSidePanelMode("diff") : null
-                              }
-                              onRegenerateSummary={handleRegenerateSummary}
-                              onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                              onOpenFilePath={
-                                canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
-                              }
-                              enableLocalFileLinks={canOpenLocalMarkdownFiles}
-                              workspaceDiffSummary={workspaceDiffSummary}
-                              workspaceRoot={activeProject?.cwd ?? undefined}
-                            />
-                          ) : activeRightSidePanelMode === "diff" ? (
-                            <LocalDiffPanel
-                              threadId={activeThread.id}
-                              diffState={localDiffState}
-                              onAddReviewComment={addDiffReviewComment}
-                              onDiffStateChange={setLocalDiffState}
-                            />
-                          ) : activeRightSidePanelMode === "subagent" ? (
-                            <SubagentWorkspacePanel
-                              activeThreadId={activeSubagentThreadId}
-                              composer={renderSubagentComposer}
-                              timelineProps={messagesTimelineProps}
-                              threads={subagentThreads}
-                            />
-                          ) : activeRightSidePanelMode === "terminal" ? (
-                            <ConnectedThreadTerminalPanel
-                              activeThreadId={activeThread.id}
-                              activeProjectAvailable={activeProject !== undefined}
-                              cwd={gitCwd ?? activeProject?.cwd ?? null}
-                              runtimeEnv={threadTerminalRuntimeEnv}
-                              focusRequestId={terminalFocusRequestId}
-                              interactive={activeForSideEffects}
-                              onNewTerminal={createNewPanelTerminal}
-                              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-                              toggleShortcutLabel={rightPanelTerminalShortcutLabel ?? undefined}
-                              onActiveTerminalChange={activateTerminal}
-                              onMoveTerminal={moveTerminal}
-                              onSplitRatiosChange={setTerminalGroupSplitRatios}
-                              onAutoTerminalTitleChange={setTerminalAutoTitle}
-                              onCloseTerminal={closeTerminal}
-                              onToggleTerminal={toggleTerminalVisibility}
-                              onClosePanelTerminal={onCloseRightSidePanelTerminal}
-                              onHeightChange={setTerminalHeight}
-                              onAddTerminalContext={addTerminalContextToDraft}
-                            />
-                          ) : activeRightSidePanelMode === "editor" ? (
-                            <Suspense
-                              fallback={
-                                <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                                  <div className="border-b border-border/60 px-4 py-3">
-                                    <div className="h-5 w-44 rounded bg-foreground/6" />
-                                  </div>
-                                  <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                                    <div className="border-r border-border/60 bg-foreground/3" />
-                                    <div className="bg-background" />
-                                  </div>
-                                </div>
-                              }
-                            >
-                              <ThreadWorkspaceEditor
-                                key={activeRightPanelEditorTabId ?? "right-panel-editor"}
-                                availableEditors={availableEditors}
-                                branch={activeThreadBranchName}
-                                connectionUrl={activeServerConnectionUrl}
-                                gitCwd={gitCwd}
-                                lspCwd={activeProject?.cwd ?? null}
-                                keybindings={keybindings}
-                                browserOpen={anyBrowserOpen}
-                                workspaceMode="split"
-                                editorStateInstanceId={activeRightPanelEditorTabId ?? "right"}
-                                terminalOpen={terminalState.terminalOpen}
-                                threadId={activeThread.id}
-                                worktreePath={activeThread.worktreePath ?? null}
-                                detachedReturnPlacement="right"
-                                onDetached={onCloseRightSidePanelEditor}
-                                onSubmitAgentNote={submitWorkspaceAgentNote}
+                  {!rightSidePanelFullscreen ? (
+                    <hr
+                      aria-orientation="vertical"
+                      aria-label="Resize right side panel"
+                      tabIndex={0}
+                      className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/75 before:transition-colors before:duration-200 before:ease-out before:content-[''] after:absolute after:inset-y-1 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-[background-color,transform] after:duration-200 after:ease-out after:content-[''] hover:before:bg-border hover:after:scale-x-100 hover:after:bg-foreground/5 focus-visible:before:bg-border focus-visible:after:scale-x-100 focus-visible:after:bg-foreground/5"
+                      onKeyDown={handleRightSidePanelResizeKeyDown}
+                      onPointerDown={handleRightSidePanelResizePointerDown}
+                    />
+                  ) : null}
+                  <div
+                    className={cn(
+                      "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                      rightSidePanelResizing && "pointer-events-none select-none",
+                    )}
+                  >
+                    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                      <AnimatePresence mode="wait" initial={false}>
+                        {activeRightSidePanelMode !== "browser" ? (
+                          <m.div
+                            key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
+                            className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                            initial={{ opacity: 0, x: 8 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -6 }}
+                            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                          >
+                            {activeRightSidePanelMode === "summary" ? (
+                              <PlanSummaryPanel
+                                activePlan={activePlan}
+                                activeProposedPlan={sidebarProposedPlan}
+                                generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                                activeProvider={activeThread?.session?.provider ?? null}
+                                markdownCwd={gitCwd ?? undefined}
+                                onOpenDiffPanel={
+                                  isGitRepo ? () => setRightSidePanelMode("diff") : null
+                                }
+                                onRegenerateSummary={handleRegenerateSummary}
+                                onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                                onOpenFilePath={
+                                  canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                                }
+                                enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                                workspaceDiffSummary={workspaceDiffSummary}
+                                workspaceRoot={activeProject?.cwd ?? undefined}
                               />
-                            </Suspense>
-                          ) : null}
-                        </m.div>
+                            ) : activeRightSidePanelMode === "diff" ? (
+                              <LocalDiffPanel
+                                threadId={activeThread.id}
+                                diffState={localDiffState}
+                                onAddReviewComment={addDiffReviewComment}
+                                onDiffStateChange={setLocalDiffState}
+                              />
+                            ) : activeRightSidePanelMode === "subagent" ? (
+                              <SubagentWorkspacePanel
+                                activeThreadId={activeSubagentThreadId}
+                                composer={renderSubagentComposer}
+                                timelineProps={messagesTimelineProps}
+                                threads={subagentThreads}
+                              />
+                            ) : activeRightSidePanelMode === "terminal" ? (
+                              <ConnectedThreadTerminalPanel
+                                activeThreadId={activeThread.id}
+                                activeProjectAvailable={activeProject !== undefined}
+                                cwd={gitCwd ?? activeProject?.cwd ?? null}
+                                runtimeEnv={threadTerminalRuntimeEnv}
+                                focusRequestId={terminalFocusRequestId}
+                                interactive={activeForSideEffects}
+                                onNewTerminal={createNewPanelTerminal}
+                                newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+                                toggleShortcutLabel={rightPanelTerminalShortcutLabel ?? undefined}
+                                onActiveTerminalChange={activateTerminal}
+                                onMoveTerminal={moveTerminal}
+                                onSplitRatiosChange={setTerminalGroupSplitRatios}
+                                onAutoTerminalTitleChange={setTerminalAutoTitle}
+                                onCloseTerminal={closeTerminal}
+                                onToggleTerminal={toggleTerminalVisibility}
+                                onClosePanelTerminal={onCloseRightSidePanelTerminal}
+                                onHeightChange={setTerminalHeight}
+                                onAddTerminalContext={addTerminalContextToDraft}
+                              />
+                            ) : activeRightSidePanelMode === "editor" ? (
+                              <Suspense
+                                fallback={
+                                  <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                                    <div className="border-b border-border/60 px-4 py-3">
+                                      <div className="h-5 w-44 rounded bg-foreground/6" />
+                                    </div>
+                                    <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                                      <div className="border-r border-border/60 bg-foreground/3" />
+                                      <div className="bg-background" />
+                                    </div>
+                                  </div>
+                                }
+                              >
+                                <ThreadWorkspaceEditor
+                                  key={activeRightPanelEditorTabId ?? "right-panel-editor"}
+                                  availableEditors={availableEditors}
+                                  branch={activeThreadBranchName}
+                                  connectionUrl={activeServerConnectionUrl}
+                                  gitCwd={gitCwd}
+                                  lspCwd={activeProject?.cwd ?? null}
+                                  keybindings={keybindings}
+                                  browserOpen={anyBrowserOpen}
+                                  workspaceMode="split"
+                                  editorStateInstanceId={activeRightPanelEditorTabId ?? "right"}
+                                  terminalOpen={terminalState.terminalOpen}
+                                  threadId={activeThread.id}
+                                  worktreePath={activeThread.worktreePath ?? null}
+                                  detachedReturnPlacement="right"
+                                  onDetached={onCloseRightSidePanelEditor}
+                                  onSubmitAgentNote={submitWorkspaceAgentNote}
+                                />
+                              </Suspense>
+                            ) : null}
+                          </m.div>
+                        ) : null}
+                      </AnimatePresence>
+                      {rightBrowserPanelInstances.length > 0 ? (
+                        <div
+                          className={cn(
+                            "absolute inset-0 min-h-0 min-w-0",
+                            activeRightSidePanelMode === "browser"
+                              ? "z-10"
+                              : "pointer-events-none invisible z-0",
+                          )}
+                        >
+                          <RetainedBrowserInstances instances={rightBrowserPanelInstances} />
+                        </div>
                       ) : null}
-                    </AnimatePresence>
-                    {rightBrowserPanelInstances.length > 0 ? (
-                      <div
-                        className={cn(
-                          "absolute inset-0 min-h-0 min-w-0",
-                          activeRightSidePanelMode === "browser"
-                            ? "z-10"
-                            : "pointer-events-none invisible z-0",
-                        )}
-                      >
-                        <RetainedBrowserInstances instances={rightBrowserPanelInstances} />
-                      </div>
-                    ) : null}
+                    </div>
                   </div>
                 </m.div>
               </m.div>
@@ -10911,124 +10964,137 @@ function useChatViewComponent({
             <m.div
               key="thread-bottom-dock-panel"
               ref={bottomPanelElementRef}
-              className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-background shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,transform,opacity]"
-              initial={{ height: 0, opacity: 0, y: 14 }}
-              animate={{ height: "var(--bottom-panel-height)", opacity: 1, y: 0 }}
-              exit={{ height: 0, opacity: 0, y: 10 }}
-              transition={PANEL_SPRING_TRANSITION}
-              style={
-                {
-                  "--bottom-panel-height": `${terminalState.terminalHeight + 48}px`,
-                } as NonNullable<ComponentProps<typeof m.div>["style"]>
-              }
+              className="relative min-h-0 min-w-0 shrink-0 overflow-hidden shadow-[0_-1px_0_color-mix(in_oklch,var(--border)_42%,transparent)] will-change-[height,opacity]"
+              {...bottomPanelLayoutAnimation}
+              {...(bottomPanelResizing ? { style: RESIZABLE_PANEL_HEIGHT_STYLE } : {})}
+              transition={bottomPanelLayoutTransition}
             >
-              <hr
-                aria-orientation="horizontal"
-                aria-label="Resize bottom panel"
-                tabIndex={0}
-                className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-8 before:top-0 before:h-px before:bg-transparent before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border/65 hover:after:bg-foreground/4 focus-visible:before:bg-border/75 focus-visible:after:bg-foreground/5"
-                onPointerDown={handleBottomPanelResizePointerDown}
-              />
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="flex h-12 shrink-0 items-stretch bg-card/80 shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
-                  {bottomPanelTabStripNode}
-                </div>
+              <m.div
+                className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background transform-gpu will-change-[transform,opacity]"
+                style={{
+                  ...bottomPanelSurfaceStyle,
+                  transformOrigin: "center bottom",
+                }}
+                {...BOTTOM_EDGE_PANEL_SPRING_ANIMATION}
+                transition={PANEL_SPRING_TRANSITION}
+              >
+                <hr
+                  aria-orientation="horizontal"
+                  aria-label="Resize bottom panel"
+                  tabIndex={0}
+                  className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-8 before:top-0 before:h-px before:bg-transparent before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border/65 hover:after:bg-foreground/4 focus-visible:before:bg-border/75 focus-visible:after:bg-foreground/5"
+                  onPointerDown={handleBottomPanelResizePointerDown}
+                />
                 <div
-                  ref={bottomPanelContentElementRef}
-                  className="min-h-0 flex-1 overflow-hidden"
-                  style={{ height: `${terminalState.terminalHeight}px` }}
+                  className={cn(
+                    "flex min-h-0 flex-1 flex-col overflow-hidden",
+                    bottomPanelResizing && "pointer-events-none select-none",
+                  )}
                 >
-                  {activeBottomPanelMode === "summary" ? (
-                    <PlanSummaryPanel
-                      activePlan={activePlan}
-                      activeProposedPlan={sidebarProposedPlan}
-                      generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
-                      activeProvider={activeThread?.session?.provider ?? null}
-                      markdownCwd={gitCwd ?? undefined}
-                      onOpenDiffPanel={isGitRepo ? onOpenBottomPanelDiff : null}
-                      onRegenerateSummary={handleRegenerateSummary}
-                      onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
-                      onOpenFilePath={
-                        canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
-                      }
-                      enableLocalFileLinks={canOpenLocalMarkdownFiles}
-                      workspaceDiffSummary={workspaceDiffSummary}
-                      workspaceRoot={activeProject?.cwd ?? undefined}
-                    />
-                  ) : activeBottomPanelMode === "diff" ? (
-                    <LocalDiffPanel
-                      threadId={activeThread.id}
-                      diffState={localDiffState}
-                      onAddReviewComment={addDiffReviewComment}
-                      onDiffStateChange={setLocalDiffState}
-                    />
-                  ) : activeBottomPanelMode === "subagent" ? (
-                    <SubagentWorkspacePanel
-                      activeThreadId={activeSubagentThreadId}
-                      composer={renderSubagentComposer}
-                      timelineProps={messagesTimelineProps}
-                      threads={subagentThreads}
-                    />
-                  ) : activeBottomPanelMode === "terminal" ? (
-                    <ConnectedThreadTerminalPanel
-                      activeThreadId={activeThread.id}
-                      activeProjectAvailable={activeProject !== undefined}
-                      cwd={gitCwd ?? activeProject?.cwd ?? null}
-                      runtimeEnv={threadTerminalRuntimeEnv}
-                      focusRequestId={terminalFocusRequestId}
-                      interactive={activeForSideEffects}
-                      onNewTerminal={createNewTerminal}
-                      newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-                      toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
-                      onActiveTerminalChange={activateTerminal}
-                      onMoveTerminal={moveTerminal}
-                      onSplitRatiosChange={setTerminalGroupSplitRatios}
-                      onAutoTerminalTitleChange={setTerminalAutoTitle}
-                      onCloseTerminal={closeTerminal}
-                      onToggleTerminal={toggleTerminalVisibility}
-                      onClosePanelTerminal={onCloseBottomPanelTerminal}
-                      onHeightChange={setTerminalHeight}
-                      onAddTerminalContext={addTerminalContextToDraft}
-                    />
-                  ) : activeBottomPanelMode === "editor" ? (
-                    <Suspense
-                      fallback={
-                        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                          <div className="border-b border-border/60 px-4 py-3">
-                            <div className="h-5 w-44 rounded bg-foreground/6" />
-                          </div>
-                          <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                            <div className="border-r border-border/60 bg-foreground/3" />
-                            <div className="bg-background" />
-                          </div>
-                        </div>
-                      }
-                    >
-                      <ThreadWorkspaceEditor
-                        key={activeBottomPanelEditorTabId ?? "bottom-panel-editor"}
-                        availableEditors={availableEditors}
-                        branch={activeThreadBranchName}
-                        connectionUrl={activeServerConnectionUrl}
-                        gitCwd={gitCwd}
-                        lspCwd={activeProject?.cwd ?? null}
-                        keybindings={keybindings}
-                        browserOpen={anyBrowserOpen}
-                        workspaceMode="split"
-                        editorStateInstanceId={activeBottomPanelEditorTabId ?? "bottom"}
-                        terminalOpen={terminalState.terminalOpen}
-                        threadId={activeThread.id}
-                        worktreePath={activeThread.worktreePath ?? null}
-                        detachedReturnPlacement="bottom"
-                        onDetached={onCloseBottomPanelEditor}
-                        onSubmitAgentNote={submitWorkspaceAgentNote}
+                  <div className="flex h-12 shrink-0 items-stretch bg-card/80 shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
+                    {bottomPanelTabStripNode}
+                  </div>
+                  <div
+                    ref={bottomPanelContentElementRef}
+                    className="min-h-0 flex-1 overflow-hidden"
+                    style={
+                      bottomPanelResizing
+                        ? RESIZABLE_PANEL_HEIGHT_STYLE
+                        : { height: bottomPanelContentHeightPx }
+                    }
+                  >
+                    {activeBottomPanelMode === "summary" ? (
+                      <PlanSummaryPanel
+                        activePlan={activePlan}
+                        activeProposedPlan={sidebarProposedPlan}
+                        generatedWorkspaceSummary={activeGeneratedWorkspaceSummary}
+                        activeProvider={activeThread?.session?.provider ?? null}
+                        markdownCwd={gitCwd ?? undefined}
+                        onOpenDiffPanel={isGitRepo ? onOpenBottomPanelDiff : null}
+                        onRegenerateSummary={handleRegenerateSummary}
+                        onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                        onOpenFilePath={
+                          canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                        }
+                        enableLocalFileLinks={canOpenLocalMarkdownFiles}
+                        workspaceDiffSummary={workspaceDiffSummary}
+                        workspaceRoot={activeProject?.cwd ?? undefined}
                       />
-                    </Suspense>
-                  ) : activeBottomPanelMode === "browser" &&
-                    bottomBrowserPanelInstances.length > 0 ? (
-                    <RetainedBrowserInstances instances={bottomBrowserPanelInstances} />
-                  ) : null}
+                    ) : activeBottomPanelMode === "diff" ? (
+                      <LocalDiffPanel
+                        threadId={activeThread.id}
+                        diffState={localDiffState}
+                        onAddReviewComment={addDiffReviewComment}
+                        onDiffStateChange={setLocalDiffState}
+                      />
+                    ) : activeBottomPanelMode === "subagent" ? (
+                      <SubagentWorkspacePanel
+                        activeThreadId={activeSubagentThreadId}
+                        composer={renderSubagentComposer}
+                        timelineProps={messagesTimelineProps}
+                        threads={subagentThreads}
+                      />
+                    ) : activeBottomPanelMode === "terminal" ? (
+                      <ConnectedThreadTerminalPanel
+                        activeThreadId={activeThread.id}
+                        activeProjectAvailable={activeProject !== undefined}
+                        cwd={gitCwd ?? activeProject?.cwd ?? null}
+                        runtimeEnv={threadTerminalRuntimeEnv}
+                        focusRequestId={terminalFocusRequestId}
+                        interactive={activeForSideEffects}
+                        onNewTerminal={createNewTerminal}
+                        newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+                        toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
+                        onActiveTerminalChange={activateTerminal}
+                        onMoveTerminal={moveTerminal}
+                        onSplitRatiosChange={setTerminalGroupSplitRatios}
+                        onAutoTerminalTitleChange={setTerminalAutoTitle}
+                        onCloseTerminal={closeTerminal}
+                        onToggleTerminal={toggleTerminalVisibility}
+                        onClosePanelTerminal={onCloseBottomPanelTerminal}
+                        onHeightChange={setTerminalHeight}
+                        onAddTerminalContext={addTerminalContextToDraft}
+                      />
+                    ) : activeBottomPanelMode === "editor" ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                            <div className="border-b border-border/60 px-4 py-3">
+                              <div className="h-5 w-44 rounded bg-foreground/6" />
+                            </div>
+                            <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                              <div className="border-r border-border/60 bg-foreground/3" />
+                              <div className="bg-background" />
+                            </div>
+                          </div>
+                        }
+                      >
+                        <ThreadWorkspaceEditor
+                          key={activeBottomPanelEditorTabId ?? "bottom-panel-editor"}
+                          availableEditors={availableEditors}
+                          branch={activeThreadBranchName}
+                          connectionUrl={activeServerConnectionUrl}
+                          gitCwd={gitCwd}
+                          lspCwd={activeProject?.cwd ?? null}
+                          keybindings={keybindings}
+                          browserOpen={anyBrowserOpen}
+                          workspaceMode="split"
+                          editorStateInstanceId={activeBottomPanelEditorTabId ?? "bottom"}
+                          terminalOpen={terminalState.terminalOpen}
+                          threadId={activeThread.id}
+                          worktreePath={activeThread.worktreePath ?? null}
+                          detachedReturnPlacement="bottom"
+                          onDetached={onCloseBottomPanelEditor}
+                          onSubmitAgentNote={submitWorkspaceAgentNote}
+                        />
+                      </Suspense>
+                    ) : activeBottomPanelMode === "browser" &&
+                      bottomBrowserPanelInstances.length > 0 ? (
+                      <RetainedBrowserInstances instances={bottomBrowserPanelInstances} />
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              </m.div>
             </m.div>
           ) : null}
         </AnimatePresence>
