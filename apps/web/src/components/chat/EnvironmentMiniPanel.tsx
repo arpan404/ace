@@ -291,7 +291,7 @@ export const EnvironmentMiniPanel = forwardRef<
     onDeleteProjectScript: (scriptId: string) => Promise<void>;
     onOpenDiffPanel: () => void;
     onOpenEnvironmentSettings: () => void;
-    onJumpToMessage: (messageId: string) => void;
+    onJumpToMessage: (messageId: string, selectedText?: string) => void;
     onOpenSummaryPanel: () => void;
     onRunProjectScript: (script: ProjectScript) => void;
     onSelectSubagentThread: (threadId: string) => void;
@@ -535,7 +535,13 @@ export const EnvironmentMiniPanel = forwardRef<
                       message.checked ? "text-muted-foreground/55 line-through" : "text-foreground",
                     )}
                     title={message.preview}
-                    onClick={() => props.onJumpToMessage(message.messageId)}
+                    onClick={() =>
+                      props.onJumpToMessage(
+                        message.messageId,
+                        message.selectedText ??
+                          (message.id.includes(":selection:") ? message.preview : undefined),
+                      )
+                    }
                   >
                     {message.title}
                   </button>

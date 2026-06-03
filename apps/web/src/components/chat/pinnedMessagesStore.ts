@@ -8,6 +8,7 @@ export const PinnedMessageSchema = Schema.Struct({
   messageId: Schema.String,
   title: Schema.String,
   preview: Schema.String,
+  selectedText: Schema.optional(Schema.String),
   checked: Schema.Boolean,
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
@@ -107,6 +108,7 @@ export function upsertPinnedSelectionMessage(
         ? {
             ...message,
             preview,
+            selectedText: normalizedText,
             title,
             updatedAt: now,
           }
@@ -121,6 +123,7 @@ export function upsertPinnedSelectionMessage(
       messageId: input.messageId,
       title,
       preview,
+      selectedText: normalizedText,
       checked: false,
       createdAt: now,
       updatedAt: now,

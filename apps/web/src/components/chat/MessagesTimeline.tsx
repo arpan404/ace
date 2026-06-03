@@ -142,6 +142,7 @@ const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
+const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
 const IMAGE_GENERATION_FRAME_MAX_WIDTH_REM = 42;
@@ -149,6 +150,8 @@ const IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH = 54;
 const IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH = 46;
 const EMPTY_MESSAGE_TURN_COUNT_MAP = new Map<MessageId, number>();
 const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
+const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
+const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
 
 type AssistantSelectionPinTarget = {
   left: number;
@@ -156,6 +159,170 @@ type AssistantSelectionPinTarget = {
   text: string;
   top: number;
 };
+
+type TargetMessageNavigation = {
+  messageId: string;
+  requestId: number;
+  selectedText?: string;
+};
+
+function normalizePinnedSelectionText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function elementFromNode(node: Node): Element | null {
+  return node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : node.parentNode instanceof Element
+      ? node.parentNode
+      : null;
+}
+
+function readCurrentAssistantSelectionPinTarget(): { messageId: string; text: string } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const text = normalizePinnedSelectionText(selection.toString());
+  if (!text) return null;
+
+  const range = selection.getRangeAt(0);
+  const ancestorElement = elementFromNode(range.commonAncestorContainer);
+  const messageRow = ancestorElement?.closest<HTMLElement>(
+    '[data-message-role="assistant"][data-message-id]',
+  );
+  const messageId = messageRow?.dataset.messageId;
+  return messageId ? { messageId, text } : null;
+}
+
+function resolvePinnedSelectionNeedle(selectedText: string): string {
+  const normalized = normalizePinnedSelectionText(selectedText);
+  if (!normalized.endsWith("…")) return normalized;
+  return normalized.slice(0, -1).trimEnd();
+}
+
+function findPinnedSelectionRange(root: HTMLElement, selectedText: string): Range | null {
+  const needle = resolvePinnedSelectionNeedle(selectedText);
+  if (!needle) return null;
+
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      const parentElement = node.parentElement;
+      if (
+        parentElement?.closest(
+          "button,textarea,input,select,script,style,[data-assistant-turn-actions]",
+        )
+      ) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let nextNode = walker.nextNode();
+  while (nextNode) {
+    textNodes.push(nextNode as Text);
+    nextNode = walker.nextNode();
+  }
+
+  const positions: Array<{ node: Text; offset: number }> = [];
+  let haystack = "";
+  let previousWasWhitespace = true;
+  for (const node of textNodes) {
+    const text = node.data;
+    for (let offset = 0; offset < text.length; offset += 1) {
+      const character = text[offset] ?? "";
+      if (/\s/u.test(character)) {
+        if (!previousWasWhitespace) {
+          haystack += " ";
+          positions.push({ node, offset });
+          previousWasWhitespace = true;
+        }
+        continue;
+      }
+      haystack += character;
+      positions.push({ node, offset });
+      previousWasWhitespace = false;
+    }
+  }
+
+  const startIndex = haystack.indexOf(needle);
+  if (startIndex < 0) return null;
+  const endIndex = startIndex + needle.length - 1;
+  const startPosition = positions[startIndex];
+  const endPosition = positions[endIndex];
+  if (!startPosition || !endPosition) return null;
+
+  const range = document.createRange();
+  range.setStart(startPosition.node, startPosition.offset);
+  range.setEnd(endPosition.node, endPosition.offset + 1);
+  return range;
+}
+
+function highlightPinnedSelectionText(
+  root: HTMLElement,
+  selectedText: string,
+  scrollContainer: HTMLElement,
+): (() => void) | null {
+  const range = findPinnedSelectionRange(root, selectedText);
+  if (!range) return null;
+
+  const firstRect = range.getBoundingClientRect();
+  if (firstRect.width <= 0 || firstRect.height <= 0) return null;
+
+  const initialContainerRect = scrollContainer.getBoundingClientRect();
+  scrollContainer.scrollTop = Math.max(
+    0,
+    scrollContainer.scrollTop +
+      firstRect.top -
+      initialContainerRect.top -
+      scrollContainer.clientHeight / 2 +
+      firstRect.height / 2,
+  );
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const rangeRects = [...range.getClientRects()].filter(
+    (rect) =>
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.bottom >= containerRect.top &&
+      rect.top <= containerRect.bottom,
+  );
+  if (rangeRects.length === 0) return null;
+
+  const previousPosition = scrollContainer.style.position;
+  const shouldRestorePosition = window.getComputedStyle(scrollContainer).position === "static";
+  if (shouldRestorePosition) {
+    scrollContainer.style.position = "relative";
+  }
+
+  const overlay = document.createElement("div");
+  overlay.dataset.pinnedSelectionHighlight = "true";
+  overlay.style.pointerEvents = "none";
+  overlay.style.position = "absolute";
+  overlay.style.inset = "0";
+  overlay.style.zIndex = "20";
+  scrollContainer.appendChild(overlay);
+
+  for (const rect of rangeRects) {
+    const highlight = document.createElement("div");
+    highlight.style.position = "absolute";
+    highlight.style.left = `${rect.left - containerRect.left + scrollContainer.scrollLeft - 2}px`;
+    highlight.style.top = `${rect.top - containerRect.top + scrollContainer.scrollTop - 2}px`;
+    highlight.style.width = `${rect.width + 4}px`;
+    highlight.style.height = `${rect.height + 4}px`;
+    highlight.style.borderRadius = "0.25rem";
+    highlight.style.background = "hsl(var(--primary) / 0.22)";
+    highlight.style.boxShadow = "0 0 0 1px hsl(var(--primary) / 0.36)";
+    overlay.appendChild(highlight);
+  }
+
+  return () => {
+    overlay.remove();
+    if (shouldRestorePosition) {
+      scrollContainer.style.position = previousPosition;
+    }
+  };
+}
 
 interface AssistantImageGenerationPlaceholder {
   readonly width: number;
@@ -434,7 +601,7 @@ interface MessagesTimelineProps {
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
-  targetMessageNavigation?: { messageId: string; requestId: number } | null;
+  targetMessageNavigation?: TargetMessageNavigation | null;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
@@ -472,7 +639,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
   enableLocalFileLinks = true,
-  providerCommands = [],
+  providerCommands = EMPTY_PROVIDER_COMMANDS,
   onForkConversation = null,
   isForkConversationDisabled = false,
   enableGoalWorkingState = false,
@@ -515,13 +682,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
 
     const range = selection.getRangeAt(0);
-    const ancestorNode = range.commonAncestorContainer;
-    const ancestorElement =
-      ancestorNode.nodeType === Node.ELEMENT_NODE
-        ? (ancestorNode as Element)
-        : ancestorNode.parentNode instanceof Element
-          ? ancestorNode.parentNode
-          : null;
+    const ancestorElement = elementFromNode(range.commonAncestorContainer);
     const messageRow = ancestorElement?.closest<HTMLElement>(
       '[data-message-role="assistant"][data-message-id]',
     );
@@ -531,17 +692,28 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
 
     const messageId = messageRow.dataset.messageId;
-    const rect = range.getBoundingClientRect();
-    if (!messageId || rect.width <= 0 || rect.height <= 0) {
+    const selectionRects = [...range.getClientRects()].filter(
+      (rect) => rect.width > 0 && rect.height > 0,
+    );
+    const anchorRect = selectionRects.at(-1) ?? range.getBoundingClientRect();
+    if (!messageId || anchorRect.width <= 0 || anchorRect.height <= 0) {
       setSelectionPinTarget(null);
       return;
     }
 
+    const preferredTop = anchorRect.top - SELECTION_PIN_BUTTON_HEIGHT_PX - 8;
+    const top =
+      preferredTop >= 8
+        ? preferredTop
+        : Math.min(window.innerHeight - SELECTION_PIN_BUTTON_HEIGHT_PX - 8, anchorRect.bottom + 8);
     setSelectionPinTarget({
-      left: Math.min(window.innerWidth - 120, Math.max(8, rect.left + rect.width / 2 - 54)),
+      left: Math.min(
+        window.innerWidth - SELECTION_PIN_BUTTON_WIDTH_PX - 8,
+        Math.max(8, anchorRect.right - SELECTION_PIN_BUTTON_WIDTH_PX),
+      ),
       messageId,
       text: selectedText,
-      top: Math.max(8, rect.top - 38),
+      top,
     });
   }, [activeThreadId]);
   const pinSelectedAssistantText = useCallback(() => {
@@ -556,6 +728,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     window.getSelection()?.removeAllRanges();
     setSelectionPinTarget(null);
   }, [activeThreadId, selectionPinTarget, setPinnedMessages]);
+  useEffect(() => {
+    const updateAfterSelectionSettles = () => {
+      window.requestAnimationFrame(updateSelectionPinTarget);
+    };
+    document.addEventListener("selectionchange", updateAfterSelectionSettles);
+    document.addEventListener("mouseup", updateAfterSelectionSettles);
+    document.addEventListener("keyup", updateAfterSelectionSettles);
+    return () => {
+      document.removeEventListener("selectionchange", updateAfterSelectionSettles);
+      document.removeEventListener("mouseup", updateAfterSelectionSettles);
+      document.removeEventListener("keyup", updateAfterSelectionSettles);
+    };
+  }, [updateSelectionPinTarget]);
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
       timelineEntries,
@@ -677,6 +862,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       const onTogglePinnedMessage =
         pinMessageId && activeThreadId && assistantTurnPinTarget
           ? () => {
+              const selectedPinTarget =
+                selectionPinTarget ?? readCurrentAssistantSelectionPinTarget();
+              if (selectedPinTarget) {
+                setPinnedMessages((current) =>
+                  upsertPinnedSelectionMessage(current, {
+                    threadId: activeThreadId,
+                    messageId: selectedPinTarget.messageId,
+                    text: selectedPinTarget.text,
+                  }),
+                );
+                window.getSelection()?.removeAllRanges();
+                setSelectionPinTarget(null);
+                return;
+              }
+
               setPinnedMessages((current) =>
                 isPinned
                   ? removePinnedMessage(current, {
@@ -729,6 +929,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     onForkConversation,
     pinnedMessageIdSet,
     rows,
+    selectionPinTarget,
     setPinnedMessages,
     supportsForkConversation,
     timestampFormat,
@@ -893,9 +1094,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         : targetMessageId.replace(/["\\]/gu, "\\$&");
     const selector = `[data-message-id="${escapedMessageId}"]`;
     let clearHighlightTimeoutId: number | null = null;
+    let cleanupTextHighlight: (() => void) | null = null;
     const highlightMountedRow = () => {
       const row = scrollContainer.querySelector<HTMLElement>(selector);
       if (!row) return;
+      const selectedText = targetMessageNavigation.selectedText;
+      const cleanupSelectedTextHighlight = selectedText
+        ? highlightPinnedSelectionText(row, selectedText, scrollContainer)
+        : null;
+      if (cleanupSelectedTextHighlight) {
+        cleanupTextHighlight = cleanupSelectedTextHighlight;
+        clearHighlightTimeoutId = window.setTimeout(() => {
+          cleanupTextHighlight?.();
+          cleanupTextHighlight = null;
+        }, 2200);
+        return;
+      }
+
       row.scrollIntoView({ behavior: "smooth", block: "center" });
       row.dataset.pinnedMessageTarget = "true";
       clearHighlightTimeoutId = window.setTimeout(() => {
@@ -919,6 +1134,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         if (clearHighlightTimeoutId !== null) {
           window.clearTimeout(clearHighlightTimeoutId);
         }
+        cleanupTextHighlight?.();
       };
     }
 
@@ -927,6 +1143,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (clearHighlightTimeoutId !== null) {
         window.clearTimeout(clearHighlightTimeoutId);
       }
+      cleanupTextHighlight?.();
     };
   }, [
     getScrollContainer,
@@ -1558,7 +1775,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {selectionPinTarget ? (
         <button
           type="button"
-          className="fixed z-50 inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-popover px-2.5 text-[11px] font-medium text-popover-foreground shadow-lg transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="fixed z-[120] inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-popover px-2.5 text-[11px] font-medium text-popover-foreground shadow-lg transition-colors hover:bg-accent hover:text-accent-foreground"
           style={{ left: selectionPinTarget.left, top: selectionPinTarget.top }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={pinSelectedAssistantText}

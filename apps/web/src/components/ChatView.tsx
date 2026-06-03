@@ -9436,11 +9436,13 @@ function useChatViewComponent({
   const [targetMessageNavigation, setTargetMessageNavigation] = useState<{
     messageId: string;
     requestId: number;
+    selectedText?: string;
   } | null>(null);
-  const jumpToTimelineMessage = useCallback((messageId: string) => {
+  const jumpToTimelineMessage = useCallback((messageId: string, selectedText?: string) => {
     setTargetMessageNavigation((current) => ({
       messageId,
       requestId: (current?.requestId ?? 0) + 1,
+      ...(selectedText ? { selectedText } : {}),
     }));
   }, []);
   const messagesTimelineProps = useMemo(
