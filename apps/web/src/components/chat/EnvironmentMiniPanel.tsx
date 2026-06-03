@@ -438,8 +438,7 @@ export const EnvironmentMiniPanel = forwardRef<
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate",
-                      step.status === "completed" &&
-                        "text-muted-foreground/60 line-through decoration-muted-foreground/70",
+                      step.status === "completed" && "text-muted-foreground/60",
                       step.status === "inProgress" && "text-foreground",
                     )}
                   >

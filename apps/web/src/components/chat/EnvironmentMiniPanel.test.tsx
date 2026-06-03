@@ -53,7 +53,7 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain('role="status"');
     expect(markup).toContain("Inspect critical paths locally");
     expect(markup).toContain("Map repository surfaces");
-    expect(markup).toContain("line-through");
+    expect(markup).not.toContain("line-through");
     expect(markup).toContain("lucide-check");
   });
 });

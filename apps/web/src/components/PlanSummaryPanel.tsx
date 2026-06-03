@@ -6,7 +6,6 @@ import {
   ChevronRightIcon,
   DiffIcon,
   EllipsisIcon,
-  LoaderIcon,
   RotateCwIcon,
   SparklesIcon,
 } from "lucide-react";
@@ -39,25 +38,39 @@ const diffCountFormatter = new Intl.NumberFormat();
 const PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME =
   "group inline-flex h-auto min-w-0 items-center gap-1.5 rounded-none bg-transparent p-0 text-left shadow-none hover:!bg-transparent active:!translate-y-0 active:!bg-transparent aria-expanded:!bg-transparent dark:hover:!bg-transparent dark:active:!bg-transparent focus-visible:border-transparent focus-visible:ring-0";
 
+function SummaryPanelSection({ children }: { children: ReactNode }) {
+  return (
+    <section className="border-t border-border/55 px-4 py-4 first:border-t-0 sm:px-5">
+      {children}
+    </section>
+  );
+}
+
+function SummaryPanelSectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+      {children}
+    </p>
+  );
+}
+
 function stepStatusIcon(status: string) {
   if (status === "completed") {
     return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
-        <CheckIcon className="size-3" />
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/45 text-muted-foreground/70">
+        <CheckIcon className="size-2.5" strokeWidth={3} />
       </span>
     );
   }
   if (status === "inProgress") {
     return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-blue-400">
-        <LoaderIcon className="size-3 animate-spin" />
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <Spinner className="size-3.5" />
       </span>
     );
   }
   return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border/40 bg-muted/30">
-      <span className="size-1.5 rounded-full bg-muted-foreground/30" />
-    </span>
+    <span className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/45 bg-transparent" />
   );
 }
 
@@ -84,10 +97,6 @@ type WorkspaceDiffSummary = NonNullable<PlanSummaryPanelProps["workspaceDiffSumm
 
 function formatDiffCount(value: number) {
   return diffCountFormatter.format(value);
-}
-
-function formatPlanProgressValue(value: number, width: number): string {
-  return String(value).padStart(width, "0");
 }
 
 function getDisplaySteps(
@@ -128,6 +137,73 @@ function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: b
   );
 }
 
+const DEMO_ACTIVE_PLAN: ActivePlanState = {
+  createdAt: "2026-06-03T00:00:00.000Z",
+  source: "plan-update",
+  turnId: null,
+  explanation: "Tighten the side panel into a calmer review cockpit.",
+  steps: [
+    { step: "Map current panel routes and tab affordances", status: "completed" },
+    { step: "Restyle summary tabs for dense review work", status: "completed" },
+    { step: "Wire demo data across summary, plan, todos, and diff", status: "inProgress" },
+    { step: "Verify responsive scroll and action states", status: "pending" },
+    { step: "Run format, lint, typecheck, and focused tests", status: "pending" },
+  ],
+};
+
+const DEMO_PROPOSED_PLAN: LatestProposedPlanState = {
+  id: "summary-panel-demo-plan",
+  turnId: null,
+  createdAt: "2026-06-03T00:00:00.000Z",
+  updatedAt: "2026-06-03T00:00:00.000Z",
+  implementedAt: null,
+  implementationThreadId: null,
+  planMarkdown: [
+    "# Summary side panel redesign",
+    "",
+    "1. Preserve existing tab routing, reorder, overflow, and close behavior.",
+    "2. Replace the pill-heavy tab chrome with a quieter segmented surface.",
+    "3. Keep summary, plan, todo, and diff states visible in dev demo mode.",
+    "4. Validate that long content still scrolls inside the panel body.",
+  ].join("\n"),
+};
+
+const DEMO_WORKSPACE_SUMMARY: GeneratedWorkspaceSummary = {
+  createdAt: "2026-06-03T00:00:00.000Z",
+  turnId: null,
+  headline: "Summary panel demo",
+  summary: "Redesigned the side panel tabs and added seeded summary-panel demo content.",
+  keyChanges: [
+    "Made the tab strip feel more like a compact work surface.",
+    "Added demo data for summary, plan, todos, and diff metadata.",
+  ],
+  risks: ["Confirm the tab strip still reads well with many open editor and browser tabs."],
+  markdown: [
+    "### Summary panel demo",
+    "",
+    "The summary side panel now has a calmer tab treatment and seeded demo content for review.",
+    "",
+    "- Summary markdown renders with local link handling intact.",
+    "- Plan content includes action menu coverage.",
+    "- Todos show completed, running, and pending states.",
+    "- Diff metadata is populated without requiring real workspace changes.",
+  ].join("\n"),
+};
+
+const DEMO_WORKSPACE_DIFF_SUMMARY: WorkspaceDiffSummary = {
+  additions: 1284,
+  deletions: 326,
+  fileCount: 7,
+};
+
+function isSummaryPanelDemoEnabled(): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") return false;
+  const searchParams = new URLSearchParams(window.location.search);
+  return (
+    searchParams.get("summaryDemo") === "full" || searchParams.get("environmentDemo") === "full"
+  );
+}
+
 function DiffSummaryOverview({
   workspaceDiffSummary,
   actions,
@@ -135,37 +211,37 @@ function DiffSummaryOverview({
   workspaceDiffSummary: WorkspaceDiffSummary;
   actions: ReactNode;
 }) {
+  const changedFilesLabel =
+    workspaceDiffSummary.fileCount === 1
+      ? "1 file changed"
+      : `${formatDiffCount(workspaceDiffSummary.fileCount)} files changed`;
+
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">Diff summary</p>
+        <div className="min-w-0">
+          <SummaryPanelSectionLabel>Diff summary</SummaryPanelSectionLabel>
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            <p className="text-sm font-medium text-foreground">Working tree</p>
+            <p className="text-xs text-muted-foreground">{changedFilesLabel}</p>
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Current working tree changes ready for review.
-          </p>
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      <p className="text-sm text-muted-foreground">
-        <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="inline-flex items-baseline gap-x-1.5">
-            <span className="font-semibold tabular-nums text-success">
-              +{formatDiffCount(workspaceDiffSummary.additions)}
-            </span>
-            <span className="tabular-nums">/</span>
-            <span className="font-semibold tabular-nums text-destructive">
-              -{formatDiffCount(workspaceDiffSummary.deletions)}
-            </span>
-          </span>
-          <span>changes across</span>
-          <span className="inline-flex items-baseline gap-x-1">
-            <span className="tabular-nums">{formatDiffCount(workspaceDiffSummary.fileCount)}</span>
-            <span>{workspaceDiffSummary.fileCount === 1 ? "file" : "files"}</span>
-          </span>
-        </span>
-      </p>
+      <dl className="grid max-w-[18rem] grid-cols-[auto_auto] gap-x-6 gap-y-1 text-xs leading-5">
+        <div className="contents">
+          <dt className="text-muted-foreground">Added</dt>
+          <dd className="text-right font-medium tabular-nums text-foreground/85">
+            +{formatDiffCount(workspaceDiffSummary.additions)}
+          </dd>
+        </div>
+        <div className="contents">
+          <dt className="text-muted-foreground">Removed</dt>
+          <dd className="text-right font-medium tabular-nums text-foreground/85">
+            -{formatDiffCount(workspaceDiffSummary.deletions)}
+          </dd>
+        </div>
+      </dl>
     </div>
   );
 }
@@ -191,8 +267,16 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const [summaryRequestStartedAt, setSummaryRequestStartedAt] = useState<string | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
-  const effectivePlan = activePlan;
-  const effectivePlanMarkdown = activeProposedPlan?.planMarkdown ?? null;
+  const demoEnabled = isSummaryPanelDemoEnabled();
+  const effectivePlan = demoEnabled ? DEMO_ACTIVE_PLAN : activePlan;
+  const effectiveProposedPlan = demoEnabled ? DEMO_PROPOSED_PLAN : activeProposedPlan;
+  const effectiveGeneratedWorkspaceSummary = demoEnabled
+    ? DEMO_WORKSPACE_SUMMARY
+    : generatedWorkspaceSummary;
+  const effectiveWorkspaceDiffSummary = demoEnabled
+    ? DEMO_WORKSPACE_DIFF_SUMMARY
+    : workspaceDiffSummary;
+  const effectivePlanMarkdown = effectiveProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = effectivePlanMarkdown
     ? stripDisplayedPlanMarkdown(effectivePlanMarkdown)
     : null;
@@ -202,12 +286,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
     () => getDisplaySteps(effectivePlan?.steps ?? []),
     [effectivePlan?.steps],
   );
-  const hasActionableTodo = planProgress?.currentIndex !== null;
-  const progressDigits = planProgress ? Math.max(2, String(planProgress.total).length) : 2;
   const completedPercent = planProgress
     ? Math.round((planProgress.completed / Math.max(planProgress.total, 1)) * 100)
     : 0;
-  const generatedWorkspaceSummaryCreatedAt = generatedWorkspaceSummary?.createdAt ?? null;
+  const generatedWorkspaceSummaryCreatedAt = effectiveGeneratedWorkspaceSummary?.createdAt ?? null;
 
   useEffect(() => {
     if (
@@ -294,13 +376,13 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   const hasTodoSection = Boolean(effectivePlan && effectivePlan.steps.length > 0);
   const todoPlan = hasTodoSection ? effectivePlan : null;
   const hasAnyContent = Boolean(
-    generatedWorkspaceSummary ||
-    workspaceDiffSummary ||
+    effectiveGeneratedWorkspaceSummary ||
+    effectiveWorkspaceDiffSummary ||
     effectivePlanMarkdown ||
     hasTodoSection ||
     onRegenerateSummary,
   );
-  const regenerateSummaryLabel = generatedWorkspaceSummary
+  const regenerateSummaryLabel = effectiveGeneratedWorkspaceSummary
     ? "Regenerate summary"
     : "Generate summary";
   const regenerateSummaryTooltipLabel = isRegeneratingSummary
@@ -325,7 +407,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
           <Spinner className="size-3.5" />
         ) : (
           <>
-            {generatedWorkspaceSummary ? (
+            {effectiveGeneratedWorkspaceSummary ? (
               <RotateCwIcon className="size-3" />
             ) : (
               <SparklesIcon className="size-3" />
@@ -362,85 +444,85 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   ) : null;
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden p-4">
+    <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
       <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <ScrollArea className="min-h-0 flex-1" data-plan-summary-scroll-container="true">
-          <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
+          <div className="flex min-h-full flex-col">
             {!hasAnyContent ? null : (
               <>
-                {generatedWorkspaceSummary ? (
-                  <div className="space-y-4">
-                    {workspaceDiffSummary ? (
+                {effectiveGeneratedWorkspaceSummary ? (
+                  <SummaryPanelSection>
+                    <div className="space-y-4">
+                      {effectiveWorkspaceDiffSummary ? (
+                        <DiffSummaryOverview
+                          workspaceDiffSummary={effectiveWorkspaceDiffSummary}
+                          actions={diffSummaryActions}
+                        />
+                      ) : null}
+                      <div>
+                        <div className="flex items-start justify-between gap-3">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className={cn(PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME, "gap-2")}
+                            onClick={() => setSummaryDetailsExpanded((value) => !value)}
+                            aria-expanded={summaryDetailsExpanded}
+                            aria-label={
+                              summaryDetailsExpanded
+                                ? "Collapse summary details"
+                                : "Expand summary details"
+                            }
+                          >
+                            {summaryDetailsExpanded ? (
+                              <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                            ) : (
+                              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+                            )}
+                            <SummaryPanelSectionLabel>Summary</SummaryPanelSectionLabel>
+                          </Button>
+                          {!effectiveWorkspaceDiffSummary ? regenerateSummaryButton : null}
+                        </div>
+                        {isRegeneratingSummary ? (
+                          <div className="mt-3">
+                            <SummaryGenerationNotice hasExistingSummary={true} />
+                          </div>
+                        ) : null}
+                        {summaryDetailsExpanded ? (
+                          <div className="mt-3.5">
+                            <ChatMarkdown
+                              text={effectiveGeneratedWorkspaceSummary.markdown}
+                              cwd={markdownCwd}
+                              isStreaming={false}
+                              onOpenBrowserUrl={onOpenBrowserUrl}
+                              onOpenFilePath={onOpenFilePath}
+                              enableLocalFileLinks={enableLocalFileLinks}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </SummaryPanelSection>
+                ) : null}
+
+                {effectiveWorkspaceDiffSummary && !effectiveGeneratedWorkspaceSummary ? (
+                  <SummaryPanelSection>
+                    <div className="space-y-4">
                       <DiffSummaryOverview
-                        workspaceDiffSummary={workspaceDiffSummary}
+                        workspaceDiffSummary={effectiveWorkspaceDiffSummary}
                         actions={diffSummaryActions}
                       />
-                    ) : null}
-                    <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className={cn(PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME, "gap-2")}
-                          onClick={() => setSummaryDetailsExpanded((value) => !value)}
-                          aria-expanded={summaryDetailsExpanded}
-                          aria-label={
-                            summaryDetailsExpanded
-                              ? "Collapse summary details"
-                              : "Expand summary details"
-                          }
-                        >
-                          {summaryDetailsExpanded ? (
-                            <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                          ) : (
-                            <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                          )}
-                          <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                            Summary
-                          </span>
-                        </Button>
-                        {!workspaceDiffSummary ? regenerateSummaryButton : null}
-                      </div>
                       {isRegeneratingSummary ? (
-                        <div className="mt-3">
-                          <SummaryGenerationNotice hasExistingSummary={true} />
-                        </div>
-                      ) : null}
-                      {summaryDetailsExpanded ? (
-                        <div className="mt-4 pb-1 pt-1">
-                          <ChatMarkdown
-                            text={generatedWorkspaceSummary.markdown}
-                            cwd={markdownCwd}
-                            isStreaming={false}
-                            onOpenBrowserUrl={onOpenBrowserUrl}
-                            onOpenFilePath={onOpenFilePath}
-                            enableLocalFileLinks={enableLocalFileLinks}
-                          />
-                        </div>
+                        <SummaryGenerationNotice hasExistingSummary={false} />
                       ) : null}
                     </div>
-                  </div>
+                  </SummaryPanelSection>
                 ) : null}
 
-                {workspaceDiffSummary && !generatedWorkspaceSummary ? (
-                  <div className="space-y-4">
-                    <DiffSummaryOverview
-                      workspaceDiffSummary={workspaceDiffSummary}
-                      actions={diffSummaryActions}
-                    />
-                    {isRegeneratingSummary ? (
-                      <SummaryGenerationNotice hasExistingSummary={false} />
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {!generatedWorkspaceSummary && !workspaceDiffSummary ? (
-                  <div>
+                {!effectiveGeneratedWorkspaceSummary && !effectiveWorkspaceDiffSummary ? (
+                  <SummaryPanelSection>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-2">
-                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                          Changes
-                        </p>
+                        <SummaryPanelSectionLabel>Changes</SummaryPanelSectionLabel>
                         <p className="text-sm font-semibold text-foreground">No changes</p>
                         <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
                           There are no uncommitted code changes.
@@ -455,22 +537,14 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         <SummaryGenerationNotice hasExistingSummary={false} />
                       </div>
                     ) : null}
-                  </div>
+                  </SummaryPanelSection>
                 ) : null}
 
                 {effectivePlanMarkdown ? (
-                  <div
-                    className={
-                      generatedWorkspaceSummary || workspaceDiffSummary
-                        ? "border-t border-border/60 pt-6"
-                        : undefined
-                    }
-                  >
+                  <SummaryPanelSection>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-2">
-                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                          Plan
-                        </p>
+                        <SummaryPanelSectionLabel>Plan</SummaryPanelSectionLabel>
                         <div className="flex flex-wrap items-center gap-2">
                           <Button
                             type="button"
@@ -522,8 +596,8 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                       </Menu>
                     </div>
                     {planDetailsExpanded ? (
-                      <div className="mt-4 overflow-hidden rounded-none bg-transparent">
-                        <div className="pb-4 pt-3.5">
+                      <div className="mt-3.5 overflow-hidden">
+                        <div className="pb-1">
                           <ChatMarkdown
                             text={displayedPlanMarkdown ?? ""}
                             cwd={markdownCwd}
@@ -535,16 +609,14 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         </div>
                       </div>
                     ) : null}
-                  </div>
+                  </SummaryPanelSection>
                 ) : null}
 
                 {todoPlan ? (
-                  <div className="border-t border-border/50 pt-6">
+                  <SummaryPanelSection>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-2">
-                        <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                          Todos
-                        </p>
+                        <SummaryPanelSectionLabel>Todos</SummaryPanelSectionLabel>
                         <div className="flex flex-wrap items-center gap-2">
                           <Button
                             variant="ghost"
@@ -569,33 +641,13 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                           </Button>
                         </div>
                       </div>
-                      {planProgress ? (
-                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                          {hasActionableTodo ? (
-                            <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/25 bg-blue-500/8 px-2.5 py-1 text-[11px] font-medium text-blue-300">
-                              <Spinner className="size-3.5" />
-                              <span className="tabular-nums">
-                                {formatPlanProgressValue(
-                                  planProgress.currentIndex ?? 1,
-                                  progressDigits,
-                                )}
-                                /{formatPlanProgressValue(planProgress.total, progressDigits)}
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                              {planProgress.completed}/{planProgress.total} done
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
                     </div>
 
                     {todoDetailsExpanded && planProgress ? (
                       <div className="mt-4 p-0">
                         <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
                           <div
-                            className="h-full rounded-full bg-[linear-gradient(90deg,rgba(96,165,250,0.95),rgba(59,130,246,0.58))] transition-[width] duration-300 ease-out"
+                            className="h-full rounded-full bg-muted-foreground/55 transition-[width] duration-300 ease-out"
                             style={{ width: `${completedPercent}%` }}
                           />
                         </div>
@@ -603,7 +655,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                     ) : null}
 
                     {todoDetailsExpanded && displaySteps.length > 0 ? (
-                      <div className="mt-4 space-y-2.5">
+                      <div className="mt-3 space-y-1.5">
                         {(() => {
                           const stepOccurrenceByText = new Map<string, number>();
                           return displaySteps.map((step) => {
@@ -614,7 +666,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                             return (
                               <div
                                 key={stepKey}
-                                className="flex items-start gap-3 px-0 py-2.5 transition-colors duration-200"
+                                className="flex items-start gap-2.5 py-2 transition-colors duration-200"
                               >
                                 <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
                                 <div className="min-w-0 flex-1">
@@ -622,7 +674,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                                     className={cn(
                                       "text-[13px] leading-snug",
                                       step.status === "completed"
-                                        ? "text-muted-foreground line-through decoration-muted-foreground"
+                                        ? "text-muted-foreground"
                                         : step.status === "inProgress"
                                           ? "text-foreground"
                                           : "text-muted-foreground",
@@ -637,7 +689,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         })()}
                       </div>
                     ) : null}
-                  </div>
+                  </SummaryPanelSection>
                 ) : null}
               </>
             )}
