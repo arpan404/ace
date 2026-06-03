@@ -75,6 +75,7 @@ interface PersistedEditorStoreSnapshot {
 
 interface EditorStoreState {
   addCodeComment: (threadId: EditorStateScopeId, comment: WorkspaceCodeComment) => void;
+  clearThreadState: (threadId: EditorStateScopeId) => void;
   closeFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeFilesToRight: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeOtherFiles: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
@@ -153,6 +154,19 @@ export function resolveEditorStateScopeId(input: {
     return `${PROJECT_EDITOR_SCOPE_PREFIX}${normalizedGitCwd}`;
   }
   return input.threadId;
+}
+
+export function resolveEditorInstanceStateScopeId(input: {
+  gitCwd: string | null | undefined;
+  instanceId: string | null | undefined;
+  threadId: ThreadId;
+}): EditorStateScopeId {
+  const baseScopeId = resolveEditorStateScopeId({
+    gitCwd: input.gitCwd,
+    threadId: input.threadId,
+  });
+  const normalizedInstanceId = input.instanceId?.trim();
+  return normalizedInstanceId ? `${baseScopeId}:instance:${normalizedInstanceId}` : baseScopeId;
 }
 
 function normalizePathList(paths: readonly string[]): string[] {
@@ -688,6 +702,25 @@ export const useEditorStateStore = create<EditorStoreState>()(
                 codeComments: nextCodeComments,
               },
             },
+          };
+        }),
+      clearThreadState: (threadId) =>
+        set((state) => {
+          threadEditorStateCache.delete(threadId);
+          if (
+            state.threadStateByThreadId[threadId] === undefined &&
+            state.runtimeStateByThreadId[threadId] === undefined
+          ) {
+            return state;
+          }
+          const nextThreadStateByThreadId = { ...state.threadStateByThreadId };
+          const nextRuntimeStateByThreadId = { ...state.runtimeStateByThreadId };
+          delete nextThreadStateByThreadId[threadId];
+          delete nextRuntimeStateByThreadId[threadId];
+          return {
+            ...state,
+            runtimeStateByThreadId: nextRuntimeStateByThreadId,
+            threadStateByThreadId: nextThreadStateByThreadId,
           };
         }),
       closeFile: (threadId, filePath, paneId) =>

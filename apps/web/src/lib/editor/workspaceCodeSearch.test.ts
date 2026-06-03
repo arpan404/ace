@@ -30,10 +30,8 @@ describe("workspaceCodeSearch", () => {
   it("builds path and content search fanout queries", () => {
     expect(buildWorkspaceCodeSearchQueries("auth token refresh")).toEqual([
       "auth token refresh",
-      "content:auth token refresh",
       "content:auth",
       "content:token",
-      "content:refresh",
     ]);
   });
 

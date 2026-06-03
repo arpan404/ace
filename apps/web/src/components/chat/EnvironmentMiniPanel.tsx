@@ -114,7 +114,7 @@ export const EnvironmentMiniPanel = forwardRef<
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="-mr-1 size-7 shrink-0 rounded-full border border-border/60 bg-muted/30 text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="-mr-1 size-7 shrink-0 rounded-full bg-muted/30 text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={props.onOpenEnvironmentSettings}
                 aria-label="Open environment settings"
               />

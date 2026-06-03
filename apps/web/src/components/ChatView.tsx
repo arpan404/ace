@@ -3,6 +3,7 @@ import {
   type ClientOrchestrationCommand,
   type CommandId,
   DEFAULT_MODEL_BY_PROVIDER,
+  type DesktopDetachedWindowReturnRequest,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
@@ -190,6 +191,12 @@ import {
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "../lib/terminalContext";
+import {
+  consumePendingDetachedWindowReturnRequest,
+  DETACHED_WINDOW_RETURN_EVENT,
+  isDetachedWindowReturnRequest,
+  resolveDetachedWindowReturnThreadId,
+} from "~/lib/detachedWindowReturn";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
 import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/desktopChrome";
@@ -199,7 +206,7 @@ import {
 } from "~/lib/chat/threadRenderState";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import { useEditorStateStore } from "../editorStateStore";
+import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "../editorStateStore";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
@@ -210,7 +217,7 @@ import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import type { DiffReviewCommentInput } from "./DiffPanel";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { resolveExpandedImageItem, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadLanding } from "./chat/NewThreadLanding";
 import {
   ConnectedChatComposerPanels,
@@ -287,7 +294,7 @@ import {
   MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
-import type { BrowserSessionStorage } from "~/lib/browser/session";
+import { clearBrowserSessionStorage, type BrowserSessionStorage } from "~/lib/browser/session";
 import { setActiveBrowserTab } from "~/lib/browser/session";
 import {
   clearBrowserSessions,
@@ -472,10 +479,10 @@ interface PanelEditorTab {
   label: string;
 }
 
-function createPanelEditorTab(index: number): PanelEditorTab {
+function createPanelEditorTab(id = `editor-${randomUUID()}`): PanelEditorTab {
   return {
-    id: `editor-${randomUUID()}`,
-    label: index <= 1 ? "Editor" : `Editor ${index}`,
+    id,
+    label: "Editor",
   };
 }
 
@@ -1346,7 +1353,7 @@ function useChatViewComponent({
   ]);
   const [bottomPanelTabOrder, setBottomPanelTabOrder] = useState<PanelTabOrderEntry[]>([]);
   const [rightPanelEditorTabs, setRightPanelEditorTabs] = useState<PanelEditorTab[]>(() =>
-    rightSidePanelEditorOpen ? [createPanelEditorTab(1)] : [],
+    rightSidePanelEditorOpen ? [createPanelEditorTab()] : [],
   );
   const [activeRightPanelEditorTabId, setActiveRightPanelEditorTabId] = useState<string | null>(
     () => (rightSidePanelEditorOpen ? (rightPanelEditorTabs[0]?.id ?? null) : null),
@@ -1355,8 +1362,6 @@ function useChatViewComponent({
   const [activeBottomPanelEditorTabId, setActiveBottomPanelEditorTabId] = useState<string | null>(
     null,
   );
-  const rightPanelEditorTabIndexRef = useRef(rightSidePanelEditorOpen ? 2 : 1);
-  const bottomPanelEditorTabIndexRef = useRef(1);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -3438,7 +3443,10 @@ function useChatViewComponent({
   );
   const primaryBrowserInstanceId = activeBrowserInstanceIds[0] ?? null;
   const cleanupBrowserInstanceState = useCallback(
-    (browserInstanceId: string, options?: { resetVisibleState?: boolean }) => {
+    (
+      browserInstanceId: string,
+      options?: { clearPersistentSession?: boolean; resetVisibleState?: boolean },
+    ) => {
       browserControllerByThreadRef.current.delete(browserInstanceId);
       browserRuntimeStateByThreadRef.current.delete(browserInstanceId);
       browserSessionChangeHandlerByThreadRef.current.delete(browserInstanceId);
@@ -3446,6 +3454,9 @@ function useChatViewComponent({
       browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserInstanceId);
       browserViewportResizeHandlerByThreadRef.current.delete(browserInstanceId);
       deleteBrowserSession(browserInstanceId);
+      if (options?.clearPersistentSession) {
+        clearBrowserSessionStorage(browserInstanceId);
+      }
       if (activeBrowserThreadIdRef.current !== browserInstanceId) {
         return;
       }
@@ -4407,7 +4418,11 @@ function useChatViewComponent({
     ],
   );
   const queuePreparedMessage = useCallback(
-    async (preparedPrompt: string, images: ReadonlyArray<ComposerImageAttachment> = []) => {
+    async (
+      preparedPrompt: string,
+      images: ReadonlyArray<ComposerImageAttachment> = [],
+      options?: { targetThreadId?: ThreadId },
+    ) => {
       const queuedImages = images.length === 0 ? [] : await buildQueuedComposerImages([...images]);
       const queuedMessage: QueuedComposerMessage = {
         id: newMessageId(),
@@ -4418,12 +4433,17 @@ function useChatViewComponent({
         runtimeMode,
         interactionMode,
       };
-      const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: preparedPrompt,
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
-      });
+      const activeComposerThreadId = activeThread?.id ?? threadId;
+      const requestedTargetThreadId = options?.targetThreadId ?? activeComposerThreadId;
+      const targetThreadId =
+        requestedTargetThreadId === activeComposerThreadId
+          ? await ensureQueuedComposerThread({
+              titleSeed: preparedPrompt,
+              modelSelection: selectedModelSelection,
+              runtimeMode,
+              interactionMode,
+            })
+          : requestedTargetThreadId;
       if (!targetThreadId) {
         return false;
       }
@@ -4436,10 +4456,12 @@ function useChatViewComponent({
       interactionMode,
       runtimeMode,
       selectedModelSelection,
+      activeThread?.id,
+      threadId,
     ],
   );
   const queueBrowserDesignRequest = useEffectEvent(
-    async (submission: BrowserDesignRequestSubmission) => {
+    async (targetThreadId: ThreadId, submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
       const normalizedMimeType =
         submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
@@ -4462,7 +4484,7 @@ function useChatViewComponent({
         mainContainer: submission.mainContainer,
       });
       if (commentSubmissionMode === "accumulate") {
-        const existingPendingComments = pendingComposerCommentsByThreadId[threadId] ?? [];
+        const existingPendingComments = pendingComposerCommentsByThreadId[targetThreadId] ?? [];
         if (existingPendingComments.length >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
           throw new Error(
             `You can accumulate up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} browser comments with screenshots.`,
@@ -4479,8 +4501,8 @@ function useChatViewComponent({
         });
         setPendingComposerCommentsByThreadId((current) => ({
           ...current,
-          [threadId]: [
-            ...(current[threadId] ?? []),
+          [targetThreadId]: [
+            ...(current[targetThreadId] ?? []),
             {
               id: randomUUID(),
               source: "browser",
@@ -4504,16 +4526,20 @@ function useChatViewComponent({
         runtimeMode,
         interactionMode,
       };
-      const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: trimmedInstructions || "Designer comment",
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
-      });
-      if (!targetThreadId) {
+      const activeComposerThreadId = activeThread?.id ?? threadId;
+      const queueTargetThreadId =
+        targetThreadId === activeComposerThreadId
+          ? await ensureQueuedComposerThread({
+              titleSeed: trimmedInstructions || "Designer comment",
+              modelSelection: selectedModelSelection,
+              runtimeMode,
+              interactionMode,
+            })
+          : targetThreadId;
+      if (!queueTargetThreadId) {
         throw new Error("Failed to add the comment.");
       }
-      const persisted = await appendQueuedComposerMessage(targetThreadId, queuedMessage);
+      const persisted = await appendQueuedComposerMessage(queueTargetThreadId, queuedMessage);
       if (!persisted) {
         throw new Error("Failed to add the comment.");
       }
@@ -4709,7 +4735,10 @@ function useChatViewComponent({
     removeRightPanelTabOrder("browser");
     setRightSidePanelMode((current) => (current === "browser" ? "summary" : current));
     if (rightBrowserInstanceId) {
-      cleanupBrowserInstanceState(rightBrowserInstanceId);
+      setMountedBrowserInstances((current) =>
+        current.filter((entry) => entry.instanceId !== rightBrowserInstanceId),
+      );
+      cleanupBrowserInstanceState(rightBrowserInstanceId, { clearPersistentSession: true });
     }
   }, [
     cleanupBrowserInstanceState,
@@ -4719,6 +4748,12 @@ function useChatViewComponent({
     setBrowserMode,
     setRightSidePanelMode,
   ]);
+  const detachRightSidePanelBrowser = useCallback(() => {
+    setBrowserMode("closed");
+    setBrowserDevToolsOpen(false);
+    removeRightPanelTabOrder("browser");
+    setRightSidePanelMode((current) => (current === "browser" ? "summary" : current));
+  }, [removeRightPanelTabOrder, setBrowserDevToolsOpen, setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelVisible(false);
@@ -4726,21 +4761,23 @@ function useChatViewComponent({
     }
     setRightSidePanelVisible(true);
   }, [rightSidePanelOpen, setRightSidePanelVisible]);
-  const onNewRightSidePanelEditorTab = useCallback(() => {
-    const tab = createPanelEditorTab(rightPanelEditorTabIndexRef.current);
-    rightPanelEditorTabIndexRef.current += 1;
-    appendRightPanelTabOrder(`editor:${tab.id}`);
-    setRightPanelEditorTabs((current) => [...current, tab]);
-    setActiveRightPanelEditorTabId(tab.id);
-    setRightSidePanelEditorOpen(true);
-    setRightSidePanelMode("editor");
-    setRightSidePanelVisible(true);
-  }, [
-    appendRightPanelTabOrder,
-    setRightSidePanelEditorOpen,
-    setRightSidePanelMode,
-    setRightSidePanelVisible,
-  ]);
+  const onNewRightSidePanelEditorTab = useCallback(
+    (tabId?: string) => {
+      const tab = createPanelEditorTab(tabId);
+      appendRightPanelTabOrder(`editor:${tab.id}`);
+      setRightPanelEditorTabs((current) => [...current, tab]);
+      setActiveRightPanelEditorTabId(tab.id);
+      setRightSidePanelEditorOpen(true);
+      setRightSidePanelMode("editor");
+      setRightSidePanelVisible(true);
+    },
+    [
+      appendRightPanelTabOrder,
+      setRightSidePanelEditorOpen,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+    ],
+  );
   const onSelectRightSidePanelEditorTab = useCallback(
     (tabId: string) => {
       setActiveRightPanelEditorTabId(tabId);
@@ -4798,28 +4835,45 @@ function useChatViewComponent({
     },
     [setRightPanelEditorTabs],
   );
-  const onOpenRightSidePanelEditor = useCallback(() => {
-    if (rightPanelEditorTabs.length === 0) {
-      onNewRightSidePanelEditorTab();
-      return;
-    }
-    const activeEditorTabId = activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? null;
-    if (activeEditorTabId) {
-      appendRightPanelTabOrder(`editor:${activeEditorTabId}`);
-    }
-    setActiveRightPanelEditorTabId(activeEditorTabId);
-    setRightSidePanelEditorOpen(true);
-    setRightSidePanelMode("editor");
-    setRightSidePanelVisible(true);
-  }, [
-    activeRightPanelEditorTabId,
-    appendRightPanelTabOrder,
-    onNewRightSidePanelEditorTab,
-    rightPanelEditorTabs,
-    setRightSidePanelEditorOpen,
-    setRightSidePanelMode,
-    setRightSidePanelVisible,
-  ]);
+  const onOpenRightSidePanelEditor = useCallback(
+    (tabId?: string) => {
+      if (tabId) {
+        const existingEditorTab = rightPanelEditorTabs.find((tab) => tab.id === tabId);
+        const nextEditorTab = existingEditorTab ?? createPanelEditorTab(tabId);
+        if (!existingEditorTab) {
+          setRightPanelEditorTabs((current) => [...current, nextEditorTab]);
+        }
+        appendRightPanelTabOrder(`editor:${nextEditorTab.id}`);
+        setActiveRightPanelEditorTabId(nextEditorTab.id);
+        setRightSidePanelEditorOpen(true);
+        setRightSidePanelMode("editor");
+        setRightSidePanelVisible(true);
+        return;
+      }
+      if (rightPanelEditorTabs.length === 0) {
+        onNewRightSidePanelEditorTab();
+        return;
+      }
+      const activeEditorTabId = activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? null;
+      if (activeEditorTabId) {
+        appendRightPanelTabOrder(`editor:${activeEditorTabId}`);
+      }
+      setActiveRightPanelEditorTabId(activeEditorTabId);
+      setRightSidePanelEditorOpen(true);
+      setRightSidePanelMode("editor");
+      setRightSidePanelVisible(true);
+    },
+    [
+      activeRightPanelEditorTabId,
+      appendRightPanelTabOrder,
+      onNewRightSidePanelEditorTab,
+      rightPanelEditorTabs,
+      setRightPanelEditorTabs,
+      setRightSidePanelEditorOpen,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+    ],
+  );
   const onOpenRightSidePanelTerminal = useCallback(() => {
     appendRightPanelTabOrder(`terminal:${terminalState.activeTerminalId}`);
     setRightSidePanelTerminalOpen(true);
@@ -4844,7 +4898,7 @@ function useChatViewComponent({
   );
   const openMarkdownFileInAppEditor = useCallback(
     (targetPath: string) => {
-      if (!activeThreadId) {
+      if (!activeThreadId || !gitCwd) {
         return;
       }
       const normalizedTargetPath = targetPath.trim();
@@ -4867,10 +4921,27 @@ function useChatViewComponent({
       if (resolvedFilePath.length === 0) {
         return;
       }
-      onOpenRightSidePanelEditor();
-      openEditorFile(activeThreadId, resolvedFilePath);
+      const targetEditorTabId =
+        activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? `editor-${randomUUID()}`;
+      onOpenRightSidePanelEditor(targetEditorTabId);
+      openEditorFile(
+        resolveEditorInstanceStateScopeId({
+          gitCwd,
+          instanceId: targetEditorTabId,
+          threadId: activeThreadId,
+        }),
+        resolvedFilePath,
+      );
     },
-    [activeThreadId, onOpenRightSidePanelEditor, openEditorFile, workspaceRootsForInAppFileOpen],
+    [
+      activeRightPanelEditorTabId,
+      activeThreadId,
+      gitCwd,
+      onOpenRightSidePanelEditor,
+      openEditorFile,
+      rightPanelEditorTabs,
+      workspaceRootsForInAppFileOpen,
+    ],
   );
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
@@ -5002,14 +5073,16 @@ function useChatViewComponent({
     setRightSidePanelEditorOpen,
     setRightSidePanelMode,
   ]);
-  const onNewBottomPanelEditorTab = useCallback(() => {
-    const tab = createPanelEditorTab(bottomPanelEditorTabIndexRef.current);
-    bottomPanelEditorTabIndexRef.current += 1;
-    appendBottomPanelTabOrder(`editor:${tab.id}`);
-    setBottomPanelEditorTabs((current) => [...current, tab]);
-    setActiveBottomPanelEditorTabId(tab.id);
-    setBottomPanelMode("editor");
-  }, [appendBottomPanelTabOrder]);
+  const onNewBottomPanelEditorTab = useCallback(
+    (tabId?: string) => {
+      const tab = createPanelEditorTab(tabId);
+      appendBottomPanelTabOrder(`editor:${tab.id}`);
+      setBottomPanelEditorTabs((current) => [...current, tab]);
+      setActiveBottomPanelEditorTabId(tab.id);
+      setBottomPanelMode("editor");
+    },
+    [appendBottomPanelTabOrder],
+  );
   const onSelectBottomPanelEditorTab = useCallback((tabId: string) => {
     setActiveBottomPanelEditorTabId(tabId);
     setBottomPanelMode("editor");
@@ -5069,23 +5142,83 @@ function useChatViewComponent({
     removeBottomPanelTabOrder,
     setTerminalOpen,
   ]);
-  const onOpenBottomPanelEditor = useCallback(() => {
-    if (bottomPanelEditorTabs.length === 0) {
-      onNewBottomPanelEditorTab();
-      return;
+  const onOpenBottomPanelEditor = useCallback(
+    (tabId?: string) => {
+      if (tabId) {
+        const existingEditorTab = bottomPanelEditorTabs.find((tab) => tab.id === tabId);
+        const nextEditorTab = existingEditorTab ?? createPanelEditorTab(tabId);
+        if (!existingEditorTab) {
+          setBottomPanelEditorTabs((current) => [...current, nextEditorTab]);
+        }
+        setActiveBottomPanelEditorTabId(nextEditorTab.id);
+        appendBottomPanelTabOrder(`editor:${nextEditorTab.id}`);
+        setBottomPanelMode("editor");
+        return;
+      }
+      if (bottomPanelEditorTabs.length === 0) {
+        onNewBottomPanelEditorTab();
+        return;
+      }
+      const activeEditorTabId =
+        activeBottomPanelEditorTabId ?? bottomPanelEditorTabs[0]?.id ?? null;
+      setActiveBottomPanelEditorTabId(activeEditorTabId);
+      if (activeEditorTabId) {
+        appendBottomPanelTabOrder(`editor:${activeEditorTabId}`);
+      }
+      setBottomPanelMode("editor");
+    },
+    [
+      activeBottomPanelEditorTabId,
+      appendBottomPanelTabOrder,
+      bottomPanelEditorTabs,
+      onNewBottomPanelEditorTab,
+      setBottomPanelEditorTabs,
+    ],
+  );
+  const handleDetachedWindowReturnRequest = useEffectEvent(
+    (request: DesktopDetachedWindowReturnRequest) => {
+      const requestThreadId = resolveDetachedWindowReturnThreadId(request);
+      if (requestThreadId !== null && requestThreadId !== threadId) {
+        return;
+      }
+      if (request.kind === "browser") {
+        if (request.scopeId === bottomBrowserInstanceId) {
+          onOpenBottomPanelBrowser();
+          return;
+        }
+        openBrowser();
+        return;
+      }
+      if (request.placement === "bottom") {
+        onOpenBottomPanelEditor(request.editorStateInstanceId);
+        return;
+      }
+      if (request.placement === "workspace") {
+        onWorkspaceModeChange(request.workspaceMode ?? "editor");
+        return;
+      }
+      onOpenRightSidePanelEditor(request.editorStateInstanceId);
+    },
+  );
+  useEffect(() => {
+    const pendingRequest = consumePendingDetachedWindowReturnRequest(threadId);
+    if (pendingRequest) {
+      handleDetachedWindowReturnRequest(pendingRequest);
     }
-    const activeEditorTabId = activeBottomPanelEditorTabId ?? bottomPanelEditorTabs[0]?.id ?? null;
-    setActiveBottomPanelEditorTabId(activeEditorTabId);
-    if (activeEditorTabId) {
-      appendBottomPanelTabOrder(`editor:${activeEditorTabId}`);
-    }
-    setBottomPanelMode("editor");
-  }, [
-    activeBottomPanelEditorTabId,
-    appendBottomPanelTabOrder,
-    bottomPanelEditorTabs,
-    onNewBottomPanelEditorTab,
-  ]);
+  }, [threadId]);
+  useEffect(() => {
+    const handleDetachedWindowReturn = (event: Event) => {
+      const request = event instanceof CustomEvent ? event.detail : null;
+      if (!isDetachedWindowReturnRequest(request)) {
+        return;
+      }
+      handleDetachedWindowReturnRequest(request);
+    };
+    window.addEventListener(DETACHED_WINDOW_RETURN_EVENT, handleDetachedWindowReturn);
+    return () => {
+      window.removeEventListener(DETACHED_WINDOW_RETURN_EVENT, handleDetachedWindowReturn);
+    };
+  }, []);
   const onCloseRightSidePanelTerminal = useCallback(() => {
     setRightSidePanelTerminalOpen(false);
     removeRightPanelTabOrder("terminal");
@@ -5162,7 +5295,10 @@ function useChatViewComponent({
     setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
     setTerminalOpen(true);
     if (bottomBrowserInstanceId) {
-      cleanupBrowserInstanceState(bottomBrowserInstanceId);
+      setMountedBrowserInstances((current) =>
+        current.filter((entry) => entry.instanceId !== bottomBrowserInstanceId),
+      );
+      cleanupBrowserInstanceState(bottomBrowserInstanceId, { clearPersistentSession: true });
     }
   }, [
     bottomBrowserInstanceId,
@@ -5170,6 +5306,12 @@ function useChatViewComponent({
     removeBottomPanelTabOrder,
     setTerminalOpen,
   ]);
+  const detachBottomPanelBrowser = useCallback(() => {
+    setBottomPanelBrowserOpen(false);
+    removeBottomPanelTabOrder("browser");
+    setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
+    setTerminalOpen(true);
+  }, [removeBottomPanelTabOrder, setTerminalOpen]);
   const onCloseBottomPanelBrowserTab = useCallback(
     (tabId: string) => {
       if (!bottomBrowserInstanceId) {
@@ -7958,13 +8100,18 @@ function useChatViewComponent({
     [dispatchQueuedComposerMessage, isConnecting, isSendBusy, liveTurnInProgress, serverThread],
   );
   const submitWorkspaceAgentNote = useCallback(
-    async (input: { mode: "queue" | "send"; prompt: string }) => {
+    async (input: { mode: "queue" | "send"; prompt: string; threadId?: ThreadId }) => {
       const trimmedPrompt = input.prompt.trim();
       if (trimmedPrompt.length === 0) {
         return false;
       }
+      const activeComposerThreadId = activeThread?.id ?? threadId;
+      const targetThreadId = input.threadId ?? activeComposerThreadId;
       if (input.mode === "queue") {
-        return queuePreparedMessage(trimmedPrompt);
+        return queuePreparedMessage(trimmedPrompt, [], { targetThreadId });
+      }
+      if (targetThreadId !== activeComposerThreadId) {
+        return queuePreparedMessage(trimmedPrompt, [], { targetThreadId });
       }
       if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
         return false;
@@ -7987,6 +8134,8 @@ function useChatViewComponent({
       queuePreparedMessage,
       runtimeMode,
       selectedModelSelection,
+      activeThread?.id,
+      threadId,
     ],
   );
 
@@ -8941,9 +9090,12 @@ function useChatViewComponent({
     }));
   }, []);
   const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
+    if (!resolveExpandedImageItem(preview)) {
+      return;
+    }
     setExpandedImage(preview);
   }, []);
-  const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
+  const expandedImageItem = resolveExpandedImageItem(expandedImage);
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!rightSidePanelEnabled) {
@@ -9614,6 +9766,9 @@ function useChatViewComponent({
                   mode: browserViewMode,
                   scopeId: browserInstanceId,
                   onClose: isBottomBrowserInstance ? onCloseBottomPanelBrowser : closeBrowser,
+                  onDetached: isBottomBrowserInstance
+                    ? detachBottomPanelBrowser
+                    : detachRightSidePanelBrowser,
                   onBrowserSessionChange: getBrowserSessionChangeHandler(browserInstanceId),
                   onControllerChange: getBrowserControllerChangeHandler(browserInstanceId),
                   onActiveRuntimeStateChange:
@@ -9627,7 +9782,8 @@ function useChatViewComponent({
                   devToolsShortcutLabel: browserDevToolsShortcutLabel,
                   forwardShortcutLabel: browserForwardShortcutLabel,
                   reloadShortcutLabel: browserReloadShortcutLabel,
-                  onQueueDesignRequest: queueBrowserDesignRequest,
+                  onQueueDesignRequest: (submission: BrowserDesignRequestSubmission) =>
+                    queueBrowserDesignRequest(browserThreadId, submission),
                 },
               };
             }),
@@ -10335,6 +10491,7 @@ function useChatViewComponent({
                       terminalOpen={terminalState.terminalOpen}
                       threadId={activeThread.id}
                       worktreePath={activeThread.worktreePath ?? null}
+                      detachedReturnPlacement="workspace"
                       onDetached={() => onWorkspaceModeChange("chat")}
                       onSubmitAgentNote={submitWorkspaceAgentNote}
                     />
@@ -10535,6 +10692,7 @@ function useChatViewComponent({
                             terminalOpen={terminalState.terminalOpen}
                             threadId={activeThread.id}
                             worktreePath={activeThread.worktreePath ?? null}
+                            detachedReturnPlacement="workspace"
                             onDetached={() => onWorkspaceModeChange("chat")}
                             onSubmitAgentNote={submitWorkspaceAgentNote}
                           />
@@ -10713,9 +10871,11 @@ function useChatViewComponent({
                                 keybindings={keybindings}
                                 browserOpen={anyBrowserOpen}
                                 workspaceMode="split"
+                                editorStateInstanceId={activeRightPanelEditorTabId ?? "right"}
                                 terminalOpen={terminalState.terminalOpen}
                                 threadId={activeThread.id}
                                 worktreePath={activeThread.worktreePath ?? null}
+                                detachedReturnPlacement="right"
                                 onDetached={onCloseRightSidePanelEditor}
                                 onSubmitAgentNote={submitWorkspaceAgentNote}
                               />
@@ -10854,9 +11014,11 @@ function useChatViewComponent({
                         keybindings={keybindings}
                         browserOpen={anyBrowserOpen}
                         workspaceMode="split"
+                        editorStateInstanceId={activeBottomPanelEditorTabId ?? "bottom"}
                         terminalOpen={terminalState.terminalOpen}
                         threadId={activeThread.id}
                         worktreePath={activeThread.worktreePath ?? null}
+                        detachedReturnPlacement="bottom"
                         onDetached={onCloseBottomPanelEditor}
                         onSubmitAgentNote={submitWorkspaceAgentNote}
                       />

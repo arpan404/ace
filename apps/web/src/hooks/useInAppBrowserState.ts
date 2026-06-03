@@ -2262,6 +2262,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     },
     [clearBridgeReadCache],
   );
+  const hasWebContentsId = useCallback(
+    (webContentsId: number) =>
+      browserSession.tabs.some(
+        (tab) => webviewHandlesRef.current.get(tab.id)?.getWebContentsId() === webContentsId,
+      ),
+    [browserSession.tabs],
+  );
 
   const handleTabSnapshotChange = useCallback(
     (tabId: string, snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
@@ -2538,6 +2545,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     openUrl,
     reorderTabs,
     registerWebviewHandle,
+    hasWebContentsId,
     reload,
     repairBrowserStorage,
     selectDesignerTool,

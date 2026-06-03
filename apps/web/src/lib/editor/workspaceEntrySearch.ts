@@ -63,11 +63,20 @@ export function shouldRunWorkspaceRemoteSearch(query: string): boolean {
 export function searchWorkspaceEntriesLocally(
   entries: readonly ProjectEntry[],
   query: string,
+  options?: {
+    readonly limit?: number;
+  },
 ): readonly ProjectEntry[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) {
-    return entries;
+    return options?.limit === undefined ? entries : entries.slice(0, options.limit);
   }
+
+  const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+  if (limit <= 0) {
+    return [];
+  }
+  const bounded = Number.isFinite(limit);
 
   const lowerTrimmed = trimmed.toLowerCase();
   if (lowerTrimmed.startsWith("re:")) {
@@ -75,12 +84,22 @@ export function searchWorkspaceEntriesLocally(
     if (!regex) {
       return [];
     }
-    return entries.filter((entry) => regex.test(entry.path));
+    const matches: ProjectEntry[] = [];
+    for (const entry of entries) {
+      if (!regex.test(entry.path)) {
+        continue;
+      }
+      matches.push(entry);
+      if (matches.length >= limit) {
+        break;
+      }
+    }
+    return matches;
   }
 
   const normalizedQuery = lowerTrimmed.replace(/^[@./]+/, "");
   if (normalizedQuery.length === 0) {
-    return entries;
+    return entries.slice(0, limit);
   }
 
   const pathSegmentMatcher = new RegExp(escapeRegExp(`/${normalizedQuery}`));
@@ -112,14 +131,45 @@ export function searchWorkspaceEntriesLocally(
     }
 
     if (score !== null) {
-      scoredEntries.push({ entry, score });
+      if (!bounded) {
+        scoredEntries.push({ entry, score });
+        continue;
+      }
+
+      const candidate = { entry, score };
+      if (scoredEntries.length < limit) {
+        scoredEntries.push(candidate);
+        scoredEntries.sort(
+          (left, right) =>
+            left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+        );
+        continue;
+      }
+
+      const worst = scoredEntries.at(-1);
+      if (
+        worst &&
+        (candidate.score < worst.score ||
+          (candidate.score === worst.score &&
+            candidate.entry.path.localeCompare(worst.entry.path) < 0))
+      ) {
+        scoredEntries.pop();
+        scoredEntries.push(candidate);
+        scoredEntries.sort(
+          (left, right) =>
+            left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+        );
+      }
     }
   }
-  return scoredEntries
-    .toSorted(
-      (left, right) => left.score - right.score || left.entry.path.localeCompare(right.entry.path),
-    )
-    .map((value) => value.entry);
+  return (
+    bounded
+      ? scoredEntries
+      : scoredEntries.toSorted(
+          (left, right) =>
+            left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+        )
+  ).map((value) => value.entry);
 }
 
 export function mergeWorkspaceSearchEntries(
