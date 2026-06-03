@@ -9869,6 +9869,9 @@ function useChatViewComponent({
     MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
     MIN_RIGHT_SIDE_PANEL_WIDTH,
   );
+  const rightSidePanelInlineWidth = rightSidePanelFullscreen ? "100%" : dockedRightSidePanelWidth;
+  const bottomPanelHeightPx = `${terminalState.terminalHeight + 48}px`;
+  const bottomPanelContentHeightPx = `${terminalState.terminalHeight}px`;
   const rightSidePanelTabStrip = (className?: string) =>
     rightSidePanelOpen ? (
       <RightSidePanelTabStrip
@@ -10734,27 +10737,11 @@ function useChatViewComponent({
                     ? "absolute inset-y-0 right-0 z-40"
                     : "relative shrink-0",
                 )}
-                style={
-                  rightSidePanelFullscreen
-                    ? { width: "100%", minWidth: "100%", flexBasis: "100%" }
-                    : {
-                        width: constrainedPanelWidth(
-                          rightSidePanelWidth,
-                          MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                          MIN_RIGHT_SIDE_PANEL_WIDTH,
-                        ),
-                        minWidth: constrainedPanelWidth(
-                          rightSidePanelWidth,
-                          MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                          MIN_RIGHT_SIDE_PANEL_WIDTH,
-                        ),
-                        flexBasis: constrainedPanelWidth(
-                          rightSidePanelWidth,
-                          MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
-                          MIN_RIGHT_SIDE_PANEL_WIDTH,
-                        ),
-                      }
-                }
+                style={{
+                  width: rightSidePanelInlineWidth,
+                  minWidth: rightSidePanelInlineWidth,
+                  flexBasis: rightSidePanelInlineWidth,
+                }}
                 initial={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 24 }}
                 animate={avoidNativeBrowserPanelTransforms ? { opacity: 1 } : { opacity: 1, x: 0 }}
                 exit={avoidNativeBrowserPanelTransforms ? { opacity: 0 } : { opacity: 0, x: 24 }}
@@ -10920,8 +10907,7 @@ function useChatViewComponent({
               transition={BOTTOM_PANEL_TRANSITION}
               style={
                 {
-                  height: `${terminalState.terminalHeight + 48}px`,
-                  "--bottom-panel-height": `${terminalState.terminalHeight + 48}px`,
+                  height: bottomPanelHeightPx,
                 } as NonNullable<ComponentProps<typeof m.div>["style"]>
               }
             >
@@ -10944,7 +10930,7 @@ function useChatViewComponent({
                 <div
                   ref={bottomPanelContentElementRef}
                   className="min-h-0 flex-1 overflow-hidden"
-                  style={{ height: `${terminalState.terminalHeight}px` }}
+                  style={{ height: bottomPanelContentHeightPx }}
                 >
                   {activeBottomPanelMode === "summary" ? (
                     <PlanSummaryPanel
