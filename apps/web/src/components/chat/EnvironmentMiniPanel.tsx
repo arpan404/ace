@@ -12,7 +12,6 @@ import { m, type MotionStyle } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import { formatSubagentSubtitle, statusLabel, SubagentPersonaIcon } from "./SubagentThreadsPanel";
 import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanProgressState } from "../../session-logic";
 import { cn } from "~/lib/utils";
@@ -32,6 +31,70 @@ function EnvironmentSectionTitle({ children }: { children: string }) {
     <div className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/55">
       {children}
     </div>
+  );
+}
+
+function hashSubagentIconSeed(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function buildSubagentIconCells(seed: number): string[] {
+  const cells: string[] = [];
+  for (let row = 0; row < 5; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      const bitIndex = row * 3 + column;
+      const enabled = ((seed >> bitIndex) & 1) === 1 || (row === 4 && column === 1);
+      if (!enabled) continue;
+      cells.push(`${column},${row}`);
+      const mirroredColumn = 4 - column;
+      if (mirroredColumn !== column) {
+        cells.push(`${mirroredColumn},${row}`);
+      }
+    }
+  }
+  return cells;
+}
+
+function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
+  const isRunning = thread.status === "running";
+  const seed = hashSubagentIconSeed(thread.id || thread.label);
+  const hue = seed % 360;
+  const cells = buildSubagentIconCells(seed);
+  const fill = `hsl(${hue} 92% 66%)`;
+  const shadowFill = `hsl(${(hue + 24) % 360} 88% 58%)`;
+  return (
+    <span
+      className={cn(
+        "relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground",
+        isRunning && "text-foreground",
+      )}
+    >
+      <svg
+        aria-hidden="true"
+        className="relative size-3 [image-rendering:pixelated]"
+        viewBox="0 0 5 5"
+      >
+        {cells.map((cell) => {
+          const [x, y] = cell.split(",");
+          const shouldUseShadowFill = (Number(x) * 7 + Number(y) * 11 + seed) % 4 === 0;
+          return (
+            <rect
+              key={cell}
+              x={x}
+              y={y}
+              width="1"
+              height="1"
+              fill={shouldUseShadowFill ? shadowFill : fill}
+            />
+          );
+        })}
+      </svg>
+    </span>
   );
 }
 
@@ -63,13 +126,13 @@ const DEMO_PROJECT_SCRIPTS: ProjectScript[] = [
 const DEMO_SUBAGENT_THREADS: readonly SubagentThread[] = [
   {
     id: "demo-review-agent",
-    label: "Review agent",
+    label: "Alan Touring",
     model: "gpt-5.4",
     persona: {
       avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
       haloClassName: "bg-sky-500/14",
-      initials: "RA",
-      name: "Review agent",
+      initials: "AT",
+      name: "Alan Touring",
       pingClassName: "bg-sky-400",
     },
     roleLabel: "UI review",
@@ -78,13 +141,13 @@ const DEMO_SUBAGENT_THREADS: readonly SubagentThread[] = [
   },
   {
     id: "demo-test-agent",
-    label: "Test agent",
+    label: "Marie Query",
     model: "gpt-5.4-mini",
     persona: {
       avatarClassName: "bg-emerald-500/14 text-emerald-500 ring-emerald-500/24",
       haloClassName: "bg-emerald-500/14",
-      initials: "TA",
-      name: "Test agent",
+      initials: "MQ",
+      name: "Marie Query",
       pingClassName: "bg-emerald-400",
     },
     roleLabel: "Verification",
@@ -317,31 +380,14 @@ export const EnvironmentMiniPanel = forwardRef<
               <button
                 key={thread.id}
                 type="button"
-                className="group/subagent flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="group/subagent flex min-h-8 w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
                 onClick={() => {
                   props.onSelectSubagentThread(thread.id);
                   props.onSubagentPanelOpen();
                 }}
               >
-                <SubagentPersonaIcon className="size-6" status={thread.status} thread={thread} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{thread.label}</span>
-                  {formatSubagentSubtitle(thread) ? (
-                    <span className="block truncate text-[11px] text-muted-foreground group-hover/subagent:text-accent-foreground/70">
-                      {formatSubagentSubtitle(thread)}
-                    </span>
-                  ) : null}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-normal",
-                    thread.status === "running" && "bg-sky-500/12 text-sky-500",
-                    thread.status === "completed" && "bg-emerald-500/12 text-emerald-500",
-                    thread.status === "failed" && "bg-destructive/12 text-destructive",
-                  )}
-                >
-                  {statusLabel(thread.status)}
-                </span>
+                <EnvironmentSubagentIcon thread={thread} />
+                <span className="min-w-0 flex-1 truncate font-medium">{thread.label}</span>
               </button>
             ))}
           </div>
