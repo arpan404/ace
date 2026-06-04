@@ -2,11 +2,13 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { WorkLogEntry } from "../../session-logic/types";
 import type {
+  canReplyToSubagentThread as canReplyToSubagentThreadType,
   deriveSubagentThreads as deriveSubagentThreadsType,
   isSideChatThread as isSideChatThreadType,
   resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
 } from "./subagentThreads";
 
+let canReplyToSubagentThread: typeof canReplyToSubagentThreadType;
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
 let isSideChatThread: typeof isSideChatThreadType;
 let resolveSubagentMainAgentMessage: typeof resolveSubagentMainAgentMessageType;
@@ -33,8 +35,12 @@ beforeAll(async () => {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
-  ({ deriveSubagentThreads, isSideChatThread, resolveSubagentMainAgentMessage } =
-    await import("./subagentThreads"));
+  ({
+    canReplyToSubagentThread,
+    deriveSubagentThreads,
+    isSideChatThread,
+    resolveSubagentMainAgentMessage,
+  } = await import("./subagentThreads"));
 });
 
 function workEntry(input: Partial<WorkLogEntry> & Pick<WorkLogEntry, "id">): WorkLogEntry {
@@ -171,6 +177,38 @@ describe("deriveSubagentThreads", () => {
       "Side chat 1",
       "Side chat 2",
     ]);
+  });
+
+  it("allows replies only for side chats or natively targetable provider subagents", () => {
+    const [sideThread] = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-user",
+          subagentId: "side:thread-1:first",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Explain the current branch.",
+        }),
+      ],
+      "codex",
+    );
+    const [providerThread] = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "provider-subagent",
+          subagentId: "provider-child-thread-1",
+          subagentName: "review",
+          subagentType: "code-reviewer",
+        }),
+      ],
+      "claudeAgent",
+    );
+
+    expect(sideThread).toBeDefined();
+    expect(providerThread).toBeDefined();
+    expect(canReplyToSubagentThread(sideThread!, "unsupported")).toBe(true);
+    expect(canReplyToSubagentThread(providerThread!, "unsupported")).toBe(false);
+    expect(canReplyToSubagentThread(providerThread!, "native")).toBe(true);
   });
 
   it("generates a stable parody name for generic subagent identities", () => {

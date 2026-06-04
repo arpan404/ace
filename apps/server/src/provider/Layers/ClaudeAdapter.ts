@@ -591,6 +591,20 @@ function titleForTool(itemType: CanonicalItemType): string {
   }
 }
 
+function claudeTaskSubagentMetadata(input: {
+  readonly taskId: string;
+  readonly taskType?: string | undefined;
+  readonly description?: string | undefined;
+}): Record<string, unknown> {
+  const taskType = input.taskType?.trim();
+  const description = input.description?.trim();
+  return {
+    id: input.taskId,
+    type: taskType && taskType.length > 0 ? taskType : "claude subagent",
+    ...(description && description.length > 0 ? { name: description } : {}),
+  };
+}
+
 const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set<ClaudeImageMediaType>([
   "image/gif",
   "image/jpeg",
@@ -2124,6 +2138,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             taskId: RuntimeTaskId.makeUnsafe(message.task_id),
             description: message.description,
             ...(message.task_type ? { taskType: message.task_type } : {}),
+            subagent: claudeTaskSubagentMetadata({
+              taskId: message.task_id,
+              taskType: message.task_type,
+              description: message.description,
+            }),
           },
         });
         return;
@@ -2156,6 +2175,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
             ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
+            subagent: claudeTaskSubagentMetadata({
+              taskId: message.task_id,
+              description: message.description,
+            }),
           },
         });
         return;
@@ -2187,6 +2210,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             status: message.status,
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
+            subagent: claudeTaskSubagentMetadata({
+              taskId: message.task_id,
+              description: message.summary,
+            }),
           },
         });
         return;

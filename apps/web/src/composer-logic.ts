@@ -270,7 +270,7 @@ export function parseProviderComposerSlashCommand(
   providerCommands: ReadonlyArray<{
     readonly name: string;
     readonly promptPrefix?: string | undefined;
-    readonly kind?: "provider" | "skill" | "plugin" | undefined;
+    readonly kind?: "provider" | "skill" | "plugin" | "agent" | undefined;
   }>,
 ): { commandName: string; args: string; promptText: string } | null {
   const match = /^\/(\S+)(?:\s+([\s\S]*))?$/i.exec(text.trim());

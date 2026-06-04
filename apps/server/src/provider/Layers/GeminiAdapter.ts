@@ -154,7 +154,11 @@ type GeminiToolKind =
   | "switch_mode"
   | "other";
 type GeminiToolStatus = "pending" | "in_progress" | "completed" | "failed";
-type GeminiToolItemType = "command_execution" | "file_change" | "dynamic_tool_call";
+type GeminiToolItemType =
+  | "command_execution"
+  | "file_change"
+  | "dynamic_tool_call"
+  | "collab_agent_tool_call";
 
 type GeminiMode = {
   readonly id: string;
@@ -247,7 +251,7 @@ type GeminiAvailableCommand = {
 
 type GeminiToolItemState = {
   readonly itemId: RuntimeItemId;
-  readonly itemType: GeminiToolItemType;
+  itemType: GeminiToolItemType;
   completed: boolean;
 };
 
@@ -957,6 +961,103 @@ function runtimeItemTypeFromToolKind(kind?: GeminiToolKind | null): GeminiToolIt
   }
 }
 
+function geminiSubagentMetadata(
+  toolCall: GeminiToolCallLike,
+):
+  | { id: string; type?: string | undefined; name?: string | undefined; model?: string | undefined }
+  | undefined {
+  const rawInput = asObject(toolCall.rawInput);
+  const rawOutput = asObject(toolCall.rawOutput);
+  const agentId = firstString(
+    rawInput?.agentId,
+    rawInput?.agent_id,
+    rawInput?.subagentId,
+    rawInput?.subagent_id,
+    rawInput?.agent,
+    rawInput?.agentName,
+    rawInput?.agent_name,
+    rawOutput?.agentId,
+    rawOutput?.agent_id,
+    rawOutput?.subagentId,
+    rawOutput?.subagent_id,
+    rawOutput?.agent,
+    rawOutput?.agentName,
+    rawOutput?.agent_name,
+  );
+  const label = [toolCall.kind, toolCall.title, agentId]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+  const hasExplicitSubagentField =
+    agentId !== undefined ||
+    rawInput?.subagent !== undefined ||
+    rawInput?.subagentType !== undefined ||
+    rawInput?.subagent_type !== undefined ||
+    rawInput?.agentRole !== undefined ||
+    rawInput?.agent_role !== undefined ||
+    rawOutput?.subagent !== undefined ||
+    rawOutput?.subagentType !== undefined ||
+    rawOutput?.subagent_type !== undefined ||
+    rawOutput?.agentRole !== undefined ||
+    rawOutput?.agent_role !== undefined;
+  const looksLikeSubagent =
+    hasExplicitSubagentField ||
+    label.includes("subagent") ||
+    label.includes("sub-agent") ||
+    label.includes("agent");
+  if (!looksLikeSubagent) {
+    return undefined;
+  }
+  const name = firstString(
+    rawInput?.agentDisplayName,
+    rawInput?.agent_display_name,
+    rawInput?.agentNickname,
+    rawInput?.agent_nickname,
+    rawInput?.subagentName,
+    rawInput?.subagent_name,
+    rawInput?.agentName,
+    rawInput?.agent_name,
+    rawInput?.agent,
+    rawOutput?.agentDisplayName,
+    rawOutput?.agent_display_name,
+    rawOutput?.agentNickname,
+    rawOutput?.agent_nickname,
+    rawOutput?.subagentName,
+    rawOutput?.subagent_name,
+    rawOutput?.agentName,
+    rawOutput?.agent_name,
+    rawOutput?.agent,
+    toolCall.title,
+  );
+  const type = firstString(
+    rawInput?.subagentType,
+    rawInput?.subagent_type,
+    rawInput?.agentRole,
+    rawInput?.agent_role,
+    rawInput?.agentType,
+    rawInput?.agent_type,
+    rawOutput?.subagentType,
+    rawOutput?.subagent_type,
+    rawOutput?.agentRole,
+    rawOutput?.agent_role,
+    rawOutput?.agentType,
+    rawOutput?.agent_type,
+  );
+  const model = firstString(rawInput?.model, rawOutput?.model);
+  return {
+    id: agentId ?? toolCall.toolCallId,
+    ...(type ? { type } : {}),
+    ...(name ? { name } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+function runtimeItemTypeFromToolCall(toolCall: GeminiToolCallLike): GeminiToolItemType {
+  return geminiSubagentMetadata(toolCall)
+    ? "collab_agent_tool_call"
+    : runtimeItemTypeFromToolKind(toolCall.kind);
+}
+
 function requestTypeFromToolKind(
   kind?: GeminiToolKind | null,
 ): ProviderRuntimeEventByType<"request.opened">["payload"]["requestType"] {
@@ -1166,6 +1267,16 @@ function extractTextContent(value: unknown): string | undefined {
   return undefined;
 }
 
+function firstString(...values: ReadonlyArray<unknown>): string | undefined {
+  for (const value of values) {
+    const text = asString(value);
+    if (text) {
+      return text;
+    }
+  }
+  return undefined;
+}
+
 function extractToolDetail(
   content: ReadonlyArray<GeminiToolCallContent> | null | undefined,
 ): string | undefined {
@@ -1232,6 +1343,7 @@ function buildGeminiToolData(toolCall: GeminiToolCallLike): Record<string, unkno
   const command = extractGeminiToolCommand(toolCall);
   const cwd = extractGeminiToolCwd(toolCall);
   const output = extractGeminiToolOutput(toolCall);
+  const subagent = geminiSubagentMetadata(toolCall);
   return {
     toolCallId: toolCall.toolCallId,
     ...(toolCall.kind ? { kind: toolCall.kind } : {}),
@@ -1244,6 +1356,21 @@ function buildGeminiToolData(toolCall: GeminiToolCallLike): Record<string, unkno
     ...(command ? { command } : {}),
     ...(cwd ? { cwd } : {}),
     ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(subagent
+      ? {
+          subagent,
+          subagentId: subagent.id,
+          ...(subagent.type ? { agentRole: subagent.type, subagentType: subagent.type } : {}),
+          ...(subagent.name
+            ? {
+                agentDisplayName: subagent.name,
+                agentName: subagent.name,
+                subagentName: subagent.name,
+              }
+            : {}),
+          ...(subagent.model ? { model: subagent.model } : {}),
+        }
+      : {}),
     ...(toolCall.content ? { content: toolCall.content } : {}),
     ...(toolCall.locations ? { locations: toolCall.locations } : {}),
     item: {
@@ -1261,6 +1388,21 @@ function buildGeminiToolData(toolCall: GeminiToolCallLike): Record<string, unkno
       ...(command ? { command } : {}),
       ...(cwd ? { cwd } : {}),
       ...(output ? { output, aggregatedOutput: output } : {}),
+      ...(subagent
+        ? {
+            subagent,
+            subagentId: subagent.id,
+            ...(subagent.type ? { agentRole: subagent.type, subagentType: subagent.type } : {}),
+            ...(subagent.name
+              ? {
+                  agentDisplayName: subagent.name,
+                  agentName: subagent.name,
+                  subagentName: subagent.name,
+                }
+              : {}),
+            ...(subagent.model ? { model: subagent.model } : {}),
+          }
+        : {}),
     },
   };
 }
@@ -1487,12 +1629,16 @@ const makeGeminiAdapter = Effect.gen(function* () {
     }
     const existing = turn.toolItems.get(toolCall.toolCallId);
     if (existing) {
+      const nextItemType = runtimeItemTypeFromToolCall(toolCall);
+      if (existing.itemType === "dynamic_tool_call" && nextItemType === "collab_agent_tool_call") {
+        existing.itemType = nextItemType;
+      }
       return existing;
     }
 
     const item = {
       itemId: RuntimeItemId.makeUnsafe(`gemini-tool:${toolCall.toolCallId}`),
-      itemType: runtimeItemTypeFromToolKind(toolCall.kind),
+      itemType: runtimeItemTypeFromToolCall(toolCall),
       completed: false,
     } satisfies GeminiToolItemState;
 

@@ -30,6 +30,33 @@ describe("ComposerCommandMenu", () => {
     expect(html).toContain("Start an ephemeral side conversation");
   });
 
+  it("groups provider agent commands separately", () => {
+    const html = renderToStaticMarkup(
+      <ComposerCommandMenu
+        items={[
+          {
+            id: "provider-slash:agent:security-auditor",
+            type: "provider-command",
+            command: "security-auditor",
+            commandKind: "agent",
+            label: "Security Auditor",
+            description: "Agent - <prompt>",
+          },
+        ]}
+        resolvedTheme="dark"
+        isLoading={false}
+        triggerKind="slash-command"
+        activeItemId="provider-slash:agent:security-auditor"
+        onHighlightedItemChange={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Agents");
+    expect(html).toContain("Security Auditor");
+    expect(html).toContain("Agent");
+  });
+
   it("uses a generic empty state for slash commands", () => {
     const html = renderToStaticMarkup(
       <ComposerCommandMenu

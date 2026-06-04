@@ -16,6 +16,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "native",
     sideConversationMode: "native-fork",
+    providerThreadTargetingMode: "native",
   },
   claudeAgent: {
     sessionModelSwitch: "in-session",
@@ -30,6 +31,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "native",
     sideConversationMode: "native-fork",
+    providerThreadTargetingMode: "unsupported",
   },
   gemini: {
     sessionModelSwitch: "in-session",
@@ -44,6 +46,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    providerThreadTargetingMode: "unsupported",
   },
   cursor: {
     sessionModelSwitch: "restart-session",
@@ -58,6 +61,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    providerThreadTargetingMode: "unsupported",
   },
   pi: {
     sessionModelSwitch: "in-session",
@@ -72,6 +76,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    providerThreadTargetingMode: "unsupported",
   },
   githubCopilot: {
     sessionModelSwitch: "restart-session",
@@ -86,6 +91,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    providerThreadTargetingMode: "unsupported",
   },
   opencode: {
     sessionModelSwitch: "in-session",
@@ -100,6 +106,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    providerThreadTargetingMode: "native",
   },
 };
 

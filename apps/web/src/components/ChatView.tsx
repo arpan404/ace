@@ -244,7 +244,11 @@ import {
   type PanelTabOrderEntry,
 } from "./chat/ChatViewRightSidePanels";
 import { SubagentWorkspacePanel } from "./chat/SubagentThreadsPanel";
-import { deriveSubagentThreads, type SubagentThread } from "./chat/subagentThreads";
+import {
+  canReplyToSubagentThread,
+  deriveSubagentThreads,
+  type SubagentThread,
+} from "./chat/subagentThreads";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
 import { useChatViewPersistentPanelState } from "./chat/useChatViewPersistentPanelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
@@ -2689,6 +2693,8 @@ function useChatViewComponent({
   ]);
   const sideConversationSupported =
     activeThread?.session?.capabilities?.sideConversationMode !== "unsupported";
+  const providerThreadTargetingMode =
+    activeThread?.session?.capabilities?.providerThreadTargetingMode ?? "unsupported";
   const readCurrentSelectedPromptEffort = useCallback(() => {
     return getComposerProviderState({
       provider: selectedProvider,
@@ -8479,7 +8485,11 @@ function useChatViewComponent({
     [activeThread?.title],
   );
   const openNewSideChat = useCallback(
-    (initialPrompt: string) => {
+    (input: {
+      initialPrompt: string;
+      images?: ReadonlyArray<ComposerImageAttachment>;
+      terminalContexts?: ReadonlyArray<TerminalContextDraft>;
+    }) => {
       if (!activeThread) {
         return;
       }
@@ -8489,11 +8499,19 @@ function useChatViewComponent({
       setActiveSubagentThreadId(NEW_SIDE_CHAT_THREAD_ID);
       setRightSidePanelMode("subagent");
       setRightSidePanelVisible(true);
-      setComposerDraftPrompt(draftThreadId, initialPrompt);
+      setComposerDraftPrompt(draftThreadId, input.initialPrompt);
+      if (input.images && input.images.length > 0) {
+        addComposerDraftImages(draftThreadId, [...input.images]);
+      }
+      if (input.terminalContexts && input.terminalContexts.length > 0) {
+        setComposerDraftTerminalContexts(draftThreadId, [...input.terminalContexts]);
+      }
     },
     [
       activeThread,
+      addComposerDraftImages,
       setComposerDraftPrompt,
+      setComposerDraftTerminalContexts,
       setRightSidePanelMode,
       setRightSidePanelVisible,
       threadId,
@@ -8540,12 +8558,24 @@ function useChatViewComponent({
       });
       return;
     }
-    const composerSideCommandPayload =
-      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
-        ? parseComposerSideCommand(trimmed)
-        : null;
+    const composerSideCommandPayload = parseComposerSideCommand(trimmed);
     if (composerSideCommandPayload !== null) {
-      openNewSideChat(composerSideCommandPayload.prompt);
+      openNewSideChat({
+        initialPrompt: composerSideCommandPayload.prompt,
+        images: composerImages,
+        terminalContexts: sendableComposerTerminalContexts,
+      });
+      if (expiredTerminalContextCount > 0) {
+        const toastCopy = buildExpiredTerminalContextToastCopy(
+          expiredTerminalContextCount,
+          "omitted",
+        );
+        toastManager.add({
+          type: "warning",
+          title: toastCopy.title,
+          description: toastCopy.description,
+        });
+      }
       promptRef.current = "";
       clearComposerDraftContent(activeThread.id);
       composerPanelsRef.current?.resetUi("");
@@ -8832,6 +8862,13 @@ function useChatViewComponent({
     });
     scheduleInterruptStopFallback(activeThread.id, interruptedTurnId);
   });
+
+  useEffect(() => {
+    if (activeGoal?.status !== "paused" || !liveTurnInProgress) {
+      return;
+    }
+    void onInterrupt();
+  }, [activeGoal?.status, liveTurnInProgress]);
 
   const onRespondToApproval = useEffectEvent(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
@@ -10517,6 +10554,13 @@ function useChatViewComponent({
         }
         return;
       }
+      if (!canReplyToSubagentThread(subagent, providerThreadTargetingMode)) {
+        setThreadError(
+          draftThreadId,
+          "This provider does not support direct replies to this subagent thread.",
+        );
+        return;
+      }
       try {
         setThreadError(draftThreadId, null);
         await api.orchestration.dispatchCommand({
@@ -10552,6 +10596,7 @@ function useChatViewComponent({
       clearComposerDraftContent,
       modelSettings,
       providerStatuses,
+      providerThreadTargetingMode,
       setThreadError,
       subagentComposerThreadId,
     ],
@@ -10559,6 +10604,12 @@ function useChatViewComponent({
   const renderSubagentComposer = useCallback(
     (subagent: SubagentThread) => {
       if (!activeThread) {
+        return null;
+      }
+      const canReply =
+        subagent.id === NEW_SIDE_CHAT_THREAD_ID ||
+        canReplyToSubagentThread(subagent, providerThreadTargetingMode);
+      if (!canReply) {
         return null;
       }
       const draftThreadId = subagentComposerThreadId(subagent);
@@ -10696,6 +10747,7 @@ function useChatViewComponent({
       onExpandTimelineImage,
       providerInstancesByProvider,
       providerStatuses,
+      providerThreadTargetingMode,
       resolvedTheme,
       scheduleStickToBottom,
       setComposerDraftInteractionMode,

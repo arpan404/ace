@@ -420,6 +420,7 @@ goalFeatureLayer("CodexAdapterLive goal feature discovery", (it) => {
       assert.deepEqual((events[1].payload.config as { capabilities?: unknown }).capabilities, {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
+        providerThreadTargetingMode: "native",
       });
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),
@@ -799,6 +800,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           {
             sessionForkMode: "native",
             sideConversationMode: "native-fork",
+            providerThreadTargetingMode: "native",
           },
         );
         assert.equal(
@@ -844,6 +846,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.deepEqual((events[1].payload.config as { capabilities?: unknown }).capabilities, {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
+        providerThreadTargetingMode: "native",
       });
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),

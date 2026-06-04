@@ -187,6 +187,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         sessionResumeMode: "local-replay",
         sessionForkMode: "local-replay",
         sideConversationMode: "replay-fork",
+        providerThreadTargetingMode: "native",
       });
     }),
   );
@@ -232,6 +233,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       assert.deepStrictEqual(configuredEvent.value.payload.config.capabilities, {
         sessionForkMode: "local-replay",
         sideConversationMode: "replay-fork",
+        providerThreadTargetingMode: "native",
       });
 
       yield* adapter.stopSession(threadId);
@@ -284,6 +286,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       assert.deepStrictEqual(configuredEvent.value.payload.config.capabilities, {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
+        providerThreadTargetingMode: "native",
       });
 
       yield* adapter.stopSession(threadId);
@@ -465,6 +468,153 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         model: "openai/gpt-5",
       });
       assert.equal(subtaskEvent.value.payload.detail, "Inspect dependency usage.");
+
+      events.close();
+      yield* adapter.stopSession(threadId);
+      assert.equal(serverClose.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("maps OpenCode child sessions into addressable subagent items", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const events = controllableStream<unknown>();
+      const client = makeFakeOpenCodeClient("opencode-session-parent", {
+        stream: events.stream,
+      });
+      const threadId = asThreadId("thread-opencode-child-session");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4017",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      const childSessionFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) =>
+            event.threadId === threadId &&
+            event.type === "item.completed" &&
+            event.payload.itemType === "collab_agent_tool_call",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "opencode",
+        threadId,
+        cwd: "/repo-child-session",
+        runtimeMode: "full-access",
+      });
+
+      events.emit({
+        type: "session.created",
+        properties: {
+          sessionID: "opencode-session-child-scout",
+          info: {
+            id: "opencode-session-child-scout",
+            slug: "child-scout",
+            projectID: "project-1",
+            directory: "/repo-child-session",
+            parentID: "opencode-session-parent",
+            title: "Scout dependency review",
+            agent: "scout",
+            model: {
+              providerID: "openai",
+              id: "gpt-5",
+            },
+            version: "1.0.0",
+            time: {
+              created: 1_742_533_200,
+              updated: 1_742_533_200,
+            },
+          },
+        },
+      });
+
+      const childSessionEvent = yield* Fiber.join(childSessionFiber);
+      assert.isTrue(Option.isSome(childSessionEvent));
+      if (!Option.isSome(childSessionEvent)) {
+        return;
+      }
+      assert.equal(childSessionEvent.value.type, "item.completed");
+      if (childSessionEvent.value.type !== "item.completed") {
+        return;
+      }
+      assert.deepStrictEqual(
+        (childSessionEvent.value.payload.data as { subagent?: unknown }).subagent,
+        {
+          id: "opencode-session-child-scout",
+          type: "opencode subagent",
+          name: "scout",
+          model: "openai/gpt-5",
+        },
+      );
+      assert.equal(
+        (childSessionEvent.value.payload.data as { childProviderThreadId?: unknown })
+          .childProviderThreadId,
+        "opencode-session-child-scout",
+      );
+      assert.equal(childSessionEvent.value.payload.detail, "Scout dependency review");
+
+      const childDeltaFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) =>
+            event.threadId === threadId &&
+            event.type === "content.delta" &&
+            event.payload.streamKind === "assistant_text",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.sendTurn({
+        threadId,
+        providerThreadId: "opencode-session-child-scout",
+        input: "Continue the dependency review.",
+      });
+
+      const promptAsyncCalls = client.session.promptAsync.mock.calls as unknown as Array<
+        [{ readonly sessionID?: string }]
+      >;
+      assert.equal(promptAsyncCalls[0]?.[0]?.sessionID, "opencode-session-child-scout");
+
+      events.emit({
+        type: "message.part.delta",
+        properties: {
+          sessionID: "opencode-session-child-scout",
+          partID: "child-text-part-1",
+          field: "text",
+          delta: "Child answer.",
+        },
+      });
+
+      const childDeltaEvent = yield* Fiber.join(childDeltaFiber);
+      assert.isTrue(Option.isSome(childDeltaEvent));
+      if (!Option.isSome(childDeltaEvent)) {
+        return;
+      }
+      assert.equal(childDeltaEvent.value.type, "content.delta");
+      if (childDeltaEvent.value.type !== "content.delta") {
+        return;
+      }
+      assert.equal(
+        (childDeltaEvent.value.payload.data as { childProviderThreadId?: unknown })
+          .childProviderThreadId,
+        "opencode-session-child-scout",
+      );
+      assert.deepStrictEqual(
+        (childDeltaEvent.value.payload.data as { subagent?: unknown }).subagent,
+        {
+          id: "opencode-session-child-scout",
+          type: "opencode subagent",
+          name: "scout",
+          model: "openai/gpt-5",
+        },
+      );
 
       events.close();
       yield* adapter.stopSession(threadId);

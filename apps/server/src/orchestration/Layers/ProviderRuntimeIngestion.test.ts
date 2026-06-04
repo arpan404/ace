@@ -425,6 +425,7 @@ describe("ProviderRuntimeIngestion", () => {
           capabilities: {
             sessionForkMode: "native",
             sideConversationMode: "native-fork",
+            providerThreadTargetingMode: "native",
           },
         },
       },
@@ -435,11 +436,13 @@ describe("ProviderRuntimeIngestion", () => {
       (entry) =>
         entry.session?.providerName === "gemini" &&
         entry.session?.capabilities?.sessionForkMode === "native" &&
-        entry.session?.capabilities?.sideConversationMode === "native-fork",
+        entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.providerThreadTargetingMode === "native",
     );
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
     expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
     expect(thread.session?.capabilities?.sessionResumeMode).toBe("local-replay");
   });
 
@@ -1432,6 +1435,58 @@ describe("ProviderRuntimeIngestion", () => {
         message.text.includes("root subagent result"),
       ),
     ).toBe(false);
+  });
+
+  it("preserves provider task subagent metadata on task progress activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-claude-task-progress"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-claude-task"),
+      payload: {
+        taskId: "task-subagent-1",
+        description: "Reviewing migration edge cases",
+        summary: "Checked nullable projection columns.",
+        subagent: {
+          id: "task-subagent-1",
+          type: "claude subagent",
+          name: "Reviewing migration edge cases",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "subagent" in activity.payload,
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "subagent" in activity.payload,
+    );
+    expect(progress?.payload).toMatchObject({
+      taskId: "task-subagent-1",
+      detail: "Checked nullable projection columns.",
+      summary: "Checked nullable projection columns.",
+      subagent: {
+        id: "task-subagent-1",
+        type: "claude subagent",
+        name: "Reviewing migration edge cases",
+      },
+    });
   });
 
   it("keeps root scalar agent metadata assistant text out of the main transcript", async () => {

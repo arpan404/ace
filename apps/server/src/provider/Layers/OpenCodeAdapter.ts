@@ -15,6 +15,7 @@ import type {
   PermissionRequest as OpenCodeSdkPermissionRequest,
   QuestionRequest as OpenCodeSdkQuestionRequest,
   ReasoningPart as OpenCodeSdkReasoningPart,
+  Session as OpenCodeSdkSession,
   SubtaskPart as OpenCodeSdkSubtaskPart,
   TextPart as OpenCodeSdkTextPart,
   ToolPart as OpenCodeSdkToolPart,
@@ -86,10 +87,12 @@ function openCodeProviderCapabilities(client: OpencodeClient) {
     ? {
         sessionForkMode: "native" as const,
         sideConversationMode: "native-fork" as const,
+        providerThreadTargetingMode: "native" as const,
       }
     : {
         sessionForkMode: "local-replay" as const,
         sideConversationMode: "replay-fork" as const,
+        providerThreadTargetingMode: "native" as const,
       };
 }
 
@@ -119,6 +122,7 @@ type OpenCodeSessionContext = {
     toolItems: Map<string, OpenCodeToolItemState>;
     reasoningItems: Map<string, OpenCodeReasoningItemState>;
     subtaskPartIds: Set<string>;
+    providerThreadId?: string;
     usage?: unknown;
     totalCostUsd?: number;
   } | null;
@@ -143,6 +147,11 @@ type OpenCodeSessionContext = {
   readonly emittedAssistantTextLengthByPartId: Map<string, number>;
   readonly assistantDeltaPartIds: Set<string>;
   readonly reasoningDeltaPartIds: Set<string>;
+  readonly childSessionIds: Set<string>;
+  readonly childSessionSubagents: Map<
+    string,
+    { readonly name?: string | undefined; readonly model?: string | undefined }
+  >;
   sseAbort: AbortController | null;
   idleStopTimer: ReturnType<typeof setTimeout> | null;
   lastActivityAtMs: number;
@@ -872,6 +881,40 @@ function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, 
   };
 }
 
+function buildOpenCodeChildSessionData(session: OpenCodeSdkSession): Record<string, unknown> {
+  const model =
+    session.model !== undefined ? `${session.model.providerID}/${session.model.id}` : undefined;
+  const agent = session.agent ?? session.title ?? session.id;
+  return {
+    sessionId: session.id,
+    childProviderThreadId: session.id,
+    parentProviderThreadId: session.parentID,
+    subagentId: session.id,
+    agentName: agent,
+    agentDisplayName: agent,
+    subagentName: agent,
+    agentRole: "opencode subagent",
+    subagentType: "opencode subagent",
+    ...(session.title ? { title: session.title } : {}),
+    ...(model ? { model } : {}),
+    subagent: {
+      id: session.id,
+      type: "opencode subagent",
+      name: agent,
+      ...(model ? { model } : {}),
+    },
+    item: {
+      id: session.id,
+      name: agent,
+      agentName: agent,
+      childProviderThreadId: session.id,
+      parentProviderThreadId: session.parentID,
+      ...(session.title ? { title: session.title } : {}),
+      ...(model ? { model } : {}),
+    },
+  };
+}
+
 function openCodeToolStateCreatedAt(state: OpenCodeSdkToolPart["state"]): string | undefined {
   switch (state.status) {
     case "running":
@@ -1100,6 +1143,43 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     });
   };
 
+  const enrichPayloadForActiveChildSession = (
+    ctx: OpenCodeSessionContext,
+    turnId: TurnId | undefined,
+    payload: unknown,
+  ): unknown => {
+    const activeTurn = ctx.activeTurn;
+    const providerThreadId = activeTurn?.providerThreadId;
+    if (
+      !turnId ||
+      !activeTurn ||
+      activeTurn.id !== turnId ||
+      providerThreadId === undefined ||
+      providerThreadId === ctx.opencodeSessionId
+    ) {
+      return payload;
+    }
+    const payloadRecord = asRecord(payload);
+    if (!payloadRecord) {
+      return payload;
+    }
+    const existingData = asRecord(payloadRecord.data);
+    const knownSubagent = ctx.childSessionSubagents.get(providerThreadId);
+    return {
+      ...payloadRecord,
+      data: {
+        ...existingData,
+        childProviderThreadId: providerThreadId,
+        subagent: {
+          id: providerThreadId,
+          type: "opencode subagent",
+          ...(knownSubagent?.name ? { name: knownSubagent.name } : {}),
+          ...(knownSubagent?.model ? { model: knownSubagent.model } : {}),
+        },
+      },
+    };
+  };
+
   const baseEvent = <TType extends ProviderRuntimeEvent["type"]>(
     ctx: OpenCodeSessionContext,
     input: {
@@ -1142,7 +1222,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           }
         : {}),
       sessionSequence,
-      payload: input.payload,
+      payload: enrichPayloadForActiveChildSession(
+        ctx,
+        input.turnId,
+        input.payload,
+      ) as ProviderRuntimeEventByType<TType>["payload"],
     } as unknown as ProviderRuntimeEventByType<TType>;
   };
 
@@ -1580,6 +1664,48 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     );
   };
 
+  const handleOpenCodeChildSessionEvent = (
+    ctx: OpenCodeSessionContext,
+    event: OpenCodeSdkEvent,
+  ): boolean => {
+    if (event.type !== "session.created" && event.type !== "session.updated") {
+      return false;
+    }
+    const info = event.properties.info as OpenCodeSdkSession;
+    if (!info || info.parentID !== ctx.opencodeSessionId || info.id === ctx.opencodeSessionId) {
+      return false;
+    }
+    if (ctx.childSessionIds.has(info.id)) {
+      return true;
+    }
+    ctx.childSessionIds.add(info.id);
+    const createdAt =
+      openCodeTimestampToIso(info.time?.created) ?? openCodeTimestampToIso(info.time?.updated);
+    const data = buildOpenCodeChildSessionData(info);
+    const dataRecord = asRecord(data);
+    const subagent = asRecord(dataRecord?.subagent);
+    ctx.childSessionSubagents.set(info.id, {
+      ...(typeof subagent?.name === "string" ? { name: subagent.name } : {}),
+      ...(typeof subagent?.model === "string" ? { model: subagent.model } : {}),
+    });
+    emit(
+      baseEvent(ctx, {
+        type: "item.completed",
+        ...(createdAt ? { createdAt } : {}),
+        ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
+        itemId: RuntimeItemId.makeUnsafe(`opencode-child-session:${info.id}`),
+        payload: {
+          itemType: "collab_agent_tool_call",
+          status: "completed",
+          title: "Subagent task",
+          detail: info.title || info.agent || "OpenCode subagent",
+          data,
+        },
+      }),
+    );
+    return true;
+  };
+
   const handleOpenCodeSubtaskPart = (ctx: OpenCodeSessionContext, part: OpenCodeSdkSubtaskPart) => {
     const turn = ctx.activeTurn;
     if (!turn) {
@@ -1612,7 +1738,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     const event = unwrapOpenCodeSseEvent(raw);
     if (!event) return;
     const sessionId = readOpenCodeEventSessionId(event);
-    if (sessionId && sessionId !== ctx.opencodeSessionId) {
+    if (handleOpenCodeChildSessionEvent(ctx, event)) {
+      return;
+    }
+    const activeProviderThreadId = ctx.activeTurn?.providerThreadId;
+    if (sessionId && sessionId !== ctx.opencodeSessionId && sessionId !== activeProviderThreadId) {
       return;
     }
     markSessionActive(ctx);
@@ -2186,6 +2316,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             emittedAssistantTextLengthByPartId: new Map(),
             assistantDeltaPartIds: new Set(),
             reasoningDeltaPartIds: new Set(),
+            childSessionIds: new Set(),
+            childSessionSubagents: new Map(),
             sseAbort: null,
             idleStopTimer: null,
             lastActivityAtMs: Date.now(),
@@ -2281,6 +2413,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           });
         }
 
+        const targetProviderThreadId = input.providerThreadId ?? ctx.opencodeSessionId;
         const turnId = TurnId.makeUnsafe(`opencode-turn:${randomUUID()}`);
         const assistantItemId = RuntimeItemId.makeUnsafe(`opencode-assistant:${randomUUID()}`);
         const selectedModelSlug =
@@ -2305,6 +2438,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           toolItems: new Map(),
           reasoningItems: new Map(),
           subtaskPartIds: new Set(),
+          ...(targetProviderThreadId !== ctx.opencodeSessionId
+            ? { providerThreadId: targetProviderThreadId }
+            : {}),
         };
         ctx.session = {
           ...ctx.session,
@@ -2364,7 +2500,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
 
         const prompt = await ctx.client.session.promptAsync({
-          sessionID: ctx.opencodeSessionId,
+          sessionID: targetProviderThreadId,
           directory: ctx.cwd,
           model: modelIds,
           ...(variant ? { variant } : {}),
@@ -2646,6 +2782,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       sessionResumeMode: "local-replay",
       sessionForkMode: "local-replay",
       sideConversationMode: "replay-fork",
+      providerThreadTargetingMode: "native",
     },
     startSession,
     sendTurn,

@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { PermissionRequest, PermissionRequestResult, SessionEvent } from "@github/copilot-sdk";
+import type {
+  CustomAgentConfig,
+  PermissionRequest,
+  PermissionRequestResult,
+  SessionConfig,
+  SessionEvent,
+} from "@github/copilot-sdk";
 import {
   type CanonicalItemType,
   type CanonicalRequestType,
@@ -44,6 +50,7 @@ import {
 } from "../githubCopilotSdk";
 import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import { discoverGitHubCopilotCustomAgents } from "../providerExtensionSlashCommands.ts";
 import { loadGitHubCopilotSdkModule, type GitHubCopilotSdkLoader } from "../providerSdkRuntime";
 import {
   ProviderAdapterProcessError,
@@ -150,6 +157,7 @@ interface GitHubCopilotSessionContext {
   readonly toolRequestMetadata: Map<string, ToolRequestMetadata>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
+  readonly customAgentNames: ReadonlySet<string>;
   readonly unsubscribers: Array<() => void>;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
@@ -180,6 +188,23 @@ function toMessage(cause: unknown, fallback: string): string {
 function isMissingResumableGitHubCopilotSession(cause: unknown): boolean {
   const message = meaningfulErrorMessage(cause, "").toLowerCase();
   return message.includes("session not found") || message.includes("request session.resume failed");
+}
+
+function parseLeadingGitHubCopilotAgentMention(
+  prompt: string,
+  customAgentNames: ReadonlySet<string>,
+): { readonly agentName: string; readonly prompt: string } | null {
+  const match = /^@(?<name>[A-Za-z0-9][A-Za-z0-9_.:-]{0,120})(?:\s+(?<prompt>[\s\S]*))?$/u.exec(
+    prompt.trimStart(),
+  );
+  const agentName = match?.groups?.name;
+  if (!agentName || !customAgentNames.has(agentName.toLowerCase())) {
+    return null;
+  }
+  return {
+    agentName,
+    prompt: (match.groups?.prompt ?? "").trim() || "Please continue.",
+  };
 }
 
 function githubCopilotModeForInteractionMode(
@@ -2755,6 +2780,9 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           availableModels.find((model) => model.id === input.modelSelection?.model),
           input.modelSelection?.options,
         );
+        const customAgents: CustomAgentConfig[] = [
+          ...discoverGitHubCopilotCustomAgents({ cwd: input.cwd }),
+        ];
         const sessionConfig = {
           onPermissionRequest: permissionHandler,
           onUserInputRequest: userInputHandler,
@@ -2763,8 +2791,10 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
             : {}),
           ...(input.cwd ? { workingDirectory: input.cwd } : {}),
+          ...(customAgents.length > 0 ? { customAgents } : {}),
           streaming: true,
-        };
+          includeSubAgentStreamingEvents: true,
+        } satisfies SessionConfig;
         const resumedFromCursor = typeof input.resumeCursor === "string";
         const forkSourceSessionId =
           typeof input.forkSource?.resumeCursor === "string"
@@ -2828,6 +2858,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           toolRequestMetadata: new Map(),
           turns: [],
           replayTurns,
+          customAgentNames: new Set(customAgents.map((agent) => agent.name.toLowerCase())),
           unsubscribers: [],
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,
@@ -2940,7 +2971,28 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         });
       }
 
-      const latestPrompt = input.input ?? "Please analyze the attached files.";
+      let latestPrompt = input.input ?? "Please analyze the attached files.";
+      const agentSelection = parseLeadingGitHubCopilotAgentMention(
+        latestPrompt,
+        context.customAgentNames,
+      );
+      const agentSelect = context.sdkSession.rpc?.agent?.select;
+      if (agentSelection && agentSelect) {
+        try {
+          await agentSelect({ name: agentSelection.agentName });
+          latestPrompt = agentSelection.prompt;
+        } catch (cause) {
+          throw new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "sendTurn",
+            detail: toMessage(
+              cause,
+              `Failed to select GitHub Copilot custom agent '${agentSelection.agentName}'.`,
+            ),
+            cause,
+          });
+        }
+      }
       const promptText = context.pendingBootstrapReset
         ? buildBootstrapPromptFromReplayTurns(
             context.replayTurns,

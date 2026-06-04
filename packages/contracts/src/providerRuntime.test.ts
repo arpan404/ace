@@ -196,6 +196,37 @@ describe("ProviderRuntimeEvent", () => {
     });
   });
 
+  it("decodes task progress subagent metadata", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "task.progress",
+      eventId: "event-task-progress-subagent-1",
+      provider: "claudeAgent",
+      createdAt: "2026-02-28T00:00:04.750Z",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      payload: {
+        taskId: "task-subagent-1",
+        description: "Reviewing migration edge cases",
+        summary: "Checked nullable projection columns.",
+        subagent: {
+          id: "task-subagent-1",
+          type: "claude subagent",
+          name: "Reviewing migration edge cases",
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("task.progress");
+    if (parsed.type !== "task.progress") {
+      throw new Error("expected task.progress");
+    }
+    expect(parsed.payload.subagent).toEqual({
+      id: "task-subagent-1",
+      type: "claude subagent",
+      name: "Reviewing migration edge cases",
+    });
+  });
+
   it("accepts OpenCode raw event source payloads", () => {
     const parsed = decodeRuntimeEvent({
       type: "runtime.warning",

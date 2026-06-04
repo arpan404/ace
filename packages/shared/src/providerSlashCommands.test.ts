@@ -4,6 +4,7 @@ import {
   isProviderSideConversationAlias,
   mergeProviderSlashCommands,
   normalizeProviderSlashCommandName,
+  providerAgentSlashCommand,
   providerPluginSlashCommand,
   providerFallbackSlashCommands,
   providerSkillSlashCommand,
@@ -38,6 +39,14 @@ describe("providerSlashCommands", () => {
     });
   });
 
+  it("creates concrete agent command invocations", () => {
+    expect(providerAgentSlashCommand({ name: "security-auditor" })).toMatchObject({
+      name: "security-auditor",
+      kind: "agent",
+      promptPrefix: "@security-auditor",
+    });
+  });
+
   it("merges dynamic commands without static provider CLI fallbacks", () => {
     const merged = mergeProviderSlashCommands(
       [
@@ -65,10 +74,12 @@ describe("providerSlashCommands", () => {
       mergeProviderSlashCommands([
         { name: "plugin-browser", promptPrefix: "@browser-use" },
         { name: "skill-frontend", promptPrefix: "$frontend-design" },
+        { name: "security-auditor", kind: "agent", promptPrefix: "@security-auditor" },
       ]),
     ).toEqual([
       { name: "plugin-browser", kind: "plugin", promptPrefix: "@browser-use" },
       { name: "skill-frontend", kind: "skill", promptPrefix: "$frontend-design" },
+      { name: "security-auditor", kind: "agent", promptPrefix: "@security-auditor" },
     ]);
   });
 

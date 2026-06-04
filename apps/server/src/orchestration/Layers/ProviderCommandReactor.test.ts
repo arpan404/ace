@@ -1663,6 +1663,7 @@ describe("ProviderCommandReactor", () => {
       | {
           provider?: string;
           forkSource?: { threadId: ThreadId };
+          modelSelection?: ModelSelection;
           replayTurns?: Array<{ prompt: string; assistantResponse?: string }>;
           threadId?: ThreadId;
         }
@@ -1671,16 +1672,25 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.threadId).toBe("side:thread-1:question-1");
     expect(startInput?.provider).toBe("claudeAgent");
     expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.modelSelection).toEqual({
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-5",
+    });
     expect(startInput?.replayTurns).toBeUndefined();
 
     const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
       | {
           threadId?: ThreadId;
           input?: string;
+          modelSelection?: ModelSelection;
         }
       | undefined;
     expect(sendInput?.threadId).toBe("side:thread-1:question-1");
     expect(sendInput?.input).toBe("explain the current architecture");
+    expect(sendInput?.modelSelection).toEqual({
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-5",
+    });
   });
 
   it("replays bounded parent context for replay-fork side conversations", async () => {
@@ -1738,10 +1748,15 @@ describe("ProviderCommandReactor", () => {
     const startInput = harness.startSession.mock.calls[0]?.[1] as
       | {
           forkSource?: { threadId: ThreadId };
+          modelSelection?: ModelSelection;
           replayTurns?: Array<{ prompt: string; assistantResponse?: string }>;
         }
       | undefined;
     expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.modelSelection).toEqual({
+      provider: "githubCopilot",
+      model: "gpt-5-copilot",
+    });
     expect(startInput?.replayTurns?.[0]).toEqual({
       prompt: "We are reviewing replay-backed provider behavior.",
       attachmentNames: [],
@@ -1761,10 +1776,80 @@ describe("ProviderCommandReactor", () => {
       | {
           threadId?: ThreadId;
           input?: string;
+          modelSelection?: ModelSelection;
         }
       | undefined;
     expect(sendInput?.threadId).toBe("side:thread-1:question-replay");
     expect(sendInput?.input).toBe("summarize the replay context");
+    expect(sendInput?.modelSelection).toEqual({
+      provider: "githubCopilot",
+      model: "gpt-5-copilot",
+    });
+  });
+
+  it("routes provider-managed subagent follow-ups to non-Codex child provider threads", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "opencode",
+        model: "openai/gpt-5",
+      },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-opencode-parent-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-opencode-parent-1"),
+          role: "user",
+          text: "Use an OpenCode scout subagent.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.subagent.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-opencode-subagent-follow-up"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        subagentThreadId: "opencode-session-child-scout",
+        message: {
+          messageId: asMessageId("message-opencode-subagent-follow-up-1"),
+          role: "user",
+          text: "continue the dependency review",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          threadId?: ThreadId;
+          providerThreadId?: string;
+          input?: string;
+          modelSelection?: ModelSelection;
+        }
+      | undefined;
+    expect(sendInput?.threadId).toBe("thread-1");
+    expect(sendInput?.providerThreadId).toBe("opencode-session-child-scout");
+    expect(sendInput?.input).toBe("continue the dependency review");
+    expect(sendInput?.modelSelection).toEqual({
+      provider: "opencode",
+      model: "openai/gpt-5",
+    });
   });
 
   it("replays upstream handoff context when forking a handoff thread", async () => {

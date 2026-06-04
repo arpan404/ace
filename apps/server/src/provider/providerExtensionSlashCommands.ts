@@ -10,6 +10,7 @@ import type {
 } from "@ace/contracts";
 import {
   mergeProviderSlashCommands,
+  providerAgentSlashCommand,
   providerPluginSlashCommand,
   providerSkillSlashCommand,
 } from "@ace/shared/providerSlashCommands";
@@ -67,6 +68,18 @@ type SkillReadOptions = {
   readonly promptPrefix?: (commandName: string, skillName: string) => string;
 };
 
+type AgentReadOptions = {
+  readonly nameFromFrontmatter?: boolean | undefined;
+  readonly includeMode?: ReadonlySet<string> | undefined;
+};
+
+export type GitHubCopilotCustomAgent = {
+  readonly name: string;
+  readonly prompt: string;
+  readonly displayName?: string;
+  readonly description?: string;
+};
+
 const COMMAND_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,120}$/u;
 
 function safeReadDir(dir: string): string[] {
@@ -109,6 +122,11 @@ function frontmatterField(markdown: string, field: string): string | undefined {
     return undefined;
   }
   return value.replace(/^["']|["']$/g, "").trim() || undefined;
+}
+
+function markdownBodyWithoutFrontmatter(markdown: string): string {
+  const match = /^---\n[\s\S]*?\n---\n?(?<body>[\s\S]*)$/u.exec(markdown);
+  return (match?.groups?.body ?? markdown).trim();
 }
 
 function readSkillCommand(
@@ -154,6 +172,95 @@ function readSkillRoot(
     }
   }
   return commands;
+}
+
+function readAgentMarkdownCommand(
+  file: string,
+  options: AgentReadOptions = {},
+): ProviderSlashCommand | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const mode = frontmatterField(markdown, "mode")?.toLowerCase();
+  if (options.includeMode && (!mode || !options.includeMode.has(mode))) {
+    return null;
+  }
+  const rawName =
+    (options.nameFromFrontmatter ? frontmatterField(markdown, "name") : undefined) ??
+    path.basename(file, ".md");
+  const agentName = normalizeCommandName(rawName);
+  if (!agentName) {
+    return null;
+  }
+  return providerAgentSlashCommand({
+    name: agentName,
+    description: frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown),
+    promptPrefix: `@${agentName}`,
+    inputHint: "<prompt>",
+  });
+}
+
+function readAgentMarkdownRoot(
+  root: string,
+  options: AgentReadOptions = {},
+  depth = 0,
+): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(root)) {
+    const entryPath = path.join(root, entry);
+    const command = readAgentMarkdownCommand(entryPath, options);
+    if (command) {
+      commands.push(command);
+    } else if (depth < 4 && isDirectory(entryPath)) {
+      commands.push(...readAgentMarkdownRoot(entryPath, options, depth + 1));
+    }
+  }
+  return commands;
+}
+
+function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
+  const raw = safeReadFile(file);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as { readonly agent?: unknown };
+    const agents =
+      parsed.agent && typeof parsed.agent === "object"
+        ? (parsed.agent as Record<string, unknown>)
+        : {};
+    return Object.entries(agents).flatMap(([rawName, rawAgent]) => {
+      const agentName = normalizeCommandName(rawName);
+      if (!agentName || !rawAgent || typeof rawAgent !== "object") {
+        return [];
+      }
+      const agent = rawAgent as {
+        readonly description?: unknown;
+        readonly mode?: unknown;
+        readonly disable?: unknown;
+      };
+      if (agent.disable === true || agent.mode !== "subagent") {
+        return [];
+      }
+      return [
+        providerAgentSlashCommand({
+          name: agentName,
+          description: typeof agent.description === "string" ? agent.description : undefined,
+          promptPrefix: `@${agentName}`,
+          inputHint: "<prompt>",
+        }),
+      ];
+    });
+  } catch {
+    return [];
+  }
 }
 
 function safeParsePluginManifest(file: string): PluginManifest | null {
@@ -413,6 +520,11 @@ export function discoverClaudeExtensionSlashCommands(
 ): ReadonlyArray<ProviderSlashCommand> {
   const claudeHome = input.home?.trim() || path.join(homedir(), ".claude");
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
+  const agentCommands = mergeProviderSlashCommands(
+    [input.cwd ? path.join(input.cwd, ".claude", "agents") : null, path.join(claudeHome, "agents")]
+      .filter((root): root is string => Boolean(root))
+      .flatMap((root) => readAgentMarkdownRoot(root, { nameFromFrontmatter: true })),
+  );
   const skillCommands = discoverSkillRootSlashCommands({
     roots: [
       input.cwd ? path.join(input.cwd, ".claude", "skills") : null,
@@ -426,7 +538,29 @@ export function discoverClaudeExtensionSlashCommands(
     readClaudeInstalledPluginCommands,
   );
 
-  return mergeProviderSlashCommands(skillCommands, pluginCommands);
+  return mergeProviderSlashCommands(agentCommands, skillCommands, pluginCommands);
+}
+
+function discoverProviderAgentSlashCommands(input: {
+  readonly cwd?: string | undefined;
+  readonly providerHome: string;
+  readonly providerHomeDirName: string;
+  readonly nameFromFrontmatter?: boolean | undefined;
+  readonly includeMode?: ReadonlySet<string> | undefined;
+}): ReadonlyArray<ProviderSlashCommand> {
+  return mergeProviderSlashCommands(
+    [
+      input.cwd ? path.join(input.cwd, input.providerHomeDirName, "agents") : null,
+      path.join(input.providerHome, "agents"),
+    ]
+      .filter((root): root is string => Boolean(root))
+      .flatMap((root) =>
+        readAgentMarkdownRoot(root, {
+          nameFromFrontmatter: input.nameFromFrontmatter,
+          includeMode: input.includeMode,
+        }),
+      ),
+  );
 }
 
 export function discoverGenericProviderExtensionSlashCommands(input: {
@@ -436,12 +570,22 @@ export function discoverGenericProviderExtensionSlashCommands(input: {
   readonly providerHomeDirName: string;
   readonly configHomePath?: string | undefined;
   readonly pluginManifestDirName?: string | undefined;
+  readonly includeAgentCommands?: boolean | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
   const providerHome =
     input.home?.trim() ||
     input.configHomePath?.trim() ||
     path.join(homedir(), input.providerHomeDirName);
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
+  const agentCommands =
+    input.includeAgentCommands === false
+      ? []
+      : discoverProviderAgentSlashCommands({
+          cwd: input.cwd,
+          providerHome,
+          providerHomeDirName: input.providerHomeDirName,
+          nameFromFrontmatter: true,
+        });
   const skillCommands = discoverSkillRootSlashCommands({
     roots: [
       input.cwd ? path.join(input.cwd, input.providerHomeDirName, "skills") : null,
@@ -464,7 +608,105 @@ export function discoverGenericProviderExtensionSlashCommands(input: {
       )
     : [];
 
-  return mergeProviderSlashCommands(skillCommands, pluginCommands);
+  return mergeProviderSlashCommands(agentCommands, skillCommands, pluginCommands);
+}
+
+export function discoverGitHubCopilotAgentSlashCommands(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): ReadonlyArray<ProviderSlashCommand> {
+  const roots = [
+    input.cwd ? path.join(input.cwd, ".github", "agents") : null,
+    input.home ? path.join(input.home, ".github-private", "agents") : null,
+  ].filter((root): root is string => Boolean(root));
+
+  return mergeProviderSlashCommands(
+    roots.flatMap((root) => readAgentMarkdownRoot(root, { nameFromFrontmatter: true })),
+  );
+}
+
+function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const name = normalizeCommandName(path.basename(file, ".md"));
+  const prompt = markdownBodyWithoutFrontmatter(markdown);
+  if (!name || !prompt) {
+    return null;
+  }
+  const displayName = frontmatterField(markdown, "name");
+  const description = frontmatterField(markdown, "description");
+  return {
+    name,
+    prompt,
+    ...(displayName ? { displayName } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
+function readGitHubCopilotCustomAgentRoot(root: string, depth = 0): GitHubCopilotCustomAgent[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  const agents: GitHubCopilotCustomAgent[] = [];
+  for (const entry of safeReadDir(root)) {
+    const entryPath = path.join(root, entry);
+    const agent = readGitHubCopilotCustomAgent(entryPath);
+    if (agent) {
+      agents.push(agent);
+    } else if (depth < 4 && isDirectory(entryPath)) {
+      agents.push(...readGitHubCopilotCustomAgentRoot(entryPath, depth + 1));
+    }
+  }
+  return agents;
+}
+
+export function discoverGitHubCopilotCustomAgents(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): ReadonlyArray<GitHubCopilotCustomAgent> {
+  const roots = [
+    input.cwd ? path.join(input.cwd, ".github", "agents") : null,
+    input.home ? path.join(input.home, ".github-private", "agents") : null,
+  ].filter((root): root is string => Boolean(root));
+  const agents: GitHubCopilotCustomAgent[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    for (const agent of readGitHubCopilotCustomAgentRoot(root)) {
+      const key = agent.name.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      agents.push(agent);
+    }
+  }
+  return agents;
+}
+
+export function discoverOpenCodeAgentSlashCommands(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): ReadonlyArray<ProviderSlashCommand> {
+  const providerHome = input.home?.trim() || path.join(homedir(), ".config", "opencode");
+  return mergeProviderSlashCommands(
+    discoverProviderAgentSlashCommands({
+      cwd: input.cwd,
+      providerHome,
+      providerHomeDirName: ".opencode",
+      includeMode: new Set(["subagent"]),
+    }),
+    [
+      input.cwd ? path.join(input.cwd, "opencode.json") : null,
+      path.join(providerHome, "opencode.json"),
+    ]
+      .filter((file): file is string => Boolean(file))
+      .flatMap(readOpenCodeJsonAgentCommands),
+  );
 }
 
 export function discoverProviderExtensionSlashCommands(
@@ -502,17 +744,28 @@ export function discoverProviderExtensionSlashCommands(
         pluginManifestDirName: ".pi-plugin",
       });
     case "githubCopilot":
-      return discoverGenericProviderExtensionSlashCommands({
-        cwd: input.cwd,
-        providerHomeDirName: ".github-copilot",
-      });
+      return mergeProviderSlashCommands(
+        discoverGitHubCopilotAgentSlashCommands({
+          cwd: input.cwd,
+        }),
+        discoverGenericProviderExtensionSlashCommands({
+          cwd: input.cwd,
+          providerHomeDirName: ".github-copilot",
+        }),
+      );
     case "opencode":
-      return discoverGenericProviderExtensionSlashCommands({
-        cwd: input.cwd,
-        providerHomeDirName: ".opencode",
-        configHomePath: path.join(homedir(), ".config", "opencode"),
-        pluginManifestDirName: ".opencode-plugin",
-      });
+      return mergeProviderSlashCommands(
+        discoverOpenCodeAgentSlashCommands({
+          cwd: input.cwd,
+        }),
+        discoverGenericProviderExtensionSlashCommands({
+          cwd: input.cwd,
+          providerHomeDirName: ".opencode",
+          configHomePath: path.join(homedir(), ".config", "opencode"),
+          pluginManifestDirName: ".opencode-plugin",
+          includeAgentCommands: false,
+        }),
+      );
   }
 }
 

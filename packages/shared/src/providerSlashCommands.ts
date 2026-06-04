@@ -1,6 +1,6 @@
 import type { ProviderKind, ProviderSlashCommand } from "@ace/contracts";
 
-export type ProviderExtensionCommandKind = "skill" | "plugin";
+export type ProviderExtensionCommandKind = "skill" | "plugin" | "agent";
 
 type ProviderSlashCommandKind = "provider" | ProviderExtensionCommandKind;
 
@@ -34,12 +34,29 @@ export function providerPluginSlashCommand(input: {
   };
 }
 
+export function providerAgentSlashCommand(input: {
+  readonly name: string;
+  readonly description?: string | undefined;
+  readonly promptPrefix?: string | undefined;
+  readonly inputHint?: string | undefined;
+}): ProviderSlashCommand {
+  return {
+    name: input.name,
+    kind: "agent",
+    promptPrefix: input.promptPrefix ?? `@${input.name}`,
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.inputHint ? { inputHint: input.inputHint } : {}),
+  };
+}
+
 function normalizeProviderCommandKind(value: unknown): ProviderExtensionCommandKind | null {
-  return value === "skill" || value === "plugin" ? value : null;
+  return value === "skill" || value === "plugin" || value === "agent" ? value : null;
 }
 
 function normalizeProviderSlashCommandKind(value: unknown): ProviderSlashCommandKind | null {
-  return value === "provider" || value === "skill" || value === "plugin" ? value : null;
+  return value === "provider" || value === "skill" || value === "plugin" || value === "agent"
+    ? value
+    : null;
 }
 
 export function normalizeProviderSlashCommandName(value: string): string | null {
@@ -69,7 +86,7 @@ export function providerSlashCommandExtensionKind(
     return "skill";
   }
   if (promptPrefix?.startsWith("@")) {
-    return "plugin";
+    return command.kind === "agent" ? "agent" : "plugin";
   }
 
   const [root, rest] = normalizedName.split(/[/:.]/u, 2);
@@ -156,7 +173,11 @@ export function mergeProviderSlashCommands(
       const kind = normalizedKind ?? inferredExtensionKind ?? undefined;
       const promptPrefix =
         candidate.promptPrefix?.trim() ||
-        (kind === "skill" ? `$${name}` : kind === "plugin" ? `@${name}` : undefined);
+        (kind === "skill"
+          ? `$${name}`
+          : kind === "plugin" || kind === "agent"
+            ? `@${name}`
+            : undefined);
 
       if (kind === "skill" && isRedundantPluginPrimarySkillCommand(name, pluginCommandKeys)) {
         continue;

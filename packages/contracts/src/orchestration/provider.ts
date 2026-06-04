@@ -118,11 +118,14 @@ export const ProviderSideConversationMode = Schema.Literals([
 ]);
 export type ProviderSideConversationMode = typeof ProviderSideConversationMode.Type;
 
+export const ProviderThreadTargetingMode = Schema.Literals(["native", "unsupported"]);
+export type ProviderThreadTargetingMode = typeof ProviderThreadTargetingMode.Type;
+
 export const ProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   inputHint: Schema.optional(TrimmedNonEmptyString),
-  kind: Schema.optional(Schema.Literals(["provider", "skill", "plugin"])),
+  kind: Schema.optional(Schema.Literals(["provider", "skill", "plugin", "agent"])),
   promptPrefix: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProviderSlashCommand = typeof ProviderSlashCommand.Type;
@@ -147,6 +150,9 @@ export const ProviderIntegrationCapabilities = Schema.Struct({
   ),
   sideConversationMode: ProviderSideConversationMode.pipe(
     Schema.withDecodingDefault(() => "replay-fork" as const),
+  ),
+  providerThreadTargetingMode: ProviderThreadTargetingMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
   ),
 });
 export type ProviderIntegrationCapabilities = typeof ProviderIntegrationCapabilities.Type;

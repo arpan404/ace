@@ -852,6 +852,24 @@ describe("deriveWorkLogEntries", () => {
     expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
   });
 
+  it("does not render goal lifecycle tool activity in the work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-tool-completed",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Goal updated",
+        tone: "tool",
+        payload: {
+          detail: "Ship provider goal UI",
+          status: "active",
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

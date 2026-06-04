@@ -107,7 +107,9 @@ function normalizeProviderSlashCommands(
       asNonEmptyString(record?.source) ??
       asNonEmptyString(record?.type);
     const kind =
-      rawKind === "skill" || rawKind === "plugin" || rawKind === "provider" ? rawKind : undefined;
+      rawKind === "skill" || rawKind === "plugin" || rawKind === "provider" || rawKind === "agent"
+        ? rawKind
+        : undefined;
     const promptPrefix =
       asNonEmptyString(record?.promptPrefix) ??
       asNonEmptyString(record?.prompt_prefix) ??
@@ -168,11 +170,15 @@ function providerCapabilitiesFromSessionConfigured(
 
   const sessionForkMode = asNonEmptyString(capabilities.sessionForkMode);
   const sideConversationMode = asNonEmptyString(capabilities.sideConversationMode);
+  const providerThreadTargetingMode =
+    asNonEmptyString(capabilities.providerThreadTargetingMode) ??
+    asNonEmptyString(capabilities.provider_thread_targeting_mode);
   const sessionResumeMode = asNonEmptyString(capabilities.sessionResumeMode);
   const turnSteeringMode = asNonEmptyString(capabilities.turnSteeringMode);
   const overrides: {
     sessionForkMode?: ProviderIntegrationCapabilities["sessionForkMode"];
     sideConversationMode?: ProviderIntegrationCapabilities["sideConversationMode"];
+    providerThreadTargetingMode?: ProviderIntegrationCapabilities["providerThreadTargetingMode"];
     sessionResumeMode?: ProviderIntegrationCapabilities["sessionResumeMode"];
     turnSteeringMode?: ProviderIntegrationCapabilities["turnSteeringMode"];
   } = {};
@@ -186,6 +192,9 @@ function providerCapabilitiesFromSessionConfigured(
     sideConversationMode === "unsupported"
   ) {
     overrides.sideConversationMode = sideConversationMode;
+  }
+  if (providerThreadTargetingMode === "native" || providerThreadTargetingMode === "unsupported") {
+    overrides.providerThreadTargetingMode = providerThreadTargetingMode;
   }
   if (sessionResumeMode === "native" || sessionResumeMode === "local-replay") {
     overrides.sessionResumeMode = sessionResumeMode;
@@ -1721,6 +1730,7 @@ function runtimeEventToActivities(
             taskId: event.payload.taskId,
             ...(event.payload.taskType ? { taskType: event.payload.taskType } : {}),
             ...(event.payload.description ? { detail: event.payload.description } : {}),
+            ...(event.payload.subagent !== undefined ? { subagent: event.payload.subagent } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -1755,6 +1765,7 @@ function runtimeEventToActivities(
               : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
+            ...(event.payload.subagent !== undefined ? { subagent: event.payload.subagent } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -1783,6 +1794,7 @@ function runtimeEventToActivities(
             status: event.payload.status,
             ...(event.payload.summary ? { detail: event.payload.summary } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
+            ...(event.payload.subagent !== undefined ? { subagent: event.payload.subagent } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

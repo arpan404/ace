@@ -1383,6 +1383,11 @@ describe("ClaudeAdapterLive", () => {
           "Code reviewer checked the migration edge cases.",
         );
         assert.equal(progressEvent.payload.description, "Running background teammate");
+        assert.deepEqual(progressEvent.payload.subagent, {
+          id: "task-subagent-1",
+          type: "claude subagent",
+          name: "Running background teammate",
+        });
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

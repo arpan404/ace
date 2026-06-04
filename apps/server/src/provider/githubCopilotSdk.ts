@@ -48,6 +48,16 @@ export interface GitHubCopilotSessionClient {
             readonly path: string | null;
           }>;
         };
+        readonly agent?: {
+          select(params: { readonly name: string }): Promise<{
+            readonly agent: {
+              readonly name: string;
+              readonly displayName: string;
+              readonly description: string;
+            };
+          }>;
+          deselect(): Promise<void>;
+        };
       }
     | undefined;
   on(handler: SessionEventHandler): () => void;

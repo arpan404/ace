@@ -1713,6 +1713,7 @@ const make = Effect.gen(function* () {
       return;
     }
     const provider = resolveThreadProvider(thread);
+    const desiredModelSelection = event.payload.modelSelection ?? thread.modelSelection;
     const attachments = yield* normalizeUploadChatAttachments({
       threadId: event.payload.threadId,
       attachments: event.payload.attachments,
@@ -1726,7 +1727,6 @@ const make = Effect.gen(function* () {
         projects: readModel.projects,
       });
       const threadTitle = toNonEmptyProviderInput(`${thread.title} side chat`);
-      const desiredModelSelection = event.payload.modelSelection ?? thread.modelSelection;
       const capabilities = yield* resolveSessionCapabilities(provider);
 
       if (capabilities?.sideConversationMode === "unsupported") {
@@ -1763,24 +1763,10 @@ const make = Effect.gen(function* () {
         threadId: sideThreadId,
         input: toNonEmptyProviderInput(event.payload.text),
         ...(attachments.length > 0 ? { attachments } : {}),
-        ...(event.payload.modelSelection !== undefined
-          ? { modelSelection: event.payload.modelSelection }
-          : {}),
+        modelSelection: desiredModelSelection,
         ...(event.payload.interactionMode !== undefined
           ? { interactionMode: event.payload.interactionMode }
           : {}),
-      });
-      return;
-    }
-
-    if (provider !== "codex") {
-      yield* appendProviderFailureActivity({
-        threadId: event.payload.threadId,
-        kind: "provider.turn.start.failed",
-        summary: "Subagent message failed",
-        detail: `Provider-managed subagent follow-ups require a provider child thread. Current provider: '${provider}'.`,
-        turnId: null,
-        createdAt: event.payload.createdAt,
       });
       return;
     }
@@ -1790,9 +1776,7 @@ const make = Effect.gen(function* () {
       providerThreadId: event.payload.subagentThreadId,
       messageText: event.payload.text,
       attachments,
-      ...(event.payload.modelSelection !== undefined
-        ? { modelSelection: event.payload.modelSelection }
-        : {}),
+      modelSelection: desiredModelSelection,
       ...(event.payload.interactionMode !== undefined
         ? { interactionMode: event.payload.interactionMode }
         : {}),

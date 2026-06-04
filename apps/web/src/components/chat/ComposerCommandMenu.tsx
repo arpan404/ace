@@ -29,7 +29,7 @@ export type ComposerCommandItem =
       id: string;
       type: "provider-command";
       command: string;
-      commandKind: "provider" | "skill" | "plugin";
+      commandKind: "provider" | "skill" | "plugin" | "agent";
       label: string;
       description: string;
     }
@@ -49,7 +49,14 @@ export type ComposerCommandItem =
       description: string;
     };
 
-type ComposerCommandSectionId = "commands" | "skills" | "plugins" | "models" | "issues" | "files";
+type ComposerCommandSectionId =
+  | "commands"
+  | "agents"
+  | "skills"
+  | "plugins"
+  | "models"
+  | "issues"
+  | "files";
 
 type ComposerCommandSection = {
   readonly id: ComposerCommandSectionId;
@@ -59,6 +66,7 @@ type ComposerCommandSection = {
 
 const COMPOSER_COMMAND_SECTION_ORDER = [
   "commands",
+  "agents",
   "skills",
   "plugins",
   "models",
@@ -68,6 +76,7 @@ const COMPOSER_COMMAND_SECTION_ORDER = [
 
 const COMPOSER_COMMAND_SECTION_LABELS = {
   commands: null,
+  agents: "Agents",
   skills: "Skills",
   plugins: "Plugins",
   models: "Models",
@@ -82,6 +91,9 @@ function composerCommandSectionId(item: ComposerCommandItem): ComposerCommandSec
     }
     if (item.commandKind === "skill") {
       return "skills";
+    }
+    if (item.commandKind === "agent") {
+      return "agents";
     }
     return "commands";
   }

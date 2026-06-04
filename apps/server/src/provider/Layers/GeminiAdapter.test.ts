@@ -156,6 +156,16 @@ async function withAdapter<T>(
   );
 }
 
+async function waitForCondition(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for condition.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 afterEach(() => {
   mockedStartAcpClient.mockReset();
 });
@@ -1220,6 +1230,124 @@ describe("GeminiAdapterLive approvals", () => {
 
         expect(reasoningDelta.value.createdAt).toBe(providerTimestamp);
       } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("maps Gemini subagent tool calls to provider-agnostic collaboration items", async () => {
+    let resolvePrompt!: (value: unknown) => void;
+    const promptResult = new Promise<unknown>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-subagent-tool", {
+              currentModeId: "yolo",
+            });
+          case "session/prompt":
+            return promptResult;
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-subagent-tool");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-subagent-tool",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        const toolCompletedPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(
+              adapter.streamEvents,
+              (event) =>
+                event.type === "item.completed" &&
+                event.payload.itemType === "collab_agent_tool_call",
+            ),
+          ),
+        );
+
+        const turnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Ask a Gemini subagent to inspect dependencies.",
+          }),
+        );
+        await waitForCondition(() =>
+          client.request.mock.calls.some(([method]) => method === "session/prompt"),
+        );
+
+        const notificationHandler = client.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "gemini-session-subagent-tool",
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: "gemini-subagent-tool-1",
+              title: "Scout agent",
+              kind: "other",
+              status: "completed",
+              rawInput: {
+                agentId: "gemini-scout",
+                agentDisplayName: "Scout",
+                agentRole: "code-researcher",
+                model: "gemini-2.5-pro",
+                prompt: "Inspect dependencies",
+              },
+            },
+          },
+        });
+
+        const toolCompleted = await toolCompletedPromise;
+        expect(toolCompleted._tag).toBe("Some");
+        if (toolCompleted._tag !== "Some") {
+          return;
+        }
+
+        expect(toolCompleted.value.payload).toMatchObject({
+          itemType: "collab_agent_tool_call",
+          title: "Scout agent",
+          status: "completed",
+          data: {
+            subagent: {
+              id: "gemini-scout",
+              name: "Scout",
+              type: "code-researcher",
+              model: "gemini-2.5-pro",
+            },
+            subagentId: "gemini-scout",
+            agentDisplayName: "Scout",
+            agentRole: "code-researcher",
+            model: "gemini-2.5-pro",
+          },
+        });
+
+        resolvePrompt({ stopReason: "end_turn" });
+        await turnPromise;
+      } finally {
+        resolvePrompt?.({ stopReason: "end_turn" });
         await Effect.runPromise(adapter.stopAll());
       }
     });

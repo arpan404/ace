@@ -3231,6 +3231,63 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("opens /side as a side-chat draft with terminal context instead of sending the main thread", async () => {
+    const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
+    useComposerDraftStore.getState().setPrompt(THREAD_ID, "/side Inspect this failure");
+    useComposerDraftStore.getState().addTerminalContext(
+      THREAD_ID,
+      createTerminalContext({
+        id: "ctx-side-transfer",
+        terminalLabel: "Terminal 1",
+        lineStart: 7,
+        lineEnd: 9,
+        text: "bun typecheck\nerror TS2322",
+      }),
+    );
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-side-terminal-context" as MessageId,
+        targetText: "side terminal context target",
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const mainTurnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(mainTurnStartRequest).toBeUndefined();
+          const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(sourceDraft?.prompt ?? "").toBe("");
+          expect(sourceDraft?.terminalContexts ?? []).toEqual([]);
+          const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
+          expect(sideDraft?.prompt).toContain("Inspect this failure");
+          expect(sideDraft?.terminalContexts.map((context) => context.id)).toEqual([
+            "ctx-side-transfer",
+          ]);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("disables send when the composer only contains an expired terminal pill", async () => {
     const expiredLabel = "Terminal 1 line 4";
     useComposerDraftStore.getState().addTerminalContext(

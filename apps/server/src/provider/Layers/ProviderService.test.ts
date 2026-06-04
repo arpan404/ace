@@ -827,6 +827,39 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("rejects provider child-thread sends when the adapter cannot target them", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-provider-child-target"), {
+        provider: "cursor",
+        threadId: asThreadId("thread-provider-child-target"),
+        runtimeMode: "full-access",
+      });
+      routing.cursor.sendTurn.mockClear();
+
+      const result = yield* Effect.result(
+        provider.sendTurn({
+          threadId: session.threadId,
+          providerThreadId: "cursor-child-session-1",
+          input: "Follow up in the side chat",
+          attachments: [],
+        }),
+      );
+
+      assertFailure(
+        result,
+        new ProviderValidationError({
+          operation: "ProviderService.sendTurn",
+          issue:
+            "cursor cannot send a turn to provider thread 'cursor-child-session-1'. Start a replay-fork side conversation instead.",
+        }),
+      );
+      assert.equal(routing.cursor.sendTurn.mock.calls.length, 0);
+
+      yield* provider.stopSession({ threadId: session.threadId });
+    }),
+  );
+
   it.effect("rejects steerTurn for providers without native steering", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;

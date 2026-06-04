@@ -105,6 +105,9 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
   if (activity.kind === "goal.updated" || activity.kind === "goal.cleared") {
     return false;
   }
+  if (isGoalLifecycleWorkLogActivity(activity)) {
+    return false;
+  }
   if (activity.kind === "task.started" || activity.kind === "task.completed") {
     return false;
   }
@@ -118,6 +121,31 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
     return false;
   }
   return !isPlanBoundaryToolActivity(activity);
+}
+
+function isGoalLifecycleWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  const normalizedSummary = activity.summary.replace(/\s+/g, " ").trim().toLowerCase();
+  if (
+    normalizedSummary !== "goal updated" &&
+    normalizedSummary !== "goal paused" &&
+    normalizedSummary !== "goal resumed" &&
+    normalizedSummary !== "goal cleared" &&
+    normalizedSummary !== "goal deleted" &&
+    normalizedSummary !== "goal completed" &&
+    normalizedSummary !== "goal blocked"
+  ) {
+    return false;
+  }
+
+  return (
+    activity.kind === "tool.started" ||
+    activity.kind === "tool.updated" ||
+    activity.kind === "tool.completed" ||
+    activity.kind === "task.progress" ||
+    activity.kind === "reasoning.completed" ||
+    activity.kind === "runtime.warning" ||
+    activity.kind === "runtime.error"
+  );
 }
 
 function asGoalStatus(value: unknown): ActiveGoalState["status"] | null {

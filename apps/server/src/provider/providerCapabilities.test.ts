@@ -51,6 +51,30 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("pi").sideConversationMode).toBe("replay-fork");
   });
 
+  it("declares provider child-thread targeting only for adapters that implement it", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").providerThreadTargetingMode).toBe(
+      "native",
+    );
+    expect(defaultProviderIntegrationCapabilities("opencode").providerThreadTargetingMode).toBe(
+      "native",
+    );
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").providerThreadTargetingMode).toBe(
+      "unsupported",
+    );
+    expect(defaultProviderIntegrationCapabilities("cursor").providerThreadTargetingMode).toBe(
+      "unsupported",
+    );
+    expect(
+      defaultProviderIntegrationCapabilities("githubCopilot").providerThreadTargetingMode,
+    ).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("gemini").providerThreadTargetingMode).toBe(
+      "unsupported",
+    );
+    expect(defaultProviderIntegrationCapabilities("pi").providerThreadTargetingMode).toBe(
+      "unsupported",
+    );
+  });
+
   it("preserves Pi defaults when adapter capabilities do not override them", () => {
     expect(
       resolveProviderIntegrationCapabilities("pi", { sessionModelSwitch: "in-session" }),
@@ -58,6 +82,7 @@ describe("providerCapabilities", () => {
       approvalRequestsMode: "none",
       turnSteeringMode: "native",
       sideConversationMode: "replay-fork",
+      providerThreadTargetingMode: "unsupported",
     });
   });
 });

@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@ace/contracts";
+import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
 
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
 import type { WorkLogEntry } from "../../session-logic/types";
@@ -30,6 +30,13 @@ function isSideChatEntry(entry: WorkLogEntry): boolean {
 
 export function isSideChatThread(thread: SubagentThread): boolean {
   return thread.entries.some(isSideChatEntry);
+}
+
+export function canReplyToSubagentThread(
+  thread: SubagentThread,
+  providerThreadTargetingMode: ProviderIntegrationCapabilities["providerThreadTargetingMode"],
+): boolean {
+  return isSideChatThread(thread) || providerThreadTargetingMode === "native";
 }
 
 export function formatSubagentLabel(value: string | undefined): string | null {

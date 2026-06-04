@@ -71,6 +71,7 @@ const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 const CODEX_PROVIDER_CAPABILITIES = {
   sessionForkMode: "native" as const,
   sideConversationMode: "native-fork" as const,
+  providerThreadTargetingMode: "native" as const,
 };
 
 export interface CodexAdapterLiveOptions {

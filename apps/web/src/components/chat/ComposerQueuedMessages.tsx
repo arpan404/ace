@@ -18,22 +18,32 @@ import { CSS } from "@dnd-kit/utilities";
 import { IconTerminal } from "@tabler/icons-react";
 import {
   ArrowUpIcon,
-  CircleDotIcon,
+  ClockIcon,
+  CornerDownRightIcon,
+  PauseCircleIcon,
+  PlayCircleIcon,
   GripVerticalIcon,
+  HashIcon,
   ImageIcon,
-  PauseIcon,
   PencilIcon,
-  PlayIcon,
-  SaveIcon,
-  Trash2Icon,
+  TargetIcon,
   XIcon,
 } from "lucide-react";
 import { type MessageId, type ModelSelection } from "@ace/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import type { ActiveGoalState } from "../../session-logic";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatQueuedComposerMessagePreview } from "~/lib/chat/queuedComposerPreview";
 
@@ -45,25 +55,125 @@ export interface ComposerQueuedMessageItem {
   modelSelection: ModelSelection;
 }
 
-function formatGoalUsage(goal: ActiveGoalState): string | null {
-  if (goal.tokensUsed !== undefined && goal.tokenBudget !== undefined) {
-    return `${new Intl.NumberFormat().format(goal.tokensUsed)} / ${new Intl.NumberFormat().format(goal.tokenBudget)} tokens`;
+const QUEUE_ICON_BUTTON_CLASS_NAME =
+  "size-6 rounded-md text-muted-foreground/55 opacity-70 transition-all duration-150 hover:bg-muted/35 hover:text-foreground hover:opacity-100 group-hover/queue-row:opacity-100 group-focus-within/queue-row:opacity-100";
+const QUEUE_ROW_CLASS_NAME =
+  "group/queue-row relative grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border/30 px-2.5 py-1.5 last:border-b-0";
+
+function formatCompactNumber(value: number): string {
+  const absoluteValue = Math.abs(value);
+  const suffixes = [
+    { threshold: 1_000_000_000_000, suffix: "T" },
+    { threshold: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, suffix: "M" },
+    { threshold: 1_000, suffix: "K" },
+  ] as const;
+  const matchingSuffix = suffixes.find((entry) => absoluteValue >= entry.threshold);
+
+  if (!matchingSuffix) {
+    return new Intl.NumberFormat().format(value);
   }
-  if (goal.tokensUsed !== undefined) {
-    return `${new Intl.NumberFormat().format(goal.tokensUsed)} tokens`;
-  }
-  if (goal.timeUsedSeconds !== undefined) {
-    const minutes = Math.max(1, Math.round(goal.timeUsedSeconds / 60));
-    return `${minutes}m elapsed`;
-  }
-  return null;
+
+  const compactValue = value / matchingSuffix.threshold;
+  const maximumFractionDigits = Math.abs(compactValue) >= 100 ? 0 : 1;
+  return `${new Intl.NumberFormat(undefined, {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+  }).format(compactValue)}${matchingSuffix.suffix}`;
 }
 
-function goalStatusTone(status: ActiveGoalState["status"]): string {
-  if (status === "paused") return "text-warning";
-  if (status === "blocked") return "text-destructive";
-  if (status === "completed") return "text-success";
-  return "text-success";
+function formatGoalTokens(goal: ActiveGoalState): string {
+  if (goal.tokensUsed !== undefined && goal.tokenBudget !== undefined) {
+    return `${formatCompactNumber(goal.tokensUsed)} / ${formatCompactNumber(goal.tokenBudget)} tokens`;
+  }
+  if (goal.tokensUsed !== undefined) {
+    return `${formatCompactNumber(goal.tokensUsed)} tokens`;
+  }
+  if (goal.tokenBudget !== undefined) {
+    return `${formatCompactNumber(goal.tokenBudget)} token budget`;
+  }
+  return "Not reported";
+}
+
+function formatGoalElapsedTime(goal: ActiveGoalState): string {
+  if (goal.timeUsedSeconds !== undefined) {
+    const totalSeconds = Math.max(0, Math.floor(goal.timeUsedSeconds));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
+  }
+  return "Not reported";
+}
+
+function QueueActionButton(props: {
+  label: string;
+  tooltip: string;
+  destructive?: boolean;
+  disabled?: boolean;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            className={cn(
+              QUEUE_ICON_BUTTON_CLASS_NAME,
+              props.destructive && "hover:bg-destructive/10 hover:text-destructive",
+              props.disabled && "pointer-events-none opacity-35",
+            )}
+            disabled={props.disabled}
+            onClick={props.onClick}
+            aria-label={props.label}
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{props.tooltip}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function QueueInlineMetric(props: { label: string; value: string; children: ReactNode }) {
+  return (
+    <span
+      className="inline-flex min-w-0 items-center gap-1 text-[11px] font-medium tabular-nums text-muted-foreground/66"
+      aria-label={`${props.label}: ${props.value}`}
+    >
+      <span className="text-muted-foreground/42" aria-hidden="true">
+        {props.children}
+      </span>
+      <span className="truncate">{props.value}</span>
+    </span>
+  );
+}
+
+function QueueAttachmentBadge(props: { label: string; count: number; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/25 bg-background/25 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground/68" />
+        }
+      >
+        {props.children}
+        <span>{props.count}</span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 function GoalQueueRow(props: {
@@ -75,128 +185,118 @@ function GoalQueueRow(props: {
 }) {
   const [editing, setEditing] = useState(false);
   const [draftObjective, setDraftObjective] = useState(props.goal.objective);
-  const usage = formatGoalUsage(props.goal);
   const trimmedDraft = draftObjective.trim();
   const saveDisabled = trimmedDraft.length === 0 || trimmedDraft === props.goal.objective;
-
-  if (editing) {
-    return (
-      <div className="border-b border-border/50 px-3 py-2 last:border-b-0">
-        <textarea
-          value={draftObjective}
-          onChange={(event) => setDraftObjective(event.target.value)}
-          className="min-h-18 w-full resize-none rounded-lg border border-border/65 bg-background/75 px-2.5 py-2 text-[12px] leading-5 outline-none transition-colors focus:border-ring/55 focus:ring-2 focus:ring-ring/10"
-          aria-label="Edit goal objective"
-        />
-        <div className="mt-1 flex items-center justify-end gap-0.5">
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground"
-            onClick={() => {
-              setDraftObjective(props.goal.objective);
-              setEditing(false);
-            }}
-            aria-label="Cancel edit"
-          >
-            <XIcon className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
-            disabled={saveDisabled}
-            onClick={() => {
-              if (saveDisabled) return;
-              props.onEdit(trimmedDraft);
-              setEditing(false);
-            }}
-            aria-label="Save goal"
-          >
-            <SaveIcon className="size-3.5" />
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const elapsedTime = formatGoalElapsedTime(props.goal);
+  const tokens = formatGoalTokens(props.goal);
 
   return (
-    <div className="group/queue-row relative grid min-h-[42px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/50 px-3 py-1.5 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-muted-foreground/62">↳</span>
-        <span className="shrink-0 rounded-sm border border-border/55 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/72">
-          Goal
-        </span>
-        <CircleDotIcon className={cn("size-3.5 shrink-0", goalStatusTone(props.goal.status))} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium text-foreground/88">
-            {props.goal.objective}
-          </p>
-          <p className="mt-0.5 truncate text-[10px] text-muted-foreground/68">
-            <span className="uppercase">{props.goal.status}</span>
-            {usage ? <span> / {usage}</span> : null}
-          </p>
+    <>
+      <div className={QUEUE_ROW_CLASS_NAME}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/25 bg-background/25 text-muted-foreground/58">
+            <TargetIcon className="size-3.5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1 sm:max-w-[min(36rem,52vw)]">
+            <p className="truncate text-[12.5px] font-medium text-foreground/86">
+              {props.goal.objective}
+            </p>
+          </div>
+          <div className="hidden min-w-0 shrink-0 items-center gap-2.5 pl-1 sm:flex">
+            <QueueInlineMetric label="Time" value={elapsedTime}>
+              <ClockIcon className="size-3" />
+            </QueueInlineMetric>
+            <QueueInlineMetric label="Tokens" value={tokens}>
+              <HashIcon className="size-3" />
+            </QueueInlineMetric>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {props.goal.status === "paused" ? (
+            <QueueActionButton label="Resume goal" tooltip="Resume goal" onClick={props.onResume}>
+              <PlayCircleIcon className="size-3.5" />
+            </QueueActionButton>
+          ) : props.goal.status !== "completed" ? (
+            <QueueActionButton label="Pause goal" tooltip="Pause goal" onClick={props.onPause}>
+              <PauseCircleIcon className="size-3.5" />
+            </QueueActionButton>
+          ) : null}
+          <QueueActionButton
+            label="Edit goal"
+            tooltip="Edit goal"
+            onClick={() => {
+              setDraftObjective(props.goal.objective);
+              setEditing(true);
+            }}
+          >
+            <PencilIcon className="size-3.5" />
+          </QueueActionButton>
+          <QueueActionButton
+            label="Delete goal"
+            tooltip="Delete goal"
+            destructive
+            onClick={props.onDelete}
+          >
+            <XIcon className="size-3.5" />
+          </QueueActionButton>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        {props.goal.status === "paused" ? (
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground"
-            onClick={props.onResume}
-            aria-label="Resume goal"
-          >
-            <PlayIcon className="size-3.5" />
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground"
-            onClick={props.onPause}
-            aria-label="Pause goal"
-          >
-            <PauseIcon className="size-3.5" />
-          </Button>
-        )}
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground"
-          onClick={() => {
+
+      <Dialog
+        open={editing}
+        onOpenChange={(open) => {
+          if (!open) {
             setDraftObjective(props.goal.objective);
-            setEditing(true);
-          }}
-          aria-label="Edit goal"
-        >
-          <PencilIcon className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-7 rounded-md text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
-          onClick={props.onDelete}
-          aria-label="Delete goal"
-        >
-          <Trash2Icon className="size-3.5" />
-        </Button>
-      </div>
-    </div>
+          }
+          setEditing(open);
+        }}
+      >
+        <DialogPopup className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit goal</DialogTitle>
+            <DialogDescription>Update the objective used for the active goal.</DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <textarea
+              value={draftObjective}
+              onChange={(event) => setDraftObjective(event.target.value)}
+              className="min-h-28 w-full resize-none rounded-lg border border-border/55 bg-background/70 px-3 py-2.5 text-sm leading-6 outline-none transition-colors focus:border-ring/60 focus:ring-2 focus:ring-ring/12"
+              aria-label="Edit goal objective"
+              autoFocus
+            />
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setDraftObjective(props.goal.objective);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={saveDisabled}
+              onClick={() => {
+                if (saveDisabled) return;
+                props.onEdit(trimmedDraft);
+                setEditing(false);
+              }}
+            >
+              Save goal
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
   );
 }
 
 function SortableQueuedMessageRow(props: {
   message: ComposerQueuedMessageItem;
-  index: number;
   draggedMessageId: MessageId | null;
-  persistedPositionByMessageId: ReadonlyMap<MessageId, number>;
   steerMessageId: MessageId | null | undefined;
   canSendNow: boolean;
   onEdit: (messageId: MessageId) => void;
@@ -220,137 +320,115 @@ function SortableQueuedMessageRow(props: {
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "group/queue-row relative grid min-h-[42px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/50 px-3 py-1.5 last:border-b-0",
+        QUEUE_ROW_CLASS_NAME,
+        isSteered && "bg-primary/[0.035]",
         props.draggedMessageId === props.message.id && "opacity-70",
       )}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                ref={setActivatorNodeRef}
-                className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground/55 opacity-0 transition-opacity group-hover/queue-row:opacity-100 group-focus-within/queue-row:opacity-100 active:cursor-grabbing"
-                {...attributes}
-                {...listeners}
-                aria-label="Reorder queued message"
-              />
-            }
-          >
-            <GripVerticalIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">Reorder queued message</TooltipPopup>
-        </Tooltip>
-        <span className="shrink-0 text-muted-foreground/62">↳</span>
-        <span className="shrink-0 rounded-sm border border-border/55 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/72">
-          {(() => {
-            const persistedPosition =
-              props.persistedPositionByMessageId.get(props.message.id) ?? props.index + 1;
-            const displayPosition = props.index + 1;
-            const isNext = displayPosition === 1;
-            const positionLabel = isNext ? "Next" : `#${displayPosition}`;
-            if (displayPosition === persistedPosition) {
-              return positionLabel;
-            }
-            return `${positionLabel} • was #${persistedPosition}`;
-          })()}
-        </span>
-        <p className="truncate text-[13px] font-medium text-foreground/88">{preview}</p>
-        {props.message.images.length > 0 ? (
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/80 text-muted-foreground/70">
-            <ImageIcon className="size-3" />
-          </span>
-        ) : null}
-        {props.message.terminalContexts.length > 0 ? (
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/80 text-muted-foreground/70">
-            <IconTerminal className="size-3" />
-          </span>
-        ) : null}
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex w-5 shrink-0 items-center">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  ref={setActivatorNodeRef}
+                  className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground/36 opacity-55 transition-all duration-150 hover:bg-muted/35 hover:text-muted-foreground/75 hover:opacity-100 active:cursor-grabbing group-focus-within/queue-row:opacity-100"
+                  {...attributes}
+                  {...listeners}
+                  aria-label="Reorder queued message"
+                />
+              }
+            >
+              <GripVerticalIcon className="size-3" />
+            </TooltipTrigger>
+            <TooltipPopup side="top">Reorder queued message</TooltipPopup>
+          </Tooltip>
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground/86">
+            {preview}
+          </p>
+          <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
+            {props.message.images.length > 0 ? (
+              <QueueAttachmentBadge
+                label={
+                  props.message.images.length === 1
+                    ? "1 image attachment"
+                    : `${props.message.images.length} image attachments`
+                }
+                count={props.message.images.length}
+              >
+                <ImageIcon className="size-3" />
+              </QueueAttachmentBadge>
+            ) : null}
+            {props.message.terminalContexts.length > 0 ? (
+              <QueueAttachmentBadge
+                label={
+                  props.message.terminalContexts.length === 1
+                    ? "1 terminal context"
+                    : `${props.message.terminalContexts.length} terminal contexts`
+                }
+                count={props.message.terminalContexts.length}
+              >
+                <IconTerminal className="size-3" />
+              </QueueAttachmentBadge>
+            ) : null}
+          </div>
+        </div>
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         {props.canSendNow ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 rounded-md bg-primary/10 px-2.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/16 hover:text-primary"
-                  onClick={() => {
-                    props.onSend(props.message.id);
-                  }}
-                  aria-label="Send queued message"
-                />
-              }
-            >
-              <ArrowUpIcon className="mr-1 size-3.5" />
-              Send
-            </TooltipTrigger>
-            <TooltipPopup side="top">Send queued message</TooltipPopup>
-          </Tooltip>
+          <QueueActionButton
+            label="Send queued message"
+            tooltip="Send queued message"
+            onClick={() => {
+              props.onSend(props.message.id);
+            }}
+          >
+            <ArrowUpIcon className="size-3.5 text-primary" />
+          </QueueActionButton>
         ) : null}
         {showSteerAction ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className={cn(
-                    "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
-                    isSteered
-                      ? "animate-pulse border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
-                      : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
-                  )}
-                  onClick={() => {
-                    if (!isSteered) {
-                      props.onOptimisticallySteer(props.message.id);
-                    }
-                    props.onSteer(props.message.id);
-                  }}
-                  aria-label={isSteered ? "Steering message" : "Steer queued message"}
-                />
+          <QueueActionButton
+            label={isSteered ? "Steering message" : "Steer queued message"}
+            tooltip={isSteered ? "Move back to queue" : "Steer queued message"}
+            onClick={() => {
+              if (!isSteered) {
+                props.onOptimisticallySteer(props.message.id);
               }
-            >
-              <span
-                className={cn("mr-1", isSteered ? "text-primary/90" : "text-muted-foreground/65")}
-              >
-                ↳
-              </span>
-              {isSteered ? "Steering" : "Steer"}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {isSteered ? "Move back to queue" : "Steer queued message"}
-            </TooltipPopup>
-          </Tooltip>
+              props.onSteer(props.message.id);
+            }}
+          >
+            <CornerDownRightIcon
+              className={cn(
+                "size-3.5",
+                isSteered
+                  ? "animate-pulse text-primary"
+                  : "text-muted-foreground/60 group-hover/queue-row:text-foreground",
+              )}
+            />
+          </QueueActionButton>
         ) : null}
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground"
+        <QueueActionButton
+          label="Edit queued message"
+          tooltip="Edit queued message"
           onClick={() => {
             props.onEdit(props.message.id);
           }}
-          aria-label="Edit queued message"
         >
           <PencilIcon className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-7 rounded-md text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
+        </QueueActionButton>
+        <QueueActionButton
+          label="Delete queued message"
+          tooltip="Delete queued message"
+          destructive
           onClick={() => {
             props.onDelete(props.message.id);
           }}
-          aria-label="Delete queued message"
         >
-          <Trash2Icon className="size-3.5" />
-        </Button>
+          <XIcon className="size-3.5" />
+        </QueueActionButton>
       </div>
     </div>
   );
@@ -375,7 +453,6 @@ export function ComposerQueuedMessages(props: {
 }) {
   const hasGoal = props.activeGoal !== null && props.activeGoal !== undefined;
   const hasMessages = props.messages.length > 0;
-  const totalItems = props.messages.length + (hasGoal ? 1 : 0);
   const [draggedMessageId, setDraggedMessageId] = useState<MessageId | null>(null);
   const [optimisticOrder, setOptimisticOrder] = useState<ReadonlyArray<MessageId> | null>(null);
   const queueDnDSensors = useSensors(
@@ -412,10 +489,6 @@ export function ComposerQueuedMessages(props: {
     [props.messages],
   );
 
-  const persistedPositionByMessageId = useMemo(
-    () => new Map(serverOrderIds.map((id, index) => [id, index + 1])),
-    [serverOrderIds],
-  );
   const handleDragEnd = (event: DragEndEvent) => {
     setDraggedMessageId(null);
     const activeId = String(event.active.id) as MessageId;
@@ -463,18 +536,18 @@ export function ComposerQueuedMessages(props: {
     }
   }, [optimisticOrder, serverOrderIds]);
 
-  if (totalItems === 0) {
+  if (!hasGoal && !hasMessages) {
     return null;
   }
 
   return (
     <section
       className={cn(
-        "mb-3 overflow-hidden rounded-[14px] border border-border/60 bg-card",
+        "mb-2 overflow-hidden rounded-xl border border-border/25 bg-input/92 shadow-[0_1px_0_rgba(255,255,255,0.025)_inset]",
         props.className,
       )}
     >
-      <div className="max-h-[168px] overflow-y-auto">
+      <div className="max-h-[148px] overflow-y-auto">
         {props.activeGoal ? (
           <GoalQueueRow
             goal={props.activeGoal}
@@ -498,14 +571,12 @@ export function ComposerQueuedMessages(props: {
             }}
           >
             <SortableContext items={[...baseOrderIds]} strategy={verticalListSortingStrategy}>
-              {orderedMessages.map((message, index) => {
+              {orderedMessages.map((message) => {
                 return (
                   <SortableQueuedMessageRow
                     key={message.id}
                     message={message}
-                    index={index}
                     draggedMessageId={draggedMessageId}
-                    persistedPositionByMessageId={persistedPositionByMessageId}
                     steerMessageId={props.steerMessageId}
                     canSendNow={props.canSendNow === true}
                     onEdit={props.onEdit}

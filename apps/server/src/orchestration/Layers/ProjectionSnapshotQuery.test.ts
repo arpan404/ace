@@ -383,6 +383,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               reviewChangesMode: "provider",
               reviewSurface: "turn-native",
               approvalRequestsMode: "native",
+              providerThreadTargetingMode: "native",
               turnSteeringMode: "native",
               transcriptAuthority: "provider",
               historyAuthority: "provider-session",

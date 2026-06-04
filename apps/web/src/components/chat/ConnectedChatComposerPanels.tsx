@@ -131,7 +131,13 @@ function providerCommandDescription(
   commandKind: ComposerProviderCommandKind,
 ): string {
   const noun =
-    commandKind === "plugin" ? "Plugin" : commandKind === "skill" ? "Skill" : "Provider command";
+    commandKind === "plugin"
+      ? "Plugin"
+      : commandKind === "skill"
+        ? "Skill"
+        : commandKind === "agent"
+          ? "Agent"
+          : "Provider command";
   return command.inputHint
     ? `${command.description ?? noun} - ${command.inputHint}`
     : (command.description ?? noun);

@@ -42,6 +42,7 @@ import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   BrainIcon,
   CheckIcon,
   CircleAlertIcon,
@@ -1672,23 +1673,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 )}
               </span>
             </div>
-            {row.activity === "goal" && (
-              <div
-                className="mt-1 flex items-center gap-2 pl-6 text-[11px] leading-5 text-emerald-600/72 dark:text-emerald-400/72"
-                data-goal-working-timer="true"
-              >
-                <TargetIcon className="size-3 shrink-0 text-emerald-600/58 dark:text-emerald-400/58" />
-                {row.goalStartedAt ? (
-                  <WorkingTimer
-                    createdAt={row.goalStartedAt}
-                    label="Pursuing goal for"
-                    live={liveTimers}
-                  />
-                ) : (
-                  "Pursuing goal..."
-                )}
-              </div>
-            )}
             {row.intentText && (
               <p
                 className="mt-1 pl-6 text-[11px] leading-5 text-muted-foreground/66"
@@ -2556,6 +2540,9 @@ function providerCommandKindForDisplay(
   if (command.kind === "skill" || command.kind === "plugin") {
     return command.kind;
   }
+  if (command.kind === "agent") {
+    return "agent";
+  }
   return providerSlashCommandExtensionKind(command, normalizedName);
 }
 
@@ -2656,9 +2643,11 @@ function buildUserMessageInlineText(
       const ProviderCommandIcon =
         providerCommandDisplay.kind === "plugin"
           ? PlugIcon
-          : providerCommandDisplay.kind === "goal"
-            ? TargetIcon
-            : IconStack2;
+          : providerCommandDisplay.kind === "agent"
+            ? BotIcon
+            : providerCommandDisplay.kind === "goal"
+              ? TargetIcon
+              : IconStack2;
       nodes.push(
         <span
           key={`${keyPrefix}:provider-command:${tokenStart}`}
@@ -2674,9 +2663,11 @@ function buildUserMessageInlineText(
             className={
               providerCommandDisplay.kind === "plugin"
                 ? "size-3.5 shrink-0 text-muted-foreground/85"
-                : providerCommandDisplay.kind === "goal"
-                  ? "size-3.5 shrink-0 text-emerald-500"
-                  : "size-3.5 shrink-0 text-muted-foreground/85"
+                : providerCommandDisplay.kind === "agent"
+                  ? "size-3.5 shrink-0 text-primary/80"
+                  : providerCommandDisplay.kind === "goal"
+                    ? "size-3.5 shrink-0 text-emerald-500"
+                    : "size-3.5 shrink-0 text-muted-foreground/85"
             }
           />
           <span>{providerCommandDisplay.label}</span>

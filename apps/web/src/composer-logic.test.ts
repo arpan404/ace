@@ -415,6 +415,18 @@ describe("parseProviderComposerSlashCommand", () => {
     });
   });
 
+  it("rewrites slash agent aliases to their provider mention invocation", () => {
+    expect(
+      parseProviderComposerSlashCommand("/security-auditor inspect auth", [
+        { name: "security-auditor", kind: "agent", promptPrefix: "@security-auditor" },
+      ]),
+    ).toEqual({
+      commandName: "security-auditor",
+      args: "inspect auth",
+      promptText: "@security-auditor inspect auth",
+    });
+  });
+
   it("ignores unknown slash commands", () => {
     expect(parseProviderComposerSlashCommand("/unknown", providerCommands)).toBeNull();
   });

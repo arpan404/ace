@@ -1,4 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type {
   AssistantMessageEvent,
   ModelInfo,
@@ -41,6 +44,17 @@ function makeFakeClient(options: {
   readonly abort?: ReturnType<typeof vi.fn<() => Promise<void>>>;
   readonly modeSet?: ReturnType<
     typeof vi.fn<(input: { readonly mode: "interactive" | "plan" | "autopilot" }) => Promise<void>>
+  >;
+  readonly agentSelect?: ReturnType<
+    typeof vi.fn<
+      (input: { readonly name: string }) => Promise<{
+        readonly agent: {
+          readonly name: string;
+          readonly displayName: string;
+          readonly description: string;
+        };
+      }>
+    >
   >;
   readonly planRead?: ReturnType<
     typeof vi.fn<() => Promise<{ exists: boolean; content: string | null; path: string | null }>>
@@ -100,6 +114,15 @@ function makeFakeClient(options: {
         vi.fn(async (input: { readonly mode: "interactive" | "plan" | "autopilot" }) => {
           void input;
         });
+      const agentSelect =
+        options.agentSelect ??
+        vi.fn(async (input: { readonly name: string }) => ({
+          agent: {
+            name: input.name,
+            displayName: input.name,
+            description: "",
+          },
+        }));
 
       return {
         sessionId: "copilot-session-1",
@@ -110,6 +133,10 @@ function makeFakeClient(options: {
           },
           plan: {
             read: planRead,
+          },
+          agent: {
+            select: agentSelect,
+            deselect: vi.fn(async () => undefined),
           },
         },
         on: vi.fn((listener: (event: SessionEvent) => void) => {
@@ -582,6 +609,134 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
 
         yield* adapter.stopSession(asThreadId("thread-unsupported"));
       }),
+  );
+
+  it.effect("passes repository custom agents to Copilot session startup", () =>
+    Effect.gen(function* () {
+      const repo = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "ace-copilot-custom-agents-")),
+      );
+      try {
+        yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "agents", "security-auditor.md"),
+            [
+              "---",
+              "name: Security Auditor",
+              "description: Reviews code for security issues",
+              "---",
+              "",
+              "Inspect code for vulnerabilities and report concrete risks.",
+            ].join("\n"),
+          ),
+        );
+
+        const fakeClient = makeFakeClient({
+          models: [],
+        });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-custom-agents");
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: repo,
+          runtimeMode: "full-access",
+        });
+
+        const createConfig = fakeClient.createSession.mock.calls[0]?.[0] as
+          | (FakeStartConfig & {
+              readonly customAgents?: ReadonlyArray<{
+                readonly name: string;
+                readonly displayName?: string | undefined;
+                readonly description?: string | undefined;
+                readonly prompt: string;
+              }>;
+            })
+          | undefined;
+        assert.deepEqual(createConfig?.customAgents, [
+          {
+            name: "security-auditor",
+            displayName: "Security Auditor",
+            description: "Reviews code for security issues",
+            prompt: "Inspect code for vulnerabilities and report concrete risks.",
+          },
+        ]);
+        assert.equal(createConfig?.includeSubAgentStreamingEvents, true);
+
+        yield* adapter.stopSession(threadId);
+      } finally {
+        yield* Effect.promise(() => rm(repo, { recursive: true, force: true }));
+      }
+    }),
+  );
+
+  it.effect("selects a repository custom agent before sending a provider agent prompt", () =>
+    Effect.gen(function* () {
+      const repo = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "ace-copilot-agent-select-")),
+      );
+      try {
+        yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "agents", "security-auditor.md"),
+            [
+              "---",
+              "name: Security Auditor",
+              "description: Reviews code for security issues",
+              "---",
+              "",
+              "Inspect code for vulnerabilities and report concrete risks.",
+            ].join("\n"),
+          ),
+        );
+
+        const send = vi.fn(async (_input: unknown) => "message-1");
+        const agentSelect = vi.fn(async (input: { readonly name: string }) => ({
+          agent: {
+            name: input.name,
+            displayName: "Security Auditor",
+            description: "Reviews code for security issues",
+          },
+        }));
+        const fakeClient = makeFakeClient({
+          models: [],
+          send,
+          agentSelect,
+        });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-agent-select");
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: repo,
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "@security-auditor inspect auth flows",
+        });
+
+        assert.deepEqual(agentSelect.mock.calls, [[{ name: "security-auditor" }]]);
+        assert.deepEqual(send.mock.calls[0]?.[0], {
+          prompt: "inspect auth flows",
+        });
+
+        yield* adapter.stopSession(threadId);
+      } finally {
+        yield* Effect.promise(() => rm(repo, { recursive: true, force: true }));
+      }
+    }),
   );
 
   it.effect(

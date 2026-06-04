@@ -29,7 +29,6 @@ describe("ComposerQueuedMessages", () => {
 
     expect(markup).toContain('aria-label="Steering message"');
     expect(markup).toContain("animate-pulse");
-    expect(markup).toContain(">Steering</button>");
     expect(markup).not.toContain('aria-label="Steer queued message"');
     expect(markup).toContain('aria-label="Edit queued message"');
     expect(markup).toContain('aria-label="Delete queued message"');
@@ -94,7 +93,6 @@ describe("ComposerQueuedMessages", () => {
     );
 
     expect(markup).toContain('aria-label="Send queued message"');
-    expect(markup).toContain(">Send</button>");
     expect(markup).not.toContain("Steering");
     expect(markup).not.toContain('aria-label="Steer queued message"');
   });
@@ -136,7 +134,7 @@ describe("ComposerQueuedMessages", () => {
     expect(markup).not.toContain("DR-4F2C8A11");
   });
 
-  it("renders an active goal as a queue row when there are no queued messages", () => {
+  it("renders an active goal as a compact queue row with pause control", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages
         activeGoal={{
@@ -144,6 +142,7 @@ describe("ComposerQueuedMessages", () => {
           objective: "Audit the codebase in /repo/apps/server",
           status: "active",
           threadId: "thread-1",
+          timeUsedSeconds: 125,
           tokensUsed: 23275,
         }}
         messages={[]}
@@ -160,14 +159,22 @@ describe("ComposerQueuedMessages", () => {
       />,
     );
 
-    expect(markup).toContain(">Goal</span>");
     expect(markup).toContain("Audit the codebase in /repo/apps/server");
-    expect(markup).toContain("23,275 tokens");
+    expect(markup).toContain('aria-label="Time: 2m 5s"');
+    expect(markup).toContain("2m 5s");
+    expect(markup).toContain('aria-label="Tokens: 23.3K tokens"');
+    expect(markup).toContain("23.3K tokens");
     expect(markup).toContain('aria-label="Pause goal"');
     expect(markup).toContain('aria-label="Edit goal"');
     expect(markup).toContain('aria-label="Delete goal"');
-    expect(markup).not.toContain(">Queue</span>");
-    expect(markup).not.toContain("Clear all");
+    expect(markup).not.toContain('aria-label="Edit goal objective"');
+    expect(markup).not.toContain(">Goal</span>");
+    expect(markup).not.toContain(">Time</span>");
+    expect(markup).not.toContain(">Tokens</span>");
+    expect(markup).not.toContain("23,275 tokens");
+    expect(markup).not.toContain("ACTIVE /");
+    expect(markup).not.toContain('aria-label="Goal details"');
+    expect(markup).not.toContain('aria-label="Resume goal"');
   });
 
   it("renders nothing when the queue is empty", () => {

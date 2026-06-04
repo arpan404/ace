@@ -10,6 +10,9 @@ import {
   discoverClaudeExtensionSlashCommands,
   discoverCodexExtensionSlashCommands,
   discoverGenericProviderExtensionSlashCommands,
+  discoverGitHubCopilotAgentSlashCommands,
+  discoverGitHubCopilotCustomAgents,
+  discoverOpenCodeAgentSlashCommands,
   withProviderExtensionSlashCommands,
 } from "./providerExtensionSlashCommands.ts";
 
@@ -19,6 +22,28 @@ async function writeSkill(root: string, name: string, description: string): Prom
   await writeFile(
     path.join(dir, "SKILL.md"),
     `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`,
+  );
+}
+
+async function writeAgentMarkdown(input: {
+  readonly root: string;
+  readonly fileName: string;
+  readonly name?: string | undefined;
+  readonly description: string;
+  readonly mode?: string | undefined;
+}): Promise<void> {
+  await mkdir(input.root, { recursive: true });
+  await writeFile(
+    path.join(input.root, input.fileName),
+    [
+      "---",
+      ...(input.name ? [`name: ${input.name}`] : []),
+      `description: ${input.description}`,
+      ...(input.mode ? [`mode: ${input.mode}`] : []),
+      "---",
+      "",
+      "# Agent prompt",
+    ].join("\n"),
   );
 }
 
@@ -257,6 +282,18 @@ describe("providerExtensionSlashCommands", () => {
         "Claude project override",
       );
       await writeSkill(path.join(claudeHome, "skills"), "claude-global", "Claude global skill");
+      await writeAgentMarkdown({
+        root: path.join(cwd, ".claude", "agents", "review"),
+        fileName: "security.md",
+        name: "security-auditor",
+        description: "Audit code for security problems",
+      });
+      await writeAgentMarkdown({
+        root: path.join(claudeHome, "agents"),
+        fileName: "docs-writer.md",
+        name: "docs-writer",
+        description: "Draft documentation",
+      });
       await writeSkill(path.join(agentsHome, "skills"), "shared-global", "Shared global skill");
       await mkdir(path.join(pluginRoot, "commands"), { recursive: true });
       await writeFile(
@@ -267,6 +304,16 @@ describe("providerExtensionSlashCommands", () => {
       const commands = discoverClaudeExtensionSlashCommands({ cwd, home: claudeHome, agentsHome });
       expect(commands).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({
+            name: "security-auditor",
+            kind: "agent",
+            promptPrefix: "@security-auditor",
+          }),
+          expect.objectContaining({
+            name: "docs-writer",
+            kind: "agent",
+            promptPrefix: "@docs-writer",
+          }),
           expect.objectContaining({
             name: "claude-project",
             kind: "skill",
@@ -319,6 +366,12 @@ describe("providerExtensionSlashCommands", () => {
         "Project frontend design",
       );
       await writeSkill(path.join(geminiHome, "skills"), "frontend-design", "Build UI");
+      await writeAgentMarkdown({
+        root: path.join(cwd, ".gemini", "agents"),
+        fileName: "security-auditor.md",
+        name: "security-auditor",
+        description: "Find security defects",
+      });
       await writeSkill(path.join(agentsHome, "skills"), "shared-global", "Shared global skill");
 
       const commands = discoverGenericProviderExtensionSlashCommands({
@@ -329,6 +382,11 @@ describe("providerExtensionSlashCommands", () => {
       });
       expect(commands).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({
+            name: "security-auditor",
+            kind: "agent",
+            promptPrefix: "@security-auditor",
+          }),
           expect.objectContaining({
             name: "gemini-project",
             kind: "skill",
@@ -352,6 +410,84 @@ describe("providerExtensionSlashCommands", () => {
         ]),
       );
       expect(findCommand(commands, "frontend-design")?.description).toBe("Project frontend design");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers GitHub Copilot and OpenCode agent profiles", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-provider-agent-commands-"));
+    const cwd = path.join(root, "repo");
+    const opencodeHome = path.join(root, ".config", "opencode");
+    try {
+      await writeAgentMarkdown({
+        root: path.join(cwd, ".github", "agents"),
+        fileName: "readme-creator.md",
+        name: "readme-creator",
+        description: "Create README files",
+      });
+      await writeAgentMarkdown({
+        root: path.join(cwd, ".opencode", "agents"),
+        fileName: "review.md",
+        description: "Review code quality",
+        mode: "subagent",
+      });
+      await writeAgentMarkdown({
+        root: path.join(cwd, ".opencode", "agents"),
+        fileName: "build.md",
+        description: "Primary build agent",
+        mode: "primary",
+      });
+      await mkdir(opencodeHome, { recursive: true });
+      await writeFile(
+        path.join(opencodeHome, "opencode.json"),
+        JSON.stringify({
+          agent: {
+            scout: {
+              description: "Research dependencies",
+              mode: "subagent",
+            },
+            build: {
+              description: "Primary builder",
+              mode: "primary",
+            },
+          },
+        }),
+      );
+
+      expect(discoverGitHubCopilotAgentSlashCommands({ cwd })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "readme-creator",
+            kind: "agent",
+            promptPrefix: "@readme-creator",
+          }),
+        ]),
+      );
+      expect(discoverGitHubCopilotCustomAgents({ cwd })).toEqual([
+        {
+          name: "readme-creator",
+          displayName: "readme-creator",
+          description: "Create README files",
+          prompt: "# Agent prompt",
+        },
+      ]);
+      const opencodeCommands = discoverOpenCodeAgentSlashCommands({ cwd, home: opencodeHome });
+      expect(opencodeCommands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "review",
+            kind: "agent",
+            promptPrefix: "@review",
+          }),
+          expect.objectContaining({
+            name: "scout",
+            kind: "agent",
+            promptPrefix: "@scout",
+          }),
+        ]),
+      );
+      expect(findCommand(opencodeCommands, "build")).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

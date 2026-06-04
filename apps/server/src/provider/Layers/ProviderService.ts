@@ -910,6 +910,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       operation: "ProviderService.sendTurn",
       allowRecovery: true,
     });
+    const capabilities = resolveProviderIntegrationCapabilities(
+      routed.adapter.provider,
+      routed.adapter.capabilities,
+    );
+    if (
+      input.providerThreadId !== undefined &&
+      capabilities.providerThreadTargetingMode !== "native"
+    ) {
+      return yield* toValidationError(
+        "ProviderService.sendTurn",
+        `${routed.adapter.provider} cannot send a turn to provider thread '${input.providerThreadId}'. Start a replay-fork side conversation instead.`,
+      );
+    }
     const turn = yield* routed.adapter.sendTurn(input);
     if (input.providerThreadId === undefined) {
       markTurnStarted(input.threadId, routed.adapter.provider);

@@ -507,7 +507,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
             message: {
               id: MessageId.makeUnsafe("message-provider-command"),
               role: "user",
-              text: "$frontend-design polish this\n@browser-use inspect it",
+              text: "$frontend-design polish this\n@browser-use inspect it\n@security-auditor check auth",
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
             },
@@ -527,6 +527,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         providerCommands={[
           { name: "frontend-design", kind: "skill", promptPrefix: "$frontend-design" },
           { name: "browser-use", kind: "plugin", promptPrefix: "@browser-use" },
+          { name: "security-auditor", kind: "agent", promptPrefix: "@security-auditor" },
         ]}
         resolvedTheme="light"
         timestampFormat="locale"
@@ -536,9 +537,11 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Frontend Design");
     expect(markup).toContain("Browser Use");
+    expect(markup).toContain("Security Auditor");
     expect(markup).toContain("bg-muted/70");
     expect(markup).toContain("tabler-icon-stack-2");
     expect(markup).toContain("lucide-plug");
+    expect(markup).toContain("lucide-bot");
   });
 
   it("highlights Codex goal command tokens in user messages", async () => {
@@ -4068,10 +4071,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       );
 
       expect(markup).toContain("Working for 1m");
-      expect(markup).toContain("Pursuing goal for 1m");
-      expect(markup).toContain('data-goal-working-timer="true"');
+      expect(markup).not.toContain("Pursuing goal for");
+      expect(markup).not.toContain("Pursuing goal...");
+      expect(markup).not.toContain('data-goal-working-timer="true"');
       expect(markup.match(/data-working-activity-indicator="true"/g)?.length).toBe(1);
-      expect(markup).toContain("lucide-target");
       expect(markup).not.toContain("Working for 30s");
     } finally {
       vi.useRealTimers();

@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
-import { ProviderIntegrationCapabilities } from "./orchestration";
+import { ProviderIntegrationCapabilities, ProviderSlashCommand } from "./orchestration";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
 const decodeProviderIntegrationCapabilities = Schema.decodeUnknownSync(
   ProviderIntegrationCapabilities,
 );
+const decodeProviderSlashCommand = Schema.decodeUnknownSync(ProviderSlashCommand);
 
 describe("ProviderSessionStartInput", () => {
   it("accepts codex-compatible payloads", () => {
@@ -200,6 +201,22 @@ describe("ProviderIntegrationCapabilities", () => {
     });
 
     expect(parsed.sideConversationMode).toBe("replay-fork");
+    expect(parsed.providerThreadTargetingMode).toBe("unsupported");
+  });
+});
+
+describe("ProviderSlashCommand", () => {
+  it("accepts provider agent commands", () => {
+    const parsed = decodeProviderSlashCommand({
+      name: "security-auditor",
+      kind: "agent",
+      promptPrefix: "@security-auditor",
+      description: "Review code for security issues",
+      inputHint: "<prompt>",
+    });
+
+    expect(parsed.kind).toBe("agent");
+    expect(parsed.promptPrefix).toBe("@security-auditor");
   });
 });
 

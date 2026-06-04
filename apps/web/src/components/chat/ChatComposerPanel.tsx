@@ -469,9 +469,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               activeGoal={props.activeGoal}
               messages={props.queuedComposerMessages}
               className={cn(
-                "mx-2 mb-2 sm:mx-5",
-                queueFusesWithComposer &&
-                  "mb-0 rounded-b-none border-border/25 border-b-0 bg-input",
+                "mx-4 mb-1.5 sm:mx-8",
+                queueFusesWithComposer && "border-border/25 bg-input/85",
               )}
               {...(props.queuedSteerMessageId !== undefined
                 ? { steerMessageId: props.queuedSteerMessageId }
