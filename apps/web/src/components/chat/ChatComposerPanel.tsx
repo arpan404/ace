@@ -469,7 +469,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               activeGoal={props.activeGoal}
               messages={props.queuedComposerMessages}
               className={cn(
-                "mb-2",
+                "mx-2 mb-2 sm:mx-5",
                 queueFusesWithComposer &&
                   "mb-0 rounded-b-none border-border/25 border-b-0 bg-input",
               )}
@@ -507,7 +507,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         <div
           className={cn(
             "group rounded-xl transition-colors duration-200",
-            queueFusesWithComposer && "rounded-t-none",
             isUltrathinkFrame && "p-px",
             props.composerProviderState.composerFrameClassName,
           )}
@@ -519,11 +518,9 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
           <div
             className={cn(
               "rounded-xl",
-              queueFusesWithComposer && "rounded-t-none",
               isUltrathinkFrame
                 ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
                 : "border border-border/25 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/40 focus-within:shadow-sm",
-              queueFusesWithComposer && !isUltrathinkFrame && "border-t-border/45",
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
