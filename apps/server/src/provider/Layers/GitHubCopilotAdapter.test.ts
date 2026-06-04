@@ -911,6 +911,91 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
       }),
   );
 
+  it.effect("maps Copilot subagent lifecycle events into collab agent items", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const subagentEventsFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(adapter.streamEvents, (event) => {
+            return (
+              (event.type === "item.started" || event.type === "item.completed") &&
+              event.payload.itemType === "collab_agent_tool_call"
+            );
+          }),
+          2,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId: asThreadId("thread-subagent-events"),
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: asThreadId("thread-subagent-events"),
+        input: "Use a custom reviewer agent.",
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-subagent-started",
+        type: "subagent.started",
+        timestamp: new Date().toISOString(),
+        parentId: null,
+        data: {
+          subagent_id: "copilot-subagent-1",
+          agentName: "runtime-reviewer",
+          agent_display_name: "Runtime Reviewer",
+          agentRole: "code-reviewer",
+          model: "gpt-5.4",
+          description: "Review runtime events.",
+        },
+      } as unknown as SessionEvent);
+
+      fakeClient.emitSessionEvent({
+        id: "event-subagent-completed",
+        type: "subagent.completed",
+        timestamp: new Date().toISOString(),
+        parentId: "event-subagent-started",
+        data: {
+          subagent_id: "copilot-subagent-1",
+          agentName: "runtime-reviewer",
+          agent_display_name: "Runtime Reviewer",
+          agentRole: "code-reviewer",
+          model: "gpt-5.4",
+          summary: "Runtime event handling is consistent.",
+        },
+      } as unknown as SessionEvent);
+
+      const events = Array.from(yield* Fiber.join(subagentEventsFiber));
+      assert.equal(events.length, 2);
+      const started = events[0];
+      const completed = events[1];
+      assert.equal(started?.type, "item.started");
+      assert.equal(completed?.type, "item.completed");
+      if (started?.type !== "item.started" || completed?.type !== "item.completed") {
+        return;
+      }
+
+      assert.equal(started.payload.status, "inProgress");
+      assert.equal(completed.payload.status, "completed");
+      assert.deepEqual((completed.payload.data as { subagent?: unknown }).subagent, {
+        id: "copilot-subagent-1",
+        type: "code-reviewer",
+        name: "Runtime Reviewer",
+        model: "gpt-5.4",
+      });
+
+      yield* adapter.stopSession(asThreadId("thread-subagent-events"));
+    }),
+  );
+
   it.effect("maps Copilot assistant intents to reasoning work immediately", () =>
     Effect.gen(function* () {
       const fakeClient = makeFakeClient({

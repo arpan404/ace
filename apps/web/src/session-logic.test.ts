@@ -1053,6 +1053,158 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("derives provider-agnostic root subagent metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "root-subagent-response",
+        turnId: "turn-root-subagent",
+        kind: "task.progress",
+        summary: "Subagent message",
+        payload: {
+          itemType: "assistant_message",
+          detail: "Root subagent result.",
+          subagent: {
+            id: "agent-root-1",
+            type: "code-reviewer",
+            name: "Reviewer",
+            model: "claude-sonnet",
+          },
+        },
+      }),
+      makeActivity({
+        id: "root-child-provider-response",
+        turnId: "turn-root-child-provider",
+        kind: "task.progress",
+        summary: "Subagent message",
+        payload: {
+          itemType: "assistant_message",
+          detail: "Root child provider result.",
+          childProviderThreadId: "child-provider-root-1",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    const rootSubagentEntry = entries.find((entry) => entry.subagentId === "agent-root-1");
+    const rootChildProviderEntry = entries.find(
+      (entry) => entry.subagentId === "child-provider-root-1",
+    );
+    expect(rootSubagentEntry).toMatchObject({
+      subagentId: "agent-root-1",
+      subagentType: "code-reviewer",
+      subagentName: "Reviewer",
+      subagentModel: "claude-sonnet",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Root subagent result.",
+    });
+    expect(rootChildProviderEntry).toMatchObject({
+      subagentId: "child-provider-root-1",
+      subagentType: "codex subagent",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Root child provider result.",
+    });
+  });
+
+  it("derives provider-agnostic root scalar agent metadata", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-agent-scalar-response",
+          turnId: "turn-root-agent-scalar",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Root scalar agent result.",
+            agentId: "agent-scalar-1",
+            agentName: "Scalar Reviewer",
+            agentRole: "code-reviewer",
+            model: "gpt-5.4",
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      subagentId: "agent-scalar-1",
+      subagentType: "code-reviewer",
+      subagentName: "Scalar Reviewer",
+      subagentModel: "gpt-5.4",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Root scalar agent result.",
+    });
+  });
+
+  it("derives provider-agnostic root display-name subagent aliases", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-display-subagent-response",
+          turnId: "turn-root-display-subagent",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Root display subagent result.",
+            subagentId: "subagent-display-1",
+            agentDisplayName: "Display Reviewer",
+            agentRole: "code-reviewer",
+            model: "gpt-5.4",
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      subagentId: "subagent-display-1",
+      subagentType: "code-reviewer",
+      subagentName: "Display Reviewer",
+      subagentModel: "gpt-5.4",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Root display subagent result.",
+    });
+  });
+
+  it("derives provider-agnostic root subagent metadata from collab tool calls", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-collab-tool",
+          turnId: "turn-root-collab-tool",
+          kind: "tool.started",
+          summary: "Reviewer",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            title: "Reviewer",
+            detail: "Review this change.",
+            subagent: {
+              id: "agent-root-tool-1",
+              type: "code-reviewer",
+              name: "Reviewer",
+              model: "claude-sonnet",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagentId: "agent-root-tool-1",
+      subagentType: "code-reviewer",
+      subagentName: "Reviewer",
+      subagentModel: "claude-sonnet",
+    });
+  });
+
   it("marks Codex side-chat activity as timeline messages", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

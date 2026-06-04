@@ -1311,7 +1311,7 @@ function normalizedToolActivityPayload(
           terminalOutputTruncated: terminalOutput.length > MAX_ACTIVITY_TERMINAL_OUTPUT_CHARS,
         }
       : {}),
-    ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+    ...subagentRuntimePayloadFields(event.payload),
   };
 }
 
@@ -1346,9 +1346,16 @@ function subagentThreadIdFromRuntimePayload(payload: Record<string, unknown>): s
   const data = asRecord(payload.data);
   const ace = asRecord(data?.ace);
   const item = asRecord(data?.item);
-  const subagent = asRecord(data?.subagent) ?? asRecord(ace?.subagent);
+  const rootSubagent = asRecord(payload.subagent);
+  const subagent = rootSubagent ?? asRecord(data?.subagent) ?? asRecord(ace?.subagent);
   return (
     asTrimmedString(subagent?.id) ??
+    asTrimmedString(payload.agentId) ??
+    asTrimmedString(payload.agent_id) ??
+    asTrimmedString(payload.subagentId) ??
+    asTrimmedString(payload.subagent_id) ??
+    asTrimmedString(payload.childProviderThreadId) ??
+    asTrimmedString(payload.child_provider_thread_id) ??
     asTrimmedString(ace?.childProviderThreadId) ??
     asTrimmedString(data?.childProviderThreadId) ??
     asTrimmedString(data?.child_provider_thread_id) ??
@@ -1360,6 +1367,46 @@ function subagentThreadIdFromRuntimePayload(payload: Record<string, unknown>): s
 
 function isSubagentRuntimePayload(payload: Record<string, unknown>): boolean {
   return subagentThreadIdFromRuntimePayload(payload) !== undefined;
+}
+
+function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (payload.subagent !== undefined) {
+    fields.subagent = payload.subagent;
+  }
+  if (payload.childProviderThreadId !== undefined) {
+    fields.childProviderThreadId = payload.childProviderThreadId;
+  }
+  if (payload.child_provider_thread_id !== undefined) {
+    fields.child_provider_thread_id = payload.child_provider_thread_id;
+  }
+  for (const key of [
+    "agentId",
+    "agent_id",
+    "subagentId",
+    "subagent_id",
+    "agentRole",
+    "agent_role",
+    "agentName",
+    "agent_name",
+    "agentDisplayName",
+    "agent_display_name",
+    "agentNickname",
+    "agent_nickname",
+    "subagentName",
+    "subagent_name",
+    "subagentType",
+    "subagent_type",
+    "model",
+  ]) {
+    if (payload[key] !== undefined) {
+      fields[key] = payload[key];
+    }
+  }
+  if (payload.data !== undefined) {
+    fields.data = payload.data;
+  }
+  return fields;
 }
 
 function sideConversationPayloadFromActivity(
@@ -1842,7 +1889,7 @@ function runtimeEventToActivities(
               itemType: "assistant_message",
               description: detail,
               detail,
-              ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+              ...subagentRuntimePayloadFields(event.payload),
             },
             turnId: toTurnId(event.turnId) ?? null,
             ...maybeSequence,
@@ -1954,7 +2001,7 @@ function runtimeEventToActivities(
               taskId: subagentTaskIdFromEvent(event),
               itemType: event.payload.itemType,
               ...(detail ? { description: detail, detail } : {}),
-              ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+              ...subagentRuntimePayloadFields(event.payload),
             },
             turnId: toTurnId(event.turnId) ?? null,
             ...maybeSequence,

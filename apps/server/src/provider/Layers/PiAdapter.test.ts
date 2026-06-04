@@ -160,6 +160,9 @@ describe("PiAdapterLive", () => {
 
     await withAdapter(async (adapter) => {
       try {
+        expect(adapter.capabilities.sessionForkMode).toBe("local-replay");
+        expect(adapter.capabilities.sideConversationMode).toBe("replay-fork");
+
         const configuredEventsPromise = collectEvents(
           adapter,
           3,
@@ -220,6 +223,10 @@ describe("PiAdapterLive", () => {
             kind: "provider",
           },
         ]);
+        expect(latestConfiguredEvent.payload.config.capabilities).toEqual({
+          sessionForkMode: "local-replay",
+          sideConversationMode: "replay-fork",
+        });
         expect(latestConfiguredEvent.payload.config.configOptions).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -899,7 +906,11 @@ describe("PiAdapterLive", () => {
         if (configuredEvent?.type !== "session.configured") {
           return;
         }
-        expect(configuredEvent.payload.config.availableCommands).not.toEqual([]);
+        expect(configuredEvent.payload.config.availableCommands).toEqual([]);
+        expect(configuredEvent.payload.config.capabilities).toEqual({
+          sessionForkMode: "local-replay",
+          sideConversationMode: "replay-fork",
+        });
 
         const warningMessages = (await warningEventsPromise).flatMap((event) =>
           event.type === "runtime.warning" ? [event.payload.message] : [],
@@ -907,7 +918,7 @@ describe("PiAdapterLive", () => {
         expect(warningMessages).toEqual([
           "rename failed",
           "Pi model discovery failed; Ace continued with the current Pi session state.",
-          "Pi command discovery failed; Ace continued with fallback slash commands.",
+          "Pi command discovery failed; Ace continued without provider slash commands.",
         ]);
       } finally {
         await Effect.runPromise(adapter.stopAll());

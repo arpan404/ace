@@ -525,6 +525,8 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const result = asRecord(data?.result);
   const receiverThreadId = firstTrimmedString(item?.receiverThreadIds);
   const childProviderThreadId =
+    asTrimmedString(payload?.childProviderThreadId) ??
+    asTrimmedString(payload?.child_provider_thread_id) ??
     asTrimmedString(ace?.childProviderThreadId) ??
     asTrimmedString(data?.childProviderThreadId) ??
     asTrimmedString(data?.child_provider_thread_id) ??
@@ -534,16 +536,28 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   return {
     id:
       asTrimmedString(subagent?.id) ??
+      asTrimmedString(payload?.agentId) ??
+      asTrimmedString(payload?.agent_id) ??
+      asTrimmedString(payload?.subagentId) ??
+      asTrimmedString(payload?.subagent_id) ??
       childProviderThreadId ??
       asTrimmedString(data?.agentId) ??
       asTrimmedString(data?.agent_id) ??
+      asTrimmedString(data?.subagentId) ??
+      asTrimmedString(data?.subagent_id) ??
       asTrimmedString(result?.agentId) ??
       asTrimmedString(result?.agent_id) ??
+      asTrimmedString(result?.subagentId) ??
+      asTrimmedString(result?.subagent_id) ??
       undefined,
     type:
       asTrimmedString(subagent?.type) ??
       asTrimmedString(subagent?.agentRole) ??
       asTrimmedString(subagent?.agent_role) ??
+      asTrimmedString(payload?.agentRole) ??
+      asTrimmedString(payload?.agent_role) ??
+      asTrimmedString(payload?.subagentType) ??
+      asTrimmedString(payload?.subagent_type) ??
       asTrimmedString(data?.agentRole) ??
       asTrimmedString(data?.agent_role) ??
       asTrimmedString(data?.subagentType) ??
@@ -566,29 +580,64 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       asTrimmedString(subagent?.display_name) ??
       asTrimmedString(subagent?.agentNickname) ??
       asTrimmedString(subagent?.agent_nickname) ??
+      asTrimmedString(payload?.agentNickname) ??
+      asTrimmedString(payload?.agent_nickname) ??
+      asTrimmedString(payload?.agentDisplayName) ??
+      asTrimmedString(payload?.agent_display_name) ??
+      asTrimmedString(payload?.agentName) ??
+      asTrimmedString(payload?.agent_name) ??
+      asTrimmedString(payload?.subagentName) ??
+      asTrimmedString(payload?.subagent_name) ??
+      asTrimmedString(payload?.name) ??
       asTrimmedString(data?.agentNickname) ??
       asTrimmedString(data?.agent_nickname) ??
+      asTrimmedString(data?.agentDisplayName) ??
+      asTrimmedString(data?.agent_display_name) ??
       asTrimmedString(data?.agentName) ??
       asTrimmedString(data?.agent_name) ??
+      asTrimmedString(data?.subagentName) ??
+      asTrimmedString(data?.subagent_name) ??
       asTrimmedString(data?.name) ??
       asTrimmedString(item?.agentNickname) ??
       asTrimmedString(item?.agent_nickname) ??
+      asTrimmedString(item?.agentDisplayName) ??
+      asTrimmedString(item?.agent_display_name) ??
       asTrimmedString(item?.agentName) ??
       asTrimmedString(item?.agent_name) ??
+      asTrimmedString(item?.subagentName) ??
+      asTrimmedString(item?.subagent_name) ??
       asTrimmedString(item?.name) ??
       asTrimmedString(input?.agentNickname) ??
       asTrimmedString(input?.agent_nickname) ??
+      asTrimmedString(input?.agentDisplayName) ??
+      asTrimmedString(input?.agent_display_name) ??
       asTrimmedString(input?.agentName) ??
       asTrimmedString(input?.agent_name) ??
+      asTrimmedString(input?.subagentName) ??
+      asTrimmedString(input?.subagent_name) ??
       asTrimmedString(input?.name) ??
       asTrimmedString(args?.agentNickname) ??
       asTrimmedString(args?.agent_nickname) ??
+      asTrimmedString(args?.agentDisplayName) ??
+      asTrimmedString(args?.agent_display_name) ??
       asTrimmedString(args?.agentName) ??
       asTrimmedString(args?.agent_name) ??
+      asTrimmedString(args?.subagentName) ??
+      asTrimmedString(args?.subagent_name) ??
       asTrimmedString(args?.name) ??
+      asTrimmedString(result?.agentNickname) ??
+      asTrimmedString(result?.agent_nickname) ??
+      asTrimmedString(result?.agentDisplayName) ??
+      asTrimmedString(result?.agent_display_name) ??
+      asTrimmedString(result?.agentName) ??
+      asTrimmedString(result?.agent_name) ??
+      asTrimmedString(result?.subagentName) ??
+      asTrimmedString(result?.subagent_name) ??
+      asTrimmedString(result?.name) ??
       undefined,
     model:
       asTrimmedString(subagent?.model) ??
+      asTrimmedString(payload?.model) ??
       asTrimmedString(data?.model) ??
       asTrimmedString(input?.model) ??
       asTrimmedString(args?.model) ??

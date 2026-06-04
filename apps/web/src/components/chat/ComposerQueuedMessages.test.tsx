@@ -136,6 +136,40 @@ describe("ComposerQueuedMessages", () => {
     expect(markup).not.toContain("DR-4F2C8A11");
   });
 
+  it("renders an active goal as a queue row when there are no queued messages", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        activeGoal={{
+          createdAt: "2026-06-05T00:00:00.000Z",
+          objective: "Audit the codebase in /repo/apps/server",
+          status: "active",
+          threadId: "thread-1",
+          tokensUsed: 23275,
+        }}
+        messages={[]}
+        steerMessageId={null}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onDeleteGoal={vi.fn()}
+        onEditGoal={vi.fn()}
+        onPauseGoal={vi.fn()}
+        onResumeGoal={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain(">1</span>");
+    expect(markup).toContain(">Goal</span>");
+    expect(markup).toContain("Audit the codebase in /repo/apps/server");
+    expect(markup).toContain("23,275 tokens");
+    expect(markup).toContain('aria-label="Pause goal"');
+    expect(markup).toContain('aria-label="Edit goal"');
+    expect(markup).toContain('aria-label="Delete goal"');
+    expect(markup).not.toContain("Clear all");
+  });
+
   it("renders nothing when the queue is empty", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages

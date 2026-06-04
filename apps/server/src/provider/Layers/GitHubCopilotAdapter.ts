@@ -831,6 +831,70 @@ function buildCanonicalToolData(input: {
   };
 }
 
+function copilotSubagentId(data: Record<string, unknown>, fallback: string): string {
+  return (
+    stringValue(getObjectProperty(data, "subagentId")) ??
+    stringValue(getObjectProperty(data, "subagent_id")) ??
+    stringValue(getObjectProperty(data, "agentId")) ??
+    stringValue(getObjectProperty(data, "agent_id")) ??
+    stringValue(getObjectProperty(data, "agentName")) ??
+    stringValue(getObjectProperty(data, "agent_name")) ??
+    fallback
+  );
+}
+
+function copilotSubagentPayload(data: Record<string, unknown>, fallbackId: string) {
+  const subagentId = copilotSubagentId(data, fallbackId);
+  const type =
+    stringValue(getObjectProperty(data, "agentRole")) ??
+    stringValue(getObjectProperty(data, "agent_role")) ??
+    stringValue(getObjectProperty(data, "subagentType")) ??
+    stringValue(getObjectProperty(data, "subagent_type")) ??
+    stringValue(getObjectProperty(data, "agentType")) ??
+    stringValue(getObjectProperty(data, "agent_type"));
+  const name =
+    stringValue(getObjectProperty(data, "agentDisplayName")) ??
+    stringValue(getObjectProperty(data, "agent_display_name")) ??
+    stringValue(getObjectProperty(data, "agentNickname")) ??
+    stringValue(getObjectProperty(data, "agent_nickname")) ??
+    stringValue(getObjectProperty(data, "subagentName")) ??
+    stringValue(getObjectProperty(data, "subagent_name")) ??
+    stringValue(getObjectProperty(data, "agentName")) ??
+    stringValue(getObjectProperty(data, "agent_name"));
+  const model = stringValue(getObjectProperty(data, "model"));
+  const detail =
+    stringValue(getObjectProperty(data, "message")) ??
+    stringValue(getObjectProperty(data, "summary")) ??
+    stringValue(getObjectProperty(data, "description")) ??
+    stringValue(getObjectProperty(data, "prompt")) ??
+    name ??
+    type ??
+    "Subagent";
+
+  return {
+    subagent: {
+      id: subagentId,
+      ...(type ? { type } : {}),
+      ...(name ? { name } : {}),
+      ...(model ? { model } : {}),
+    },
+    detail,
+    data: {
+      ...data,
+      subagentId,
+      ...(type ? { agentRole: type } : {}),
+      ...(name ? { agentDisplayName: name } : {}),
+      ...(model ? { model } : {}),
+      subagent: {
+        id: subagentId,
+        ...(type ? { type } : {}),
+        ...(name ? { name } : {}),
+        ...(model ? { model } : {}),
+      },
+    },
+  };
+}
+
 function rememberToolRequestMetadata(context: GitHubCopilotSessionContext, data: object): void {
   const toolRequests = getObjectProperty(data, "toolRequests");
   if (!Array.isArray(toolRequests)) {
@@ -1911,6 +1975,63 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         turnState.items.push(runtimeEvent);
         emitRuntimeEvent(runtimeEvent);
         releaseReasoningContentItem(turnState, reasoningId, fallbackProviderContentId);
+        return;
+      }
+      case "subagent.started":
+      case "subagent.selected":
+      case "subagent.deselected": {
+        if (!turnState) {
+          return;
+        }
+        const providerItemId = copilotSubagentId(data, event.id);
+        const subagent = copilotSubagentPayload(data, providerItemId);
+        const runtimeEvent = makeBaseEvent(context, {
+          type: event.type === "subagent.started" ? "item.started" : "item.updated",
+          createdAt: getSessionEventTimestamp(event),
+          turnId: turnState.turnId,
+          itemId: randomUUID(),
+          providerItemId,
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "inProgress",
+            title: "Subagent task",
+            detail: subagent.detail,
+            data: subagent.data,
+          },
+          rawMethod: event.type,
+          rawSource: "github-copilot.sdk.event",
+          rawPayload: event,
+        });
+        turnState.items.push(runtimeEvent);
+        emitRuntimeEvent(runtimeEvent);
+        return;
+      }
+      case "subagent.completed":
+      case "subagent.failed": {
+        if (!turnState) {
+          return;
+        }
+        const providerItemId = copilotSubagentId(data, event.id);
+        const subagent = copilotSubagentPayload(data, providerItemId);
+        const runtimeEvent = makeBaseEvent(context, {
+          type: "item.completed",
+          createdAt: getSessionEventTimestamp(event),
+          turnId: turnState.turnId,
+          itemId: randomUUID(),
+          providerItemId,
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: event.type === "subagent.failed" ? "failed" : "completed",
+            title: "Subagent task",
+            detail: subagent.detail,
+            data: subagent.data,
+          },
+          rawMethod: event.type,
+          rawSource: "github-copilot.sdk.event",
+          rawPayload: event,
+        });
+        turnState.items.push(runtimeEvent);
+        emitRuntimeEvent(runtimeEvent);
         return;
       }
       case "session.usage_info": {

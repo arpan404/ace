@@ -1741,7 +1741,10 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const replayTurns = buildSideConversationReplayTurns(thread);
+      const replayTurns =
+        capabilities?.sideConversationMode === "native-fork"
+          ? []
+          : buildSideConversationReplayTurns(thread);
 
       yield* providerService.startSession(sideThreadId, {
         threadId: sideThreadId,
@@ -1752,7 +1755,7 @@ const make = Effect.gen(function* () {
         forkSource: {
           threadId: event.payload.forkSourceThreadId,
         },
-        replayTurns,
+        ...(replayTurns.length > 0 ? { replayTurns } : {}),
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,
       });

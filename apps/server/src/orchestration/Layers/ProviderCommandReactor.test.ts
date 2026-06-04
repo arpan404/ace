@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   ModelSelection,
+  ProviderIntegrationCapabilities,
   ProviderRuntimeEvent,
   ProviderSession,
   ServerSettings,
@@ -111,6 +112,7 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
     readonly sessionModelOptionsSwitch?: "in-session" | "restart-session";
+    readonly sideConversationMode?: ProviderIntegrationCapabilities["sideConversationMode"];
     readonly turnSteeringMode?: "native" | "queued-message";
   }) {
     const now = new Date().toISOString();
@@ -245,6 +247,9 @@ describe("ProviderCommandReactor", () => {
             : {}),
           ...(input?.sessionModelOptionsSwitch !== undefined
             ? { sessionModelOptionsSwitch: input.sessionModelOptionsSwitch }
+            : {}),
+          ...(input?.sideConversationMode !== undefined
+            ? { sideConversationMode: input.sideConversationMode }
             : {}),
           ...(input?.turnSteeringMode !== undefined
             ? { turnSteeringMode: input.turnSteeringMode }
@@ -1666,8 +1671,79 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.threadId).toBe("side:thread-1:question-1");
     expect(startInput?.provider).toBe("claudeAgent");
     expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.replayTurns).toBeUndefined();
+
+    const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          threadId?: ThreadId;
+          input?: string;
+        }
+      | undefined;
+    expect(sendInput?.threadId).toBe("side:thread-1:question-1");
+    expect(sendInput?.input).toBe("explain the current architecture");
+  });
+
+  it("replays bounded parent context for replay-fork side conversations", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5-copilot",
+      },
+      sideConversationMode: "replay-fork",
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-replay-parent-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-replay-parent-1"),
+          role: "user",
+          text: "We are reviewing replay-backed provider behavior.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.subagent.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-replay-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        subagentThreadId: "side:thread-1:question-replay",
+        forkSourceThreadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-replay-1"),
+          role: "user",
+          text: "summarize the replay context",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const startInput = harness.startSession.mock.calls[0]?.[1] as
+      | {
+          forkSource?: { threadId: ThreadId };
+          replayTurns?: Array<{ prompt: string; assistantResponse?: string }>;
+        }
+      | undefined;
+    expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
     expect(startInput?.replayTurns?.[0]).toEqual({
-      prompt: "We are reviewing the provider architecture.",
+      prompt: "We are reviewing replay-backed provider behavior.",
       attachmentNames: [],
     });
     expect(startInput?.replayTurns?.[1]?.prompt).toContain(
@@ -1678,7 +1754,7 @@ describe("ProviderCommandReactor", () => {
     );
     expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Thread title: Thread");
     expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain(
-      "[subagent.message.sent] User message: explain the current architecture",
+      "[subagent.message.sent] User message: summarize the replay context",
     );
 
     const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
@@ -1687,8 +1763,8 @@ describe("ProviderCommandReactor", () => {
           input?: string;
         }
       | undefined;
-    expect(sendInput?.threadId).toBe("side:thread-1:question-1");
-    expect(sendInput?.input).toBe("explain the current architecture");
+    expect(sendInput?.threadId).toBe("side:thread-1:question-replay");
+    expect(sendInput?.input).toBe("summarize the replay context");
   });
 
   it("replays upstream handoff context when forking a handoff thread", async () => {

@@ -243,6 +243,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly handoffDisabled: boolean;
   readonly interactionModeShortcutLabel: string | null;
   readonly activeContextWindow: ComponentProps<typeof ChatComposerPanel>["activeContextWindow"];
+  readonly activeGoal: ComponentProps<typeof ChatComposerPanel>["activeGoal"];
   readonly queuedComposerMessages: ComponentProps<
     typeof ChatComposerPanel
   >["queuedComposerMessages"];
@@ -319,6 +320,10 @@ interface ConnectedChatComposerPanelsProps {
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ChatComposerPanel
   >["onReorderQueuedComposerMessages"];
+  readonly onDeleteGoal: ComponentProps<typeof ChatComposerPanel>["onDeleteGoal"];
+  readonly onEditGoal: ComponentProps<typeof ChatComposerPanel>["onEditGoal"];
+  readonly onPauseGoal: ComponentProps<typeof ChatComposerPanel>["onPauseGoal"];
+  readonly onResumeGoal: ComponentProps<typeof ChatComposerPanel>["onResumeGoal"];
   readonly onSendQueuedComposerMessage: ComponentProps<
     typeof ChatComposerPanel
   >["onSendQueuedComposerMessage"];
@@ -1540,6 +1545,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         runtimeMode={runtimeMode}
         interactionModeShortcutLabel={props.interactionModeShortcutLabel}
         activeContextWindow={props.activeContextWindow}
+        activeGoal={props.activeGoal}
         promptHasText={prompt.trim().length > 0}
         hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
         canQueueMessage={
@@ -1577,6 +1583,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onDismissPendingComposerComment={props.onDismissPendingComposerComment}
         onClearPendingComposerComments={props.onClearPendingComposerComments}
         onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
+        onDeleteGoal={props.onDeleteGoal}
+        onEditGoal={props.onEditGoal}
+        onPauseGoal={props.onPauseGoal}
+        onResumeGoal={props.onResumeGoal}
         onSendQueuedComposerMessage={props.onSendQueuedComposerMessage}
         onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
         onPreviewComposerImage={onPreviewComposerImage}
@@ -1655,6 +1665,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         runtimeMode={runtimeMode}
         interactionModeShortcutLabel={props.interactionModeShortcutLabel}
         activeContextWindow={props.activeContextWindow}
+        activeGoal={props.activeGoal}
         promptHasText={prompt.trim().length > 0}
         hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
         canQueueMessage={
@@ -1692,6 +1703,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onDismissPendingComposerComment={props.onDismissPendingComposerComment}
         onClearPendingComposerComments={props.onClearPendingComposerComments}
         onReorderQueuedComposerMessages={props.onReorderQueuedComposerMessages}
+        onDeleteGoal={props.onDeleteGoal}
+        onEditGoal={props.onEditGoal}
+        onPauseGoal={props.onPauseGoal}
+        onResumeGoal={props.onResumeGoal}
         onSendQueuedComposerMessage={props.onSendQueuedComposerMessage}
         onSteerQueuedComposerMessage={props.onSteerQueuedComposerMessage}
         onPreviewComposerImage={onPreviewComposerImage}

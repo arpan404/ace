@@ -43,6 +43,10 @@ const PROVIDER = "pi" as const;
 const PI_RPC_CONTROL_TIMEOUT_MS = 20_000;
 const BOOTSTRAP_MAX_CHARS = 24_000;
 const MAX_TURN_ITEMS_PER_TURN = 512;
+const PI_PROVIDER_CAPABILITIES = {
+  sessionForkMode: "local-replay" as const,
+  sideConversationMode: "replay-fork" as const,
+};
 const PI_PROPOSED_PLAN_START_REGEX = /<!--\s*ACE_PROPOSED_PLAN_START(?:\s*--\s*>?)?/i;
 const PI_PROPOSED_PLAN_END_REGEX = /<!--\s*ACE_PROPOSED_PLAN_END(?:\s*--\s*>?)?/i;
 const PI_PROPOSED_PLAN_BLOCK_REGEX =
@@ -412,6 +416,7 @@ function configSnapshot(context: PiSessionContext): Record<string, unknown> {
   return {
     configOptions: buildConfigOptions(context.metadata),
     availableCommands: normalizeProviderCommands(context.metadata.availableCommands),
+    capabilities: PI_PROVIDER_CAPABILITIES,
   };
 }
 
@@ -1882,7 +1887,8 @@ export const PiAdapterLive = Layer.effect(
             rawType: "get_commands",
             rawSource: "pi.rpc.command",
             payload: {
-              message: "Pi command discovery failed; Ace continued with fallback slash commands.",
+              message:
+                "Pi command discovery failed; Ace continued without provider slash commands.",
             },
           }),
         );
@@ -2436,6 +2442,7 @@ export const PiAdapterLive = Layer.effect(
         transcriptAuthority: "local",
         historyAuthority: "local-server-session",
         sessionResumeMode: "local-replay",
+        ...PI_PROVIDER_CAPABILITIES,
       },
       startSession,
       sendTurn,

@@ -206,4 +206,51 @@ describe("normalizeProviderRuntimeEvent", () => {
       },
     });
   });
+
+  it("preserves Copilot-style custom agent identity fields on subagent tools", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "collab_agent_tool_call",
+        title: "Sub-agent started",
+        detail: "Analyze provider runtime events.",
+        status: "completed",
+        data: {
+          toolName: "Task",
+          agentName: "runtime-reviewer",
+          agent_display_name: "Runtime Reviewer",
+          agentRole: "code-reviewer",
+          input: {
+            prompt: "Analyze provider runtime events.",
+          },
+          result: {
+            subagent_id: "copilot-subagent-1",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      detail: "Analyze provider runtime events.",
+      data: {
+        subagent: {
+          id: "copilot-subagent-1",
+          type: "code-reviewer",
+          name: "Runtime Reviewer",
+          prompt: "Analyze provider runtime events.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "copilot-subagent-1",
+            type: "code-reviewer",
+            name: "Runtime Reviewer",
+          },
+        },
+      },
+    });
+  });
 });

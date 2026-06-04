@@ -9970,7 +9970,7 @@ function useChatViewComponent({
   > | null = activeThread
     ? {
         activeProjectScripts: activeProject?.scripts,
-        activeGoal,
+        activeGoal: null,
         activePlan,
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
@@ -10612,6 +10612,7 @@ function useChatViewComponent({
           handoffDisabled={true}
           interactionModeShortcutLabel={togglePlanModeShortcutLabel}
           activeContextWindow={activeContextWindow}
+          activeGoal={null}
           queuedComposerMessages={[]}
           queuedSteerMessageId={null}
           canSendQueuedMessages={false}
@@ -10664,6 +10665,10 @@ function useChatViewComponent({
           onDismissPendingComposerComment={() => {}}
           onClearPendingComposerComments={() => {}}
           onReorderQueuedComposerMessages={() => {}}
+          onDeleteGoal={handleDeleteGoal}
+          onEditGoal={handleEditGoal}
+          onPauseGoal={handlePauseGoal}
+          onResumeGoal={handleResumeGoal}
           onSendQueuedComposerMessage={() => {}}
           onSteerQueuedComposerMessage={() => {}}
           onSetThreadError={setThreadError}
@@ -10678,6 +10683,10 @@ function useChatViewComponent({
       composerModelOptions,
       composerProviderCommands,
       gitCwd,
+      handleDeleteGoal,
+      handleEditGoal,
+      handlePauseGoal,
+      handleResumeGoal,
       handleSubagentComposerSubmit,
       isConnecting,
       isGitRepo,
@@ -10964,6 +10973,7 @@ function useChatViewComponent({
                         handoffDisabled={handoffDisabled}
                         interactionModeShortcutLabel={togglePlanModeShortcutLabel}
                         activeContextWindow={activeContextWindow}
+                        activeGoal={activeGoal}
                         queuedComposerMessages={queuedComposerMessages}
                         queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
                         canSendQueuedMessages={canSendQueuedComposerMessages}
@@ -11018,6 +11028,10 @@ function useChatViewComponent({
                         onDismissPendingComposerComment={dismissPendingComposerComment}
                         onClearPendingComposerComments={clearPendingComposerComments}
                         onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+                        onDeleteGoal={handleDeleteGoal}
+                        onEditGoal={handleEditGoal}
+                        onPauseGoal={handlePauseGoal}
+                        onResumeGoal={handleResumeGoal}
                         onSendQueuedComposerMessage={sendQueuedComposerMessage}
                         onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
                         onSetThreadError={setThreadError}

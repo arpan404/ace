@@ -29,6 +29,7 @@ import {
 
 import type { ComposerImageAttachment, ModelSelectionByProvider } from "../../composerDraftStore";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
+import type { ActiveGoalState } from "../../session-logic";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { Button } from "../ui/button";
@@ -141,6 +142,7 @@ interface ChatComposerPanelProps {
   readonly composerTerminalContexts: ComponentProps<
     typeof ComposerPromptEditor
   >["terminalContexts"];
+  readonly activeGoal: ActiveGoalState | null;
   readonly queuedComposerMessages: ComponentProps<typeof ComposerQueuedMessages>["messages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
   readonly canSendQueuedMessages: boolean;
@@ -224,6 +226,10 @@ interface ChatComposerPanelProps {
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onReorder"];
+  readonly onDeleteGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onDeleteGoal"]>;
+  readonly onEditGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onEditGoal"]>;
+  readonly onPauseGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onPauseGoal"]>;
+  readonly onResumeGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onResumeGoal"]>;
   readonly onSendQueuedComposerMessage: NonNullable<
     ComponentProps<typeof ComposerQueuedMessages>["onSend"]
   >;
@@ -456,6 +462,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               onClearAll={props.onClearPendingComposerComments}
             />
             <ComposerQueuedMessages
+              activeGoal={props.activeGoal}
               messages={props.queuedComposerMessages}
               className="mb-2"
               {...(props.queuedSteerMessageId !== undefined
@@ -465,6 +472,10 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               onDelete={props.onDeleteQueuedComposerMessage}
               onClearAll={props.onClearQueuedComposerMessages}
               onReorder={props.onReorderQueuedComposerMessages}
+              onDeleteGoal={props.onDeleteGoal}
+              onEditGoal={props.onEditGoal}
+              onPauseGoal={props.onPauseGoal}
+              onResumeGoal={props.onResumeGoal}
               canSendNow={props.canSendQueuedMessages}
               onSend={props.onSendQueuedComposerMessage}
               onSteer={props.onSteerQueuedComposerMessage}

@@ -1359,6 +1359,191 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(false);
   });
 
+  it("keeps provider-agnostic root subagent assistant text out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-root-subagent-message-delta"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-subagent"),
+      itemId: asItemId("root-subagent-message"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "root subagent result",
+        subagent: {
+          id: "agent-root-1",
+          type: "code-reviewer",
+          name: "Reviewer",
+        },
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-root-subagent-message-completed"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-subagent"),
+      itemId: asItemId("root-subagent-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "root subagent result",
+        subagent: {
+          id: "agent-root-1",
+          type: "code-reviewer",
+          name: "Reviewer",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "root subagent result",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "root subagent result",
+    );
+    expect(progress?.payload).toMatchObject({
+      subagent: {
+        id: "agent-root-1",
+        type: "code-reviewer",
+        name: "Reviewer",
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("root subagent result"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps root scalar agent metadata assistant text out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-root-agent-scalar-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-agent-scalar"),
+      itemId: asItemId("root-agent-scalar-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "root scalar agent result",
+        agentId: "agent-scalar-1",
+        agentName: "Scalar Reviewer",
+        agentRole: "code-reviewer",
+        model: "gpt-5.4",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "root scalar agent result",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "root scalar agent result",
+    );
+    expect(progress?.payload).toMatchObject({
+      agentId: "agent-scalar-1",
+      agentName: "Scalar Reviewer",
+      agentRole: "code-reviewer",
+      model: "gpt-5.4",
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("root scalar agent result"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps root display-name subagent aliases out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-root-display-subagent-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-display-subagent"),
+      itemId: asItemId("root-display-subagent-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "root display subagent result",
+        subagentId: "subagent-display-1",
+        agentDisplayName: "Display Reviewer",
+        agentRole: "code-reviewer",
+        model: "gpt-5.4",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "root display subagent result",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "root display subagent result",
+    );
+    expect(progress?.payload).toMatchObject({
+      subagentId: "subagent-display-1",
+      agentDisplayName: "Display Reviewer",
+      agentRole: "code-reviewer",
+      model: "gpt-5.4",
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("root display subagent result"),
+      ),
+    ).toBe(false);
+  });
+
   it("splits assistant messages when tool activity interrupts the same assistant item", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -4035,6 +4220,50 @@ describe("ProviderRuntimeIngestion", () => {
         (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.started",
       ),
     ).toBe(true);
+  });
+
+  it("preserves provider-agnostic root subagent metadata on collab tool activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-root-collab-tool-started"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-collab"),
+      itemId: asItemId("root-collab-tool"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "in_progress",
+        title: "Reviewer",
+        detail: "Review this change.",
+        subagent: {
+          id: "agent-root-tool-1",
+          type: "code-reviewer",
+          name: "Reviewer",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-root-collab-tool-started" && activity.kind === "tool.started",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-root-collab-tool-started",
+    );
+    expect(activity?.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagent: {
+        id: "agent-root-tool-1",
+        type: "code-reviewer",
+        name: "Reviewer",
+      },
+    });
   });
 
   it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
