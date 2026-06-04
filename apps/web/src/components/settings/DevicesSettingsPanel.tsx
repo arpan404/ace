@@ -84,7 +84,7 @@ const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
 const SETTINGS_NEUTRAL_SWITCH_CLASS_NAME =
   "data-checked:border-border/45 data-checked:bg-foreground/55";
 const DEVICE_SUBPANEL_CLASS_NAME =
-  "rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-3 transition-colors duration-150 hover:bg-foreground/[0.035] sm:px-3";
+  "px-0 py-3 transition-colors duration-150 hover:bg-foreground/[0.012]";
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
 const DEVICE_META_TEXT_CLASS_NAME = "text-[11px] leading-relaxed text-muted-foreground/62";
 

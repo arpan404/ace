@@ -395,7 +395,7 @@ function KeybindingsSettingsEditorContent(props: {
               return (
                 <div
                   key={definition.command}
-                  className="grid gap-2 rounded-[var(--control-radius)] bg-foreground/[0.012] px-3 py-2.5 transition-colors hover:bg-foreground/[0.035] md:grid-cols-[minmax(0,1fr)_200px] md:items-center"
+                  className="grid gap-2 px-0.5 py-2.5 transition-colors hover:bg-foreground/[0.012] md:grid-cols-[minmax(0,1fr)_200px] md:items-center"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-medium text-foreground/90">

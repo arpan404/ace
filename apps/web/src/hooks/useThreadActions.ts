@@ -29,6 +29,8 @@ type DeleteThreadOptions = {
 
 type DeleteWorktreeAndRelatedDataInput = {
   readonly projectCwd: string;
+  readonly skipConfirmation?: boolean;
+  readonly suppressSuccessToast?: boolean;
   readonly worktreePath: string;
 };
 
@@ -211,7 +213,12 @@ export function useThreadActions() {
   );
 
   const deleteWorktreeAndRelatedData = useCallback(
-    async ({ projectCwd, worktreePath: rawWorktreePath }: DeleteWorktreeAndRelatedDataInput) => {
+    async ({
+      projectCwd,
+      skipConfirmation = false,
+      suppressSuccessToast = false,
+      worktreePath: rawWorktreePath,
+    }: DeleteWorktreeAndRelatedDataInput) => {
       const api = readNativeApi();
       if (!api) return;
       const { threads } = useStore.getState();
@@ -232,21 +239,23 @@ export function useThreadActions() {
         return;
       }
 
-      const confirmed = await api.dialogs.confirm(
-        relatedThreadIds.length > 0
-          ? [
-              `Delete worktree "${displayWorktreePath}" and ${relatedThreadIds.length} related chat${
-                relatedThreadIds.length === 1 ? "" : "s"
-              }?`,
-              "This permanently clears the related conversation history and removes the worktree directory.",
-            ].join("\n")
-          : [
-              `Delete worktree "${displayWorktreePath}"?`,
-              "This permanently removes the worktree directory.",
-            ].join("\n"),
-      );
-      if (!confirmed) {
-        return;
+      if (!skipConfirmation) {
+        const confirmed = await api.dialogs.confirm(
+          relatedThreadIds.length > 0
+            ? [
+                `Delete worktree "${displayWorktreePath}" and ${relatedThreadIds.length} related chat${
+                  relatedThreadIds.length === 1 ? "" : "s"
+                }?`,
+                "This permanently clears the related conversation history and removes the worktree directory.",
+              ].join("\n")
+            : [
+                `Delete worktree "${displayWorktreePath}"?`,
+                "This permanently removes the worktree directory.",
+              ].join("\n"),
+        );
+        if (!confirmed) {
+          return;
+        }
       }
 
       const deletedThreadIds = new Set<ThreadId>(relatedThreadIds);
@@ -263,16 +272,18 @@ export function useThreadActions() {
           path: worktreePath,
           force: true,
         });
-        toastManager.add({
-          type: "success",
-          title: "Worktree cleaned up",
-          description:
-            relatedThreadIds.length > 0
-              ? `Removed ${displayWorktreePath} and ${relatedThreadIds.length} related chat${
-                  relatedThreadIds.length === 1 ? "" : "s"
-                }.`
-              : `Removed ${displayWorktreePath}.`,
-        });
+        if (!suppressSuccessToast) {
+          toastManager.add({
+            type: "success",
+            title: "Worktree cleaned up",
+            description:
+              relatedThreadIds.length > 0
+                ? `Removed ${displayWorktreePath} and ${relatedThreadIds.length} related chat${
+                    relatedThreadIds.length === 1 ? "" : "s"
+                  }.`
+                : `Removed ${displayWorktreePath}.`,
+          });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
         console.error("Failed to remove worktree after deleting related threads", {

@@ -4,9 +4,11 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   ChevronDownIcon,
+  ClockIcon,
   DownloadIcon,
   FolderGit2Icon,
   GitForkIcon,
+  HardDriveIcon,
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
@@ -105,10 +107,12 @@ import {
 import { showBrowserNotification } from "../../lib/browserNotifications";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
@@ -2521,7 +2525,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         return (
                           <div
                             key={tool.id}
-                            className="grid gap-2 rounded-[var(--control-radius)] bg-foreground/[0.012] px-3 py-2.5 transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                            className="grid gap-2 px-0.5 py-2.5 transition-colors hover:bg-foreground/[0.012] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
                           >
                             <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
                               {tool.label}
@@ -2569,7 +2573,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-3 py-3 transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className="grid gap-3 px-0.5 py-3 transition-colors hover:bg-foreground/[0.012] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -3245,6 +3249,66 @@ type EnvironmentWorktreeEntry = {
   readonly activeThread: Thread | null;
 };
 
+type EnvironmentWorktreeStats = {
+  readonly exists: boolean;
+  readonly lastModifiedAt: string | null;
+  readonly sizeBytes: number;
+};
+
+type EnvironmentProjectFilter = "all" | "with-worktrees" | "inactive" | "setup";
+type EnvironmentProjectSort = "name" | "inactive" | "worktrees" | "storage";
+type EnvironmentWorktreeFilter = "all" | "inactive" | "active" | "linked";
+type EnvironmentWorktreeSort = "recent" | "oldest" | "name" | "storage";
+type EnvironmentWorktreeCleanupAge = "all" | "7d" | "30d" | "90d";
+
+type EnvironmentProjectMetrics = {
+  readonly hasSetup: boolean;
+  readonly storageBytes: number;
+  readonly worktreeCount: number;
+};
+
+const ENVIRONMENT_PROJECT_FILTER_LABELS = {
+  all: "All projects",
+  inactive: "Inactive",
+  setup: "Setup saved",
+  "with-worktrees": "Has worktrees",
+} satisfies Record<EnvironmentProjectFilter, string>;
+
+const ENVIRONMENT_PROJECT_SORT_LABELS = {
+  inactive: "Inactive first",
+  name: "Name",
+  storage: "Storage",
+  worktrees: "Worktrees",
+} satisfies Record<EnvironmentProjectSort, string>;
+
+const ENVIRONMENT_WORKTREE_FILTER_LABELS = {
+  active: "Active",
+  all: "All",
+  inactive: "Inactive",
+  linked: "Has chats",
+} satisfies Record<EnvironmentWorktreeFilter, string>;
+
+const ENVIRONMENT_WORKTREE_SORT_LABELS = {
+  name: "Name",
+  oldest: "Oldest",
+  recent: "Recent",
+  storage: "Storage",
+} satisfies Record<EnvironmentWorktreeSort, string>;
+
+const ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS = {
+  "30d": "Older than 30 days",
+  "7d": "Older than 7 days",
+  "90d": "Older than 90 days",
+  all: "All inactive",
+} satisfies Record<EnvironmentWorktreeCleanupAge, string>;
+
+const ENVIRONMENT_WORKTREE_CLEANUP_AGE_DAYS = {
+  "30d": 30,
+  "7d": 7,
+  "90d": 90,
+  all: null,
+} satisfies Record<EnvironmentWorktreeCleanupAge, number | null>;
+
 function getProjectWorktreePaths({
   branches,
   project,
@@ -3281,6 +3345,45 @@ function formatStorageBytes(sizeBytes: number): string {
 
   const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function getWorktreeActivityTimeMs(
+  worktree: EnvironmentWorktreeEntry,
+  stats: EnvironmentWorktreeStats | undefined,
+): number {
+  const statTime = stats?.lastModifiedAt ? Date.parse(stats.lastModifiedAt) : Number.NaN;
+  if (Number.isFinite(statTime)) {
+    return statTime;
+  }
+  const threadTimes = worktree.relatedThreads
+    .flatMap((thread) => (thread.updatedAt ? [Date.parse(thread.updatedAt)] : []))
+    .filter(Number.isFinite);
+  return threadTimes.length > 0 ? Math.max(...threadTimes) : 0;
+}
+
+function formatWorktreeActivityLabel(
+  worktree: EnvironmentWorktreeEntry,
+  stats: EnvironmentWorktreeStats | undefined,
+): string {
+  const activityTimeMs = getWorktreeActivityTimeMs(worktree, stats);
+  if (activityTimeMs <= 0) {
+    return "No activity";
+  }
+  return formatRelativeTimeLabel(new Date(activityTimeMs).toISOString());
+}
+
+function isWorktreeOlderThan(
+  worktree: EnvironmentWorktreeEntry,
+  stats: EnvironmentWorktreeStats | undefined,
+  age: EnvironmentWorktreeCleanupAge,
+  now: number,
+): boolean {
+  const days = ENVIRONMENT_WORKTREE_CLEANUP_AGE_DAYS[age];
+  if (days === null) {
+    return true;
+  }
+  const activityTimeMs = getWorktreeActivityTimeMs(worktree, stats);
+  return activityTimeMs > 0 && activityTimeMs <= now - days * 24 * 60 * 60_000;
 }
 
 function getEnvironmentWorktreeEntries({
@@ -3563,6 +3666,14 @@ function ProjectEnvironmentWorktrees({
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const [worktreeSearch, setWorktreeSearch] = useState("");
+  const [worktreeFilter, setWorktreeFilter] = useState<EnvironmentWorktreeFilter>("inactive");
+  const [worktreeSort, setWorktreeSort] = useState<EnvironmentWorktreeSort>("oldest");
+  const [cleanupAge, setCleanupAge] = useState<EnvironmentWorktreeCleanupAge>("30d");
+  const [isCleaningWorktrees, setIsCleaningWorktrees] = useState(false);
+  const [isDeletingSelectedWorktrees, setIsDeletingSelectedWorktrees] = useState(false);
+  const [selectedWorktreePaths, setSelectedWorktreePaths] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const { deleteWorktreeAndRelatedData } = useThreadActions();
   const projectSshKeyPassphrase =
     settings.gitSshKeyPassphraseByProjectRoot[project.cwd] ??
@@ -3593,23 +3704,261 @@ function ProjectEnvironmentWorktrees({
       }),
     [branchesQuery.data?.branches, project, projectThreads],
   );
-  const filteredWorktrees = useMemo(() => {
-    const query = worktreeSearch.trim().toLowerCase();
-    if (query.length === 0) {
-      return worktrees;
+  const worktreePaths = useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees]);
+  const statsQuery = useQuery(gitWorktreeStatsQueryOptions({ paths: worktreePaths }));
+  const statsByPath = useMemo(() => {
+    const stats = new Map<string, EnvironmentWorktreeStats>();
+    for (const worktreeStats of statsQuery.data?.worktrees ?? []) {
+      stats.set(worktreeStats.path, worktreeStats);
     }
-    return worktrees.filter((worktree) => {
-      const haystack = [
-        worktree.displayName,
-        worktree.path,
-        ...worktree.branchNames,
-        ...worktree.path.split("/"),
-      ]
-        .join("\n")
-        .toLowerCase();
-      return haystack.includes(query);
+    return stats;
+  }, [statsQuery.data?.worktrees]);
+  const visibleWorktrees = useMemo(() => {
+    const query = worktreeSearch.trim().toLowerCase();
+    return worktrees
+      .filter((worktree) => {
+        if (worktreeFilter === "active") {
+          return worktree.activeThread !== null;
+        }
+        if (worktreeFilter === "inactive") {
+          return worktree.activeThread === null;
+        }
+        if (worktreeFilter === "linked") {
+          return worktree.relatedThreads.length > 0;
+        }
+        return true;
+      })
+      .filter((worktree) => {
+        if (query.length === 0) {
+          return true;
+        }
+        const haystack = [
+          worktree.displayName,
+          worktree.path,
+          ...worktree.branchNames,
+          ...worktree.path.split("/"),
+        ]
+          .join("\n")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .toSorted((left, right) => {
+        if (worktreeSort === "storage") {
+          const storageDiff =
+            (statsByPath.get(right.path)?.sizeBytes ?? -1) -
+            (statsByPath.get(left.path)?.sizeBytes ?? -1);
+          if (storageDiff !== 0) return storageDiff;
+        } else if (worktreeSort === "recent") {
+          const activityDiff =
+            getWorktreeActivityTimeMs(right, statsByPath.get(right.path)) -
+            getWorktreeActivityTimeMs(left, statsByPath.get(left.path));
+          if (activityDiff !== 0) return activityDiff;
+        } else if (worktreeSort === "oldest") {
+          const activityDiff =
+            getWorktreeActivityTimeMs(left, statsByPath.get(left.path)) -
+            getWorktreeActivityTimeMs(right, statsByPath.get(right.path));
+          if (activityDiff !== 0) return activityDiff;
+        }
+        return (
+          left.displayName.localeCompare(right.displayName) || left.path.localeCompare(right.path)
+        );
+      });
+  }, [statsByPath, worktreeFilter, worktreeSearch, worktreeSort, worktrees]);
+  useEffect(() => {
+    const availablePaths = new Set(worktrees.map((worktree) => worktree.path));
+    setSelectedWorktreePaths((current) => {
+      const next = new Set(Array.from(current).filter((path) => availablePaths.has(path)));
+      return next.size === current.size ? current : next;
     });
-  }, [worktreeSearch, worktrees]);
+  }, [worktrees]);
+  const visibleSelectableWorktrees = useMemo(
+    () => visibleWorktrees.filter((worktree) => worktree.activeThread === null),
+    [visibleWorktrees],
+  );
+  const selectedWorktrees = useMemo(
+    () =>
+      worktrees.filter(
+        (worktree) => worktree.activeThread === null && selectedWorktreePaths.has(worktree.path),
+      ),
+    [selectedWorktreePaths, worktrees],
+  );
+  const selectedStorageBytes = useMemo(
+    () =>
+      selectedWorktrees.reduce(
+        (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
+        0,
+      ),
+    [selectedWorktrees, statsByPath],
+  );
+  const selectedLinkedChatCount = useMemo(
+    () => selectedWorktrees.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
+    [selectedWorktrees],
+  );
+  const allVisibleSelectableSelected =
+    visibleSelectableWorktrees.length > 0 &&
+    visibleSelectableWorktrees.every((worktree) => selectedWorktreePaths.has(worktree.path));
+  const toggleWorktreeSelected = useCallback((path: string, selected: boolean) => {
+    setSelectedWorktreePaths((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(path);
+      } else {
+        next.delete(path);
+      }
+      return next;
+    });
+  }, []);
+  const setVisibleWorktreesSelected = useCallback(
+    (selected: boolean) => {
+      setSelectedWorktreePaths((current) => {
+        const next = new Set(current);
+        for (const worktree of visibleSelectableWorktrees) {
+          if (selected) {
+            next.add(worktree.path);
+          } else {
+            next.delete(worktree.path);
+          }
+        }
+        return next;
+      });
+    },
+    [visibleSelectableWorktrees],
+  );
+  const clearSelectedWorktrees = useCallback(() => {
+    setSelectedWorktreePaths(new Set());
+  }, []);
+  const cleanupCandidates = useMemo(() => {
+    const now = Date.now();
+    return worktrees
+      .filter((worktree) => worktree.activeThread === null)
+      .filter((worktree) =>
+        isWorktreeOlderThan(worktree, statsByPath.get(worktree.path), cleanupAge, now),
+      )
+      .toSorted(
+        (left, right) =>
+          getWorktreeActivityTimeMs(left, statsByPath.get(left.path)) -
+            getWorktreeActivityTimeMs(right, statsByPath.get(right.path)) ||
+          left.displayName.localeCompare(right.displayName) ||
+          left.path.localeCompare(right.path),
+      );
+  }, [cleanupAge, statsByPath, worktrees]);
+  const cleanupStorageBytes = useMemo(
+    () =>
+      cleanupCandidates.reduce(
+        (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
+        0,
+      ),
+    [cleanupCandidates, statsByPath],
+  );
+  const cleanupLinkedChatCount = useMemo(
+    () => cleanupCandidates.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
+    [cleanupCandidates],
+  );
+  const handleCleanupCandidates = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || cleanupCandidates.length === 0 || isCleaningWorktrees) {
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(
+      [
+        `Delete ${formatCountLabel(cleanupCandidates.length, "inactive worktree")}?`,
+        `This can free about ${formatStorageBytes(cleanupStorageBytes)} and will also delete ${formatCountLabel(
+          cleanupLinkedChatCount,
+          "linked chat",
+        )}.`,
+        "",
+        "Active agent worktrees are not included.",
+      ].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsCleaningWorktrees(true);
+    let deletedCount = 0;
+    try {
+      for (const worktree of cleanupCandidates) {
+        await deleteWorktreeAndRelatedData({
+          projectCwd: project.cwd,
+          skipConfirmation: true,
+          suppressSuccessToast: true,
+          worktreePath: worktree.path,
+        });
+        deletedCount += 1;
+      }
+      toastManager.add({
+        type: "success",
+        title: "Worktrees cleaned up",
+        description: `Removed ${formatCountLabel(deletedCount, "worktree")} and freed up to ${formatStorageBytes(
+          cleanupStorageBytes,
+        )}.`,
+      });
+      void branchesQuery.refetch();
+    } finally {
+      setIsCleaningWorktrees(false);
+    }
+  }, [
+    branchesQuery,
+    cleanupCandidates,
+    cleanupLinkedChatCount,
+    cleanupStorageBytes,
+    deleteWorktreeAndRelatedData,
+    isCleaningWorktrees,
+    project.cwd,
+  ]);
+  const handleDeleteSelectedWorktrees = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || selectedWorktrees.length === 0 || isDeletingSelectedWorktrees) {
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(
+      [
+        `Delete ${formatCountLabel(selectedWorktrees.length, "selected worktree")}?`,
+        `This can free about ${formatStorageBytes(selectedStorageBytes)} and will also delete ${formatCountLabel(
+          selectedLinkedChatCount,
+          "linked chat",
+        )}.`,
+        "",
+        "Active agent worktrees are not included.",
+      ].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingSelectedWorktrees(true);
+    let deletedCount = 0;
+    try {
+      for (const worktree of selectedWorktrees) {
+        await deleteWorktreeAndRelatedData({
+          projectCwd: project.cwd,
+          skipConfirmation: true,
+          suppressSuccessToast: true,
+          worktreePath: worktree.path,
+        });
+        deletedCount += 1;
+      }
+      setSelectedWorktreePaths(new Set());
+      toastManager.add({
+        type: "success",
+        title: "Selected worktrees deleted",
+        description: `Removed ${formatCountLabel(deletedCount, "worktree")} and freed up to ${formatStorageBytes(
+          selectedStorageBytes,
+        )}.`,
+      });
+      void branchesQuery.refetch();
+    } finally {
+      setIsDeletingSelectedWorktrees(false);
+    }
+  }, [
+    branchesQuery,
+    deleteWorktreeAndRelatedData,
+    isDeletingSelectedWorktrees,
+    project.cwd,
+    selectedLinkedChatCount,
+    selectedStorageBytes,
+    selectedWorktrees,
+  ]);
 
   return (
     <div id={`project-environment-${project.id}`} className="min-w-0">
@@ -3679,9 +4028,9 @@ function ProjectEnvironmentWorktrees({
       </div>
 
       <div className="py-3">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:items-start">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,32rem)] lg:items-start">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground/92">
               <FolderGit2Icon className="size-3.5 text-muted-foreground" />
               Manage worktrees
             </div>
@@ -3690,14 +4039,55 @@ function ProjectEnvironmentWorktrees({
               locked.
             </p>
           </div>
-          <div className="relative min-w-0">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
-            <Input
-              value={worktreeSearch}
-              placeholder="Search worktrees, folders, branches"
-              className="h-8 pl-8"
-              onChange={(event) => setWorktreeSearch(event.target.value)}
-            />
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem]">
+            <label className="min-w-0 space-y-1">
+              <span className="block text-[10px] font-medium text-muted-foreground/58">Search</span>
+              <span className="relative block">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+                <Input
+                  value={worktreeSearch}
+                  placeholder="Name, path, branch"
+                  className="h-8 pl-8"
+                  onChange={(event) => setWorktreeSearch(event.target.value)}
+                />
+              </span>
+            </label>
+            <label className="min-w-0 space-y-1">
+              <span className="block text-[10px] font-medium text-muted-foreground/58">Filter</span>
+              <Select
+                value={worktreeFilter}
+                onValueChange={(value) => setWorktreeFilter(value as EnvironmentWorktreeFilter)}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue>{ENVIRONMENT_WORKTREE_FILTER_LABELS[worktreeFilter]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {(["inactive", "all", "linked", "active"] as const).map((filter) => (
+                    <SelectItem key={filter} value={filter}>
+                      {ENVIRONMENT_WORKTREE_FILTER_LABELS[filter]}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </label>
+            <label className="min-w-0 space-y-1">
+              <span className="block text-[10px] font-medium text-muted-foreground/58">Sort</span>
+              <Select
+                value={worktreeSort}
+                onValueChange={(value) => setWorktreeSort(value as EnvironmentWorktreeSort)}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue>{ENVIRONMENT_WORKTREE_SORT_LABELS[worktreeSort]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {(["oldest", "recent", "storage", "name"] as const).map((sort) => (
+                    <SelectItem key={sort} value={sort}>
+                      {ENVIRONMENT_WORKTREE_SORT_LABELS[sort]}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </label>
           </div>
         </div>
 
@@ -3710,89 +4100,233 @@ function ProjectEnvironmentWorktrees({
         ) : null}
 
         {branchesQuery.isLoading ? (
-          <div className="mt-3 text-[11px] text-muted-foreground/60">Loading worktrees...</div>
+          <div className="mt-3 inline-flex items-center gap-2 text-[11px] text-muted-foreground/60">
+            <Spinner className="size-3" />
+            Loading worktree inventory
+          </div>
         ) : worktrees.length === 0 ? (
           <div className="mt-3 text-[11px] text-muted-foreground/60">
             No additional worktrees detected.
           </div>
-        ) : filteredWorktrees.length === 0 ? (
+        ) : visibleWorktrees.length === 0 ? (
           <div className="mt-3 text-[11px] text-muted-foreground/60">
-            No worktrees match that search.
+            No worktrees match the current search and filter.
           </div>
         ) : (
-          <div className="mt-3 space-y-1.5">
-            {filteredWorktrees.map((worktree) => {
-              const relatedChatCount = worktree.relatedThreads.length;
-              const isActive = worktree.activeThread !== null;
-              return (
-                <div
-                  key={worktree.path}
-                  className="grid gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-2.5 transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                >
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate text-[12px] font-medium text-foreground/90">
-                          {worktree.displayName}
-                        </span>
-                        {isActive ? (
-                          <Badge variant="outline" size="sm" className="text-[10px]">
-                            In use
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground/50">
-                        {worktree.path}
-                      </div>
-                      <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
-                        <span>{formatCountLabel(worktree.branchNames.length, "branch")}</span>
-                        <span>{formatCountLabel(relatedChatCount, "linked chat")}</span>
-                        {worktree.branchNames.length > 0 ? (
-                          <span className="min-w-0 truncate">
-                            {worktree.branchNames.slice(0, 3).join(", ")}
-                            {worktree.branchNames.length > 3 ? "..." : ""}
+          <>
+            <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-2 border-y border-border/20 py-2">
+              <label className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground/70">
+                <Checkbox
+                  checked={allVisibleSelectableSelected}
+                  disabled={visibleSelectableWorktrees.length === 0}
+                  className="data-checked:border-border/55 data-checked:bg-foreground/65"
+                  onCheckedChange={(checked) => setVisibleWorktreesSelected(Boolean(checked))}
+                />
+                <span>
+                  Select visible
+                  {visibleSelectableWorktrees.length > 0
+                    ? ` (${visibleSelectableWorktrees.length})`
+                    : ""}
+                </span>
+              </label>
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground/62">
+                <span>{formatCountLabel(selectedWorktrees.length, "selected")}</span>
+                {selectedWorktrees.length > 0 ? (
+                  <>
+                    <span>{formatStorageBytes(selectedStorageBytes)}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={clearSelectedWorktrees}
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive/86 hover:bg-destructive/10 hover:text-destructive"
+                      disabled={isDeletingSelectedWorktrees}
+                      onClick={() => void handleDeleteSelectedWorktrees()}
+                    >
+                      {isDeletingSelectedWorktrees ? (
+                        <Spinner className="size-3" />
+                      ) : (
+                        <Trash2Icon className="size-3.5" />
+                      )}
+                      Delete selected
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <div className="divide-y divide-border/18">
+              {visibleWorktrees.map((worktree) => {
+                const relatedChatCount = worktree.relatedThreads.length;
+                const isActive = worktree.activeThread !== null;
+                const isSelected = selectedWorktreePaths.has(worktree.path);
+                const stats = statsByPath.get(worktree.path);
+                const isStorageRefreshing = statsQuery.isFetching && worktreePaths.length > 0;
+                return (
+                  <div
+                    key={worktree.path}
+                    className={cn(
+                      "grid gap-3 px-0.5 py-3 transition-colors hover:bg-foreground/[0.012] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center",
+                      isSelected && "bg-foreground/[0.018]",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <Checkbox
+                        checked={isSelected}
+                        disabled={isActive}
+                        aria-label={`Select ${worktree.displayName}`}
+                        className="mt-0.5 data-checked:border-border/55 data-checked:bg-foreground/65"
+                        onCheckedChange={(checked) =>
+                          toggleWorktreeSelected(worktree.path, Boolean(checked))
+                        }
+                      />
+                      <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate text-[12px] font-medium text-foreground/90">
+                            {worktree.displayName}
                           </span>
-                        ) : null}
+                          {isActive ? (
+                            <Badge variant="outline" size="sm" className="text-[10px]">
+                              In use
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="truncate font-mono text-[11px] text-muted-foreground/50">
+                          {worktree.path}
+                        </div>
+                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
+                          <span>{formatCountLabel(worktree.branchNames.length, "branch")}</span>
+                          <span>{formatCountLabel(relatedChatCount, "linked chat")}</span>
+                          <span className="inline-flex items-center gap-1">
+                            <ClockIcon className="size-3" />
+                            {formatWorktreeActivityLabel(worktree, stats)}
+                          </span>
+                          {worktree.branchNames.length > 0 ? (
+                            <span className="min-w-0 truncate">
+                              {worktree.branchNames.slice(0, 3).join(", ")}
+                              {worktree.branchNames.length > 3 ? "..." : ""}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          variant="destructive"
-                          className="justify-self-start sm:justify-self-end"
-                          disabled={isActive}
-                          onClick={() =>
-                            void deleteWorktreeAndRelatedData({
-                              projectCwd: project.cwd,
-                              worktreePath: worktree.path,
-                            })
+                    <div className="flex min-w-0 items-center gap-3 justify-self-start text-[11px] text-muted-foreground/62 lg:justify-self-end">
+                      <span className="inline-flex min-w-18 items-center justify-end gap-1 tabular-nums">
+                        <HardDriveIcon className="size-3" />
+                        {stats ? formatStorageBytes(stats.sizeBytes) : "Storage"}
+                        {isStorageRefreshing ? <Spinner className="size-3" /> : null}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              size="icon-xs"
+                              variant="ghost"
+                              className="text-destructive/82 hover:bg-destructive/10 hover:text-destructive"
+                              disabled={isActive}
+                              onClick={() =>
+                                void deleteWorktreeAndRelatedData({
+                                  projectCwd: project.cwd,
+                                  worktreePath: worktree.path,
+                                })
+                              }
+                              aria-label={`Delete ${worktree.displayName}`}
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
                           }
-                          aria-label={`Delete ${worktree.displayName}`}
-                        >
-                          <Trash2Icon className="size-3.5" />
-                        </Button>
-                      }
-                    />
-                    {isActive ? (
-                      <TooltipPopup side="top">
-                        Stop the active agent in "{worktree.activeThread?.title}" first.
-                      </TooltipPopup>
-                    ) : (
-                      <TooltipPopup side="top">
-                        Delete this worktree and its linked chats.
-                      </TooltipPopup>
-                    )}
-                  </Tooltip>
-                </div>
-              );
-            })}
-          </div>
+                        />
+                        {isActive ? (
+                          <TooltipPopup side="top">
+                            Stop the active agent in "{worktree.activeThread?.title}" first.
+                          </TooltipPopup>
+                        ) : (
+                          <TooltipPopup side="top">
+                            Delete this worktree and its linked chats.
+                          </TooltipPopup>
+                        )}
+                      </Tooltip>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
+
+        {worktrees.length > 0 ? (
+          <div className="mt-5 border-t border-border/24 pt-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground/92">
+                  <Trash2Icon className="size-3.5 text-muted-foreground" />
+                  Cleanup
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground/60">
+                  Remove inactive worktrees by age. Active agent worktrees are excluded.
+                </p>
+                <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/62">
+                  <span>{formatCountLabel(cleanupCandidates.length, "candidate")}</span>
+                  <span>{formatStorageBytes(cleanupStorageBytes)}</span>
+                  <span>{formatCountLabel(cleanupLinkedChatCount, "linked chat")}</span>
+                  {statsQuery.isFetching ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Spinner className="size-3" />
+                      Updating storage
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex min-w-0 flex-wrap items-end gap-2">
+                <label className="min-w-44 space-y-1">
+                  <span className="block text-[10px] font-medium text-muted-foreground/58">
+                    Cleanup range
+                  </span>
+                  <Select
+                    value={cleanupAge}
+                    onValueChange={(value) => setCleanupAge(value as EnvironmentWorktreeCleanupAge)}
+                  >
+                    <SelectTrigger size="sm" className="w-full">
+                      <SelectValue>
+                        {ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS[cleanupAge]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {(["30d", "90d", "7d", "all"] as const).map((age) => (
+                        <SelectItem key={age} value={age}>
+                          {ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS[age]}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive/86 hover:bg-destructive/10 hover:text-destructive"
+                  disabled={cleanupCandidates.length === 0 || isCleaningWorktrees}
+                  onClick={() => void handleCleanupCandidates()}
+                >
+                  {isCleaningWorktrees ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <Trash2Icon className="size-3.5" />
+                  )}
+                  Delete candidates
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -3801,6 +4335,11 @@ function ProjectEnvironmentWorktrees({
 export function EnvironmentSettingsPanel() {
   const projects = useStore((store) => store.projects);
   const [projectSearch, setProjectSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState<EnvironmentProjectFilter>("all");
+  const [projectSort, setProjectSort] = useState<EnvironmentProjectSort>("inactive");
+  const [projectMetricsById, setProjectMetricsById] = useState<
+    Partial<Record<ProjectId, EnvironmentProjectMetrics>>
+  >({});
   const activeLocalProjects = useMemo(
     () =>
       projects
@@ -3810,16 +4349,77 @@ export function EnvironmentSettingsPanel() {
         ),
     [projects],
   );
+  const updateProjectMetrics = useCallback(
+    (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => {
+      setProjectMetricsById((current) => {
+        const previous = current[projectId];
+        if (
+          previous &&
+          previous.hasSetup === metrics.hasSetup &&
+          previous.storageBytes === metrics.storageBytes &&
+          previous.worktreeCount === metrics.worktreeCount
+        ) {
+          return current;
+        }
+        return { ...current, [projectId]: metrics };
+      });
+    },
+    [],
+  );
   const filteredProjects = useMemo(() => {
     const query = projectSearch.trim().toLowerCase();
-    if (query.length === 0) {
-      return activeLocalProjects;
-    }
-    return activeLocalProjects.filter((project) => {
-      const haystack = `${project.name}\n${project.cwd}`.toLowerCase();
-      return haystack.includes(query);
+    const searchedProjects =
+      query.length === 0
+        ? activeLocalProjects
+        : activeLocalProjects.filter((project) => {
+            const haystack = `${project.name}\n${project.cwd}`.toLowerCase();
+            return haystack.includes(query);
+          });
+    const filteredByStatus = searchedProjects.filter((project) => {
+      const metrics = projectMetricsById[project.id];
+      if (projectFilter === "with-worktrees") {
+        return metrics ? metrics.worktreeCount > 0 : true;
+      }
+      if (projectFilter === "inactive") {
+        return metrics ? metrics.worktreeCount === 0 : true;
+      }
+      if (projectFilter === "setup") {
+        return metrics?.hasSetup ?? setupProjectScript(project.scripts) !== null;
+      }
+      return true;
     });
-  }, [activeLocalProjects, projectSearch]);
+
+    return filteredByStatus.toSorted((left, right) => {
+      const leftMetrics = projectMetricsById[left.id];
+      const rightMetrics = projectMetricsById[right.id];
+      if (projectSort === "inactive") {
+        const leftInactive = leftMetrics ? leftMetrics.worktreeCount === 0 : false;
+        const rightInactive = rightMetrics ? rightMetrics.worktreeCount === 0 : false;
+        if (leftInactive !== rightInactive) {
+          return leftInactive ? -1 : 1;
+        }
+      } else if (projectSort === "worktrees") {
+        const byWorktrees =
+          (rightMetrics?.worktreeCount ?? -1) - (leftMetrics?.worktreeCount ?? -1);
+        if (byWorktrees !== 0) {
+          return byWorktrees;
+        }
+      } else if (projectSort === "storage") {
+        const byStorage = (rightMetrics?.storageBytes ?? -1) - (leftMetrics?.storageBytes ?? -1);
+        if (byStorage !== 0) {
+          return byStorage;
+        }
+      }
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    });
+  }, [activeLocalProjects, projectFilter, projectMetricsById, projectSearch, projectSort]);
+  const hasActiveFilter = projectFilter !== "all" || projectSort !== "name" || projectSearch.trim();
+
+  const clearProjectControls = useCallback(() => {
+    setProjectSearch("");
+    setProjectFilter("all");
+    setProjectSort("name");
+  }, []);
 
   return (
     <SettingsPageContainer>
@@ -3841,8 +4441,8 @@ export function EnvironmentSettingsPanel() {
           </Empty>
         ) : (
           <div>
-            <div className="py-2.5">
-              <div className="relative max-w-md">
+            <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-md">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                 <Input
                   value={projectSearch}
@@ -3850,6 +4450,73 @@ export function EnvironmentSettingsPanel() {
                   className="h-8 pl-8"
                   onChange={(event) => setProjectSearch(event.target.value)}
                 />
+              </div>
+              <div className="flex min-w-0 flex-wrap items-center gap-3 text-[11px] text-muted-foreground/60 sm:justify-end">
+                <Select
+                  value={projectFilter}
+                  onValueChange={(value) => setProjectFilter(value as EnvironmentProjectFilter)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-muted-foreground/55">Filter</span>
+                    <SelectTrigger
+                      aria-label="Filter projects"
+                      className="w-36"
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <SelectValue>{ENVIRONMENT_PROJECT_FILTER_LABELS[projectFilter]}</SelectValue>
+                    </SelectTrigger>
+                  </div>
+                  <SelectPopup>
+                    {(
+                      [
+                        "all",
+                        "inactive",
+                        "with-worktrees",
+                        "setup",
+                      ] as const satisfies readonly EnvironmentProjectFilter[]
+                    ).map((value) => (
+                      <SelectItem hideIndicator key={value} value={value}>
+                        {ENVIRONMENT_PROJECT_FILTER_LABELS[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <Select
+                  value={projectSort}
+                  onValueChange={(value) => setProjectSort(value as EnvironmentProjectSort)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-muted-foreground/55">Sort</span>
+                    <SelectTrigger
+                      aria-label="Sort projects"
+                      className="w-40"
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <SelectValue>{ENVIRONMENT_PROJECT_SORT_LABELS[projectSort]}</SelectValue>
+                    </SelectTrigger>
+                  </div>
+                  <SelectPopup>
+                    {(
+                      [
+                        "inactive",
+                        "name",
+                        "worktrees",
+                        "storage",
+                      ] as const satisfies readonly EnvironmentProjectSort[]
+                    ).map((value) => (
+                      <SelectItem hideIndicator key={value} value={value}>
+                        {ENVIRONMENT_PROJECT_SORT_LABELS[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                {hasActiveFilter ? (
+                  <Button type="button" size="xs" variant="ghost" onClick={clearProjectControls}>
+                    Reset
+                  </Button>
+                ) : null}
               </div>
             </div>
             {filteredProjects.length === 0 ? (
@@ -3865,7 +4532,13 @@ export function EnvironmentSettingsPanel() {
             ) : (
               <div className="space-y-1.5">
                 {filteredProjects.map((project) => {
-                  return <EnvironmentProjectRow key={project.id} project={project} />;
+                  return (
+                    <EnvironmentProjectRow
+                      key={project.id}
+                      project={project}
+                      onMetricsChange={updateProjectMetrics}
+                    />
+                  );
                 })}
               </div>
             )}
@@ -3876,7 +4549,13 @@ export function EnvironmentSettingsPanel() {
   );
 }
 
-function EnvironmentProjectRow({ project }: { readonly project: Project }) {
+function EnvironmentProjectRow({
+  onMetricsChange,
+  project,
+}: {
+  readonly onMetricsChange: (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => void;
+  readonly project: Project;
+}) {
   const navigate = useNavigate();
   const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd));
   const worktreePaths = useMemo(
@@ -3892,11 +4571,17 @@ function EnvironmentProjectRow({ project }: { readonly project: Project }) {
   const environmentCount = Object.keys(setupScript?.env ?? {}).length;
   const totalStorageBytes =
     statsQuery.data?.worktrees.reduce((total, worktree) => total + worktree.sizeBytes, 0) ?? 0;
-  const worktreeCountLabel = branchesQuery.isLoading
-    ? "Loading worktrees"
-    : branchesQuery.isError
-      ? "Worktrees unavailable"
-      : formatCountLabel(worktreePaths.length, "worktree");
+  useEffect(() => {
+    onMetricsChange(project.id, {
+      hasSetup: setupScript !== null,
+      storageBytes: totalStorageBytes,
+      worktreeCount: worktreePaths.length,
+    });
+  }, [onMetricsChange, project.id, setupScript, totalStorageBytes, worktreePaths.length]);
+  const worktreeCountLabel = branchesQuery.isError
+    ? "Worktrees unavailable"
+    : formatCountLabel(worktreePaths.length, "worktree");
+  const isLoadingWorktrees = branchesQuery.isLoading;
   const storageLabel =
     worktreePaths.length === 0
       ? "0 B"
@@ -3908,7 +4593,7 @@ function EnvironmentProjectRow({ project }: { readonly project: Project }) {
   return (
     <button
       type="button"
-      className="grid w-full gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-3 text-left transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+      className="group grid w-full gap-3 px-1 py-3 text-left transition-colors hover:bg-foreground/[0.018] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center"
       onClick={() =>
         void navigate({
           to: "/settings/project-environment/$projectId",
@@ -3928,17 +4613,18 @@ function EnvironmentProjectRow({ project }: { readonly project: Project }) {
           ) : null}
         </div>
         <div className="mt-0.5 truncate text-[11px] text-muted-foreground/55">{project.cwd}</div>
-        <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/62">
+      </div>
+      <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium text-muted-foreground/65 sm:col-start-auto sm:justify-self-end">
+        <span className="inline-flex items-center gap-1.5">
           <span>{worktreeCountLabel}</span>
+          {isLoadingWorktrees ? <Spinner className="size-3 text-muted-foreground/60" /> : null}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
           <span>{storageLabel}</span>
-        </div>
+          {isRefreshingStorage ? <Spinner className="size-3 text-muted-foreground/60" /> : null}
+        </span>
       </div>
-      <div className="flex items-center gap-2 text-muted-foreground/60 sm:justify-self-end">
-        {isRefreshingStorage ? (
-          <RefreshCwIcon className="size-3.5 animate-spin" aria-label="Refreshing storage" />
-        ) : null}
-        <ArrowRightIcon className="size-3.5" />
-      </div>
+      <ArrowRightIcon className="col-start-2 size-3.5 text-muted-foreground/45 transition-colors group-hover:text-muted-foreground/75 sm:col-start-auto sm:justify-self-end" />
     </button>
   );
 }

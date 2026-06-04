@@ -945,10 +945,10 @@ function useProviderSettingsSectionComponent({
                   key={entry.key}
                   type="button"
                   className={cn(
-                    "group flex min-w-0 items-center gap-2 rounded-[var(--control-radius)] px-2 py-2 text-left transition-colors",
+                    "group flex min-w-0 items-center gap-2 px-1.5 py-2 text-left transition-colors",
                     isSelected
-                      ? "bg-foreground/[0.07] text-foreground"
-                      : "bg-foreground/[0.012] text-muted-foreground hover:bg-foreground/[0.035] hover:text-foreground/90",
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:bg-foreground/[0.012] hover:text-foreground/90",
                   )}
                   onClick={() =>
                     dispatchSectionState({
@@ -1323,7 +1323,7 @@ function useProviderSettingsSectionComponent({
                       return (
                         <div
                           key={`${providerCard.provider}:${runtime.id}`}
-                          className="flex items-center justify-between gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-2 transition-colors hover:bg-foreground/[0.035]"
+                          className="flex items-center justify-between gap-3 px-0.5 py-2 transition-colors hover:bg-foreground/[0.012]"
                         >
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -1414,7 +1414,7 @@ function useProviderSettingsSectionComponent({
                     return (
                       <div
                         key={`${providerCard.provider}:${model.slug}`}
-                        className="flex min-h-9 items-center gap-2 rounded-[var(--control-radius)] bg-foreground/[0.012] px-3 py-1.5 transition-colors hover:bg-foreground/[0.035]"
+                        className="flex min-h-9 items-center gap-2 px-0.5 py-1.5 transition-colors hover:bg-foreground/[0.012]"
                       >
                         <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
                           {model.name}
@@ -1599,7 +1599,7 @@ function useProviderSettingsSectionComponent({
                         "flex min-w-0 items-center gap-3 rounded-[var(--control-radius)] px-3 py-2.5 text-left transition-colors",
                         isSelected
                           ? "bg-foreground/[0.07] text-foreground"
-                          : "bg-foreground/[0.012] text-muted-foreground hover:bg-foreground/[0.035]",
+                          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.012]",
                       )}
                       onClick={() => selectAddProvider(candidate.provider)}
                     >

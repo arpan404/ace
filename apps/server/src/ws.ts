@@ -1,6 +1,7 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
-import { lstat, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { lstat } from "node:fs/promises";
+import { promisify } from "node:util";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -104,6 +105,8 @@ const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
 const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 15 * 60_000;
 const WORKTREE_SIZE_CACHE_TTL_MS = 5 * 60_000;
 const WORKTREE_SIZE_CACHE_MAX_ENTRIES = 512;
+const WORKTREE_SIZE_DU_TIMEOUT_MS = 20_000;
+const WORKTREE_SIZE_STATS_CONCURRENCY = 4;
 const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
@@ -111,15 +114,18 @@ const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
 
 type WorktreeSizeStats = {
   readonly exists: boolean;
+  readonly lastModifiedAt: string | null;
   readonly sizeBytes: number;
 };
 
 type WorktreeSizeCacheEntry = {
   readonly expiresAt: number;
-  readonly promise: Promise<WorktreeSizeStats>;
+  readonly promise: Promise<WorktreeSizeStats> | null;
+  readonly value: WorktreeSizeStats | null;
 };
 
 const worktreeSizeCache = new Map<string, WorktreeSizeCacheEntry>();
+const execFileAsync = promisify(execFile);
 
 function normalizeStreamIdentity(input: {
   readonly clientSessionId?: string | undefined;
@@ -263,44 +269,67 @@ async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
   try {
     entryStat = await lstat(path);
   } catch {
-    return { exists: false, sizeBytes: 0 };
+    return { exists: false, lastModifiedAt: null, sizeBytes: 0 };
   }
 
   if (!entryStat.isDirectory()) {
-    return { exists: true, sizeBytes: entryStat.size };
+    return {
+      exists: true,
+      lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+      sizeBytes: entryStat.size,
+    };
   }
 
-  let entries;
   try {
-    entries = await readdir(path, { withFileTypes: true });
+    const { stdout } = await execFileAsync("du", ["-sk", path], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+    });
+    const sizeKiB = Number.parseInt(String(stdout).trim().split(/\s+/)[0] ?? "", 10);
+    if (Number.isFinite(sizeKiB) && sizeKiB >= 0) {
+      return {
+        exists: true,
+        lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+        sizeBytes: sizeKiB * 1024,
+      };
+    }
   } catch {
-    return { exists: true, sizeBytes: entryStat.size };
+    // Fall back to the directory entry stat instead of leaving storage pending forever.
   }
 
-  let total = entryStat.size;
-  for (const entry of entries) {
-    const entryPath = join(path, entry.name);
-    if (entry.isSymbolicLink()) {
-      continue;
-    }
-    if (entry.isDirectory()) {
-      total += (await getDirectorySizeBytes(entryPath)).sizeBytes;
-      continue;
-    }
-    if (entry.isFile()) {
-      try {
-        total += (await lstat(entryPath)).size;
-      } catch {
-        // Ignore files removed while scanning.
+  return {
+    exists: true,
+    lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+    sizeBytes: entryStat.size,
+  };
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  inputs: readonly TInput[],
+  concurrency: number,
+  mapper: (input: TInput) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  const results = Array.from({ length: inputs.length }) as TOutput[];
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), inputs.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < inputs.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(inputs[currentIndex]!);
       }
-    }
-  }
-  return { exists: true, sizeBytes: total };
+    }),
+  );
+
+  return results;
 }
 
 function pruneWorktreeSizeCache(now: number) {
   for (const [path, entry] of worktreeSizeCache) {
-    if (entry.expiresAt <= now) {
+    if (entry.expiresAt <= now && entry.promise === null && entry.value === null) {
       worktreeSizeCache.delete(path);
     }
   }
@@ -314,23 +343,63 @@ function pruneWorktreeSizeCache(now: number) {
   }
 }
 
-function getCachedWorktreeSizeStats(path: string): Promise<WorktreeSizeStats> {
-  const now = Date.now();
-  const cached = worktreeSizeCache.get(path);
-  if (cached && cached.expiresAt > now) {
-    return cached.promise;
-  }
+function refreshCachedWorktreeSizeStats(
+  path: string,
+  now: number,
+  cached: WorktreeSizeCacheEntry | undefined,
+): Promise<WorktreeSizeStats> {
+  const promise = getDirectorySizeBytes(path)
+    .then((value) => {
+      if (!value.exists) {
+        worktreeSizeCache.delete(path);
+        return value;
+      }
+      worktreeSizeCache.set(path, {
+        expiresAt: Date.now() + WORKTREE_SIZE_CACHE_TTL_MS,
+        promise: null,
+        value,
+      });
+      return value;
+    })
+    .catch((error: unknown) => {
+      if (cached?.value) {
+        worktreeSizeCache.set(path, {
+          expiresAt: Date.now() + Math.min(WORKTREE_SIZE_CACHE_TTL_MS, 60_000),
+          promise: null,
+          value: cached.value,
+        });
+      } else {
+        worktreeSizeCache.delete(path);
+      }
+      throw error;
+    });
 
-  pruneWorktreeSizeCache(now);
-  const promise = getDirectorySizeBytes(path).catch((error: unknown) => {
-    worktreeSizeCache.delete(path);
-    throw error;
-  });
   worktreeSizeCache.set(path, {
     expiresAt: now + WORKTREE_SIZE_CACHE_TTL_MS,
     promise,
+    value: cached?.value ?? null,
   });
   return promise;
+}
+
+async function getCachedWorktreeSizeStats(path: string): Promise<WorktreeSizeStats> {
+  const now = Date.now();
+  const cached = worktreeSizeCache.get(path);
+  if (cached?.value && cached.expiresAt > now) {
+    return cached.value;
+  }
+  if (cached?.promise) {
+    return cached.promise;
+  }
+  if (cached?.value) {
+    void refreshCachedWorktreeSizeStats(path, now, cached).catch(() => {
+      // The stale value remains available until the next successful refresh or removal.
+    });
+    return cached.value;
+  }
+
+  pruneWorktreeSizeCache(now);
+  return refreshCachedWorktreeSizeStats(path, now, cached);
 }
 
 const WsRpcLayer = WsRpcGroup.toLayer(
@@ -1013,15 +1082,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         Effect.promise(async () => {
           const uniquePaths = Array.from(new Set(input.paths));
           return {
-            worktrees: await Promise.all(
-              uniquePaths.map(async (path) => {
+            worktrees: await mapWithConcurrency(
+              uniquePaths,
+              WORKTREE_SIZE_STATS_CONCURRENCY,
+              async (path) => {
                 const stats = await getCachedWorktreeSizeStats(path);
                 return {
                   path,
                   sizeBytes: stats.sizeBytes,
                   exists: stats.exists,
+                  lastModifiedAt: stats.lastModifiedAt,
                 };
-              }),
+              },
             ),
           };
         }),

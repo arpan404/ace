@@ -298,6 +298,7 @@ export const GitWorktreeStatsResult = Schema.Struct({
       path: TrimmedNonEmptyStringSchema,
       sizeBytes: NonNegativeInt,
       exists: Schema.Boolean,
+      lastModifiedAt: Schema.NullOr(IsoDateTime),
     }),
   ),
 });

@@ -174,9 +174,9 @@ export function SettingsSection({
 }) {
   return (
     <section className={cn("min-w-0", contentClassName)}>
-      <div className="flex min-w-0 flex-col gap-2.5 px-0 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-2 px-0 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 space-y-1.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
+          <h2 className="flex min-w-0 items-center gap-2 text-[19px] leading-6 font-semibold tracking-normal text-foreground">
             {icon ? <span className="shrink-0 text-muted-foreground/50">{icon}</span> : null}
             <span className="min-w-0 truncate">{title}</span>
           </h2>
@@ -190,9 +190,7 @@ export function SettingsSection({
           <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
         ) : null}
       </div>
-      <div className={cn("relative -mx-2 min-w-0 space-y-1 text-card-foreground sm:-mx-3")}>
-        {children}
-      </div>
+      <div className={cn("relative min-w-0 space-y-1 text-card-foreground")}>{children}</div>
     </section>
   );
 }
@@ -219,10 +217,10 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "rounded-[var(--control-radius)] px-2 py-3.5 transition-colors duration-150 sm:px-3 sm:py-4",
-        tone === "default" && "bg-foreground/[0.012] hover:bg-foreground/[0.035]",
-        tone === "warning" && "bg-warning/[0.035]",
-        tone === "danger" && "bg-destructive/[0.035]",
+        "px-0 py-3.5 transition-colors duration-150 sm:py-4",
+        tone === "default" && "hover:bg-foreground/[0.012]",
+        tone === "warning" && "bg-warning/[0.025] px-2 sm:px-3",
+        tone === "danger" && "bg-destructive/[0.025] px-2 sm:px-3",
       )}
     >
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-5">
@@ -296,14 +294,7 @@ export function SettingsChoiceGroup<TValue extends string>({
         aria-label={label}
       >
         <SelectValue>
-          <span className="min-w-0">
-            <span className="block truncate">{selectedOption?.label}</span>
-            {selectedOption?.description ? (
-              <span className="mt-0.5 block truncate text-[11px] font-normal text-muted-foreground/58">
-                {selectedOption.description}
-              </span>
-            ) : null}
-          </span>
+          <span className="min-w-0 truncate">{selectedOption?.label}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectPopup align="start" alignItemWithTrigger={false}>
@@ -352,7 +343,7 @@ export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-8">
       <div className="mx-auto flex w-full max-w-[64rem] flex-col gap-6 pb-10 sm:gap-7">
-        <div className="flex flex-col gap-10 sm:gap-12 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+        <div className="flex flex-col gap-8 sm:gap-9 [&>section+section]:border-t [&>section+section]:border-border/24 [&>section+section]:pt-8 sm:[&>section+section]:pt-9 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
           {children}
         </div>
       </div>
