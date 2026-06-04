@@ -133,6 +133,8 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).workspaceEditor.complete(stripRpcRouteConnection(input)),
       definition: (input) =>
         resolveRpcClientForInput(input).workspaceEditor.definition(stripRpcRouteConnection(input)),
+      hover: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.hover(stripRpcRouteConnection(input)),
       references: (input) =>
         resolveRpcClientForInput(input).workspaceEditor.references(stripRpcRouteConnection(input)),
     },
@@ -161,6 +163,8 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).git.readWorkingTreeDiff(stripRpcRouteConnection(input)),
       listBranches: (input) =>
         resolveRpcClientForInput(input).git.listBranches(stripRpcRouteConnection(input)),
+      getWorktreeStats: (input) =>
+        resolveRpcClientForInput(input).git.getWorktreeStats(stripRpcRouteConnection(input)),
       listGitHubIssues: (input) =>
         resolveRpcClientForInput(input).git.listGitHubIssues(stripRpcRouteConnection(input)),
       getGitHubIssueThread: (input) =>

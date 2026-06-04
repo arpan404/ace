@@ -2003,6 +2003,32 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("removes a worktree when the caller cwd no longer exists", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+        const defaultBranch = (yield* core.listBranches({ cwd: tmp })).branches.find(
+          (branch) => branch.current,
+        )!.name;
+        const worktreePath = path.join(tmp, "stale-cwd-worktree");
+        yield* core.createWorktree({
+          cwd: tmp,
+          branch: defaultBranch,
+          newBranch: "stale-cwd-worktree",
+          path: worktreePath,
+        });
+
+        yield* core.removeWorktree({
+          cwd: path.join(tmp, "missing-cwd"),
+          force: true,
+          path: worktreePath,
+        });
+
+        expect(existsSync(worktreePath)).toBe(false);
+      }),
+    );
+
     it.effect(
       "refreshes upstream before statusDetails so behind count reflects remote updates",
       () =>

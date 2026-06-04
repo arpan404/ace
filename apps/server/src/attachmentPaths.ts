@@ -18,7 +18,6 @@ export function resolveAttachmentRelativePath(input: {
   if (!normalizedRelativePath) {
     return null;
   }
-
   const attachmentsRoot = path.resolve(input.attachmentsDir);
   const filePath = path.resolve(path.join(attachmentsRoot, normalizedRelativePath));
   if (!filePath.startsWith(`${attachmentsRoot}${path.sep}`)) {

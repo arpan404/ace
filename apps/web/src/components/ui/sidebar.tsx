@@ -82,6 +82,7 @@ type SidebarRailResizeState = {
   pendingWidth: number;
   rail: HTMLButtonElement;
   rafId: number | null;
+  sidebarGap: HTMLElement;
   sidebarContainer: HTMLElement;
   sidebarRoot: HTMLElement;
   side: "left" | "right";
@@ -90,7 +91,6 @@ type SidebarRailResizeState = {
   transitionTargets: HTMLElement[];
   width: number;
   wrapper: HTMLElement;
-  wrapperWidth: number;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
@@ -390,6 +390,31 @@ function clampSidebarWidth(width: number, options: SidebarResolvedResizableOptio
   return Math.max(options.minWidth, Math.min(width, options.maxWidth));
 }
 
+function applySidebarRailResizeWidth(
+  resizeState: SidebarRailResizeState,
+  options: SidebarResolvedResizableOptions,
+  nextWidth: number,
+): boolean {
+  const accepted =
+    options.shouldAcceptWidth?.({
+      currentWidth: resizeState.width,
+      nextWidth,
+      rail: resizeState.rail,
+      side: resizeState.side,
+      sidebarRoot: resizeState.sidebarRoot,
+      wrapper: resizeState.wrapper,
+      wrapperWidth: resizeState.wrapper.clientWidth,
+    }) ?? true;
+  if (!accepted || Math.abs(nextWidth - resizeState.width) < 1) {
+    return false;
+  }
+  resizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+  resizeState.sidebarGap.style.setProperty("width", `${nextWidth}px`);
+  resizeState.sidebarContainer.style.setProperty("width", `${nextWidth}px`);
+  resizeState.width = nextWidth;
+  return true;
+}
+
 function useSidebarRailInteractions({
   onClick,
   onPointerCancel,
@@ -403,11 +428,19 @@ function useSidebarRailInteractions({
   const { open, toggleSidebar } = useSidebar();
   const sidebarInstance = React.use(SidebarInstanceContext);
   const railRef = React.useRef<HTMLButtonElement | null>(null);
+  const releaseInlineWidthFrameIdsRef = React.useRef<number[]>([]);
   const suppressClickRef = React.useRef(false);
   const resizeStateRef = React.useRef<SidebarRailResizeState | null>(null);
   const resolvedResizable = sidebarInstance?.resizable ?? null;
   const canResize = resolvedResizable !== null && open;
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
+
+  const cancelScheduledInlineWidthRelease = React.useCallback(() => {
+    for (const frameId of releaseInlineWidthFrameIdsRef.current) {
+      window.cancelAnimationFrame(frameId);
+    }
+    releaseInlineWidthFrameIdsRef.current = [];
+  }, []);
 
   const stopResize = React.useCallback(
     (pointerId: number) => {
@@ -416,8 +449,11 @@ function useSidebarRailInteractions({
       if (resizeState.rafId !== null) {
         window.cancelAnimationFrame(resizeState.rafId);
       }
+      cancelScheduledInlineWidthRelease();
+      if (resolvedResizable) {
+        applySidebarRailResizeWidth(resizeState, resolvedResizable, resizeState.pendingWidth);
+      }
       resizeState.wrapper.style.setProperty("--sidebar-width", `${resizeState.width}px`);
-      resizeState.sidebarContainer.style.removeProperty("width");
       if (resolvedResizable?.storageKey && typeof window !== "undefined") {
         setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
       }
@@ -433,8 +469,22 @@ function useSidebarRailInteractions({
       for (const element of resizeState.transitionTargets) {
         element.style.removeProperty("transition-duration");
       }
+      const releaseFrameId = window.requestAnimationFrame(() => {
+        const nestedFrameId = window.requestAnimationFrame(() => {
+          resizeState.sidebarGap.style.setProperty("width", "var(--sidebar-width)");
+          resizeState.sidebarContainer.style.setProperty("width", "var(--sidebar-width)");
+          releaseInlineWidthFrameIdsRef.current = releaseInlineWidthFrameIdsRef.current.filter(
+            (frameId) => frameId !== nestedFrameId,
+          );
+        });
+        releaseInlineWidthFrameIdsRef.current.push(nestedFrameId);
+        releaseInlineWidthFrameIdsRef.current = releaseInlineWidthFrameIdsRef.current.filter(
+          (frameId) => frameId !== releaseFrameId,
+        );
+      });
+      releaseInlineWidthFrameIdsRef.current.push(releaseFrameId);
     },
-    [resolvedResizable],
+    [cancelScheduledInlineWidthRelease, resolvedResizable],
   );
 
   const handlePointerDown = React.useCallback(
@@ -450,10 +500,12 @@ function useSidebarRailInteractions({
       const sidebarContainer = sidebarRoot.querySelector<HTMLElement>(
         "[data-slot='sidebar-container']",
       );
-      if (!sidebarContainer) return;
+      const sidebarGap = sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-gap']");
+      if (!sidebarContainer || !sidebarGap) return;
 
       const startWidth = sidebarContainer.getBoundingClientRect().width;
       const initialWidth = clampSidebarWidth(startWidth, resolvedResizable);
+      cancelScheduledInlineWidthRelease();
       const transitionTargets = [
         sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-gap']"),
         sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-container']"),
@@ -470,6 +522,7 @@ function useSidebarRailInteractions({
         pendingWidth: initialWidth,
         rail: event.currentTarget,
         rafId: null,
+        sidebarGap,
         sidebarContainer,
         sidebarRoot,
         side: sidebarInstance?.side ?? "left",
@@ -478,14 +531,20 @@ function useSidebarRailInteractions({
         transitionTargets,
         width: initialWidth,
         wrapper,
-        wrapperWidth: wrapper.clientWidth,
       };
+      sidebarGap.style.setProperty("width", `${initialWidth}px`);
       sidebarContainer.style.setProperty("width", `${initialWidth}px`);
       event.currentTarget.setPointerCapture(event.pointerId);
       document.documentElement.classList.add(SIDEBAR_RESIZING_CLASS_NAME);
       Object.assign(document.body.style, { cursor: "col-resize", userSelect: "none" });
     },
-    [onPointerDown, open, resolvedResizable, sidebarInstance?.side],
+    [
+      cancelScheduledInlineWidthRelease,
+      onPointerDown,
+      open,
+      resolvedResizable,
+      sidebarInstance?.side,
+    ],
   );
 
   const handlePointerMove = React.useCallback(
@@ -511,21 +570,11 @@ function useSidebarRailInteractions({
         const activeResizeState = resizeStateRef.current;
         if (!activeResizeState || !resolvedResizable) return;
         activeResizeState.rafId = null;
-        const nextWidth = activeResizeState.pendingWidth;
-        const accepted =
-          resolvedResizable.shouldAcceptWidth?.({
-            currentWidth: activeResizeState.width,
-            nextWidth,
-            rail: activeResizeState.rail,
-            side: activeResizeState.side,
-            sidebarRoot: activeResizeState.sidebarRoot,
-            wrapper: activeResizeState.wrapper,
-            wrapperWidth: activeResizeState.wrapperWidth,
-          }) ?? true;
-        if (!accepted || Math.abs(nextWidth - activeResizeState.width) < 1) return;
-        activeResizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-        activeResizeState.sidebarContainer.style.setProperty("width", `${nextWidth}px`);
-        activeResizeState.width = nextWidth;
+        applySidebarRailResizeWidth(
+          activeResizeState,
+          resolvedResizable,
+          activeResizeState.pendingWidth,
+        );
       });
     },
     [onPointerMove, resolvedResizable],
@@ -593,9 +642,11 @@ function useSidebarRailInteractions({
     return () => {
       const resizeState = resizeStateRef.current;
       if (resizeState?.rafId != null) window.cancelAnimationFrame(resizeState.rafId);
+      cancelScheduledInlineWidthRelease();
       resizeState?.transitionTargets.forEach((element) => {
         element.style.removeProperty("transition-duration");
       });
+      resizeState?.sidebarGap.style.removeProperty("width");
       resizeState?.sidebarContainer.style.removeProperty("width");
       const hadSidebarResizeClass = document.documentElement.classList.contains(
         SIDEBAR_RESIZING_CLASS_NAME,
@@ -607,7 +658,7 @@ function useSidebarRailInteractions({
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };
-  }, []);
+  }, [cancelScheduledInlineWidthRelease]);
 
   React.useEffect(() => {
     const resetResizeState = () => {
@@ -667,7 +718,7 @@ function SidebarRail({
       className={cn(
         /* disable pointer events only when offcanvas sidebar is collapsed, that's when the rail sits over the native scrollbar on windows and linux. icon mode stays fully clickable. */
         "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
-        "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+        "cursor-col-resize",
         "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
         "group-data-[collapsible=offcanvas]:translate-x-0 hover:group-data-[collapsible=offcanvas]:bg-sidebar group-data-[collapsible=offcanvas]:after:left-full",
         "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",

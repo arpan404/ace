@@ -20,10 +20,8 @@ import { useProjectById, useThreadById } from "../storeSelectors";
 import { toastManager } from "./ui/toast";
 import {
   EnvMode,
-  formatWorktreeDisplayName,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
-  resolveEnvironmentModeLabel,
 } from "../lib/git/branchToolbar";
 import {
   CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
@@ -38,38 +36,23 @@ import { normalizeWsUrl } from "@ace/shared/hostConnections";
 import type { ReactNode } from "react";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuTrigger,
-} from "./ui/menu";
+import { Menu, MenuGroup, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import type { Project } from "../types";
 
 function EnvironmentMenuRowContent({
-  description,
   icon,
   label,
   meta,
 }: {
-  description: string;
   icon: ReactNode;
   label: string;
   meta?: ReactNode;
 }) {
   return (
     <>
-      <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] leading-5 text-foreground">{label}</span>
-        <span className="block truncate text-[11px] leading-4 text-muted-foreground/75">
-          {description}
-        </span>
-      </span>
+      <span className="shrink-0 text-muted-foreground">{icon}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-foreground">{label}</span>
       {meta ? <span className="shrink-0 self-center text-muted-foreground">{meta}</span> : null}
     </>
   );
@@ -94,6 +77,8 @@ type ConnectedRemoteEnvironment = {
   readonly host: RemoteHostInstance;
   readonly connectionUrl: string;
 };
+
+const LOCAL_ENVIRONMENT_LABEL = "Locally";
 
 function loadConnectedRemoteEnvironments(): ConnectedRemoteEnvironment[] {
   const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
@@ -142,12 +127,14 @@ function EnvironmentModeMenu(props: {
   const activeConnectionUrl = props.activeConnectionUrl
     ? normalizeWsUrl(props.activeConnectionUrl)
     : null;
-  const worktreeDisplayName = formatWorktreeDisplayName(props.activeWorktreePath);
-  const label = resolveEnvironmentModeLabel({
-    activeWorktreePath: props.activeWorktreePath,
-    effectiveEnvMode: props.effectiveEnvMode,
-    localEnvironmentLabel: props.localEnvironmentLabel,
-  });
+  const isRemote = activeConnectionUrl !== null;
+  const label = isExistingWorktree
+    ? isRemote
+      ? "Remote worktree"
+      : "Worktree"
+    : props.effectiveEnvMode === "worktree"
+      ? "New worktree"
+      : LOCAL_ENVIRONMENT_LABEL;
   const icon = isLocal ? (
     props.localEnvironmentIcon ? (
       <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-3.5 opacity-80" />
@@ -179,26 +166,18 @@ function EnvironmentModeMenu(props: {
       <MenuPopup
         align="start"
         side="bottom"
-        className="w-72 rounded-2xl shadow-2xl shadow-black/25"
-        listClassName="p-2"
+        className="w-56 rounded-2xl shadow-2xl shadow-black/25"
+        listClassName="p-1.5"
         sideOffset={6}
       >
         <MenuGroup>
-          <MenuGroupLabel className="px-2 pb-1.5 pt-1 text-[13px] font-normal normal-case text-muted-foreground">
-            Environment
-          </MenuGroupLabel>
           <MenuItem
-            className="min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]"
+            className="min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]"
             onClick={() => props.onEnvModeSelect("local")}
           >
             <EnvironmentMenuRowContent
               icon={<LaptopIcon className="size-3.5" />}
-              label={isExistingWorktree ? "Switch to main checkout" : "Main checkout"}
-              description={
-                isExistingWorktree
-                  ? "Use the project root instead of this worktree."
-                  : "Run this thread in the project root."
-              }
+              label={LOCAL_ENVIRONMENT_LABEL}
               meta={
                 isLocal && activeConnectionUrl === null ? <CheckIcon className="size-3.5" /> : null
               }
@@ -206,13 +185,12 @@ function EnvironmentModeMenu(props: {
           </MenuItem>
           {isExistingWorktree ? (
             <MenuItem
-              className="min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]"
+              className="min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]"
               disabled
             >
               <EnvironmentMenuRowContent
                 icon={<FolderGit2Icon className="size-3.5" />}
-                label={worktreeDisplayName ?? "Current worktree"}
-                description="Current isolated worktree for this chat."
+                label={isRemote ? "Remote worktree" : "Worktree"}
                 meta={<CheckIcon className="size-3.5" />}
               />
             </MenuItem>
@@ -224,7 +202,7 @@ function EnvironmentModeMenu(props: {
               <MenuItem
                 key={environment.host.id}
                 className={cn(
-                  "min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]",
+                  "min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]",
                   !isActiveRemote && "text-muted-foreground",
                 )}
                 onClick={() => {
@@ -241,22 +219,16 @@ function EnvironmentModeMenu(props: {
               >
                 <EnvironmentMenuRowContent
                   icon={<MonitorIcon className="size-3.5" />}
-                  label={environment.host.name}
-                  description={
-                    isActiveRemote
-                      ? "Current remote device."
-                      : "Open a project on this device first."
-                  }
+                  label={isActiveRemote ? "Remote worktree" : environment.host.name}
                   meta={isActiveRemote ? <CheckIcon className="size-3.5" /> : null}
                 />
               </MenuItem>
             );
           })}
         </MenuGroup>
-        <MenuSeparator className="mx-2 my-2" />
         <MenuGroup>
           <MenuItem
-            className="min-h-11 items-start gap-2 rounded-xl px-2 py-1.5 text-[13px]"
+            className="min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]"
             disabled={!props.canCreateNewWorktree && !props.onNewWorktreeRequest}
             onClick={() => {
               if (props.canCreateNewWorktree && !isExistingWorktree) {
@@ -268,8 +240,7 @@ function EnvironmentModeMenu(props: {
           >
             <EnvironmentMenuRowContent
               icon={<GitBranchPlusIcon className="size-3.5" />}
-              label={isPendingNewWorktree ? "New worktree selected" : "Start new worktree"}
-              description="Open a fresh draft that creates its worktree on first send."
+              label="New worktree"
               meta={isPendingNewWorktree ? <CheckIcon className="size-3.5" /> : null}
             />
           </MenuItem>
@@ -287,7 +258,7 @@ export default function BranchToolbar({
   envModeOverride = null,
   envLocked,
   presentation = "footer",
-  localEnvironmentLabel = "Local",
+  localEnvironmentLabel = LOCAL_ENVIRONMENT_LABEL,
   localEnvironmentIcon = null,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,

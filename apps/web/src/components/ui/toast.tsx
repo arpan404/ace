@@ -7,9 +7,7 @@ import { ThreadId } from "@ace/contracts";
 import {
   CheckIcon,
   CircleAlertIcon,
-  CircleCheckIcon,
   CopyIcon,
-  InfoIcon,
   LoaderCircleIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -32,23 +30,21 @@ const anchoredToastManager = Toast.createToastManager<ThreadToastData>();
 type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
-const TOAST_ICONS = {
+const TOAST_SURFACE_CLASS_NAME =
+  "overflow-hidden rounded-md border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline outline-1 outline-background/45 backdrop-blur-xl";
+const TOAST_CONTENT_CLASS_NAME =
+  "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-xs";
+const TOAST_TITLE_CLASS_NAME =
+  "min-w-0 break-words text-xs font-medium leading-4 text-foreground/95";
+const TOAST_DESCRIPTION_CLASS_NAME =
+  "min-w-0 select-text break-words text-[11px] leading-4 text-muted-foreground/76";
+const TOAST_ACTION_CLASS_NAME =
+  "h-6 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+const TOAST_STATUS_ICONS = {
   error: CircleAlertIcon,
-  info: InfoIcon,
   loading: LoaderCircleIcon,
-  success: CircleCheckIcon,
   warning: TriangleAlertIcon,
 } as const;
-
-const TOAST_SURFACE_CLASS_NAME =
-  "overflow-hidden rounded-lg border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_10px_30px_rgba(0,0,0,0.16)] outline outline-1 outline-background/45 backdrop-blur-xl";
-const TOAST_CONTENT_CLASS_NAME =
-  "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-[11px]";
-const TOAST_TITLE_CLASS_NAME = "min-w-0 break-words font-medium leading-3.5 text-foreground/95";
-const TOAST_DESCRIPTION_CLASS_NAME =
-  "min-w-0 select-text break-words text-[10.5px] leading-3.5 text-muted-foreground/76";
-const TOAST_ACTION_CLASS_NAME =
-  "h-6 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-[10.5px] font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
 
 function resolveToastProgressPercent(data: ThreadToastData | undefined): number | null {
   if (typeof data?.progressPercent !== "number" || !Number.isFinite(data.progressPercent)) {
@@ -61,7 +57,7 @@ function ToastProgressBar({ percent }: { percent: number }) {
   return (
     <progress
       aria-label={`Progress ${percent}%`}
-      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/55 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/55 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
+      className="mt-1 h-0.5 w-full overflow-hidden rounded-full bg-muted/55 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/55 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
       max={100}
       value={percent}
     />
@@ -76,64 +72,77 @@ function CopyErrorButton({ text }: { text: string }) {
       <TooltipTrigger
         render={
           <button
-            className="shrink-0 cursor-pointer rounded-md border border-transparent p-1 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
+            className="shrink-0 cursor-pointer rounded-md border border-transparent p-0.5 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
             onClick={() => copyToClipboard(text)}
             type="button"
             aria-label={isCopied ? "Copied" : "Copy error"}
           />
         }
       >
-        {isCopied ? (
-          <CheckIcon className="size-3.5 text-success" />
-        ) : (
-          <CopyIcon className="size-3.5" />
-        )}
+        {isCopied ? <CheckIcon className="size-3 text-success" /> : <CopyIcon className="size-3" />}
       </TooltipTrigger>
       <TooltipPopup side="top">{isCopied ? "Copied" : "Copy error"}</TooltipPopup>
     </Tooltip>
   );
 }
 
-function ToastIcon({ Icon }: { Icon: (typeof TOAST_ICONS)[keyof typeof TOAST_ICONS] }) {
+function resolveToastStatusIcon(type: string | null | undefined) {
+  if (type !== "error" && type !== "loading" && type !== "warning") {
+    return null;
+  }
+  return TOAST_STATUS_ICONS[type];
+}
+
+function ToastStatusIcon({
+  Icon,
+  type,
+}: {
+  Icon: (typeof TOAST_STATUS_ICONS)[keyof typeof TOAST_STATUS_ICONS];
+  type: keyof typeof TOAST_STATUS_ICONS;
+}) {
   return (
-    <div
-      className="mt-px inline-flex size-4.5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/70 text-muted-foreground in-data-[type=error]:border-destructive/25 in-data-[type=error]:bg-destructive/10 in-data-[type=info]:border-info/25 in-data-[type=info]:bg-info/10 in-data-[type=success]:border-success/25 in-data-[type=success]:bg-success/10 in-data-[type=warning]:border-warning/25 in-data-[type=warning]:bg-warning/10 [&>svg]:size-3 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-      data-slot="toast-icon"
-    >
-      <Icon className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=loading]:animate-spin in-data-[type=loading]:opacity-80 in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
-    </div>
+    <Icon
+      className={cn(
+        "mt-px size-3.5 shrink-0",
+        type === "error" && "text-destructive",
+        type === "loading" && "animate-spin text-info/90",
+        type === "warning" && "text-warning",
+      )}
+      strokeWidth={2.25}
+      aria-hidden="true"
+    />
   );
 }
 
 function ToastMessageContent({
   action,
   copyErrorText,
-  Icon,
   progressPercent,
+  statusIcon,
+  statusType,
 }: {
   action: ReactNode;
   copyErrorText: string | null;
-  Icon: (typeof TOAST_ICONS)[keyof typeof TOAST_ICONS] | null;
   progressPercent: number | null;
+  statusIcon: (typeof TOAST_STATUS_ICONS)[keyof typeof TOAST_STATUS_ICONS] | null;
+  statusType: keyof typeof TOAST_STATUS_ICONS | null;
 }) {
   return (
     <>
-      <div className="flex min-w-0 gap-2">
-        {Icon ? <ToastIcon Icon={Icon} /> : null}
-
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex items-start justify-between gap-1.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-1.5">
+            {statusIcon && statusType ? (
+              <ToastStatusIcon Icon={statusIcon} type={statusType} />
+            ) : null}
             <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
-            {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
           </div>
-          <Toast.Description
-            className={TOAST_DESCRIPTION_CLASS_NAME}
-            data-slot="toast-description"
-          />
-          {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
+          {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
         </div>
+        <Toast.Description className={TOAST_DESCRIPTION_CLASS_NAME} data-slot="toast-description" />
+        {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
       </div>
-      {action ? <div className={cn("flex justify-start", Icon && "pl-6.5")}>{action}</div> : null}
+      {action ? <div className="flex justify-end">{action}</div> : null}
     </>
   );
 }
@@ -276,7 +285,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-50 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[20rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
+          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[18rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
           // Vertical positioning
           "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
@@ -294,7 +303,11 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
         }
       >
         {visibleToastLayout.items.map(({ toast, visibleIndex, offsetY }) => {
-          const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
+          const statusIcon = resolveToastStatusIcon(toast.type);
+          const statusType =
+            toast.type === "error" || toast.type === "loading" || toast.type === "warning"
+              ? toast.type
+              : null;
           const hideCollapsedContent = shouldHideCollapsedToastContent(
             visibleIndex,
             visibleToastLayout.items.length,
@@ -400,8 +413,9 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                       ? toast.description
                       : null
                   }
-                  Icon={Icon}
                   progressPercent={progressPercent}
+                  statusIcon={statusIcon}
+                  statusType={statusType}
                 />
               </Toast.Content>
             </Toast.Root>
@@ -432,10 +446,14 @@ function AnchoredToasts() {
     <Toast.Portal data-slot="toast-portal-anchored">
       <Toast.Viewport className="outline-none" data-slot="toast-viewport-anchored">
         {activeThreadToasts.map((toast) => {
-          const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
           const tooltipStyle = toast.data?.tooltipStyle ?? false;
           const positionerProps = toast.positionerProps;
           const progressPercent = resolveToastProgressPercent(toast.data);
+          const statusIcon = resolveToastStatusIcon(toast.type);
+          const statusType =
+            toast.type === "error" || toast.type === "loading" || toast.type === "warning"
+              ? toast.type
+              : null;
 
           if (!positionerProps?.anchor) {
             return null;
@@ -443,7 +461,7 @@ function AnchoredToasts() {
 
           return (
             <Toast.Positioner
-              className="z-50 max-w-[min(--spacing(64),var(--available-width))]"
+              className="z-[70] max-w-[min(--spacing(64),var(--available-width))]"
               data-slot="toast-positioner"
               key={toast.id}
               sideOffset={positionerProps.sideOffset ?? 4}
@@ -482,8 +500,9 @@ function AnchoredToasts() {
                           ? toast.description
                           : null
                       }
-                      Icon={Icon}
                       progressPercent={progressPercent}
+                      statusIcon={statusIcon}
+                      statusType={statusType}
                     />
                   </Toast.Content>
                 )}

@@ -1,9 +1,12 @@
-import { ThreadId } from "@ace/contracts";
+import type { GitStatusResult, ThreadId } from "@ace/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { SubagentThread } from "./subagentThreads";
+import type { ActivePlanState } from "../../session-logic";
 import type { EnvironmentMiniPanel as EnvironmentMiniPanelType } from "./EnvironmentMiniPanel";
+import type { SubagentThread } from "./subagentThreads";
 
 let EnvironmentMiniPanel: typeof EnvironmentMiniPanelType;
 
@@ -35,6 +38,17 @@ beforeAll(async () => {
   ({ EnvironmentMiniPanel } = await import("./EnvironmentMiniPanel"));
 });
 
+const activePlan: ActivePlanState = {
+  createdAt: "2026-06-03T00:00:00.000Z",
+  source: "plan-update",
+  turnId: null,
+  steps: [
+    { step: "Map repository surfaces", status: "completed" },
+    { step: "Inspect critical paths locally", status: "inProgress" },
+    { step: "Run quality gates", status: "pending" },
+  ],
+};
+
 function subagentThread(overrides: Partial<SubagentThread> = {}): SubagentThread {
   return {
     id: "child-provider-thread-1",
@@ -62,40 +76,117 @@ function subagentThread(overrides: Partial<SubagentThread> = {}): SubagentThread
   };
 }
 
+function renderEnvironmentMiniPanel(
+  overrides: Partial<ComponentProps<typeof EnvironmentMiniPanel>> = {},
+) {
+  return renderToStaticMarkup(
+    <EnvironmentMiniPanel
+      activeProjectScripts={undefined}
+      activePlan={null}
+      activeSubagentThreadId={null}
+      activeThreadId={"thread-1" as ThreadId}
+      branchToolbarProps={null}
+      editorStateInstanceId="test-workspace-editor"
+      gitCwd={null}
+      gitStatus={null}
+      gitStatusError={null}
+      branchList={null}
+      isGitRepo={false}
+      keybindings={[]}
+      layoutMode="inline"
+      onAddProjectScript={() => Promise.resolve()}
+      onDeleteProjectScript={() => Promise.resolve()}
+      onOpenDiffPanel={() => undefined}
+      onOpenEnvironmentSettings={() => undefined}
+      onJumpToMessage={() => undefined}
+      onOpenSummaryPanel={() => undefined}
+      onRunProjectScript={() => undefined}
+      onSelectSubagentThread={() => undefined}
+      onSubagentPanelOpen={() => undefined}
+      onUpdateProjectScript={() => Promise.resolve()}
+      onWorkspaceModeChange={() => undefined}
+      preferredScriptId={null}
+      subagentThreads={[]}
+      workspaceChangeStat={null}
+      workspaceMode="chat"
+      {...overrides}
+    />,
+  );
+}
+
 describe("EnvironmentMiniPanel", () => {
-  it("shows completed subagent conversations in the environment card", () => {
-    const html = renderToStaticMarkup(
-      <EnvironmentMiniPanel
-        activeProjectScripts={undefined}
-        activePlanProgress={null}
-        activeSubagentThreadId={null}
-        activeThreadId={ThreadId.makeUnsafe("thread-1")}
-        branchToolbarProps={null}
-        gitCwd={null}
-        isGitRepo={false}
-        isAgentWorking={false}
-        keybindings={[]}
-        layoutMode="popover"
-        onAddProjectScript={async () => undefined}
-        onDeleteProjectScript={async () => undefined}
-        onOpenDiffPanel={() => undefined}
-        onOpenEnvironmentSettings={() => undefined}
-        onOpenSummaryPanel={() => undefined}
-        onRunProjectScript={() => undefined}
-        onSelectSubagentThread={() => undefined}
-        onSubagentPanelOpen={() => undefined}
-        onUpdateProjectScript={async () => undefined}
-        onWorkspaceModeChange={() => undefined}
-        preferredScriptId={null}
-        subagentThreads={[subagentThread()]}
-        workspaceChangeStat={null}
-        workspaceMode="chat"
-      />,
+  it("renders active todo progress with loading and completed states", () => {
+    const markup = renderEnvironmentMiniPanel({ activePlan });
+
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain("Inspect critical paths locally");
+    expect(markup).toContain("Map repository surfaces");
+    expect(markup).not.toContain("line-through");
+    expect(markup).toContain("lucide-check");
+  });
+
+  it("renders clean changes state after git status loads with no working tree changes", () => {
+    const queryClient = new QueryClient();
+    const cleanGitStatus: GitStatusResult = {
+      branch: "main",
+      hasWorkingTreeChanges: false,
+      workingTree: {
+        files: [],
+        insertions: 0,
+        deletions: 0,
+      },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    };
+
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentMiniPanel
+          activeProjectScripts={undefined}
+          activePlan={null}
+          activeSubagentThreadId={null}
+          activeThreadId={"thread-1" as ThreadId}
+          branchToolbarProps={null}
+          editorStateInstanceId="test-workspace-editor"
+          gitCwd="/repo"
+          gitStatus={cleanGitStatus}
+          gitStatusError={null}
+          branchList={null}
+          isGitRepo={true}
+          keybindings={[]}
+          layoutMode="inline"
+          onAddProjectScript={() => Promise.resolve()}
+          onDeleteProjectScript={() => Promise.resolve()}
+          onOpenDiffPanel={() => undefined}
+          onOpenEnvironmentSettings={() => undefined}
+          onJumpToMessage={() => undefined}
+          onOpenSummaryPanel={() => undefined}
+          onRunProjectScript={() => undefined}
+          onSelectSubagentThread={() => undefined}
+          onSubagentPanelOpen={() => undefined}
+          onUpdateProjectScript={() => Promise.resolve()}
+          onWorkspaceModeChange={() => undefined}
+          preferredScriptId={null}
+          subagentThreads={[]}
+          workspaceChangeStat={null}
+          workspaceMode="chat"
+        />
+      </QueryClientProvider>,
     );
 
-    expect(html).toContain("Subagents");
-    expect(html).toContain("Dewey");
-    expect(html).not.toContain("Explorer");
-    expect(html).not.toContain("Completed");
+    expect(markup).toContain(">Clean<");
+    expect(markup).not.toContain("Checking changes");
+  });
+
+  it("shows completed subagent conversations by name only in the environment card", () => {
+    const markup = renderEnvironmentMiniPanel({ subagentThreads: [subagentThread()] });
+
+    expect(markup).toContain("Subagents");
+    expect(markup).toContain("Dewey");
+    expect(markup).toContain("lucide-smile");
+    expect(markup).not.toContain("Explorer");
+    expect(markup).not.toContain("Completed");
   });
 });

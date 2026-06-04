@@ -16,11 +16,11 @@ function SettingsPanelLoadingState() {
   return (
     <SettingsPageContainer>
       <SettingsSection title="Loading">
-        <div className="space-y-0">
+        <div className="space-y-1">
           {SETTINGS_PANEL_LOADING_ROW_KEYS.map((rowKey) => (
             <div
               key={rowKey}
-              className="grid gap-2 border-t border-border/45 px-3 py-3 first:border-t-0 sm:px-4 md:grid-cols-[minmax(0,1fr)_10rem] md:items-center md:gap-4"
+              className="grid gap-2 rounded-[var(--control-radius)] px-3 py-3 sm:px-4 md:grid-cols-[minmax(0,1fr)_10rem] md:items-center md:gap-4"
             >
               <div className="min-w-0 space-y-1.5">
                 <Skeleton className="h-3.5 w-40 max-w-full" />

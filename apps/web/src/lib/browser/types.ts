@@ -2,7 +2,7 @@ import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import type { BrowserSuggestion } from "~/lib/browser/history";
 
-export const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
+export { IN_APP_BROWSER_PARTITION } from "./storage";
 const PIP_MARGIN_PX = 16;
 const MIN_PIP_WIDTH_PX = 320;
 const MIN_PIP_HEIGHT_PX = 216;
@@ -43,6 +43,7 @@ export type BrowserWebview = HTMLElement & {
   findInPage?: (query: string, options?: BrowserFindOptions) => number;
   getTitle: () => string;
   getURL: () => string;
+  getWebContentsId?: () => number;
   goBack: () => void;
   goForward: () => void;
   isDevToolsOpened: () => boolean;
@@ -157,6 +158,7 @@ export type BrowserTabHandle = {
   executeJavaScript: <T = unknown>(code: string) => Promise<T>;
   findInPage: (query: string, options?: BrowserFindOptions) => void;
   getZoomFactor: () => number;
+  getWebContentsId: () => number | null;
   getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
   goForward: () => void;

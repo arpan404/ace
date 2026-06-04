@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { getLocalStorageItem } from "~/hooks/useLocalStorage";
+import { getLocalStorageItem, removeLocalStorageItem } from "~/hooks/useLocalStorage";
 import { randomUUID } from "~/lib/utils";
 import { DEFAULT_BROWSER_HOME_URL, normalizeBrowserHttpUrl } from "~/lib/browser/url";
 import { normalizeBrowserStorageScopeId, resolveScopedBrowserStorageKey } from "./storage";
@@ -34,6 +34,10 @@ export function resolveBrowserSessionStorageKey(scopeId: string | null | undefin
   return normalizeBrowserStorageScopeId(scopeId)
     ? resolveScopedBrowserStorageKey(BROWSER_SCOPED_SESSION_STORAGE_KEY, scopeId)
     : BROWSER_SESSION_STORAGE_KEY;
+}
+
+export function clearBrowserSessionStorage(scopeId: string | null | undefined): void {
+  removeLocalStorageItem(resolveBrowserSessionStorageKey(scopeId));
 }
 
 export function isBrowserNewTabUrl(url: string): boolean {

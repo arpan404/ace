@@ -92,3 +92,17 @@ export function resolveRightSidePanelModeAfterDiffClose(input: {
   }
   return "summary";
 }
+
+export function resolveRequestedRightSidePanelMode(input: {
+  rightSidePanelOpen: boolean;
+  reviewOpen: boolean;
+  selectedMode: RightSidePanelMode | null;
+}): RightSidePanelMode | null {
+  if (!input.rightSidePanelOpen) {
+    return null;
+  }
+  if (input.selectedMode) {
+    return input.selectedMode;
+  }
+  return input.reviewOpen ? "diff" : "summary";
+}

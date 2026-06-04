@@ -147,8 +147,10 @@ import {
   resolveSidebarNewThreadOptions,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
+  shouldUseFallbackSidebarVirtualItems,
   sortThreadsForSidebar,
   useThreadJumpHintVisibility,
+  deriveFallbackSidebarVirtualItems,
 } from "../lib/sidebar";
 import {
   deriveSidebarLocalProjectThreadGroup,
@@ -225,6 +227,8 @@ const SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX = 28;
 const SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX = 28;
 const SIDEBAR_PROJECT_AUXILIARY_ROW_ESTIMATE_PX = 24;
 const SIDEBAR_PROJECT_CHILD_ROW_GAP_PX = 2;
+const SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN = 8;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
 const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
@@ -5164,15 +5168,78 @@ function useSidebarComponent() {
     () => sidebarProjectListItems.map(getSidebarProjectListItemLayoutSignature).join("|"),
     [sidebarProjectListItems],
   );
+  const sidebarProjectListItemCount = projectsSectionExpanded ? sidebarProjectListItems.length : 0;
+  const estimateSidebarProjectListItemSizeByIndex = useCallback(
+    (index: number) => estimateSidebarProjectListItemSize(sidebarProjectListItems[index]),
+    [sidebarProjectListItems],
+  );
+  const getSidebarProjectListItemKey = useCallback(
+    (index: number): VirtualItem["key"] => sidebarProjectListItems[index]?.key ?? index,
+    [sidebarProjectListItems],
+  );
+  const estimatedSidebarProjectListTotalSize = useMemo(
+    () =>
+      sidebarProjectListItems.reduce(
+        (total, item) => total + estimateSidebarProjectListItemSize(item),
+        0,
+      ),
+    [sidebarProjectListItems],
+  );
   const sidebarProjectListVirtualizer = useVirtualizer({
-    count: projectsSectionExpanded ? sidebarProjectListItems.length : 0,
-    estimateSize: (index) => estimateSidebarProjectListItemSize(sidebarProjectListItems[index]),
-    getItemKey: (index) => sidebarProjectListItems[index]?.key ?? index,
+    count: sidebarProjectListItemCount,
+    estimateSize: estimateSidebarProjectListItemSizeByIndex,
+    getItemKey: getSidebarProjectListItemKey,
     getScrollElement: () => sidebarContentScrollRef.current,
-    overscan: 8,
+    initialRect: { width: 0, height: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX },
+    overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
     scrollMargin: sidebarProjectListScrollMargin,
+    useAnimationFrameWithResizeObserver: true,
   });
   const virtualSidebarProjectRows = sidebarProjectListVirtualizer.getVirtualItems();
+  const sidebarProjectListTotalSize = Math.max(
+    sidebarProjectListVirtualizer.getTotalSize(),
+    estimatedSidebarProjectListTotalSize,
+  );
+  const fallbackVirtualSidebarProjectRows = useMemo<VirtualItem[]>(() => {
+    const scrollElement = sidebarContentScrollRef.current;
+    const scrollTop = scrollElement?.scrollTop ?? 0;
+    const viewportHeight =
+      scrollElement?.clientHeight ?? SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX;
+    if (
+      !shouldUseFallbackSidebarVirtualItems({
+        rowCount: sidebarProjectListItemCount,
+        scrollMargin: sidebarProjectListScrollMargin,
+        scrollTop,
+        totalSize: sidebarProjectListTotalSize,
+        viewportHeight,
+        virtualItems: virtualSidebarProjectRows,
+      })
+    ) {
+      return [];
+    }
+
+    return deriveFallbackSidebarVirtualItems<VirtualItem["key"]>({
+      rowCount: sidebarProjectListItemCount,
+      estimateSize: estimateSidebarProjectListItemSizeByIndex,
+      getItemKey: getSidebarProjectListItemKey,
+      overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
+      scrollMargin: sidebarProjectListScrollMargin,
+      scrollTop,
+      viewportHeight,
+      sizeFallback: SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX,
+    });
+  }, [
+    estimateSidebarProjectListItemSizeByIndex,
+    getSidebarProjectListItemKey,
+    sidebarProjectListItemCount,
+    sidebarProjectListScrollMargin,
+    sidebarProjectListTotalSize,
+    virtualSidebarProjectRows,
+  ]);
+  const renderedVirtualSidebarProjectRows =
+    fallbackVirtualSidebarProjectRows.length > 0
+      ? fallbackVirtualSidebarProjectRows
+      : virtualSidebarProjectRows;
 
   const measureSidebarProjectListScrollMargin = useCallback(() => {
     const scrollElement = sidebarContentScrollRef.current;
@@ -6378,9 +6445,7 @@ function useSidebarComponent() {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>Edit project</DialogTitle>
-            <DialogDescription>
-              Rename the project and choose a favicon or custom icon.
-            </DialogDescription>
+            <DialogDescription>Update the project's name and icon.</DialogDescription>
           </DialogHeader>
           <DialogPanel>
             {editingProjectTarget ? (
@@ -6402,10 +6467,10 @@ function useSidebarComponent() {
                     <Button
                       type="button"
                       variant="ghost"
-                      className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
+                      className={`h-10 justify-start gap-2 rounded-md border px-2.5 text-xs focus-visible:border-border/80 focus-visible:ring-border/25 ${
                         editingProjectIcon === null
-                          ? "border-primary/50 bg-primary/8"
-                          : "border-border/50 hover:bg-accent/40"
+                          ? "border-border/62 bg-muted/20 text-foreground"
+                          : "border-border/24 bg-transparent text-muted-foreground/72 hover:border-border/48 hover:bg-muted/12 hover:text-foreground"
                       }`}
                       onClick={() => setEditingProjectIcon(null)}
                     >
@@ -6414,29 +6479,33 @@ function useSidebarComponent() {
                           cwd: editingProjectTarget.cwd,
                           icon: null,
                         }}
-                        className="size-5"
+                        className="size-4.5"
                       />
-                      <span>Favicon</span>
+                      <span className="min-w-0 truncate">Favicon</span>
                     </Button>
                     {PROJECT_ICON_OPTIONS.map((option) => {
                       const previewIcon = {
                         glyph: option.glyph,
-                        color: editingProjectIcon?.color ?? "blue",
+                        color: editingProjectIcon?.color ?? "slate",
                       } as const;
                       const isSelected = editingProjectIcon?.glyph === option.glyph;
+                      const displayIcon = isSelected
+                        ? previewIcon
+                        : ({ glyph: option.glyph, color: "slate" } as const);
                       return (
                         <Button
                           key={option.glyph}
                           type="button"
-                          className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
+                          variant="ghost"
+                          className={`h-10 justify-start gap-2 rounded-md border px-2.5 text-xs focus-visible:border-border/80 focus-visible:ring-border/25 ${
                             isSelected
-                              ? "border-primary/50 bg-primary/8"
-                              : "border-border/50 hover:bg-accent/40"
+                              ? "border-border/62 bg-muted/20 text-foreground"
+                              : "border-border/24 bg-transparent text-muted-foreground/72 hover:border-border/48 hover:bg-muted/12 hover:text-foreground"
                           }`}
                           onClick={() => setEditingProjectIcon(previewIcon)}
                         >
-                          <ProjectGlyphIcon icon={previewIcon} className="size-5" />
-                          <span>{option.label}</span>
+                          <ProjectGlyphIcon icon={displayIcon} className="size-4.5" />
+                          <span className="min-w-0 truncate">{option.label}</span>
                         </Button>
                       );
                     })}
@@ -6452,10 +6521,11 @@ function useSidebarComponent() {
                           <Button
                             key={option.color}
                             type="button"
-                            className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${
+                            variant="ghost"
+                            className={`h-8 justify-start gap-2 rounded-md border px-2.5 text-xs focus-visible:border-border/80 focus-visible:ring-border/25 ${
                               isSelected
-                                ? "border-primary/50 bg-primary/8"
-                                : "border-border/50 hover:bg-accent/40"
+                                ? "border-border/62 bg-muted/20 text-foreground"
+                                : "border-border/24 bg-transparent text-muted-foreground/72 hover:border-border/48 hover:bg-muted/12 hover:text-foreground"
                             }`}
                             onClick={() =>
                               setEditingProjectIcon((current) =>
@@ -6463,8 +6533,8 @@ function useSidebarComponent() {
                               )
                             }
                           >
-                            <span className={`size-3 rounded-full ${option.swatchClassName}`} />
-                            <span>{option.label}</span>
+                            <span className={`size-2.5 rounded-full ${option.swatchClassName}`} />
+                            <span className="min-w-0 truncate">{option.label}</span>
                           </Button>
                         );
                       })}
@@ -7165,13 +7235,13 @@ function useSidebarComponent() {
                       <SidebarMenu
                         ref={setSidebarProjectListElement}
                         className="relative gap-0"
-                        style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
+                        style={{ height: `${sidebarProjectListTotalSize}px` }}
                       >
                         <SortableContext
                           items={filteredLocalProjectIds}
                           strategy={verticalListSortingStrategy}
                         >
-                          {virtualSidebarProjectRows.map((virtualRow) =>
+                          {renderedVirtualSidebarProjectRows.map((virtualRow) =>
                             renderVirtualProjectListItem(virtualRow),
                           )}
                         </SortableContext>
@@ -7181,9 +7251,9 @@ function useSidebarComponent() {
                     <SidebarMenu
                       ref={setSidebarProjectListElement}
                       className="relative gap-0"
-                      style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
+                      style={{ height: `${sidebarProjectListTotalSize}px` }}
                     >
-                      {virtualSidebarProjectRows.map((virtualRow) =>
+                      {renderedVirtualSidebarProjectRows.map((virtualRow) =>
                         renderVirtualProjectListItem(virtualRow),
                       )}
                     </SidebarMenu>

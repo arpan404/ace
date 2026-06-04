@@ -18,8 +18,18 @@ type SidebarThreadSortInput = Pick<Thread, "createdAt" | "updatedAt"> & {
   messages?: Pick<Thread["messages"][number], "createdAt" | "role">[];
 };
 const EMPTY_SIDEBAR_THREADS: readonly SidebarThreadSortInput[] = [];
+const SIDEBAR_FALLBACK_VIRTUAL_RANGE_MIN_ITEMS = 8;
 
 export type ThreadTraversalDirection = "previous" | "next";
+
+export interface SidebarVirtualItem<TKey = string | number> {
+  key: TKey;
+  index: number;
+  start: number;
+  end: number;
+  size: number;
+  lane: number;
+}
 
 export interface ThreadStatusPill {
   label:
@@ -293,6 +303,122 @@ export function buildRenderedSidebarThreadGroups<
     ),
     ...input.renderedProjects,
   ];
+}
+
+function resolvePositiveFiniteNumber(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+export function shouldUseFallbackSidebarVirtualItems(input: {
+  rowCount: number;
+  scrollMargin: number;
+  scrollTop: number;
+  totalSize: number;
+  viewportHeight: number;
+  virtualItems: readonly Pick<SidebarVirtualItem, "end" | "start">[];
+}): boolean {
+  if (input.rowCount <= 0) {
+    return false;
+  }
+  if (input.virtualItems.length === 0) {
+    return true;
+  }
+
+  const scrollMargin = Math.max(0, input.scrollMargin);
+  const viewportHeight = resolvePositiveFiniteNumber(input.viewportHeight, 1);
+  const listScrollTop = Math.max(0, input.scrollTop - scrollMargin);
+  const totalSize =
+    Number.isFinite(input.totalSize) && input.totalSize > 0
+      ? input.totalSize
+      : Number.POSITIVE_INFINITY;
+  const visibleStart = Math.min(listScrollTop, Math.max(totalSize - viewportHeight, 0));
+  const visibleEnd = Math.min(visibleStart + viewportHeight, totalSize);
+
+  return !input.virtualItems.some((item) => {
+    const itemStart = item.start - scrollMargin;
+    const itemEnd = item.end - scrollMargin;
+    return itemEnd > visibleStart && itemStart < visibleEnd;
+  });
+}
+
+export function deriveFallbackSidebarVirtualItems<TKey = string | number>(input: {
+  estimateSize: (index: number) => number;
+  getItemKey: (index: number) => TKey;
+  minimumItemCount?: number;
+  overscan: number;
+  rowCount: number;
+  scrollMargin: number;
+  scrollTop: number;
+  sizeFallback?: number;
+  viewportHeight: number;
+}): SidebarVirtualItem<TKey>[] {
+  if (input.rowCount <= 0) {
+    return [];
+  }
+
+  const viewportHeight = resolvePositiveFiniteNumber(input.viewportHeight, 1);
+  const scrollMargin = Math.max(0, input.scrollMargin);
+  const sizeFallback = resolvePositiveFiniteNumber(input.sizeFallback ?? 64, 64);
+  const starts: number[] = [];
+  const sizes: number[] = [];
+  let totalSize = 0;
+  for (let index = 0; index < input.rowCount; index += 1) {
+    const size = resolvePositiveFiniteNumber(input.estimateSize(index), sizeFallback);
+    starts.push(totalSize);
+    sizes.push(size);
+    totalSize += size;
+  }
+
+  const maxScrollTop = Math.max(totalSize - viewportHeight, 0);
+  const listScrollTop = Math.min(
+    Math.max(Number.isFinite(input.scrollTop) ? input.scrollTop - scrollMargin : maxScrollTop, 0),
+    maxScrollTop,
+  );
+  const visibleStart = Math.max(listScrollTop - viewportHeight, 0);
+  const visibleEnd = Math.min(listScrollTop + viewportHeight * 2, totalSize);
+
+  let startIndex = 0;
+  while (
+    startIndex < input.rowCount - 1 &&
+    (starts[startIndex] ?? 0) + (sizes[startIndex] ?? 0) < visibleStart
+  ) {
+    startIndex += 1;
+  }
+
+  let endIndex = startIndex;
+  while (endIndex < input.rowCount - 1 && (starts[endIndex] ?? 0) <= visibleEnd) {
+    endIndex += 1;
+  }
+
+  const overscan = Math.max(0, Math.floor(input.overscan));
+  startIndex = Math.max(0, startIndex - overscan);
+  endIndex = Math.min(input.rowCount - 1, endIndex + overscan);
+
+  const minimumItemCount = Math.max(
+    1,
+    Math.floor(input.minimumItemCount ?? SIDEBAR_FALLBACK_VIRTUAL_RANGE_MIN_ITEMS),
+  );
+  if (endIndex - startIndex + 1 < minimumItemCount) {
+    const missingItems = minimumItemCount - (endIndex - startIndex + 1);
+    const prependItems = Math.min(startIndex, Math.floor(missingItems / 2));
+    startIndex -= prependItems;
+    endIndex = Math.min(input.rowCount - 1, endIndex + missingItems - prependItems);
+  }
+
+  const items: SidebarVirtualItem<TKey>[] = [];
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const listStart = starts[index] ?? 0;
+    const size = sizes[index] ?? sizeFallback;
+    items.push({
+      key: input.getItemKey(index),
+      index,
+      start: listStart + scrollMargin,
+      end: listStart + size + scrollMargin,
+      size,
+      lane: 0,
+    });
+  }
+  return items;
 }
 
 export function resolveAdjacentThreadId<T>(input: {

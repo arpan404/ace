@@ -13,6 +13,7 @@ const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
 const GIT_WORKING_TREE_DIFF_STALE_TIME_MS = 1_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
+const GIT_WORKTREE_STATS_STALE_TIME_MS = 5 * 60_000;
 const GIT_GITHUB_ISSUES_STALE_TIME_MS = 30_000;
 export type GitHubIssueListStateFilter = "open" | "closed" | "all";
 
@@ -27,6 +28,8 @@ export const gitQueryKeys = {
   ) => ["git", "working-tree-diff", connectionUrl ?? null, cwd, relativePath ?? null] as const,
   branches: (cwd: string | null, connectionUrl?: string | null) =>
     ["git", "branches", connectionUrl ?? null, cwd] as const,
+  worktreeStats: (paths: readonly string[], connectionUrl?: string | null) =>
+    ["git", "worktree-stats", connectionUrl ?? null, paths.join("\u0000")] as const,
   githubIssues: (
     cwd: string | null,
     limit: number,
@@ -71,6 +74,12 @@ export function invalidateGitStatusQuery(queryClient: QueryClient, cwd: string |
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) });
+}
+
+export function invalidateGitWorktreeStatsQueries(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === "git" && query.queryKey[1] === "worktree-stats",
+  });
 }
 
 export function gitStatusQueryOptions(cwd: string | null, connectionUrl?: string | null) {
@@ -130,6 +139,31 @@ export function gitBranchesQueryOptions(cwd: string | null, connectionUrl?: stri
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+  });
+}
+
+export function gitWorktreeStatsQueryOptions(input: {
+  connectionUrl?: string | null | undefined;
+  paths: readonly string[];
+}) {
+  const paths = Array.from(new Set(input.paths)).toSorted((left, right) =>
+    left.localeCompare(right),
+  );
+  return queryOptions({
+    queryKey: gitQueryKeys.worktreeStats(paths, input.connectionUrl),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (paths.length === 0) {
+        return { worktrees: [] };
+      }
+      return api.git.getWorktreeStats(withRpcRouteConnection({ paths }, input.connectionUrl));
+    },
+    enabled: paths.length > 0,
+    placeholderData: (previous) => previous,
+    staleTime: GIT_WORKTREE_STATS_STALE_TIME_MS,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
 
@@ -344,7 +378,10 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
     },
     mutationKey: ["git", "mutation", "create-worktree"] as const,
     onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
+      await Promise.all([
+        invalidateGitQueries(input.queryClient),
+        invalidateGitWorktreeStatsQueries(input.queryClient),
+      ]);
     },
   });
 }
@@ -368,7 +405,10 @@ export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClie
     },
     mutationKey: ["git", "mutation", "remove-worktree"] as const,
     onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
+      await Promise.all([
+        invalidateGitQueries(input.queryClient),
+        invalidateGitWorktreeStatsQueries(input.queryClient),
+      ]);
     },
   });
 }

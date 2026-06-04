@@ -7,13 +7,16 @@ import type {
   ThreadId,
   WorkspaceEditorLocation,
 } from "@ace/contracts";
+import * as Schema from "effect/Schema";
 import {
   IconFiles,
+  IconArrowsDiagonalMinimize2,
   IconGitCompare,
   IconLayoutSidebar,
   IconLayoutSidebarFilled,
   IconSearch,
 } from "@tabler/icons-react";
+import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -33,6 +36,7 @@ import {
   ListTreeIcon,
   MessageSquareTextIcon,
   SearchIcon,
+  SquareArrowOutUpRightIcon,
 } from "lucide-react";
 import {
   memo,
@@ -48,12 +52,14 @@ import {
 } from "react";
 
 import {
-  resolveEditorStateScopeId,
+  resolveEditorInstanceStateScopeId,
+  resolveEditorWindowStateInstanceId,
   type ThreadEditorRowState,
   MAX_THREAD_EDITOR_PANES,
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
@@ -80,9 +86,13 @@ import {
 } from "~/lib/editor/workspaceDesigner";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
-import { projectListTreeQueryOptions, projectQueryKeys } from "~/lib/projectReactQuery";
+import {
+  projectListTreeQueryOptions,
+  projectQueryKeys,
+  projectReadFileQueryOptions,
+} from "~/lib/projectReactQuery";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
@@ -103,7 +113,11 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
-import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
+import {
+  detectWorkspacePreviewKind,
+  joinWorkspaceAbsolutePath,
+  revealInFileManagerLabel,
+} from "./workspaceFileUtils";
 import WorkspaceEditorPane, {
   type WorkspaceEditorPaneProblem,
   type WorkspaceEditorPaneSymbol,
@@ -121,10 +135,49 @@ import {
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
-const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 80;
-const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 48;
+const WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT = 32;
+const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 48;
+const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 36;
 const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
+const WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT = 24;
+const WORKSPACE_CODE_SEARCH_DEBOUNCE_MS = 250;
+const WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE = 4;
+const WORKSPACE_EXPLORER_FILE_PREFETCH_LIMIT = 24;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
+const WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY = "ace:workspace-code-search-recents:v1";
+const WORKSPACE_CODE_SEARCH_RECENT_LIMIT = 6;
+const WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES = [
+  "auth token refresh",
+  "content:useMutation",
+  "re:.*\\.test\\.tsx$",
+] as const;
+const WorkspaceCodeSearchRecentsSchema = Schema.Array(Schema.String);
+const WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS =
+  "h-8 rounded-md border-border/45 bg-background/62 text-[12px] shadow-none placeholder:text-muted-foreground/48 focus-within:border-primary/40 focus-within:bg-background/88 [&_[data-slot=input]]:h-full [&_[data-slot=input]]:pr-2 [&_[data-slot=input]]:pl-9 [&_[data-slot=input]]:leading-8";
+const WORKSPACE_SIDEBAR_PRIMARY_MODE_BUTTON_CLASS =
+  "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45";
+const WORKSPACE_SIDEBAR_PRIMARY_MODE_ICON_CLASS = "size-[19px] shrink-0 transition-colors";
+const WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS =
+  "size-7 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground";
+const WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS = "size-[15px] shrink-0";
+const WORKSPACE_EDITOR_CHROME_PRIMARY_BUTTON_CLASS =
+  "size-[30px] rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground";
+const WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS = "size-[17px]";
+const WORKSPACE_EXPLORER_ROW_CLASS =
+  "group flex h-[22px] w-full items-center gap-1.5 rounded-[2px] px-2 text-left text-[12px] outline-none transition-colors";
+const WORKSPACE_EXPLORER_ACTIVE_ROW_CLASS =
+  "!bg-foreground/[0.06] !text-pill-foreground hover:!bg-foreground/[0.06] hover:!text-pill-foreground";
+const WORKSPACE_EXPLORER_SELECTED_ROW_CLASS =
+  "!bg-foreground/[0.06] !text-pill-foreground hover:!bg-foreground/[0.06] hover:!text-pill-foreground";
+const WORKSPACE_EXPLORER_DROP_ROW_CLASS =
+  "bg-[color-mix(in_srgb,var(--primary)_24%,transparent)] text-foreground";
+const WORKSPACE_EXPLORER_IDLE_ROW_CLASS =
+  "text-muted-foreground/90 hover:bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] hover:text-foreground";
+
+function createFallbackEditorStateInstanceId(): string {
+  return `surface-${resolveEditorWindowStateInstanceId()}-${randomUUID()}`;
+}
+
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -252,6 +305,7 @@ interface QueuedWorkspaceContext {
 interface WorkspaceAgentNoteSubmission {
   readonly mode: "queue" | "send";
   readonly prompt: string;
+  readonly threadId?: ThreadId;
 }
 
 type ThreadWorkspaceEditorUiState = {
@@ -553,6 +607,17 @@ function pathForDialogInput(parentPath: string | null, value: string): string {
   return parentPath ? `${parentPath}/${trimmed}` : trimmed;
 }
 
+function pathForInlineEntryIcon(state: ExplorerInlineEntryState): string {
+  if (state.kind === "rename") {
+    return state.entry.path;
+  }
+  const value = state.value.trim();
+  if (value.length > 0) {
+    return pathForDialogInput(state.parentPath, value);
+  }
+  return state.parentPath ? `${state.parentPath}/` : "";
+}
+
 function isAncestorPath(pathValue: string, maybeAncestor: string): boolean {
   return pathValue === maybeAncestor || pathValue.startsWith(`${maybeAncestor}/`);
 }
@@ -809,6 +874,11 @@ function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   );
 }
 
+function shouldPrefetchWorkspaceEditorFile(filePath: string): boolean {
+  const previewKind = detectWorkspacePreviewKind(filePath);
+  return previewKind !== "image" && previewKind !== "video";
+}
+
 const FileTreeRow = memo(function FileTreeRow(props: {
   dragTargetPath: string | null;
   expandedDirectoryPaths: ReadonlySet<string>;
@@ -818,6 +888,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   onFocusEntry: (path: string) => void;
   onHoverDropTarget: (targetParentPath: string | null) => void;
   onOpenFile: (filePath: string, openInNewPane: boolean) => void;
+  onPrefetchFile: (filePath: string) => void;
   onRevealDirectoryFromSearch: (directoryPath: string) => void;
   onOpenRowContextMenu: (entry: ProjectEntry, position: { x: number; y: number }) => void;
   onSelectEntry: (path: string) => void;
@@ -834,19 +905,24 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   const isDropTarget = props.dragTargetPath !== null && props.dragTargetPath === dropTargetPath;
   const isExpanded =
     props.row.kind === "directory" && props.expandedDirectoryPaths.has(props.row.entry.path);
+  const prefetchFile = () => {
+    if (props.row.kind === "file") {
+      props.onPrefetchFile(props.row.entry.path);
+    }
+  };
 
   return (
     <button
       type="button"
       className={cn(
-        "group mx-1 flex h-[24px] w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-lg px-2 text-left text-[12px] transition-colors",
+        WORKSPACE_EXPLORER_ROW_CLASS,
         isFocused
-          ? "bg-accent text-foreground"
+          ? WORKSPACE_EXPLORER_ACTIVE_ROW_CLASS
           : isSelected
-            ? "bg-accent/70 text-foreground"
+            ? WORKSPACE_EXPLORER_SELECTED_ROW_CLASS
             : isDropTarget
-              ? "bg-accent/80 text-foreground"
-              : "text-muted-foreground/90 hover:bg-accent/60 hover:text-foreground",
+              ? WORKSPACE_EXPLORER_DROP_ROW_CLASS
+              : WORKSPACE_EXPLORER_IDLE_ROW_CLASS,
       )}
       data-explorer-path={props.row.entry.path}
       style={{
@@ -867,7 +943,10 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       }}
       onFocus={() => {
         props.onFocusEntry(props.row.entry.path);
+        prefetchFile();
       }}
+      onPointerEnter={prefetchFile}
+      onPointerDown={prefetchFile}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";
         writeExplorerEntryTransfer(event.dataTransfer, {
@@ -966,20 +1045,14 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 }) {
   return (
     <div
-      className="mx-1 flex h-[24px] w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-lg bg-accent px-2"
+      className={cn(WORKSPACE_EXPLORER_ROW_CLASS, WORKSPACE_EXPLORER_SELECTED_ROW_CLASS)}
       style={{
         paddingLeft: `${props.searchMode ? 8 : 8 + props.depth * 10}px`,
       }}
     >
       <span className="size-3.5 shrink-0" />
       <VscodeEntryIcon
-        pathValue={
-          props.state.kind === "rename"
-            ? props.state.entry.path
-            : props.state.kind === "create-folder"
-              ? `${props.state.parentPath ?? "folder"}/folder`
-              : `${props.state.parentPath ?? "file"}/file.ts`
-        }
+        pathValue={pathForInlineEntryIcon(props.state)}
         kind={props.state.kind === "create-folder" ? "directory" : "file"}
         theme={props.resolvedTheme}
         className="size-[15px]"
@@ -1022,21 +1095,48 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
   detachEnabled?: boolean;
+  detachedReturnPlacement?: "bottom" | "right" | "workspace";
+  editorStateInstanceId?: string | null | undefined;
   onDetached?: () => void;
+  onReturnToMainWindow?: () => void;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
   workspaceMode?: ThreadWorkspaceMode | undefined;
   onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
+  const fallbackEditorStateInstanceIdRef = useRef<string | null>(null);
+  if (fallbackEditorStateInstanceIdRef.current === null) {
+    fallbackEditorStateInstanceIdRef.current = createFallbackEditorStateInstanceId();
+  }
+  const inputEditorStateInstanceId =
+    typeof inputProps.editorStateInstanceId === "string"
+      ? inputProps.editorStateInstanceId.trim() || undefined
+      : undefined;
+  const editorStateInstanceId =
+    inputEditorStateInstanceId ?? fallbackEditorStateInstanceIdRef.current;
   const editorStateScopeId = useMemo(
-    () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
-    [inputProps.gitCwd, inputProps.threadId],
+    () =>
+      resolveEditorInstanceStateScopeId({
+        gitCwd: inputProps.gitCwd,
+        instanceId: editorStateInstanceId,
+        threadId: inputProps.threadId,
+      }),
+    [editorStateInstanceId, inputProps.gitCwd, inputProps.threadId],
   );
+  const agentNoteThreadId = inputProps.threadId;
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
   const detachedEditorConnectionUrl = inputProps.connectionUrl;
   const detachedEditorThreadId = inputProps.threadId;
+  const detachedEditorStateInstanceId = editorStateInstanceId;
+  const detachedReturnPlacement = inputProps.detachedReturnPlacement;
+  const detachedWorkspaceMode =
+    detachedReturnPlacement === "workspace" &&
+    (inputProps.workspaceMode === "editor" || inputProps.workspaceMode === "split")
+      ? inputProps.workspaceMode
+      : undefined;
   const onEditorDetached = inputProps.onDetached;
+  const onReturnToMainWindow = inputProps.onReturnToMainWindow;
   const canDetachEditor =
     inputProps.detachEnabled !== false && Boolean(window.desktopBridge?.openDetachedEditor);
   const detachEditor = useCallback(async () => {
@@ -1047,6 +1147,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     const detached = await openDetachedEditor({
       threadId: detachedEditorThreadId,
       ...(detachedEditorConnectionUrl ? { connectionUrl: detachedEditorConnectionUrl } : {}),
+      ...(detachedEditorStateInstanceId
+        ? { editorStateInstanceId: detachedEditorStateInstanceId }
+        : {}),
+      ...(detachedReturnPlacement ? { placement: detachedReturnPlacement } : {}),
+      ...(detachedWorkspaceMode ? { workspaceMode: detachedWorkspaceMode } : {}),
     });
     if (detached) {
       onEditorDetached?.();
@@ -1057,36 +1162,37 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       description: "The desktop app did not open a detached editor window.",
       type: "error",
     });
-  }, [detachedEditorConnectionUrl, detachedEditorThreadId, onEditorDetached]);
+  }, [
+    detachedEditorConnectionUrl,
+    detachedEditorStateInstanceId,
+    detachedEditorThreadId,
+    detachedReturnPlacement,
+    detachedWorkspaceMode,
+    onEditorDetached,
+  ]);
 
   const { resolvedTheme } = useTheme();
   const { updateSettings } = useUpdateSettings();
   const editorLineNumbers = useSetting("editorLineNumbers");
-  const editorMinimap = useSetting("editorMinimap");
   const editorRenderWhitespace = useSetting("editorRenderWhitespace");
   const editorStickyScroll = useSetting("editorStickyScroll");
-  const editorSuggestions = useSetting("editorSuggestions");
   const editorWordWrap = useSetting("editorWordWrap");
   const editorSettings = useMemo(
     () => ({
       lineNumbers: editorLineNumbers,
-      minimap: editorMinimap,
       renderWhitespace: editorRenderWhitespace,
       stickyScroll: editorStickyScroll,
-      suggestions: editorSuggestions,
       wordWrap: editorWordWrap,
     }),
-    [
-      editorLineNumbers,
-      editorMinimap,
-      editorRenderWhitespace,
-      editorStickyScroll,
-      editorSuggestions,
-      editorWordWrap,
-    ],
+    [editorLineNumbers, editorRenderWhitespace, editorStickyScroll, editorWordWrap],
   );
   const queryClient = useQueryClient();
   const api = readNativeApi();
+  const [recentCodeSearches, setRecentCodeSearches] = useLocalStorage(
+    WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY,
+    [],
+    WorkspaceCodeSearchRecentsSchema,
+  );
   const [uiState, dispatchUiState] = useReducer(
     threadWorkspaceEditorUiStateReducer,
     EMPTY_THREAD_WORKSPACE_EDITOR_UI_STATE,
@@ -1117,6 +1223,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, []);
   const setCodeSearchQuery = useCallback((codeSearchQuery: string) => {
     dispatchUiState({ type: "set-code-search-query", codeSearchQuery });
+  }, []);
+  const handleCodeSearchExampleClick = useCallback((query: string) => {
+    dispatchUiState({ type: "set-code-search-query", codeSearchQuery: query });
   }, []);
   const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
@@ -1245,12 +1354,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [],
   );
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
-  const deferredCodeSearchQuery = useDeferredValue(codeSearchQuery.trim());
+  const trimmedCodeSearchQuery = codeSearchQuery.trim();
+  const [debouncedCodeSearchQuery, codeSearchDebouncer] = useDebouncedValue(
+    trimmedCodeSearchQuery,
+    { wait: WORKSPACE_CODE_SEARCH_DEBOUNCE_MS },
+    (debouncerState) => ({ isPending: debouncerState.isPending }),
+  );
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
   const editorGridRef = useRef<HTMLDivElement | null>(null);
   const rowGroupRefs = useRef(new Map<string, HTMLDivElement | null>());
+  const [pendingExplorerRevealPath, setPendingExplorerRevealPath] = useState<string | null>(null);
   const closeFile = useEditorStateStore((state) => state.closeFile);
   const closeFilesToRight = useEditorStateStore((state) => state.closeFilesToRight);
   const closeOtherFiles = useEditorStateStore((state) => state.closeOtherFiles);
@@ -1518,6 +1633,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
+  const [fileEventsConnected, setFileEventsConnected] = useState(false);
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -1609,6 +1725,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => localSearchEntries.slice(0, WORKSPACE_SEARCH_RESULT_LIMIT),
     [localSearchEntries],
   );
+  const searchableFileEntries = useMemo(
+    () => treeEntries.filter((candidate) => candidate.kind === "file"),
+    [treeEntries],
+  );
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
@@ -1619,22 +1739,24 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       "code-search",
       inputProps.connectionUrl ?? null,
       props.gitCwd,
-      deferredCodeSearchQuery,
+      debouncedCodeSearchQuery,
     ],
-    queryFn: async (): Promise<readonly WorkspaceCodeSearchResult[]> => {
+    queryFn: async ({ signal }): Promise<readonly WorkspaceCodeSearchResult[]> => {
       if (!api || !props.gitCwd) {
         throw new Error("Workspace code search is unavailable.");
       }
 
-      const searchQueries = buildWorkspaceCodeSearchQueries(deferredCodeSearchQuery);
+      const searchQueries = buildWorkspaceCodeSearchQueries(debouncedCodeSearchQuery);
       const candidateEntriesByPath = new Map<string, ProjectEntry>();
       for (const entry of searchWorkspaceEntriesLocally(
-        treeEntries.filter((candidate) => candidate.kind === "file"),
-        deferredCodeSearchQuery,
-      ).slice(0, WORKSPACE_CODE_SEARCH_REMOTE_LIMIT)) {
+        searchableFileEntries,
+        debouncedCodeSearchQuery,
+        { limit: WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT },
+      )) {
         candidateEntriesByPath.set(entry.path, entry);
       }
 
+      signal.throwIfAborted();
       const remoteResults = await Promise.all(
         searchQueries.map((query) =>
           api.projects
@@ -1651,6 +1773,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
             .catch(() => ({ entries: [], truncated: false })),
         ),
       );
+      signal.throwIfAborted();
 
       for (const result of remoteResults) {
         for (const entry of result.entries) {
@@ -1670,6 +1793,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         startIndex < candidateEntries.length;
         startIndex += WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE
       ) {
+        signal.throwIfAborted();
         const batchEntries = candidateEntries.slice(
           startIndex,
           startIndex + WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE,
@@ -1690,6 +1814,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               .catch(() => null),
           ),
         );
+        signal.throwIfAborted();
 
         for (const batchFile of batchFiles) {
           if (!batchFile) {
@@ -1698,7 +1823,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           const result = createWorkspaceCodeSearchResult({
             contents: batchFile.file.contents,
             entry: batchFile.entry,
-            query: deferredCodeSearchQuery,
+            query: debouncedCodeSearchQuery,
           });
           if (result) {
             results.push(result);
@@ -1712,7 +1837,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       sidebarMode === "search" &&
       Boolean(api) &&
       props.gitCwd !== null &&
-      deferredCodeSearchQuery.length >= 2,
+      debouncedCodeSearchQuery.length >= 2,
     staleTime: 20_000,
     placeholderData: (previous) => previous ?? [],
   });
@@ -1720,6 +1845,76 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => groupWorkspaceCodeSearchResults(codeSearchResultsQuery.data ?? []),
     [codeSearchResultsQuery.data],
   );
+  const codeSearchResultPathSet = useMemo(
+    () => new Set((codeSearchResultsQuery.data ?? []).map((result) => result.entry.path)),
+    [codeSearchResultsQuery.data],
+  );
+  const codeSearchFileResults = useMemo(
+    () =>
+      debouncedCodeSearchQuery.length >= 2
+        ? searchWorkspaceEntriesLocally(searchableFileEntries, debouncedCodeSearchQuery, {
+            limit: WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT,
+          }).filter((entry) => !codeSearchResultPathSet.has(entry.path))
+        : EMPTY_PROJECT_ENTRIES,
+    [codeSearchResultPathSet, debouncedCodeSearchQuery, searchableFileEntries],
+  );
+  const codeSearchResultCount =
+    codeSearchFileResults.length + (codeSearchResultsQuery.data?.length ?? 0);
+  const codeSearchBusy =
+    (trimmedCodeSearchQuery.length >= 2 &&
+      codeSearchDebouncer.state.isPending &&
+      trimmedCodeSearchQuery !== debouncedCodeSearchQuery) ||
+    codeSearchResultsQuery.isPending ||
+    codeSearchResultsQuery.isFetching;
+  const visibleRecentCodeSearches = useMemo(() => {
+    const seenQueries = new Set<string>();
+    const visibleQueries: string[] = [];
+    for (const query of recentCodeSearches) {
+      const trimmedQuery = query.trim();
+      const normalizedQuery = trimmedQuery.toLowerCase();
+      if (trimmedQuery.length < 2 || seenQueries.has(normalizedQuery)) {
+        continue;
+      }
+      seenQueries.add(normalizedQuery);
+      visibleQueries.push(trimmedQuery);
+      if (visibleQueries.length >= WORKSPACE_CODE_SEARCH_RECENT_LIMIT) {
+        break;
+      }
+    }
+    return visibleQueries;
+  }, [recentCodeSearches]);
+
+  useEffect(() => {
+    if (
+      sidebarMode !== "search" ||
+      debouncedCodeSearchQuery.length < 2 ||
+      codeSearchBusy ||
+      codeSearchResultCount === 0
+    ) {
+      return;
+    }
+
+    setRecentCodeSearches((current) => {
+      const nextQuery = debouncedCodeSearchQuery.trim();
+      if (nextQuery.length < 2) {
+        return current;
+      }
+      const next = [
+        nextQuery,
+        ...current.filter((query) => query.trim().toLowerCase() !== nextQuery.toLowerCase()),
+      ].slice(0, WORKSPACE_CODE_SEARCH_RECENT_LIMIT);
+      return next.every((query, index) => query === current[index]) &&
+        next.length === current.length
+        ? current
+        : next;
+    });
+  }, [
+    codeSearchBusy,
+    codeSearchResultCount,
+    debouncedCodeSearchQuery,
+    setRecentCodeSearches,
+    sidebarMode,
+  ]);
 
   useEffect(() => {
     if (treeEntries.length === 0) {
@@ -1732,11 +1927,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [props.threadId, syncTree, treeEntries]);
 
   useEffect(() => {
+    if (pendingExplorerRevealPath) {
+      return;
+    }
     if (selectedEntryPath && entryByPath.has(selectedEntryPath)) {
       return;
     }
     setSelectedEntryPath(activePane?.activeFilePath ?? null);
-  }, [activePane?.activeFilePath, entryByPath, selectedEntryPath]);
+  }, [activePane?.activeFilePath, entryByPath, pendingExplorerRevealPath, selectedEntryPath]);
 
   useEffect(() => {
     if (!inlineEntryFocusKey) {
@@ -1935,11 +2133,70 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     activeDirtyPathsRef.current = activeDirtyPaths;
   }, [activeDirtyPaths]);
 
+  const getCachedReadFileResult = useCallback(
+    (filePath: string): ProjectReadFileResult | null => {
+      if (!props.gitCwd) {
+        return null;
+      }
+      return (
+        queryClient.getQueryData<ProjectReadFileResult>(
+          projectQueryKeys.readFile(props.gitCwd, filePath, inputProps.connectionUrl),
+        ) ?? null
+      );
+    },
+    [inputProps.connectionUrl, props.gitCwd, queryClient],
+  );
+
+  const hydrateFileFromReadCache = useCallback(
+    (filePath: string): boolean => {
+      const cached = getCachedReadFileResult(filePath);
+      if (!cached) {
+        return false;
+      }
+      hydrateFile(props.threadId, filePath, cached.contents);
+      return true;
+    },
+    [getCachedReadFileResult, hydrateFile, props.threadId],
+  );
+
+  const prefetchWorkspaceEditorFile = useCallback(
+    (filePath: string): Promise<unknown> | undefined => {
+      if (
+        !props.gitCwd ||
+        activeDirtyPathsRef.current.has(filePath) ||
+        !shouldPrefetchWorkspaceEditorFile(filePath) ||
+        getCachedReadFileResult(filePath)
+      ) {
+        return undefined;
+      }
+      return queryClient
+        .prefetchQuery(
+          projectReadFileQueryOptions({
+            connectionUrl: inputProps.connectionUrl,
+            cwd: props.gitCwd,
+            relativePath: filePath,
+            refetchInterval: false,
+          }),
+        )
+        .catch(() => undefined);
+    },
+    [getCachedReadFileResult, inputProps.connectionUrl, props.gitCwd, queryClient],
+  );
+
+  const prepareWorkspaceFileOpen = useCallback(
+    (filePath: string) => {
+      hydrateFileFromReadCache(filePath);
+      void prefetchWorkspaceEditorFile(filePath);
+    },
+    [hydrateFileFromReadCache, prefetchWorkspaceEditorFile],
+  );
+
   useEffect(() => {
     if (!api || !props.gitCwd) {
+      setFileEventsConnected(false);
       return;
     }
-    return api.projects.onFileEvents(
+    const unsubscribe = api.projects.onFileEvents(
       withRpcRouteConnection({ cwd: props.gitCwd }, inputProps.connectionUrl),
       (event) => {
         void queryClient.invalidateQueries({
@@ -1975,7 +2232,49 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         }
       },
     );
+    setFileEventsConnected(true);
+    return () => {
+      setFileEventsConnected(false);
+      unsubscribe();
+    };
   }, [api, inputProps.connectionUrl, props.gitCwd, queryClient]);
+
+  useEffect(() => {
+    if (!api || !props.gitCwd || openWorkspaceFilePaths.length === 0) {
+      return;
+    }
+
+    const prefetchFilePaths = openWorkspaceFilePaths.filter(
+      (filePath) =>
+        shouldPrefetchWorkspaceEditorFile(filePath) && !activeDirtyPathsRef.current.has(filePath),
+    );
+    if (prefetchFilePaths.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const prefetchOpenFiles = async () => {
+      for (
+        let startIndex = 0;
+        startIndex < prefetchFilePaths.length;
+        startIndex += WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE
+      ) {
+        if (cancelled) {
+          return;
+        }
+        const batch = prefetchFilePaths.slice(
+          startIndex,
+          startIndex + WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE,
+        );
+        await Promise.all(batch.map((relativePath) => prefetchWorkspaceEditorFile(relativePath)));
+      }
+    };
+
+    void prefetchOpenFiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, openWorkspaceFilePaths, prefetchWorkspaceEditorFile, props.gitCwd]);
 
   const gitStatusByPath = useMemo(() => {
     const files = gitStatusQuery.data?.workingTree.files ?? [];
@@ -2139,6 +2438,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
       setSelectedReviewFilePath(null);
       setActivePane(props.threadId, targetPaneId);
+      prepareWorkspaceFileOpen(report.relativePath);
       openFile(props.threadId, report.relativePath, targetPaneId);
       const location: WorkspaceEditorLocation = {
         relativePath: report.relativePath,
@@ -2152,7 +2452,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         location,
       });
     },
-    [activePane?.id, openFile, panesById, props.threadId, setActivePane, setSelectedReviewFilePath],
+    [
+      activePane?.id,
+      openFile,
+      panesById,
+      prepareWorkspaceFileOpen,
+      props.threadId,
+      setActivePane,
+      setSelectedReviewFilePath,
+    ],
   );
   const handleOpenSymbol = useCallback(
     (report: WorkspaceSymbolReport) => {
@@ -2163,6 +2471,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
       setSelectedReviewFilePath(null);
       setActivePane(props.threadId, targetPaneId);
+      prepareWorkspaceFileOpen(report.relativePath);
       openFile(props.threadId, report.relativePath, targetPaneId);
       const location: WorkspaceEditorLocation = {
         relativePath: report.relativePath,
@@ -2176,7 +2485,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         location,
       });
     },
-    [activePane?.id, openFile, panesById, props.threadId, setActivePane, setSelectedReviewFilePath],
+    [
+      activePane?.id,
+      openFile,
+      panesById,
+      prepareWorkspaceFileOpen,
+      props.threadId,
+      setActivePane,
+      setSelectedReviewFilePath,
+    ],
   );
   const handleOpenCodeSearchResult = useCallback(
     (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
@@ -2186,6 +2503,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
       setSelectedReviewFilePath(null);
       setActivePane(props.threadId, targetPaneId);
+      prepareWorkspaceFileOpen(result.entry.path);
       openFile(props.threadId, result.entry.path, targetPaneId);
       const line = Math.max(0, (lineNumber ?? result.snippets[0]?.lineNumber ?? 1) - 1);
       setSymbolNavigationTarget({
@@ -2203,10 +2521,32 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       activePane?.id,
       openFile,
       panes,
+      prepareWorkspaceFileOpen,
       props.threadId,
       setActivePane,
       setSelectedReviewFilePath,
       setSymbolNavigationTarget,
+    ],
+  );
+  const handleOpenCodeSearchFileResult = useCallback(
+    (entry: ProjectEntry) => {
+      const targetPaneId = activePane?.id ?? panes[0]?.id;
+      if (!targetPaneId) {
+        return;
+      }
+      setSelectedReviewFilePath(null);
+      setActivePane(props.threadId, targetPaneId);
+      prepareWorkspaceFileOpen(entry.path);
+      openFile(props.threadId, entry.path, targetPaneId);
+    },
+    [
+      activePane?.id,
+      openFile,
+      panes,
+      prepareWorkspaceFileOpen,
+      props.threadId,
+      setActivePane,
+      setSelectedReviewFilePath,
     ],
   );
   const toggleOutlineId = useCallback((id: string) => {
@@ -2240,13 +2580,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         const sent = await inputProps.onSubmitAgentNote({
           ...submission,
           prompt: trimmedPrompt,
+          threadId: agentNoteThreadId,
         });
         return sent;
       } finally {
         setAgentNoteSubmissionBusy(false);
       }
     },
-    [agentNoteSubmissionBusy, inputProps],
+    [agentNoteSubmissionBusy, agentNoteThreadId, inputProps],
   );
   const handleQueueCodeSearchResult = useCallback(
     (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
@@ -2392,6 +2733,44 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     getScrollElement: () => treeScrollRef.current,
     overscan: 12,
   });
+
+  useEffect(() => {
+    if (explorerPending || explorerRows.length === 0 || !props.gitCwd) {
+      return;
+    }
+
+    const prefetchFilePaths: string[] = [];
+    for (const row of explorerRows) {
+      if (row.kind !== "entry" || row.row.kind !== "file") {
+        continue;
+      }
+      if (!shouldPrefetchWorkspaceEditorFile(row.row.entry.path)) {
+        continue;
+      }
+      prefetchFilePaths.push(row.row.entry.path);
+      if (prefetchFilePaths.length >= WORKSPACE_EXPLORER_FILE_PREFETCH_LIMIT) {
+        break;
+      }
+    }
+    if (prefetchFilePaths.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+      for (const filePath of prefetchFilePaths) {
+        void prefetchWorkspaceEditorFile(filePath);
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [explorerPending, explorerRows, prefetchWorkspaceEditorFile, props.gitCwd]);
 
   const treeResizeStateRef = useRef<{
     pointerId: number;
@@ -2600,6 +2979,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const handleOpenFile = useCallback(
     (filePath: string, openInNewPane: boolean) => {
       setSelectedReviewFilePath(null);
+      prepareWorkspaceFileOpen(filePath);
       if (openInNewPane) {
         handleSplitPane(activePane?.id, filePath);
         if (panes.length >= MAX_THREAD_EDITOR_PANES) {
@@ -2614,6 +2994,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       handleSplitPane,
       openFile,
       panes.length,
+      prepareWorkspaceFileOpen,
       props.threadId,
       setSelectedReviewFilePath,
     ],
@@ -2758,6 +3139,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const handleOpenFileInPane = useCallback(
     (paneId: string, filePath: string, targetIndex?: number) => {
+      prepareWorkspaceFileOpen(filePath);
       openFile(props.threadId, filePath, paneId);
       if (typeof targetIndex === "number" && Number.isFinite(targetIndex)) {
         moveFile(props.threadId, {
@@ -2768,7 +3150,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         });
       }
     },
-    [moveFile, openFile, props.threadId],
+    [moveFile, openFile, prepareWorkspaceFileOpen, props.threadId],
+  );
+  const handleSetActiveFile = useCallback(
+    (paneId: string, filePath: string | null) => {
+      if (filePath) {
+        prepareWorkspaceFileOpen(filePath);
+      }
+      setActiveFile(props.threadId, filePath, paneId);
+    },
+    [prepareWorkspaceFileOpen, props.threadId, setActiveFile],
   );
   const handleRetryActiveFile = useCallback(() => {
     if (!activePane?.activeFilePath) {
@@ -2792,20 +3183,75 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const clearReadFileCache = useCallback(
     (relativePath: string) => {
       queryClient.removeQueries({
-        queryKey: projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
-        exact: true,
+        predicate: (query) => {
+          const queryKey = query.queryKey;
+          const cachedRelativePath = queryKey[4];
+          return (
+            queryKey[0] === "projects" &&
+            queryKey[1] === "read-file" &&
+            queryKey[2] === (inputProps.connectionUrl ?? null) &&
+            queryKey[3] === props.gitCwd &&
+            typeof cachedRelativePath === "string" &&
+            isAncestorPath(cachedRelativePath, relativePath)
+          );
+        },
       });
     },
     [inputProps.connectionUrl, props.gitCwd, queryClient],
   );
 
-  const focusExplorerEntry = useCallback((path: string) => {
+  const focusMountedExplorerEntry = useCallback((path: string): boolean => {
     const target = treeScrollRef.current?.querySelector<HTMLElement>(
       `[data-explorer-path="${CSS.escape(path)}"]`,
     );
-    target?.focus();
-    target?.scrollIntoView({ block: "nearest" });
+    if (!target) {
+      return false;
+    }
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest" });
+    return true;
   }, []);
+
+  const focusExplorerEntry = useCallback(
+    (path: string, options?: { readonly align?: "auto" | "center" }) => {
+      const rowIndex = explorerRows.findIndex(
+        (row) => row.kind === "entry" && row.row.entry.path === path,
+      );
+      if (rowIndex >= 0) {
+        rowVirtualizer.scrollToIndex(rowIndex, { align: options?.align ?? "auto" });
+      }
+      window.requestAnimationFrame(() => {
+        if (focusMountedExplorerEntry(path)) {
+          return;
+        }
+        window.requestAnimationFrame(() => {
+          focusMountedExplorerEntry(path);
+        });
+      });
+    },
+    [explorerRows, focusMountedExplorerEntry, rowVirtualizer],
+  );
+
+  useEffect(() => {
+    if (!pendingExplorerRevealPath || explorerPending) {
+      return;
+    }
+    const visible = explorerRows.some(
+      (row) => row.kind === "entry" && row.row.entry.path === pendingExplorerRevealPath,
+    );
+    if (!visible) {
+      return;
+    }
+    setSelectedEntryPath(pendingExplorerRevealPath);
+    focusExplorerEntry(pendingExplorerRevealPath, { align: "center" });
+    setPendingExplorerRevealPath(null);
+  }, [
+    explorerPending,
+    explorerRows,
+    focusExplorerEntry,
+    pendingExplorerRevealPath,
+    setSelectedEntryPath,
+  ]);
 
   const startInlineEntry = useCallback(
     (state: ExplorerInlineEntryState) => {
@@ -2879,6 +3325,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ...(result.kind === "directory" ? [result.relativePath] : []),
       ]);
       setSelectedEntryPath(result.relativePath);
+      setPendingExplorerRevealPath(result.relativePath);
+      setTreeSearch("");
       if (result.kind === "file") {
         markFileSaved(props.threadId, result.relativePath, "");
         openFile(props.threadId, result.relativePath, activePane?.id);
@@ -2931,6 +3379,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ...(variables.kind === "directory" ? [result.relativePath] : []),
       ]);
       setSelectedEntryPath(result.relativePath);
+      setPendingExplorerRevealPath(result.relativePath);
+      setTreeSearch("");
       clearReadFileCache(result.previousRelativePath);
       void queryClient.invalidateQueries({
         queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
@@ -3287,9 +3737,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
 
   const handleOpenFileToSide = useCallback(
     (paneId: string, filePath: string) => {
+      prepareWorkspaceFileOpen(filePath);
       handleSplitPane(paneId, filePath, "right");
     },
-    [handleSplitPane],
+    [handleSplitPane, prepareWorkspaceFileOpen],
   );
 
   useEffect(() => {
@@ -3500,7 +3951,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         }
         event.preventDefault();
         event.stopPropagation();
-        setActiveFile(props.threadId, nextFilePath, activePane.id);
+        handleSetActiveFile(activePane.id, nextFilePath);
         return;
       }
 
@@ -3554,6 +4005,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     editorSettings.wordWrap,
     focusedExplorerEntry,
     handleSplitPane,
+    handleSetActiveFile,
     handleReopenClosedTab,
     inlineEntryState,
     moveFile,
@@ -3566,7 +4018,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     props.terminalOpen,
     props.threadId,
     requestFindInActiveEditor,
-    setActiveFile,
     setActivePane,
     startInlineEntry,
     updateSettings,
@@ -3602,7 +4053,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             sidebarMode === "problems" ||
                             sidebarMode === "notes"));
                       const iconClassName = cn(
-                        "size-4 transition-colors",
+                        WORKSPACE_SIDEBAR_PRIMARY_MODE_ICON_CLASS,
                         active ? "text-foreground" : "text-muted-foreground/58",
                       );
                       const icon =
@@ -3621,7 +4072,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <button
                                 type="button"
                                 className={cn(
-                                  "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45",
+                                  WORKSPACE_SIDEBAR_PRIMARY_MODE_BUTTON_CLASS,
                                   active
                                     ? "text-foreground"
                                     : "text-muted-foreground/58 hover:text-foreground",
@@ -3646,8 +4097,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-transparent text-muted-foreground/58 transition-colors hover:text-foreground">
-                                <GitForkIcon className="size-4" />
+                              <span
+                                className={cn(
+                                  "inline-flex items-center justify-center transition-colors",
+                                  WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS,
+                                )}
+                              >
+                                <GitForkIcon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                               </span>
                             }
                           />
@@ -3663,15 +4119,39 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                                className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                                 onClick={() => void detachEditor()}
                                 aria-label="Detach editor"
                               >
-                                <ExternalLinkIcon className="size-4" />
+                                <SquareArrowOutUpRightIcon
+                                  className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS}
+                                  strokeWidth={1.9}
+                                />
                               </Button>
                             }
                           />
                           <TooltipPopup side="bottom">Detach editor</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      {onReturnToMainWindow ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
+                                onClick={onReturnToMainWindow}
+                                aria-label="Move editor back to Ace"
+                              >
+                                <IconArrowsDiagonalMinimize2
+                                  className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS}
+                                  stroke={1.8}
+                                />
+                              </Button>
+                            }
+                          />
+                          <TooltipPopup side="bottom">Move editor back to Ace</TooltipPopup>
                         </Tooltip>
                       ) : null}
                       <Tooltip>
@@ -3680,7 +4160,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                              className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                               onClick={() =>
                                 startInlineEntry({
                                   kind: "create-file",
@@ -3695,7 +4175,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FilePlus2Icon className="size-4" />
+                          <FilePlus2Icon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New file</TooltipPopup>
                       </Tooltip>
@@ -3705,7 +4185,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                              className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                               onClick={() =>
                                 startInlineEntry({
                                   kind: "create-folder",
@@ -3720,7 +4200,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FolderPlusIcon className="size-4" />
+                          <FolderPlusIcon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New folder</TooltipPopup>
                       </Tooltip>
@@ -3730,17 +4210,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               </div>
               {sidebarMode === "explorer" ? (
                 <>
-                  <div className="border-b border-border/40 px-2 py-2">
+                  <div className="px-2 py-2">
                     <div className="relative">
-                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
                       <Input
                         ref={treeSearchInputRef}
                         nativeInput
                         value={treeSearch}
                         onChange={(event) => setTreeSearch(event.target.value)}
                         placeholder="Search files"
-                        className="h-8 rounded-lg border-border/45 bg-background/54 pl-8 text-[12px] shadow-none placeholder:text-muted-foreground/42 focus-within:border-primary/40 focus-within:bg-background/86"
-                        size="sm"
+                        className={WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS}
                         type="search"
                       />
                     </div>
@@ -3835,6 +4314,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                   onFocusEntry={setSelectedEntryPath}
                                   onHoverDropTarget={setDragTargetParentPath}
                                   onOpenFile={handleOpenFile}
+                                  onPrefetchFile={prefetchWorkspaceEditorFile}
                                   onRevealDirectoryFromSearch={
                                     handleExplorerRevealDirectoryFromSearch
                                   }
@@ -3867,169 +4347,260 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                 </>
               ) : sidebarMode === "search" ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="border-b border-border/40 px-2 py-2">
+                  <div className="px-2 py-2">
                     <div className="relative">
-                      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                      <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                       <Input
                         nativeInput
                         value={codeSearchQuery}
                         onChange={(event) => setCodeSearchQuery(event.target.value)}
                         placeholder="Search code"
-                        className="h-8 rounded-lg border-border/45 bg-background/54 pl-8 text-[12px] shadow-none placeholder:text-muted-foreground/42 focus-within:border-primary/40 focus-within:bg-background/86"
-                        size="sm"
+                        className={WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS}
                         type="search"
                       />
                     </div>
                   </div>
+                  {trimmedCodeSearchQuery.length >= 2 ? (
+                    <div className="flex h-6 items-center gap-1.5 border-b border-border/35 bg-background/35 px-3 text-[10px] text-muted-foreground/70">
+                      <span className="min-w-0 flex-1 truncate">
+                        {codeSearchBusy ? "Searching" : "Matches"}
+                      </span>
+                      <span className="shrink-0 tabular-nums">{codeSearchResultCount}</span>
+                    </div>
+                  ) : null}
                   <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
-                    {deferredCodeSearchQuery.length < 2 ? null : codeSearchResultsQuery.isPending ||
-                      codeSearchResultsQuery.isFetching ? (
-                      <div className="space-y-2 p-2">
-                        {Array.from({ length: 7 }, (_, index) => (
-                          <div
-                            key={`code-search-pending-${index}`}
-                            className="space-y-1 rounded-lg border border-border/50 bg-background/55 p-2"
-                          >
-                            <div className="h-3 w-3/4 rounded bg-foreground/6" />
-                            <div className="h-3 w-full rounded bg-foreground/4" />
-                            <div className="h-3 w-5/6 rounded bg-foreground/4" />
+                    {trimmedCodeSearchQuery.length < 2 ? (
+                      <div className="flex min-h-full flex-col px-2.5 pt-2 pb-3">
+                        {visibleRecentCodeSearches.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <div className="px-1 text-[11px] font-medium text-muted-foreground/68">
+                              Recent searches
+                            </div>
+                            <div className="space-y-px">
+                              {visibleRecentCodeSearches.map((query) => (
+                                <button
+                                  key={query}
+                                  type="button"
+                                  className="block w-full truncate rounded px-1 py-1 text-left text-[12px] leading-5 font-medium text-foreground/78 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                  onClick={() => handleCodeSearchExampleClick(query)}
+                                >
+                                  {query}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : codeSearchResultsQuery.isError ? (
-                      <div className="px-3 py-4 text-[11px] text-destructive">
-                        Code search failed.
-                      </div>
-                    ) : (codeSearchResultsQuery.data?.length ?? 0) === 0 ? (
-                      <div className="px-3 py-4 text-[11px] text-muted-foreground/72">
-                        No matches
+                        ) : null}
+                        <div className="min-h-6 flex-1" />
+                        <div className="space-y-1.5">
+                          <div className="px-1 text-[10px] font-medium text-muted-foreground/52">
+                            Examples
+                          </div>
+                          <div className="space-y-0.5">
+                            {WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES.map((query) => (
+                              <button
+                                key={query}
+                                type="button"
+                                className="block max-w-full truncate rounded px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground/72 transition-colors hover:bg-accent/34 hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/45 focus-visible:outline-none"
+                                onClick={() => handleCodeSearchExampleClick(query)}
+                              >
+                                {query}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-2 py-0.5">
-                        {codeSearchResultGroups.map((group) => (
-                          <section key={group.id} className="space-y-1.5">
+                        {codeSearchFileResults.length > 0 ? (
+                          <section className="space-y-1.5">
                             <div className="px-3 pt-1 text-[10px] font-medium text-muted-foreground/62">
-                              {group.label}
+                              Files
                             </div>
-                            {group.results.map((result) => (
-                              <div
-                                key={result.entry.path}
-                                className="group/result mx-1 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/45"
+                            {codeSearchFileResults.map((entry) => (
+                              <button
+                                key={entry.path}
+                                type="button"
+                                className="mx-1 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/45 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:outline-none"
+                                onClick={() => handleOpenCodeSearchFileResult(entry)}
                               >
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                                    onClick={() => handleOpenCodeSearchResult(result)}
-                                  >
-                                    <VscodeEntryIcon
-                                      pathValue={result.entry.path}
-                                      kind="file"
-                                      theme={resolvedTheme}
-                                      className="size-[15px]"
-                                    />
-                                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/95">
-                                      {result.entry.path}
+                                <VscodeEntryIcon
+                                  pathValue={entry.path}
+                                  kind="file"
+                                  theme={resolvedTheme}
+                                  className="size-[15px] shrink-0"
+                                />
+                                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/88">
+                                  {highlightWorkspaceCodeSearchText(
+                                    entry.path,
+                                    debouncedCodeSearchQuery,
+                                  ).map((part, index) => (
+                                    <span
+                                      key={`${index}:${part.text}`}
+                                      className={
+                                        part.highlight
+                                          ? "rounded-sm bg-primary/18 text-foreground"
+                                          : undefined
+                                      }
+                                    >
+                                      {part.text}
                                     </span>
-                                    <span className="rounded-sm bg-info/10 px-1.5 py-px text-[9px] font-medium text-info-foreground">
-                                      {result.matchCount || "path"}
-                                    </span>
-                                  </button>
-                                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/result:opacity-100 focus-within:opacity-100">
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
-                                            onClick={() =>
-                                              handleSplitPane(activePane?.id, result.entry.path)
-                                            }
-                                            aria-label="Open to side"
-                                          />
-                                        }
-                                      >
-                                        <ExternalLinkIcon className="size-3" />
-                                      </TooltipTrigger>
-                                      <TooltipPopup side="bottom">Open to side</TooltipPopup>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
-                                            onClick={() => {
-                                              void handleSendCodeSearchResultToAgent(result);
-                                            }}
-                                            aria-label="Send to agent"
-                                          />
-                                        }
-                                      >
-                                        <MessageSquareTextIcon className="size-3" />
-                                      </TooltipTrigger>
-                                      <TooltipPopup side="bottom">Send to agent</TooltipPopup>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
-                                            onClick={() => handleQueueCodeSearchResult(result)}
-                                            aria-label="Queue as context"
-                                          />
-                                        }
-                                      >
-                                        <ClipboardListIcon className="size-3" />
-                                      </TooltipTrigger>
-                                      <TooltipPopup side="bottom">Queue as context</TooltipPopup>
-                                    </Tooltip>
-                                  </div>
-                                </div>
-                                {result.snippets.length > 0 ? (
-                                  <div className="mt-1 space-y-0.5 pl-5">
-                                    {result.snippets.map((snippet) => (
-                                      <button
-                                        key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
-                                        type="button"
-                                        className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-background/65 hover:text-foreground"
-                                        onClick={() =>
-                                          handleOpenCodeSearchResult(result, snippet.lineNumber)
-                                        }
-                                      >
-                                        <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/65">
-                                          {snippet.lineNumber}
-                                        </span>
-                                        <span className="min-w-0 flex-1 truncate font-mono">
-                                          {highlightWorkspaceCodeSearchText(
-                                            snippet.text || " ",
-                                            deferredCodeSearchQuery,
-                                          ).map((part, index) => (
-                                            <span
-                                              key={`${index}:${part.text}`}
-                                              className={
-                                                part.highlight
-                                                  ? "rounded-sm bg-primary/18 text-foreground"
-                                                  : undefined
-                                              }
-                                            >
-                                              {part.text}
-                                            </span>
-                                          ))}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/62">
-                                    Path match
-                                  </p>
-                                )}
-                              </div>
+                                  ))}
+                                </span>
+                              </button>
                             ))}
                           </section>
-                        ))}
+                        ) : null}
+                        {codeSearchBusy ? (
+                          <div className="space-y-2 p-1">
+                            {Array.from({ length: 5 }, (_, index) => (
+                              <div
+                                key={`code-search-pending-${index}`}
+                                className="space-y-1 rounded-md border border-border/35 bg-background/38 p-2"
+                              >
+                                <div className="h-3 w-3/4 rounded bg-foreground/6" />
+                                <div className="h-3 w-full rounded bg-foreground/4" />
+                                <div className="h-3 w-5/6 rounded bg-foreground/4" />
+                              </div>
+                            ))}
+                          </div>
+                        ) : codeSearchResultsQuery.isError ? (
+                          <div className="px-3 py-4 text-[11px] text-destructive">
+                            Code search failed.
+                          </div>
+                        ) : codeSearchResultGroups.length === 0 &&
+                          codeSearchFileResults.length === 0 ? (
+                          <div className="px-3 py-4 text-[11px] text-muted-foreground/72">
+                            No matches.
+                          </div>
+                        ) : null}
+                        {!codeSearchBusy && !codeSearchResultsQuery.isError
+                          ? codeSearchResultGroups.map((group) => (
+                              <section key={group.id} className="space-y-1.5">
+                                <div className="px-3 pt-1 text-[10px] font-medium text-muted-foreground/62">
+                                  {group.label}
+                                </div>
+                                {group.results.map((result) => (
+                                  <div
+                                    key={result.entry.path}
+                                    className="group/result mx-1 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/45"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                                        onClick={() => handleOpenCodeSearchResult(result)}
+                                      >
+                                        <VscodeEntryIcon
+                                          pathValue={result.entry.path}
+                                          kind="file"
+                                          theme={resolvedTheme}
+                                          className="size-[15px]"
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/95">
+                                          {result.entry.path}
+                                        </span>
+                                        <span className="rounded-sm bg-info/10 px-1.5 py-px text-[9px] font-medium text-info-foreground">
+                                          {result.matchCount || "path"}
+                                        </span>
+                                      </button>
+                                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/result:opacity-100 focus-within:opacity-100">
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                type="button"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                onClick={() =>
+                                                  handleSplitPane(activePane?.id, result.entry.path)
+                                                }
+                                                aria-label="Open to side"
+                                              />
+                                            }
+                                          >
+                                            <ExternalLinkIcon className="size-3" />
+                                          </TooltipTrigger>
+                                          <TooltipPopup side="bottom">Open to side</TooltipPopup>
+                                        </Tooltip>
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                type="button"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                onClick={() => {
+                                                  void handleSendCodeSearchResultToAgent(result);
+                                                }}
+                                                aria-label="Send to agent"
+                                              />
+                                            }
+                                          >
+                                            <MessageSquareTextIcon className="size-3" />
+                                          </TooltipTrigger>
+                                          <TooltipPopup side="bottom">Send to agent</TooltipPopup>
+                                        </Tooltip>
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                type="button"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                onClick={() => handleQueueCodeSearchResult(result)}
+                                                aria-label="Queue as context"
+                                              />
+                                            }
+                                          >
+                                            <ClipboardListIcon className="size-3" />
+                                          </TooltipTrigger>
+                                          <TooltipPopup side="bottom">
+                                            Queue as context
+                                          </TooltipPopup>
+                                        </Tooltip>
+                                      </div>
+                                    </div>
+                                    {result.snippets.length > 0 ? (
+                                      <div className="mt-1 space-y-0.5 pl-5">
+                                        {result.snippets.map((snippet) => (
+                                          <button
+                                            key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
+                                            type="button"
+                                            className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-background/65 hover:text-foreground"
+                                            onClick={() =>
+                                              handleOpenCodeSearchResult(result, snippet.lineNumber)
+                                            }
+                                          >
+                                            <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/65">
+                                              {snippet.lineNumber}
+                                            </span>
+                                            <span className="min-w-0 flex-1 truncate font-mono">
+                                              {highlightWorkspaceCodeSearchText(
+                                                snippet.text || " ",
+                                                debouncedCodeSearchQuery,
+                                              ).map((part, index) => (
+                                                <span
+                                                  key={`${index}:${part.text}`}
+                                                  className={
+                                                    part.highlight
+                                                      ? "rounded-sm bg-primary/18 text-foreground"
+                                                      : undefined
+                                                  }
+                                                >
+                                                  {part.text}
+                                                </span>
+                                              ))}
+                                            </span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/62">
+                                        Path match
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </section>
+                            ))
+                          : null}
                       </div>
                     )}
                   </div>
@@ -4611,7 +5182,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                             type="button"
                                             variant="ghost"
                                             size="icon-xs"
-                                            className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
+                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_BUTTON_CLASS}
                                             onClick={() =>
                                               setExplorerOpen(props.threadId, !explorerOpen)
                                             }
@@ -4624,9 +5195,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                         }
                                       >
                                         {explorerOpen ? (
-                                          <IconLayoutSidebarFilled className="size-3.5" />
+                                          <IconLayoutSidebarFilled
+                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                          />
                                         ) : (
-                                          <IconLayoutSidebar className="size-3.5" />
+                                          <IconLayoutSidebar
+                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                          />
                                         )}
                                       </TooltipTrigger>
                                       <TooltipPopup side="bottom">
@@ -4644,6 +5219,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               dirtyFilePaths={activeDirtyPaths}
                               draftsByFilePath={draftsByFilePath}
                               editorOptions={editorOptions}
+                              fileEventsConnected={fileEventsConnected}
                               gitCwd={props.gitCwd}
                               onAddCodeComment={handleAddCodeComment}
                               onAddCodeCommentAndSend={handleAddAndSendCodeComment}
@@ -4669,9 +5245,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               onReopenClosedTab={handleReopenClosedTab}
                               onRetryActiveFile={handleRetryActiveFile}
                               onSaveFile={handleSaveFile}
-                              onSetActiveFile={(paneId, filePath) =>
-                                setActiveFile(props.threadId, filePath, paneId)
-                              }
+                              onSetActiveFile={handleSetActiveFile}
                               onSplitPane={(paneId) => handleSplitPane(paneId, undefined, "right")}
                               onSplitPaneDown={(paneId) =>
                                 handleSplitPane(paneId, undefined, "down")

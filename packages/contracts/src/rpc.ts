@@ -34,6 +34,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorktreeStatsInput,
+  GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
 } from "./git";
@@ -91,6 +93,9 @@ import {
   WorkspaceEditorDefinitionError,
   WorkspaceEditorDefinitionInput,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverError,
+  WorkspaceEditorHoverInput,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorReferencesError,
   WorkspaceEditorReferencesInput,
   WorkspaceEditorReferencesResult,
@@ -158,6 +163,7 @@ export const WS_METHODS = {
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
   workspaceEditorComplete: "workspaceEditor.complete",
   workspaceEditorDefinition: "workspaceEditor.definition",
+  workspaceEditorHover: "workspaceEditor.hover",
   workspaceEditorReferences: "workspaceEditor.references",
 
   // Shell methods
@@ -174,6 +180,7 @@ export const WS_METHODS = {
   gitReadWorkingTreeDiff: "git.readWorkingTreeDiff",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
+  gitGetWorktreeStats: "git.getWorktreeStats",
   gitListGitHubIssues: "git.listGitHubIssues",
   gitGetGitHubIssueThread: "git.getGitHubIssueThread",
   gitCreateWorktree: "git.createWorktree",
@@ -394,6 +401,12 @@ export const WsWorkspaceEditorDefinitionRpc = Rpc.make(WS_METHODS.workspaceEdito
   error: WorkspaceEditorDefinitionError,
 });
 
+export const WsWorkspaceEditorHoverRpc = Rpc.make(WS_METHODS.workspaceEditorHover, {
+  payload: WorkspaceEditorHoverInput,
+  success: WorkspaceEditorHoverResult,
+  error: WorkspaceEditorHoverError,
+});
+
 export const WsWorkspaceEditorReferencesRpc = Rpc.make(WS_METHODS.workspaceEditorReferences, {
   payload: WorkspaceEditorReferencesInput,
   success: WorkspaceEditorReferencesResult,
@@ -462,6 +475,11 @@ export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
   payload: GitListBranchesInput,
   success: GitListBranchesResult,
   error: GitCommandError,
+});
+
+export const WsGitGetWorktreeStatsRpc = Rpc.make(WS_METHODS.gitGetWorktreeStats, {
+  payload: GitWorktreeStatsInput,
+  success: GitWorktreeStatsResult,
 });
 
 export const WsGitListGitHubIssuesRpc = Rpc.make(WS_METHODS.gitListGitHubIssues, {
@@ -654,6 +672,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorCloseBufferRpc,
   WsWorkspaceEditorCompleteRpc,
   WsWorkspaceEditorDefinitionRpc,
+  WsWorkspaceEditorHoverRpc,
   WsWorkspaceEditorReferencesRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
@@ -666,6 +685,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitListBranchesRpc,
+  WsGitGetWorktreeStatsRpc,
   WsGitListGitHubIssuesRpc,
   WsGitGetGitHubIssueThreadRpc,
   WsGitCreateWorktreeRpc,

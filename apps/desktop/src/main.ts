@@ -116,8 +116,10 @@ const BROWSER_DOWNLOAD_CONTROL_CHANNEL = "desktop:browser-download-control";
 const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_NEW_WINDOW_CHANNEL = "desktop:open-new-window";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const RETURN_DETACHED_WINDOW_CHANNEL = "desktop:return-detached-window";
 const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
@@ -178,7 +180,7 @@ const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
-const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const AUTO_UPDATE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS = 15_000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
 const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
@@ -224,6 +226,7 @@ interface DesktopRendererBootstrapPayload {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const primaryWindows = new Set<BrowserWindow>();
 const detachedBrowserWindows = new Map<string, BrowserWindow>();
 const detachedEditorWindows = new Map<string, BrowserWindow>();
 const browserAuthWindows = new Map<string, BrowserWindow>();
@@ -426,14 +429,25 @@ function getSafeDesktopNotificationInput(rawInput: unknown): DesktopNotification
   };
 }
 
-function getOrCreatePrimaryWindow(): BrowserWindow {
-  const existingWindow =
-    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
-  const targetWindow = existingWindow ?? createWindow();
-  if (!existingWindow) {
-    mainWindow = targetWindow;
+function getFocusedPrimaryWindow(): BrowserWindow | null {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  return focusedWindow && primaryWindows.has(focusedWindow) ? focusedWindow : null;
+}
+
+function getFallbackPrimaryWindow(): BrowserWindow | null {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
   }
-  return targetWindow;
+  for (const window of primaryWindows) {
+    if (!window.isDestroyed()) {
+      return window;
+    }
+  }
+  return null;
+}
+
+function getOrCreatePrimaryWindow(): BrowserWindow {
+  return getFocusedPrimaryWindow() ?? getFallbackPrimaryWindow() ?? createWindow();
 }
 
 function focusPrimaryWindow(window: BrowserWindow): void {
@@ -498,8 +512,7 @@ function queueDesktopPairingUrl(input: string): void {
 }
 
 function isDesktopWindowFocusedForNotifications(): boolean {
-  const targetWindow =
-    mainWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const targetWindow = getFocusedPrimaryWindow() ?? getFallbackPrimaryWindow();
   if (!targetWindow || targetWindow.isDestroyed()) {
     return false;
   }
@@ -1452,6 +1465,11 @@ function registerDesktopProtocolClient(): void {
 }
 
 function dispatchMenuAction(action: DesktopMenuAction): void {
+  if (action === "new-window") {
+    focusPrimaryWindow(createWindow());
+    return;
+  }
+
   withReadyPrimaryWindow((window) => {
     window.webContents.send(MENU_ACTION_CHANNEL, action);
   });
@@ -1835,11 +1853,20 @@ function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
 function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   threadId: string;
   connectionUrl?: string;
+  editorStateInstanceId?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
 } | null {
   if (typeof rawInput !== "object" || rawInput === null) {
     return null;
   }
-  const input = rawInput as { threadId?: unknown; connectionUrl?: unknown };
+  const input = rawInput as {
+    connectionUrl?: unknown;
+    editorStateInstanceId?: unknown;
+    placement?: unknown;
+    threadId?: unknown;
+    workspaceMode?: unknown;
+  };
   if (typeof input.threadId !== "string" || input.threadId.trim().length === 0) {
     return null;
   }
@@ -1847,9 +1874,89 @@ function normalizeDetachedEditorOpenInput(rawInput: unknown): {
     typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
       ? input.connectionUrl.trim()
       : undefined;
+  const editorStateInstanceId =
+    typeof input.editorStateInstanceId === "string" && input.editorStateInstanceId.trim().length > 0
+      ? input.editorStateInstanceId.trim()
+      : undefined;
   return {
     threadId: input.threadId.trim(),
     ...(connectionUrl ? { connectionUrl } : {}),
+    ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
+    ...(input.placement === "bottom" ||
+    input.placement === "right" ||
+    input.placement === "workspace"
+      ? { placement: input.placement }
+      : {}),
+    ...(input.workspaceMode === "editor" || input.workspaceMode === "split"
+      ? { workspaceMode: input.workspaceMode }
+      : {}),
+  };
+}
+
+function normalizeDetachedWindowReturnRequest(rawInput: unknown):
+  | {
+      kind: "browser";
+      scopeId?: string;
+    }
+  | {
+      kind: "editor";
+      connectionUrl?: string;
+      editorStateInstanceId?: string;
+      placement?: "bottom" | "right" | "workspace";
+      threadId: string;
+      workspaceMode?: "editor" | "split";
+    }
+  | null {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return null;
+  }
+  const input = rawInput as {
+    connectionUrl?: unknown;
+    editorStateInstanceId?: unknown;
+    kind?: unknown;
+    placement?: unknown;
+    scopeId?: unknown;
+    threadId?: unknown;
+    workspaceMode?: unknown;
+  };
+  if (input.kind === "browser") {
+    const scopeId =
+      typeof input.scopeId === "string" && input.scopeId.trim().length > 0
+        ? input.scopeId.trim()
+        : undefined;
+    return {
+      kind: "browser",
+      ...(scopeId ? { scopeId } : {}),
+    };
+  }
+  if (input.kind !== "editor" || typeof input.threadId !== "string") {
+    return null;
+  }
+  const threadId = input.threadId.trim();
+  if (threadId.length === 0) {
+    return null;
+  }
+  const connectionUrl =
+    typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
+      ? input.connectionUrl.trim()
+      : undefined;
+  const editorStateInstanceId =
+    typeof input.editorStateInstanceId === "string" && input.editorStateInstanceId.trim().length > 0
+      ? input.editorStateInstanceId.trim()
+      : undefined;
+  return {
+    kind: "editor",
+    threadId,
+    ...(connectionUrl ? { connectionUrl } : {}),
+    ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
+    ...(input.placement === "bottom" ||
+    input.placement === "right" ||
+    input.placement === "workspace"
+      ? { placement: input.placement }
+      : {}),
+    ...(input.workspaceMode === "editor" || input.workspaceMode === "split"
+      ? { workspaceMode: input.workspaceMode }
+      : {}),
   };
 }
 
@@ -2356,6 +2463,7 @@ function configureAutoUpdater(): void {
     );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
+    void downloadAvailableUpdate();
   });
   autoUpdater.on("update-not-available", () => {
     setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
@@ -2742,6 +2850,12 @@ function registerIpcHandlers(): void {
     applyAppZoom(owner, rawAction);
   });
 
+  ipcMain.removeHandler(OPEN_NEW_WINDOW_CHANNEL);
+  ipcMain.handle(OPEN_NEW_WINDOW_CHANNEL, async () => {
+    focusPrimaryWindow(createWindow());
+    return true;
+  });
+
   ipcMain.removeHandler(OPEN_DETACHED_BROWSER_CHANNEL);
   ipcMain.handle(OPEN_DETACHED_BROWSER_CHANNEL, async (_event, rawInput: unknown) => {
     return createDetachedBrowserWindow(normalizeDetachedBrowserOpenInput(rawInput));
@@ -2751,6 +2865,18 @@ function registerIpcHandlers(): void {
   ipcMain.handle(OPEN_DETACHED_EDITOR_CHANNEL, async (_event, rawInput: unknown) => {
     const input = normalizeDetachedEditorOpenInput(rawInput);
     return input ? createDetachedEditorWindow(input) : false;
+  });
+
+  ipcMain.removeHandler(RETURN_DETACHED_WINDOW_CHANNEL);
+  ipcMain.handle(RETURN_DETACHED_WINDOW_CHANNEL, async (_event, rawInput: unknown) => {
+    const request = normalizeDetachedWindowReturnRequest(rawInput);
+    if (!request) {
+      return false;
+    }
+    withReadyPrimaryWindow((window) => {
+      safelySendToWindow(window, RETURN_DETACHED_WINDOW_CHANNEL, request);
+    });
+    return true;
   });
 
   ipcMain.removeHandler(OPEN_BROWSER_AUTH_WINDOW_CHANNEL);
@@ -2963,7 +3089,10 @@ function attachWebContentsContextMenu(input: {
           ? {
               onCopyLink: () => clipboard.writeText(linkUrl),
               onOpenLinkInNewTab: () => {
-                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, linkUrl);
+                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, {
+                  sourceWebContentsId: input.targetContents.id,
+                  url: linkUrl,
+                });
               },
               onOpenLink: () => {
                 void shell.openExternal(linkUrl);
@@ -3101,7 +3230,10 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
         };
       }
       if (externalUrl) {
-        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, externalUrl);
+        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, {
+          sourceWebContentsId: guestContents.id,
+          url: externalUrl,
+        });
       }
       return { action: "deny" };
     });
@@ -3346,10 +3478,18 @@ function createBrowserAuthWindow(rawUrl: unknown): boolean {
   return true;
 }
 
-function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: string }): boolean {
-  const windowKey = input.connectionUrl
-    ? `${input.connectionUrl}\0${input.threadId}`
-    : input.threadId;
+function createDetachedEditorWindow(input: {
+  threadId: string;
+  connectionUrl?: string;
+  editorStateInstanceId?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
+}): boolean {
+  const windowKey = [
+    input.connectionUrl ?? "",
+    input.threadId,
+    input.editorStateInstanceId ?? "",
+  ].join("\0");
   const existingWindow = detachedEditorWindows.get(windowKey);
   if (existingWindow && !existingWindow.isDestroyed()) {
     if (existingWindow.isMinimized()) {
@@ -3422,6 +3562,9 @@ function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: s
     aceDetachedEditor: "1",
     threadId: input.threadId,
     ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
+    ...(input.editorStateInstanceId ? { editorStateInstanceId: input.editorStateInstanceId } : {}),
+    ...(input.placement ? { placement: input.placement } : {}),
+    ...(input.workspaceMode ? { workspaceMode: input.workspaceMode } : {}),
   });
   void window.loadURL(rendererUrl);
   return true;
@@ -3449,6 +3592,8 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  primaryWindows.add(window);
+  mainWindow = window;
   setupWebViewEventHandlers(window);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -3502,8 +3647,9 @@ function createWindow(): BrowserWindow {
 
   window.on("closed", () => {
     clearTimeout(revealFallbackTimer);
+    primaryWindows.delete(window);
     if (mainWindow === window) {
-      mainWindow = null;
+      mainWindow = getFallbackPrimaryWindow();
     }
   });
 
@@ -3528,12 +3674,15 @@ if (!hasSingleInstanceLock) {
       return;
     }
 
-    const window = getOrCreatePrimaryWindow();
-    focusPrimaryWindow(window);
     const pairingUrl = findDesktopPairingUrlInArgv(argv);
     if (pairingUrl) {
+      const window = getOrCreatePrimaryWindow();
+      focusPrimaryWindow(window);
       queueDesktopPairingUrl(pairingUrl);
+      return;
     }
+
+    focusPrimaryWindow(createWindow());
   });
 }
 
@@ -3659,14 +3808,14 @@ app
     });
     powerMonitor.on("resume", () => {
       writeDesktopLogHeader("power-monitor resume");
-      if (mainWindow) {
-        emitWindowResume(mainWindow, "resume");
+      for (const window of primaryWindows) {
+        emitWindowResume(window, "resume");
       }
     });
     powerMonitor.on("unlock-screen", () => {
       writeDesktopLogHeader("power-monitor unlock-screen");
-      if (mainWindow) {
-        emitWindowResume(mainWindow, "unlock-screen");
+      for (const window of primaryWindows) {
+        emitWindowResume(window, "unlock-screen");
       }
     });
   })

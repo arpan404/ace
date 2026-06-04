@@ -13,8 +13,10 @@ const BROWSER_DOWNLOAD_CONTROL_CHANNEL = "desktop:browser-download-control";
 const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_NEW_WINDOW_CHANNEL = "desktop:open-new-window";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const RETURN_DETACHED_WINDOW_CHANNEL = "desktop:return-detached-window";
 const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
@@ -172,12 +174,20 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return result === true;
   },
   applyAppZoom: (action) => ipcRenderer.invoke(APP_ZOOM_CHANNEL, action),
+  openNewWindow: async () => {
+    const result = await ipcRenderer.invoke(OPEN_NEW_WINDOW_CHANNEL);
+    return result === true;
+  },
   openDetachedBrowser: async (input) => {
     const result = await ipcRenderer.invoke(OPEN_DETACHED_BROWSER_CHANNEL, input);
     return result === true;
   },
   openDetachedEditor: async (input) => {
     const result = await ipcRenderer.invoke(OPEN_DETACHED_EDITOR_CHANNEL, input);
+    return result === true;
+  },
+  returnDetachedWindow: async (input) => {
+    const result = await ipcRenderer.invoke(RETURN_DETACHED_WINDOW_CHANNEL, input);
     return result === true;
   },
   openBrowserAuthWindow: async (url: string) => {
@@ -274,10 +284,70 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       pairingUrlListeners.delete(listener);
     };
   },
+  onDetachedWindowReturn: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+      if (typeof request !== "object" || request === null) return;
+      const payload = request as {
+        connectionUrl?: unknown;
+        editorStateInstanceId?: unknown;
+        kind?: unknown;
+        placement?: unknown;
+        scopeId?: unknown;
+        threadId?: unknown;
+        workspaceMode?: unknown;
+      };
+      if (payload.kind === "browser") {
+        listener({
+          kind: "browser",
+          ...(typeof payload.scopeId === "string" && payload.scopeId.length > 0
+            ? { scopeId: payload.scopeId }
+            : {}),
+        });
+        return;
+      }
+      if (payload.kind !== "editor" || typeof payload.threadId !== "string") return;
+      listener({
+        kind: "editor",
+        threadId: payload.threadId,
+        ...(typeof payload.connectionUrl === "string" && payload.connectionUrl.length > 0
+          ? { connectionUrl: payload.connectionUrl }
+          : {}),
+        ...(typeof payload.editorStateInstanceId === "string" &&
+        payload.editorStateInstanceId.length > 0
+          ? { editorStateInstanceId: payload.editorStateInstanceId }
+          : {}),
+        ...(payload.placement === "bottom" ||
+        payload.placement === "right" ||
+        payload.placement === "workspace"
+          ? { placement: payload.placement }
+          : {}),
+        ...(payload.workspaceMode === "editor" || payload.workspaceMode === "split"
+          ? { workspaceMode: payload.workspaceMode }
+          : {}),
+      });
+    };
+
+    ipcRenderer.on(RETURN_DETACHED_WINDOW_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(RETURN_DETACHED_WINDOW_CHANNEL, wrappedListener);
+    };
+  },
   onBrowserOpenUrl: (listener) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, url: unknown) => {
-      if (typeof url !== "string" || url.length === 0) return;
-      listener(url);
+    const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (typeof payload === "string") {
+        if (payload.length === 0) return;
+        listener({ url: payload });
+        return;
+      }
+      if (typeof payload !== "object" || payload === null) return;
+      const event = payload as { sourceWebContentsId?: unknown; url?: unknown };
+      if (typeof event.url !== "string" || event.url.length === 0) return;
+      listener({
+        url: event.url,
+        ...(typeof event.sourceWebContentsId === "number"
+          ? { sourceWebContentsId: event.sourceWebContentsId }
+          : {}),
+      });
     };
 
     ipcRenderer.on(BROWSER_OPEN_URL_CHANNEL, wrappedListener);

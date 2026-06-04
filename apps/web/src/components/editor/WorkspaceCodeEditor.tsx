@@ -1,6 +1,8 @@
 import type {
   WorkspaceEditorCompletionItem,
   WorkspaceEditorDiagnostic,
+  WorkspaceEditorHoverContent,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorLocation,
 } from "@ace/contracts";
 import {
@@ -31,6 +33,7 @@ import {
 } from "@codemirror/commands";
 import { foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import {
+  forEachDiagnostic,
   forceLinting,
   lintGutter,
   lintKeymap,
@@ -52,7 +55,6 @@ import {
 } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import {
-  crosshairCursor,
   drawSelection,
   dropCursor,
   EditorView,
@@ -61,10 +63,12 @@ import {
   highlightSpecialChars,
   highlightTrailingWhitespace,
   highlightWhitespace,
+  hoverTooltip,
   keymap,
   rectangularSelection,
   type Panel,
   type KeyBinding,
+  type Tooltip,
   type ViewUpdate,
 } from "@codemirror/view";
 import {
@@ -102,6 +106,11 @@ import { cn } from "~/lib/utils";
 const COMPLETION_TRIGGER_CHARACTERS = new Set([".", "/", '"', "'", ":", "<", "@"]);
 const COMPLETION_WORD_PATTERN = /[\w$.-]*$/u;
 const COMPLETION_VALID_FOR_PATTERN = /^[\w$.-]*$/u;
+const WORKSPACE_IDENTIFIER_CHARACTER_PATTERN = /[\p{L}\p{N}_$#]/u;
+const workspaceDiagnosticHoverMouseByView = new WeakMap<
+  EditorView,
+  { readonly x: number; readonly y: number }
+>();
 
 export interface WorkspaceCodeEditorHandle {
   readonly closeFindQuery: () => void;
@@ -145,6 +154,11 @@ interface WorkspaceCodeEditorProps {
   }) => void;
   readonly onFindRequest: (input: { readonly replace: boolean; readonly seed: string }) => void;
   readonly onFocus: () => void;
+  readonly onHoverRequest: (input: {
+    readonly column: number;
+    readonly contents: string;
+    readonly line: number;
+  }) => Promise<WorkspaceEditorHoverResult | null>;
   readonly onSave: () => void;
   readonly onSelectionChange: (selection: WorkspaceCodeEditorSelection | null) => void;
   readonly onSymbolsChange: (contents: string) => void;
@@ -164,10 +178,19 @@ interface WorkspaceCodeEditorCallbacks {
   readonly onDefinitionRequest: WorkspaceCodeEditorProps["onDefinitionRequest"];
   readonly onFindRequest: WorkspaceCodeEditorProps["onFindRequest"];
   readonly onFocus: WorkspaceCodeEditorProps["onFocus"];
+  readonly onHoverRequest: WorkspaceCodeEditorProps["onHoverRequest"];
   readonly onSave: WorkspaceCodeEditorProps["onSave"];
   readonly onSelectionChange: WorkspaceCodeEditorProps["onSelectionChange"];
   readonly onSymbolsChange: WorkspaceCodeEditorProps["onSymbolsChange"];
   readonly onToggleProblems: WorkspaceCodeEditorProps["onToggleProblems"];
+}
+
+interface WorkspaceCodeEditorCreateSnapshot {
+  readonly languageId: string | null | undefined;
+  readonly options: WorkspaceCodeEditorOptions;
+  readonly readOnly: boolean;
+  readonly resolvedTheme: WorkspaceCodeEditorProps["resolvedTheme"];
+  readonly value: string;
 }
 
 interface WorkspaceCodeEditorTransientRefs {
@@ -188,6 +211,7 @@ function updateCallbacksRef(
     onDefinitionRequest: props.onDefinitionRequest,
     onFindRequest: props.onFindRequest,
     onFocus: props.onFocus,
+    onHoverRequest: props.onHoverRequest,
     onSave: props.onSave,
     onSelectionChange: props.onSelectionChange,
     onSymbolsChange: props.onSymbolsChange,
@@ -268,11 +292,7 @@ function createCompletionSource(
 ): (context: CompletionContext) => Promise<CompletionResult | null> {
   return async (context) => {
     const callbacks = callbacksRef.current;
-    if (
-      !callbacks.completionProvider ||
-      !callbacks.languageId ||
-      !shouldRequestCompletion(context)
-    ) {
+    if (!callbacks.completionProvider || !shouldRequestCompletion(context)) {
       return null;
     }
 
@@ -298,6 +318,55 @@ function createCompletionSource(
   };
 }
 
+function createCompletionExtension(
+  callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>,
+  options: WorkspaceCodeEditorOptions,
+): Extension {
+  if (!options.suggestions) {
+    return [];
+  }
+  return autocompletion({
+    activateOnTyping: true,
+    defaultKeymap: false,
+    override: [createCompletionSource(callbacksRef)],
+  });
+}
+
+function createWhitespaceExtension(options: WorkspaceCodeEditorOptions): Extension {
+  return options.renderWhitespace ? highlightWhitespace() : [];
+}
+
+function diagnosticCodeLabel(code: WorkspaceEditorDiagnostic["code"]): string | null {
+  if (code === undefined) {
+    return null;
+  }
+  const label = String(code).trim();
+  return label.length > 0 ? label : null;
+}
+
+function renderWorkspaceDiagnosticMessage(diagnostic: WorkspaceEditorDiagnostic): () => Node {
+  const message = diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic";
+  const code = diagnosticCodeLabel(diagnostic.code);
+  return () => {
+    const wrapper = document.createElement("span");
+    wrapper.className = `ace-workspace-diagnostic-message ace-workspace-diagnostic-message-${diagnostic.severity}`;
+
+    const messageText = document.createElement("span");
+    messageText.className = "ace-workspace-diagnostic-message-text";
+    messageText.textContent = message;
+    wrapper.append(messageText);
+
+    if (code) {
+      const codeText = document.createElement("span");
+      codeText.className = "ace-workspace-diagnostic-message-code";
+      codeText.textContent = code;
+      wrapper.append(codeText);
+    }
+
+    return wrapper;
+  };
+}
+
 function toCodeMirrorDiagnostics(
   state: EditorState,
   diagnostics: readonly WorkspaceEditorDiagnostic[],
@@ -317,6 +386,7 @@ function toCodeMirrorDiagnostics(
     const result: CodeMirrorDiagnostic = {
       from,
       message: diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic",
+      renderMessage: renderWorkspaceDiagnosticMessage(diagnostic),
       severity: diagnostic.severity,
       to: Math.min(to, state.doc.length),
     };
@@ -325,6 +395,204 @@ function toCodeMirrorDiagnostics(
     }
     return result;
   });
+}
+
+function suppressCodeMirrorLintTooltip(): CodeMirrorDiagnostic[] {
+  return null as unknown as CodeMirrorDiagnostic[];
+}
+
+function codeMirrorDiagnosticIntersectsPosition(input: {
+  from: number;
+  position: number;
+  side: -1 | 1;
+  to: number;
+}): boolean {
+  if (input.position < input.from || input.position > input.to) {
+    return false;
+  }
+  return (
+    input.from === input.to ||
+    ((input.position > input.from || input.side > 0) &&
+      (input.position < input.to || input.side < 0))
+  );
+}
+
+function codeMirrorDiagnosticsAtPosition(
+  state: EditorState,
+  position: number,
+  side: -1 | 1,
+): CodeMirrorDiagnostic[] {
+  const diagnostics: CodeMirrorDiagnostic[] = [];
+  forEachDiagnostic(state, (diagnostic, from, to) => {
+    if (
+      codeMirrorDiagnosticIntersectsPosition({
+        from,
+        position,
+        side,
+        to,
+      })
+    ) {
+      diagnostics.push(diagnostic);
+    }
+  });
+  return diagnostics;
+}
+
+function createWorkspaceDiagnosticTooltipDom(
+  view: EditorView,
+  diagnostics: readonly CodeMirrorDiagnostic[],
+): HTMLElement {
+  const list = document.createElement("ul");
+  list.className = "cm-tooltip-lint";
+  for (const diagnostic of diagnostics) {
+    const item = document.createElement("li");
+    item.className = `cm-diagnostic cm-diagnostic-${diagnostic.severity}`;
+
+    const text = document.createElement("span");
+    text.className = "cm-diagnosticText";
+    text.append(
+      diagnostic.renderMessage
+        ? diagnostic.renderMessage(view)
+        : document.createTextNode(diagnostic.message),
+    );
+    item.append(text);
+
+    if (diagnostic.source) {
+      const source = document.createElement("div");
+      source.className = "cm-diagnosticSource";
+      source.textContent = diagnostic.source;
+      item.append(source);
+    }
+
+    list.append(item);
+  }
+  return list;
+}
+
+function createWorkspaceDiagnosticHoverExtension(): Extension {
+  return hoverTooltip(
+    (view, position, side): Tooltip | null => {
+      const diagnostics = codeMirrorDiagnosticsAtPosition(view.state, position, side);
+      if (diagnostics.length === 0) {
+        return null;
+      }
+
+      return {
+        pos: position,
+        above: false,
+        clip: false,
+        create() {
+          return {
+            dom: createWorkspaceDiagnosticTooltipDom(view, diagnostics),
+            getCoords() {
+              const mouse = workspaceDiagnosticHoverMouseByView.get(view);
+              if (mouse) {
+                return {
+                  bottom: mouse.y,
+                  left: mouse.x,
+                  right: mouse.x,
+                  top: mouse.y,
+                };
+              }
+              return view.coordsAtPos(position) ?? view.dom.getBoundingClientRect();
+            },
+            offset: { x: 12, y: 12 },
+            overlap: true,
+          };
+        },
+      };
+    },
+    {
+      hideOnChange: true,
+      hoverTime: 250,
+    },
+  );
+}
+
+function isMacLikePlatform(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  return /\b(Mac|iPhone|iPad|iPod)\b/u.test(navigator.platform);
+}
+
+function shouldAddWorkspaceSelectionRange(event: MouseEvent): boolean {
+  if (event.altKey && !event.shiftKey) {
+    return true;
+  }
+  return isMacLikePlatform() ? event.metaKey : event.ctrlKey;
+}
+
+function isWorkspaceAddCursorClick(event: MouseEvent): boolean {
+  return event.button === 0 && event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey;
+}
+
+function isWorkspaceDefinitionClick(event: MouseEvent): boolean {
+  if (event.button !== 0 || event.altKey || event.shiftKey) {
+    return false;
+  }
+  return isMacLikePlatform() ? event.metaKey : event.ctrlKey;
+}
+
+function isWorkspaceIdentifierCharacter(character: string): boolean {
+  return WORKSPACE_IDENTIFIER_CHARACTER_PATTERN.test(character);
+}
+
+function workspaceIdentifierRangeAt(
+  state: EditorState,
+  offset: number,
+): { readonly from: number; readonly to: number } | null {
+  if (state.doc.length === 0) {
+    return null;
+  }
+
+  const clampedOffset = Math.max(0, Math.min(offset, state.doc.length));
+  const codeMirrorWord = state.wordAt(Math.min(clampedOffset, Math.max(0, state.doc.length - 1)));
+  if (codeMirrorWord && codeMirrorWord.from < codeMirrorWord.to) {
+    return codeMirrorWord;
+  }
+
+  const line = state.doc.lineAt(clampedOffset);
+  if (line.text.length === 0) {
+    return null;
+  }
+  let lineOffset = Math.max(0, Math.min(clampedOffset - line.from, line.text.length - 1));
+  if (
+    !isWorkspaceIdentifierCharacter(line.text[lineOffset] ?? "") &&
+    lineOffset > 0 &&
+    isWorkspaceIdentifierCharacter(line.text[lineOffset - 1] ?? "")
+  ) {
+    lineOffset -= 1;
+  }
+  if (!isWorkspaceIdentifierCharacter(line.text[lineOffset] ?? "")) {
+    return null;
+  }
+
+  let startOffset = lineOffset;
+  while (startOffset > 0 && isWorkspaceIdentifierCharacter(line.text[startOffset - 1] ?? "")) {
+    startOffset -= 1;
+  }
+
+  let endOffset = lineOffset + 1;
+  while (
+    endOffset < line.text.length &&
+    isWorkspaceIdentifierCharacter(line.text[endOffset] ?? "")
+  ) {
+    endOffset += 1;
+  }
+
+  return {
+    from: line.from + startOffset,
+    to: line.from + endOffset,
+  };
+}
+
+function workspaceLspRequestOffsetAt(state: EditorState, offset: number): number {
+  const identifierRange = workspaceIdentifierRangeAt(state, offset);
+  if (!identifierRange) {
+    return Math.max(0, Math.min(offset, state.doc.length));
+  }
+  return Math.max(identifierRange.from, Math.min(offset, identifierRange.to - 1));
 }
 
 function cursorLabelForState(state: EditorState): string {
@@ -384,13 +652,187 @@ function requestDefinitionAtPosition(
   callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>,
   offset: number,
 ): boolean {
-  const line = view.state.doc.lineAt(offset);
+  const requestOffset = workspaceLspRequestOffsetAt(view.state, offset);
+  const line = view.state.doc.lineAt(requestOffset);
   callbacksRef.current.onDefinitionRequest({
-    column: Math.max(0, offset - line.from),
+    column: Math.max(0, requestOffset - line.from),
     contents: view.state.doc.toString(),
     line: Math.max(0, line.number - 1),
   });
   return true;
+}
+
+function addWorkspaceCursorAtPosition(view: EditorView, offset: number): boolean {
+  const cursorOffset = Math.max(0, Math.min(offset, view.state.doc.length));
+  if (
+    view.state.selection.ranges.some(
+      (range) => range.empty && range.from === cursorOffset && range.to === cursorOffset,
+    )
+  ) {
+    view.focus();
+    return true;
+  }
+
+  const nextCursor = EditorSelection.cursor(cursorOffset);
+  const sortedRanges = [...view.state.selection.ranges, nextCursor].toSorted(
+    (left, right) => left.from - right.from || left.to - right.to,
+  );
+  const mainIndex = sortedRanges.indexOf(nextCursor);
+  view.dispatch({
+    selection: EditorSelection.create(sortedRanges, mainIndex),
+    scrollIntoView: true,
+    userEvent: "select.pointer",
+  });
+  view.focus();
+  return true;
+}
+
+function appendWorkspaceHoverCodeBlock(parent: HTMLElement, code: string, language?: string): void {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ace-workspace-hover-code";
+  if (language) {
+    const label = document.createElement("div");
+    label.className = "ace-workspace-hover-code-language";
+    label.textContent = language;
+    wrapper.append(label);
+  }
+  const pre = document.createElement("pre");
+  pre.textContent = code;
+  wrapper.append(pre);
+  parent.append(wrapper);
+}
+
+function appendWorkspaceHoverTextBlock(parent: HTMLElement, text: string): void {
+  const block = document.createElement("div");
+  block.className = "ace-workspace-hover-text";
+  block.textContent = text;
+  parent.append(block);
+}
+
+function appendWorkspaceMarkdownHoverContent(parent: HTMLElement, value: string): void {
+  const lines = value.split("\n");
+  let index = 0;
+  let pendingTextLines: string[] = [];
+
+  const flushText = () => {
+    const text = pendingTextLines.join("\n").trim();
+    pendingTextLines = [];
+    if (text.length > 0) {
+      appendWorkspaceHoverTextBlock(parent, text);
+    }
+  };
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    const fenceMatch = /^```([^\s`]*)\s*$/u.exec(line.trim());
+    if (!fenceMatch) {
+      pendingTextLines.push(line);
+      index += 1;
+      continue;
+    }
+
+    flushText();
+    const language = fenceMatch[1]?.trim();
+    const codeLines: string[] = [];
+    index += 1;
+    while (index < lines.length && !/^```\s*$/u.test((lines[index] ?? "").trim())) {
+      codeLines.push(lines[index] ?? "");
+      index += 1;
+    }
+    if (index < lines.length) {
+      index += 1;
+    }
+    appendWorkspaceHoverCodeBlock(
+      parent,
+      codeLines.join("\n").trimEnd(),
+      language && language.length > 0 ? language : undefined,
+    );
+  }
+
+  flushText();
+}
+
+function createWorkspaceHoverDom(contents: readonly WorkspaceEditorHoverContent[]): HTMLElement {
+  const dom = document.createElement("div");
+  dom.className = "ace-workspace-hover-tooltip";
+  for (const content of contents) {
+    const section = document.createElement("div");
+    section.className = "ace-workspace-hover-section";
+    if (content.kind === "code") {
+      appendWorkspaceHoverCodeBlock(section, content.value, content.language);
+    } else if (content.kind === "markdown") {
+      appendWorkspaceMarkdownHoverContent(section, content.value);
+    } else {
+      appendWorkspaceHoverTextBlock(section, content.value);
+    }
+    if (section.childElementCount > 0) {
+      dom.append(section);
+    }
+  }
+  return dom;
+}
+
+function resolveWorkspaceHoverTooltipRange(
+  view: EditorView,
+  result: WorkspaceEditorHoverResult,
+  fallbackRange: { readonly from: number; readonly to: number },
+  activeFilePath: string,
+): { readonly from: number; readonly to: number } {
+  if (result.location?.relativePath === activeFilePath) {
+    return locationToSelection(view.state, result.location);
+  }
+  return fallbackRange;
+}
+
+function createHoverExtension(
+  callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>,
+): Extension {
+  return hoverTooltip(
+    async (view, offset): Promise<Tooltip | null> => {
+      const callbacks = callbacksRef.current;
+      const identifierRange = workspaceIdentifierRangeAt(view.state, offset);
+      if (!identifierRange) {
+        return null;
+      }
+      const requestOffset = workspaceLspRequestOffsetAt(view.state, offset);
+      const line = view.state.doc.lineAt(requestOffset);
+      const activeFilePath = callbacks.activeFilePath;
+      const result = await callbacks.onHoverRequest({
+        column: Math.max(0, requestOffset - line.from),
+        contents: view.state.doc.toString(),
+        line: Math.max(0, line.number - 1),
+      });
+      if (
+        !result ||
+        result.contents.length === 0 ||
+        callbacksRef.current.activeFilePath !== activeFilePath
+      ) {
+        return null;
+      }
+
+      const range = resolveWorkspaceHoverTooltipRange(
+        view,
+        result,
+        identifierRange,
+        activeFilePath,
+      );
+      return {
+        pos: range.from,
+        end: Math.max(range.from + 1, range.to),
+        above: false,
+        arrow: true,
+        create() {
+          return {
+            dom: createWorkspaceHoverDom(result.contents),
+          };
+        },
+      };
+    },
+    {
+      hideOnChange: true,
+      hoverTime: 250,
+    },
+  );
 }
 
 function selectedTextForFind(state: EditorState): string | null {
@@ -527,17 +969,22 @@ function createKeymap(
 function createEditorExtensions(input: {
   callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>;
   transientRefs: WorkspaceCodeEditorTransientRefs;
+  completionCompartment: Compartment;
+  indentUnitCompartment: Compartment;
   languageCompartment: Compartment;
+  lineNumbersCompartment: Compartment;
   options: WorkspaceCodeEditorOptions;
   readOnly: boolean;
+  readOnlyCompartment: Compartment;
   resolvedTheme: "light" | "dark";
   shikiHighlightCompartment: Compartment;
+  tabSizeCompartment: Compartment;
   themeCompartment: Compartment;
+  whitespaceCompartment: Compartment;
   wrappingCompartment: Compartment;
   languageId: string | null | undefined;
   activeFilePath: string;
 }): Extension[] {
-  const completionSource = createCompletionSource(input.callbacksRef);
   return [
     input.themeCompartment.of(
       createWorkspaceCodeMirrorTheme({
@@ -559,17 +1006,22 @@ function createEditorExtensions(input: {
       }),
     ),
     input.wrappingCompartment.of(input.options.wordWrap ? EditorView.lineWrapping : []),
+    input.readOnlyCompartment.of(setWorkspaceEditorReadOnly(input.readOnly)),
+    input.lineNumbersCompartment.of(createWorkspaceLineNumberExtension(input.options.lineNumbers)),
+    input.tabSizeCompartment.of(EditorState.tabSize.of(input.options.tabSize)),
+    input.indentUnitCompartment.of(indentUnit.of(" ".repeat(input.options.tabSize))),
+    input.whitespaceCompartment.of(createWhitespaceExtension(input.options)),
+    input.completionCompartment.of(createCompletionExtension(input.callbacksRef, input.options)),
+    EditorState.allowMultipleSelections.of(true),
     workspaceShikiHighlightSupport(),
-    ...setWorkspaceEditorReadOnly(input.readOnly),
-    ...createWorkspaceLineNumberExtension(input.options.lineNumbers),
-    EditorState.tabSize.of(input.options.tabSize),
-    indentUnit.of(" ".repeat(input.options.tabSize)),
     history(),
     foldGutter(),
     drawSelection(),
     dropCursor(),
-    rectangularSelection(),
-    crosshairCursor(),
+    rectangularSelection({
+      eventFilter: (event) => event.altKey && event.shiftKey && event.button === 0,
+    }),
+    EditorView.clickAddsSelectionRange.of(shouldAddWorkspaceSelectionRange),
     highlightSpecialChars(),
     highlightActiveLine(),
     highlightActiveLineGutter(),
@@ -579,21 +1031,31 @@ function createEditorExtensions(input: {
     closeBrackets(),
     search({ createPanel: createHiddenSearchPanel }),
     lintGutter(),
-    linter(null, { delay: 300 }),
-    input.options.renderWhitespace ? highlightWhitespace() : [],
-    input.options.suggestions
-      ? autocompletion({
-          activateOnTyping: true,
-          defaultKeymap: false,
-          override: [completionSource],
-        })
-      : [],
+    linter(null, { delay: 300, tooltipFilter: suppressCodeMirrorLintTooltip }),
+    createWorkspaceDiagnosticHoverExtension(),
+    createHoverExtension(input.callbacksRef),
     EditorView.domEventHandlers({
       focus() {
         input.callbacksRef.current.onFocus();
       },
+      mousemove(event, view) {
+        workspaceDiagnosticHoverMouseByView.set(view, {
+          x: event.clientX,
+          y: event.clientY,
+        });
+        return false;
+      },
       mousedown(event, view) {
-        if (!(event.metaKey || event.ctrlKey) || event.button !== 0) {
+        if (isWorkspaceAddCursorClick(event)) {
+          const offset = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (offset === null) {
+            return false;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          return addWorkspaceCursorAtPosition(view, offset);
+        }
+        if (!isWorkspaceDefinitionClick(event)) {
           return false;
         }
         const offset = view.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -652,9 +1114,15 @@ const WorkspaceCodeEditor = memo(
       const viewRef = useRef<EditorView | null>(null);
       const valueRef = useRef(props.value);
       const syncingFromPropsRef = useRef(false);
+      const completionCompartment = useMemo(() => new Compartment(), []);
+      const indentUnitCompartment = useMemo(() => new Compartment(), []);
       const languageCompartment = useMemo(() => new Compartment(), []);
+      const lineNumbersCompartment = useMemo(() => new Compartment(), []);
+      const readOnlyCompartment = useMemo(() => new Compartment(), []);
       const shikiHighlightCompartment = useMemo(() => new Compartment(), []);
+      const tabSizeCompartment = useMemo(() => new Compartment(), []);
       const themeCompartment = useMemo(() => new Compartment(), []);
+      const whitespaceCompartment = useMemo(() => new Compartment(), []);
       const wrappingCompartment = useMemo(() => new Compartment(), []);
       const callbacksRef = useRef<WorkspaceCodeEditorCallbacks>({
         activeFilePath: props.activeFilePath,
@@ -665,12 +1133,27 @@ const WorkspaceCodeEditor = memo(
         onDefinitionRequest: props.onDefinitionRequest,
         onFindRequest: props.onFindRequest,
         onFocus: props.onFocus,
+        onHoverRequest: props.onHoverRequest,
         onSave: props.onSave,
         onSelectionChange: props.onSelectionChange,
         onSymbolsChange: props.onSymbolsChange,
         onToggleProblems: props.onToggleProblems,
       });
       updateCallbacksRef(callbacksRef, props);
+      const createSnapshotRef = useRef<WorkspaceCodeEditorCreateSnapshot>({
+        languageId: props.languageId,
+        options: props.options,
+        readOnly: props.readOnly ?? false,
+        resolvedTheme: props.resolvedTheme,
+        value: props.value,
+      });
+      createSnapshotRef.current = {
+        languageId: props.languageId,
+        options: props.options,
+        readOnly: props.readOnly ?? false,
+        resolvedTheme: props.resolvedTheme,
+        value: props.value,
+      };
 
       useImperativeHandle(
         forwardedRef,
@@ -796,21 +1279,28 @@ const WorkspaceCodeEditor = memo(
         if (!parent) {
           return;
         }
-        valueRef.current = props.value;
+        const createSnapshot = createSnapshotRef.current;
+        valueRef.current = createSnapshot.value;
 
         const view = new EditorView({
-          doc: props.value,
+          doc: createSnapshot.value,
           extensions: createEditorExtensions({
             activeFilePath: props.activeFilePath,
             callbacksRef,
+            completionCompartment,
+            indentUnitCompartment,
             languageCompartment,
-            languageId: props.languageId,
-            options: props.options,
-            readOnly: props.readOnly ?? false,
-            resolvedTheme: props.resolvedTheme,
+            languageId: createSnapshot.languageId,
+            lineNumbersCompartment,
+            options: createSnapshot.options,
+            readOnly: createSnapshot.readOnly,
+            readOnlyCompartment,
+            resolvedTheme: createSnapshot.resolvedTheme,
             shikiHighlightCompartment,
+            tabSizeCompartment,
             themeCompartment,
             transientRefs: { syncingFromPropsRef, valueRef },
+            whitespaceCompartment,
             wrappingCompartment,
           }),
           parent,
@@ -828,14 +1318,16 @@ const WorkspaceCodeEditor = memo(
         };
       }, [
         callbacksRef,
+        completionCompartment,
+        indentUnitCompartment,
         languageCompartment,
         props.activeFilePath,
-        props.languageId,
-        props.options,
-        props.readOnly,
-        props.resolvedTheme,
+        lineNumbersCompartment,
+        readOnlyCompartment,
         shikiHighlightCompartment,
+        tabSizeCompartment,
         themeCompartment,
+        whitespaceCompartment,
         wrappingCompartment,
       ]);
 
@@ -888,16 +1380,34 @@ const WorkspaceCodeEditor = memo(
               }),
             ),
             wrappingCompartment.reconfigure(props.options.wordWrap ? EditorView.lineWrapping : []),
+            readOnlyCompartment.reconfigure(setWorkspaceEditorReadOnly(props.readOnly ?? false)),
+            lineNumbersCompartment.reconfigure(
+              createWorkspaceLineNumberExtension(props.options.lineNumbers),
+            ),
+            tabSizeCompartment.reconfigure(EditorState.tabSize.of(props.options.tabSize)),
+            indentUnitCompartment.reconfigure(indentUnit.of(" ".repeat(props.options.tabSize))),
+            whitespaceCompartment.reconfigure(createWhitespaceExtension(props.options)),
+            completionCompartment.reconfigure(
+              createCompletionExtension(callbacksRef, props.options),
+            ),
           ],
         });
       }, [
+        callbacksRef,
+        completionCompartment,
+        indentUnitCompartment,
         languageCompartment,
+        lineNumbersCompartment,
         props.activeFilePath,
         props.languageId,
         props.options,
+        props.readOnly,
         props.resolvedTheme,
+        readOnlyCompartment,
         shikiHighlightCompartment,
+        tabSizeCompartment,
         themeCompartment,
+        whitespaceCompartment,
         wrappingCompartment,
       ]);
 

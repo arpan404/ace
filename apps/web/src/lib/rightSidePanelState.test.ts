@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveRequestedRightSidePanelMode,
   resolveRightSidePanelModeAfterDiffClose,
   resolveThreadRightSidePanelStorageKeys,
   resetThreadRightSidePanelState,
@@ -95,6 +96,40 @@ describe("rightSidePanelState", () => {
         lastNonDiffMode: null,
       }),
     ).toBe("summary");
+  });
+
+  it("keeps the selected right panel tab active while review remains open", () => {
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: true,
+        reviewOpen: true,
+        selectedMode: "browser",
+      }),
+    ).toBe("browser");
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: true,
+        reviewOpen: true,
+        selectedMode: "editor",
+      }),
+    ).toBe("editor");
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: true,
+        reviewOpen: true,
+        selectedMode: null,
+      }),
+    ).toBe("diff");
+  });
+
+  it("resolves no active right panel mode when the panel is closed", () => {
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: false,
+        reviewOpen: true,
+        selectedMode: "diff",
+      }),
+    ).toBe(null);
   });
 
   it("applies browser viewport resize only to the visible owning thread", () => {

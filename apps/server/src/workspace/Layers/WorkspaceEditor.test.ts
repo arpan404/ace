@@ -96,6 +96,33 @@ function handleMessage(message) {
     }
     return;
   }
+  if (message.method === "textDocument/completion") {
+    const document = message.params && message.params.textDocument;
+    if (document && typeof document.uri === "string") {
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          isIncomplete: false,
+          items: [
+            {
+              label: "createValue",
+              kind: 3,
+              detail: "function createValue(): ExampleType",
+              documentation: {
+                kind: "markdown",
+                value: "Create an example value."
+              },
+              insertText: "createValue()",
+              sortText: "0001",
+              filterText: "createValue"
+            }
+          ]
+        }
+      });
+    }
+    return;
+  }
   if (message.method === "textDocument/definition") {
     const document = message.params && message.params.textDocument;
     if (document && typeof document.uri === "string") {
@@ -143,6 +170,26 @@ function handleMessage(message) {
             }
           }
         ]
+      });
+    }
+    return;
+  }
+  if (message.method === "textDocument/hover") {
+    const document = message.params && message.params.textDocument;
+    if (document && typeof document.uri === "string") {
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          contents: {
+            kind: "markdown",
+            value: "const value: ExampleType\\nExample hover details"
+          },
+          range: {
+            start: { line: 1, character: 6 },
+            end: { line: 1, character: 11 }
+          }
+        }
       });
     }
     return;
@@ -345,6 +392,13 @@ describe("WorkspaceEditorLive", () => {
             line: 1,
             column: 13,
           });
+          const complete = yield* workspaceEditor.complete({
+            cwd: workspaceDir,
+            relativePath: "src/example.ts",
+            contents: 'import { ExampleType } from "../types/example";\nconst value = crea\n',
+            line: 1,
+            column: 18,
+          });
           const references = yield* workspaceEditor.references({
             cwd: workspaceDir,
             relativePath: "src/example.ts",
@@ -353,11 +407,19 @@ describe("WorkspaceEditorLive", () => {
             line: 1,
             column: 13,
           });
+          const hover = yield* workspaceEditor.hover({
+            cwd: workspaceDir,
+            relativePath: "src/example.ts",
+            contents:
+              'import { ExampleType } from "../types/example";\nconst value: ExampleType = createValue();\n',
+            line: 1,
+            column: 8,
+          });
           const closed = yield* workspaceEditor.closeBuffer({
             cwd: workspaceDir,
             relativePath: "src/example.ts",
           });
-          return { clean, broken, definition, references, closed };
+          return { clean, broken, definition, complete, references, hover, closed };
         }),
       );
 
@@ -392,6 +454,20 @@ describe("WorkspaceEditorLive", () => {
           },
         ],
       });
+      expect(result.complete).toEqual({
+        relativePath: "src/example.ts",
+        items: [
+          {
+            label: "createValue",
+            kind: "3",
+            detail: "function createValue(): ExampleType",
+            documentation: "Create an example value.",
+            insertText: "createValue()",
+            sortText: "0001",
+            filterText: "createValue",
+          },
+        ],
+      });
       expect(result.references).toEqual({
         relativePath: "src/example.ts",
         locations: [
@@ -410,6 +486,22 @@ describe("WorkspaceEditorLive", () => {
             endColumn: 17,
           },
         ],
+      });
+      expect(result.hover).toEqual({
+        relativePath: "src/example.ts",
+        contents: [
+          {
+            kind: "markdown",
+            value: "const value: ExampleType\nExample hover details",
+          },
+        ],
+        location: {
+          relativePath: "src/example.ts",
+          startLine: 1,
+          startColumn: 6,
+          endLine: 1,
+          endColumn: 11,
+        },
       });
       expect(result.closed).toEqual({
         relativePath: "src/example.ts",

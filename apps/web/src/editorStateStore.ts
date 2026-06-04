@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizePaneRatios } from "./lib/paneRatios";
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 import type {
   WorkspaceCodeComment,
   WorkspaceCodeCommentStatus,
@@ -75,6 +76,7 @@ interface PersistedEditorStoreSnapshot {
 
 interface EditorStoreState {
   addCodeComment: (threadId: EditorStateScopeId, comment: WorkspaceCodeComment) => void;
+  clearThreadState: (threadId: EditorStateScopeId) => void;
   closeFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeFilesToRight: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeOtherFiles: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
@@ -139,10 +141,52 @@ const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
 const DEFAULT_THREAD_EDITOR_ROW_ID = "row-1";
 export const MAX_THREAD_EDITOR_PANES = Number.MAX_SAFE_INTEGER;
 const MAX_RECENTLY_CLOSED_EDITOR_ENTRIES = 32;
+const EDITOR_WINDOW_INSTANCE_STORAGE_KEY = "ace:editor-window-instance-id:v1";
+const EDITOR_WINDOW_INSTANCE_NAME_PREFIX = `${EDITOR_WINDOW_INSTANCE_STORAGE_KEY}:`;
 const PROJECT_EDITOR_SCOPE_PREFIX = "project:";
 const DEFAULT_THREAD_EDITOR_STATE = createDefaultThreadEditorState();
 const DEFAULT_RUNTIME_THREAD_EDITOR_STATE = createDefaultRuntimeThreadEditorState();
 const threadEditorStateCache = new Map<EditorStateScopeId, ThreadEditorStateCacheEntry>();
+
+function readEditorWindowNameInstanceId(): string | null {
+  try {
+    const windowName = window.name.trim();
+    if (!windowName.startsWith(EDITOR_WINDOW_INSTANCE_NAME_PREFIX)) {
+      return null;
+    }
+    const instanceId = windowName.slice(EDITOR_WINDOW_INSTANCE_NAME_PREFIX.length).trim();
+    return instanceId.length > 0 ? instanceId : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeEditorWindowInstanceId(instanceId: string): void {
+  try {
+    window.name = `${EDITOR_WINDOW_INSTANCE_NAME_PREFIX}${instanceId}`;
+  } catch {
+    // Ignore inaccessible window names; session storage remains a best-effort mirror.
+  }
+  try {
+    window.sessionStorage.setItem(EDITOR_WINDOW_INSTANCE_STORAGE_KEY, instanceId);
+  } catch {
+    // Ignore unavailable session storage.
+  }
+}
+
+export function resolveEditorWindowStateInstanceId(): string {
+  const fallbackId = `window-${randomUUID()}`;
+  if (typeof window === "undefined") {
+    return fallbackId;
+  }
+  const windowNameInstanceId = readEditorWindowNameInstanceId();
+  if (windowNameInstanceId) {
+    writeEditorWindowInstanceId(windowNameInstanceId);
+    return windowNameInstanceId;
+  }
+  writeEditorWindowInstanceId(fallbackId);
+  return fallbackId;
+}
 
 export function resolveEditorStateScopeId(input: {
   gitCwd: string | null | undefined;
@@ -150,9 +194,22 @@ export function resolveEditorStateScopeId(input: {
 }): EditorStateScopeId {
   const normalizedGitCwd = input.gitCwd?.trim();
   if (normalizedGitCwd) {
-    return `${PROJECT_EDITOR_SCOPE_PREFIX}${normalizedGitCwd}`;
+    return `${PROJECT_EDITOR_SCOPE_PREFIX}${normalizedGitCwd}:thread:${input.threadId}`;
   }
   return input.threadId;
+}
+
+export function resolveEditorInstanceStateScopeId(input: {
+  gitCwd: string | null | undefined;
+  instanceId: string | null | undefined;
+  threadId: ThreadId;
+}): EditorStateScopeId {
+  const baseScopeId = resolveEditorStateScopeId({
+    gitCwd: input.gitCwd,
+    threadId: input.threadId,
+  });
+  const normalizedInstanceId = input.instanceId?.trim();
+  return normalizedInstanceId ? `${baseScopeId}:instance:${normalizedInstanceId}` : baseScopeId;
 }
 
 function normalizePathList(paths: readonly string[]): string[] {
@@ -688,6 +745,25 @@ export const useEditorStateStore = create<EditorStoreState>()(
                 codeComments: nextCodeComments,
               },
             },
+          };
+        }),
+      clearThreadState: (threadId) =>
+        set((state) => {
+          threadEditorStateCache.delete(threadId);
+          if (
+            state.threadStateByThreadId[threadId] === undefined &&
+            state.runtimeStateByThreadId[threadId] === undefined
+          ) {
+            return state;
+          }
+          const nextThreadStateByThreadId = { ...state.threadStateByThreadId };
+          const nextRuntimeStateByThreadId = { ...state.runtimeStateByThreadId };
+          delete nextThreadStateByThreadId[threadId];
+          delete nextRuntimeStateByThreadId[threadId];
+          return {
+            ...state,
+            runtimeStateByThreadId: nextRuntimeStateByThreadId,
+            threadStateByThreadId: nextThreadStateByThreadId,
           };
         }),
       closeFile: (threadId, filePath, paneId) =>

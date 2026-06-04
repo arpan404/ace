@@ -9,11 +9,14 @@ previous_tag=""
 output_dir="release-local"
 repo=""
 publish=0
+no_release=0
 skip_gates=0
 skip_build=0
 skip_push=0
 create_tag=0
 allow_dirty=0
+parallel_jobs="auto"
+release_target_count=6
 
 usage() {
   printf '%s\n' \
@@ -27,11 +30,13 @@ usage() {
     "  --output-dir <dir>     Output directory relative to the repo. Default: release-local." \
     "  --repo <owner/repo>    GitHub repo for publishing. Defaults to gh repo view." \
     "  --publish             Create the GitHub release or update it if the tag already exists." \
+    "  --norelease           Build local artifacts only; do not create tags or GitHub releases." \
     "  --create-tag          Create the tag at HEAD if it does not already exist." \
     "  --skip-gates          Skip bun fmt, bun lint, and bun typecheck." \
     "  --skip-build          Skip bun run build:desktop and reuse existing dist artifacts." \
     "  --skip-push           Do not push the tag before publishing." \
     "  --allow-dirty         Allow uncommitted tracked source changes." \
+    "  --parallel [jobs]     Build up to <jobs> desktop targets concurrently. Default: auto." \
     "  -h, --help            Show this help."
 }
 
@@ -57,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       publish=1
       shift
       ;;
+    --norelease | --no-release)
+      no_release=1
+      shift
+      ;;
     --create-tag)
       create_tag=1
       shift
@@ -77,6 +86,19 @@ while [[ $# -gt 0 ]]; do
       allow_dirty=1
       shift
       ;;
+    --parallel)
+      if [[ -z "${2:-}" || "${2:0:1}" = "-" ]]; then
+        parallel_jobs="auto"
+        shift
+      else
+        parallel_jobs="${2:-}"
+        shift 2
+      fi
+      ;;
+    --parallel=*)
+      parallel_jobs="${1#*=}"
+      shift
+      ;;
     -h | --help)
       usage
       exit 0
@@ -93,8 +115,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$no_release" -eq 1 ]]; then
+  publish=0
+  create_tag=0
+  skip_push=1
+fi
+
 if [[ -z "$tag" ]]; then
   printf 'Missing --tag.\n\n' >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ "$parallel_jobs" != "auto" && ! "$parallel_jobs" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'Parallel job count must be "auto" or a positive integer: %s\n\n' "$parallel_jobs" >&2
   usage >&2
   exit 1
 fi
@@ -159,6 +193,89 @@ is_truthy() {
   esac
 }
 
+detect_logical_cpu_count() {
+  local cpu_count
+  cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  if [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$cpu_count"
+    return
+  fi
+
+  cpu_count="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+  if [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$cpu_count"
+  fi
+}
+
+detect_memory_gib() {
+  local memory_bytes
+  memory_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+  if [[ "$memory_bytes" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$((memory_bytes / 1024 / 1024 / 1024))"
+    return
+  fi
+
+  local pages page_size
+  pages="$(getconf _PHYS_PAGES 2>/dev/null || true)"
+  page_size="$(getconf PAGE_SIZE 2>/dev/null || true)"
+  if [[ "$pages" =~ ^[1-9][0-9]*$ && "$page_size" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$((pages * page_size / 1024 / 1024 / 1024))"
+  fi
+}
+
+min_positive_job_count() {
+  local left="$1"
+  local right="$2"
+
+  if [[ "$left" -le 0 ]]; then
+    printf '%s\n' "$right"
+    return
+  fi
+  if [[ "$right" -le 0 ]]; then
+    printf '%s\n' "$left"
+    return
+  fi
+  if [[ "$left" -lt "$right" ]]; then
+    printf '%s\n' "$left"
+  else
+    printf '%s\n' "$right"
+  fi
+}
+
+resolve_parallel_jobs() {
+  local requested="$1"
+  if [[ "$requested" != "auto" ]]; then
+    if [[ "$requested" -gt "$release_target_count" ]]; then
+      printf '%s\n' "$release_target_count"
+    else
+      printf '%s\n' "$requested"
+    fi
+    return
+  fi
+
+  local cpu_count memory_gib cpu_jobs memory_jobs resolved
+  cpu_count="$(detect_logical_cpu_count)"
+  memory_gib="$(detect_memory_gib)"
+  cpu_jobs=0
+  memory_jobs=0
+
+  if [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    cpu_jobs=$((cpu_count / 4))
+  fi
+  if [[ "$memory_gib" =~ ^[1-9][0-9]*$ ]]; then
+    memory_jobs=$((memory_gib / 2))
+  fi
+
+  resolved="$(min_positive_job_count "$cpu_jobs" "$memory_jobs")"
+  if [[ "$resolved" -le 0 ]]; then
+    resolved=1
+  fi
+  if [[ "$resolved" -gt "$release_target_count" ]]; then
+    resolved="$release_target_count"
+  fi
+  printf '%s\n' "$resolved"
+}
+
 require_macos_signing_env() {
   if ! is_truthy "${ACE_DESKTOP_SIGNED:-}"; then
     printf 'macOS signing is required for local desktop releases. Set ACE_DESKTOP_SIGNED=true in .env.local.\n' >&2
@@ -190,6 +307,13 @@ publish_dir="$output_dir/publish"
 repo="${repo:-${ACE_DESKTOP_UPDATE_REPOSITORY:-}}"
 linux_image="${ACE_DESKTOP_LINUX_DOCKER_IMAGE:-ace-desktop-linux-builder:local}"
 windows_image="${ACE_DESKTOP_WINDOWS_DOCKER_IMAGE:-ace-desktop-windows-builder:local}"
+parallel_jobs_requested="$parallel_jobs"
+parallel_jobs="$(resolve_parallel_jobs "$parallel_jobs")"
+if [[ "$parallel_jobs_requested" = "auto" ]]; then
+  printf '\n==> Desktop release target concurrency: %s (auto)\n' "$parallel_jobs"
+else
+  printf '\n==> Desktop release target concurrency: %s\n' "$parallel_jobs"
+fi
 
 run() {
   printf '\n==> %s\n' "$*"
@@ -227,6 +351,11 @@ resolve_git_common_mount() {
 }
 
 ensure_tag() {
+  if [[ "$no_release" -eq 1 ]]; then
+    printf '\n==> Skipping tag verification for local-only build\n'
+    return
+  fi
+
   if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
     local tag_commit
     tag_commit="$(git rev-list -n 1 "$tag")"
@@ -283,35 +412,58 @@ build_shared_artifacts() {
   run bun run build:desktop
 }
 
-build_macos() {
-  require_macos_signing_env
-  run bun run dist:desktop:artifact -- \
+run_macos_artifact() {
+  local arch="$1"
+  local artifact_output_dir="$2"
+  local bun_state_dir
+  local status
+
+  bun_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/ace-desktop-macos-${arch}-bun.XXXXXX")"
+  if run env \
+    BUN_INSTALL_CACHE_DIR="$bun_state_dir/install-cache" \
+    BUN_RUNTIME_TRANSPILER_CACHE_PATH="$bun_state_dir/transpiler-cache" \
+    bun run dist:desktop:artifact -- \
     --platform mac \
     --target dmg \
-    --arch arm64 \
+    --arch "$arch" \
     --build-version "$version" \
-    --output-dir "$output_dir/macos-arm64" \
+    --output-dir "$artifact_output_dir" \
     --skip-build \
     --signed \
-    --verbose
-  run bun run dist:desktop:artifact -- \
-    --platform mac \
-    --target dmg \
-    --arch x64 \
-    --build-version "$version" \
-    --output-dir "$output_dir/macos-x64" \
-    --skip-build \
-    --signed \
-    --verbose
+    --verbose; then
+    status=0
+  else
+    status=$?
+  fi
+
+  rm -rf "$bun_state_dir"
+  return "$status"
 }
 
-build_linux_docker() {
+build_macos_arm64() {
+  require_macos_signing_env
+  run_macos_artifact arm64 "$output_dir/macos-arm64"
+}
+
+build_macos_x64() {
+  require_macos_signing_env
+  run_macos_artifact x64 "$output_dir/macos-x64"
+}
+
+build_macos() {
+  build_macos_arm64
+  build_macos_x64
+}
+
+build_linux_docker_image() {
   run docker build \
     --platform linux/amd64 \
     --file "$repo_root/scripts/docker/desktop-linux.Dockerfile" \
     --tag "$linux_image" \
     "$repo_root/scripts/docker"
+}
 
+build_linux_docker_x64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=x64 \
@@ -326,7 +478,9 @@ build_linux_docker() {
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform linux --target "$ACE_DESKTOP_TARGET" --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
+}
 
+build_linux_docker_arm64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=arm64 \
@@ -343,13 +497,21 @@ build_linux_docker() {
     "$version"
 }
 
-build_windows_docker() {
+build_linux_docker() {
+  build_linux_docker_image
+  build_linux_docker_x64
+  build_linux_docker_arm64
+}
+
+build_windows_docker_image() {
   run docker build \
     --platform linux/amd64 \
     --file "$repo_root/scripts/docker/desktop-windows.Dockerfile" \
     --tag "$windows_image" \
     "$repo_root/scripts/docker"
+}
 
+build_windows_docker_x64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=x64 \
@@ -363,7 +525,9 @@ build_windows_docker() {
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
+}
 
+build_windows_docker_arm64() {
   run docker run --rm \
     --platform linux/amd64 \
     --env ACE_DESKTOP_ARCH=arm64 \
@@ -377,6 +541,181 @@ build_windows_docker() {
     bash -lc 'set -euo pipefail; git config --global --add safe.directory /workspace; cd /workspace; bun install --ignore-scripts --frozen-lockfile; bun run dist:desktop:artifact -- --platform win --target nsis --arch "$ACE_DESKTOP_ARCH" --build-version "$1" --output-dir "$ACE_DESKTOP_OUTPUT_DIR" --skip-build --verbose' \
     bash \
     "$version"
+}
+
+build_windows_docker() {
+  build_windows_docker_image
+  build_windows_docker_x64
+  build_windows_docker_arm64
+}
+
+cleanup_docker_images() {
+  local status=0
+  local image
+
+  for image in "$linux_image" "$windows_image"; do
+    if docker image inspect "$image" >/dev/null 2>&1; then
+      if ! run docker image rm "$image"; then
+        status=1
+      fi
+    fi
+  done
+
+  return "$status"
+}
+
+background_pids=()
+background_names=()
+background_label_width=0
+
+start_background_job() {
+  local name="$1"
+  local command="$2"
+
+  if [[ "${#name}" -gt "$background_label_width" ]]; then
+    background_label_width="${#name}"
+  fi
+
+  printf "%-${background_label_width}s | started\n" "$name"
+  (
+    set -euo pipefail
+    "$command" 2>&1 | while IFS= read -r line; do
+      printf "%-${background_label_width}s | %s\n" "$name" "$line"
+    done
+  ) &
+  background_pids+=("$!")
+  background_names+=("$name")
+}
+
+wait_background_jobs() {
+  local status=0
+  local index
+
+  for index in "${!background_pids[@]}"; do
+    if wait "${background_pids[$index]}"; then
+      printf "%-${background_label_width}s | finished\n" "${background_names[$index]}"
+    else
+      printf "%-${background_label_width}s | failed\n" "${background_names[$index]}" >&2
+      status=1
+    fi
+  done
+
+  background_pids=()
+  background_names=()
+  background_label_width=0
+  return "$status"
+}
+
+run_parallel() {
+  local items=("$@")
+  local pids=()
+  local names=()
+  local label_width=0
+  local status=0
+  local index
+
+  for ((index = 0; index < ${#items[@]}; index += 2)); do
+    local candidate_name="${items[$index]}"
+    if [[ "${#candidate_name}" -gt "$label_width" ]]; then
+      label_width="${#candidate_name}"
+    fi
+  done
+
+  printf '\n==> Parallel build group (max %s active jobs)\n' "$parallel_jobs"
+
+  for ((index = 0; index < ${#items[@]}; index += 2)); do
+    local name="${items[$index]}"
+    local command="${items[$((index + 1))]}"
+
+    while [[ "$(jobs -rp | wc -l | tr -d '[:space:]')" -ge "$parallel_jobs" ]]; do
+      sleep 1
+    done
+
+    printf "%-${label_width}s | started\n" "$name"
+    (
+      set -euo pipefail
+      "$command" 2>&1 | while IFS= read -r line; do
+        printf "%-${label_width}s | %s\n" "$name" "$line"
+      done
+    ) &
+    pids+=("$!")
+    names+=("$name")
+  done
+
+  for index in "${!pids[@]}"; do
+    if wait "${pids[$index]}"; then
+      printf "%-${label_width}s | finished\n" "${names[$index]}"
+    else
+      printf "%-${label_width}s | failed\n" "${names[$index]}" >&2
+      status=1
+    fi
+  done
+
+  return "$status"
+}
+
+build_release_targets() {
+  if [[ "$parallel_jobs" -eq 1 ]]; then
+    local serial_status=0
+
+    if ! run_parallel \
+      "macOS arm64" build_macos_arm64 \
+      "macOS x64" build_macos_x64; then
+      return 1
+    fi
+
+    if ! run_parallel \
+      "Linux Docker image" build_linux_docker_image \
+      "Windows Docker image" build_windows_docker_image; then
+      serial_status=1
+    fi
+
+    if [[ "$serial_status" -eq 0 ]]; then
+      if ! run_parallel \
+        "Linux x64" build_linux_docker_x64 \
+        "Linux arm64" build_linux_docker_arm64 \
+        "Windows x64" build_windows_docker_x64 \
+        "Windows arm64" build_windows_docker_arm64; then
+        serial_status=1
+      fi
+    fi
+
+    if ! cleanup_docker_images; then
+      serial_status=1
+    fi
+    return "$serial_status"
+  fi
+
+  require_macos_signing_env
+  printf '\n==> macOS artifacts (background)\n'
+  start_background_job "macOS arm64" build_macos_arm64
+  start_background_job "macOS x64" build_macos_x64
+
+  local status=0
+  if ! run_parallel \
+    "Linux Docker image" build_linux_docker_image \
+    "Windows Docker image" build_windows_docker_image; then
+    status=1
+  fi
+
+  if [[ "$status" -eq 0 ]]; then
+    if ! run_parallel \
+      "Linux x64" build_linux_docker_x64 \
+      "Linux arm64" build_linux_docker_arm64 \
+      "Windows x64" build_windows_docker_x64 \
+      "Windows arm64" build_windows_docker_arm64; then
+      status=1
+    fi
+  fi
+
+  if ! cleanup_docker_images; then
+    status=1
+  fi
+
+  if ! wait_background_jobs; then
+    status=1
+  fi
+  return "$status"
 }
 
 collect_assets() {
@@ -462,6 +801,11 @@ write_release_notes() {
 }
 
 publish_release() {
+  if [[ "$no_release" -eq 1 ]]; then
+    printf '\n==> Skipping tag push and GitHub release creation (--norelease). Local assets are in %s.\n' "$publish_dir"
+    return
+  fi
+
   if [[ "$publish" -ne 1 ]]; then
     printf '\n==> Skipping GitHub release creation. Re-run with --publish to upload %s.\n' "$publish_dir"
     return
@@ -503,7 +847,9 @@ publish_release() {
 require_command bun
 require_command docker
 require_command git
-require_command gh
+if [[ "$publish" -eq 1 ]]; then
+  require_command gh
+fi
 
 ensure_clean_tracked_tree
 ensure_tag
@@ -511,8 +857,6 @@ resolve_git_common_mount
 run_gates
 build_shared_artifacts
 run rm -rf "$output_dir"
-build_macos
-build_linux_docker
-build_windows_docker
+build_release_targets
 collect_assets
 publish_release
