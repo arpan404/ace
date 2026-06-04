@@ -65,6 +65,7 @@ const rpcClientMock = {
     syncBuffer: vi.fn(),
     closeBuffer: vi.fn(),
     complete: vi.fn(),
+    hover: vi.fn(),
   },
   shell: {
     openInEditor: vi.fn(),

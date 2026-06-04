@@ -1,6 +1,7 @@
 import type {
   WorkspaceEditorCompletionItem,
   WorkspaceEditorDiagnostic,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorLocation,
 } from "@ace/contracts";
 import { useQuery } from "@tanstack/react-query";
@@ -977,6 +978,36 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
   );
 
+  const handleHoverRequest = useCallback(
+    async (input: {
+      contents: string;
+      line: number;
+      column: number;
+    }): Promise<WorkspaceEditorHoverResult | null> => {
+      if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
+        return null;
+      }
+      try {
+        const result = await api.workspaceEditor.hover(
+          withRpcRouteConnection(
+            {
+              cwd: props.diagnosticsCwd,
+              relativePath: pane.activeFilePath,
+              contents: input.contents,
+              line: input.line,
+              column: input.column,
+            },
+            props.connectionUrl,
+          ),
+        );
+        return result.contents.length > 0 ? result : null;
+      } catch {
+        return null;
+      }
+    },
+    [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
+  );
+
   const openWorkspaceFind = useCallback((input: { replace: boolean; seed: string }) => {
     setFindExpandedReplace(input.replace);
     setFindOpen(true);
@@ -1720,6 +1751,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               onDefinitionRequest={handleDefinitionRequest}
               onFindRequest={openWorkspaceFind}
               onFocus={handleEditorFocus}
+              onHoverRequest={handleHoverRequest}
               onSave={handleSave}
               onSelectionChange={handleSelectionChange}
               onSymbolsChange={handleSymbolsChange}

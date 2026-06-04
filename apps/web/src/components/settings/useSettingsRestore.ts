@@ -58,9 +58,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers
         ? ["Editor line numbers"]
         : []),
-      ...(settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap
-        ? ["Editor minimap"]
-        : []),
       ...(settings.editorRenderWhitespace !== DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace
         ? ["Editor whitespace"]
         : []),
@@ -139,7 +136,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.providerCliMaxOpen,
       settings.diffWordWrap,
       settings.editorLineNumbers,
-      settings.editorMinimap,
       settings.editorRenderWhitespace,
       settings.editorStickyScroll,
       settings.editorSuggestions,

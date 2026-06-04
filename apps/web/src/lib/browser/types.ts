@@ -2,7 +2,7 @@ import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import type { BrowserSuggestion } from "~/lib/browser/history";
 
-export const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
+export { IN_APP_BROWSER_PARTITION } from "./storage";
 const PIP_MARGIN_PX = 16;
 const MIN_PIP_WIDTH_PX = 320;
 const MIN_PIP_HEIGHT_PX = 216;

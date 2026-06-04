@@ -6,7 +6,6 @@ describe("createWorkspaceEditorOptions", () => {
   it("creates a compact workspace editor option snapshot", () => {
     const options = createWorkspaceEditorOptions({
       lineNumbers: "on",
-      minimap: true,
       renderWhitespace: false,
       stickyScroll: true,
       suggestions: true,
@@ -27,7 +26,6 @@ describe("createWorkspaceEditorOptions", () => {
   it("preserves user-facing editor toggles for CodeMirror extensions", () => {
     const options = createWorkspaceEditorOptions({
       lineNumbers: "relative",
-      minimap: false,
       renderWhitespace: true,
       stickyScroll: false,
       suggestions: false,

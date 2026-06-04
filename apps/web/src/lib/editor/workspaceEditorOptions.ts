@@ -5,7 +5,6 @@ export const WORKSPACE_EDITOR_FONT_FAMILY =
 
 export interface WorkspaceEditorSettingsSnapshot {
   readonly lineNumbers: EditorLineNumbers;
-  readonly minimap: boolean;
   readonly renderWhitespace: boolean;
   readonly stickyScroll: boolean;
   readonly suggestions: boolean;

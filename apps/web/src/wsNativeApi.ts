@@ -133,6 +133,8 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).workspaceEditor.complete(stripRpcRouteConnection(input)),
       definition: (input) =>
         resolveRpcClientForInput(input).workspaceEditor.definition(stripRpcRouteConnection(input)),
+      hover: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.hover(stripRpcRouteConnection(input)),
       references: (input) =>
         resolveRpcClientForInput(input).workspaceEditor.references(stripRpcRouteConnection(input)),
     },

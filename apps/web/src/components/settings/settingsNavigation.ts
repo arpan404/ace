@@ -50,7 +50,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     group: "workspace",
     label: "Editor",
-    description: "Workspace editor, diffs, and language servers",
+    description: "Workspace editor and language servers",
     to: "/settings/editor",
   },
   {

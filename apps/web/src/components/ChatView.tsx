@@ -4786,7 +4786,20 @@ function useChatViewComponent({
     setBrowserDevToolsOpen(false);
     removeRightPanelTabOrder("browser");
     setRightSidePanelMode((current) => (current === "browser" ? "summary" : current));
-  }, [removeRightPanelTabOrder, setBrowserDevToolsOpen, setBrowserMode, setRightSidePanelMode]);
+    if (rightBrowserInstanceId) {
+      setMountedBrowserInstances((current) =>
+        current.filter((entry) => entry.instanceId !== rightBrowserInstanceId),
+      );
+      cleanupBrowserInstanceState(rightBrowserInstanceId);
+    }
+  }, [
+    cleanupBrowserInstanceState,
+    removeRightPanelTabOrder,
+    rightBrowserInstanceId,
+    setBrowserDevToolsOpen,
+    setBrowserMode,
+    setRightSidePanelMode,
+  ]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelVisible(false);
@@ -5344,7 +5357,18 @@ function useChatViewComponent({
     removeBottomPanelTabOrder("browser");
     setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
     setTerminalOpen(true);
-  }, [removeBottomPanelTabOrder, setTerminalOpen]);
+    if (bottomBrowserInstanceId) {
+      setMountedBrowserInstances((current) =>
+        current.filter((entry) => entry.instanceId !== bottomBrowserInstanceId),
+      );
+      cleanupBrowserInstanceState(bottomBrowserInstanceId);
+    }
+  }, [
+    bottomBrowserInstanceId,
+    cleanupBrowserInstanceState,
+    removeBottomPanelTabOrder,
+    setTerminalOpen,
+  ]);
   const onCloseBottomPanelBrowserTab = useCallback(
     (tabId: string) => {
       if (!bottomBrowserInstanceId) {

@@ -27,6 +27,8 @@ import {
   type WorkspaceEditorCompleteResult,
   type WorkspaceEditorDefinitionInput,
   type WorkspaceEditorDefinitionResult,
+  type WorkspaceEditorHoverInput,
+  type WorkspaceEditorHoverResult,
   type WorkspaceEditorReferencesInput,
   type WorkspaceEditorReferencesResult,
   type WorkspaceEditorSyncBufferInput,
@@ -338,6 +340,11 @@ const buildAppUnderTest = (options?: {
               relativePath: input.relativePath,
               locations: [],
             } satisfies WorkspaceEditorDefinitionResult),
+          hover: (input: WorkspaceEditorHoverInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+              contents: [],
+            } satisfies WorkspaceEditorHoverResult),
           references: (input: WorkspaceEditorReferencesInput) =>
             Effect.succeed({
               relativePath: input.relativePath,
@@ -1428,6 +1435,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       let syncInput: WorkspaceEditorSyncBufferInput | null = null;
       let closeInput: WorkspaceEditorCloseBufferInput | null = null;
       let definitionInput: WorkspaceEditorDefinitionInput | null = null;
+      let hoverInput: WorkspaceEditorHoverInput | null = null;
       let referencesInput: WorkspaceEditorReferencesInput | null = null;
 
       yield* buildAppUnderTest({
@@ -1481,6 +1489,26 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                     },
                   ],
                 } satisfies WorkspaceEditorDefinitionResult;
+              }),
+            hover: (input) =>
+              Effect.sync(() => {
+                hoverInput = input;
+                return {
+                  relativePath: input.relativePath,
+                  contents: [
+                    {
+                      kind: "markdown",
+                      value: "```ts\nconst value: ExampleType\n```",
+                    },
+                  ],
+                  location: {
+                    relativePath: "src/example.ts",
+                    startLine: 0,
+                    startColumn: 6,
+                    endLine: 0,
+                    endColumn: 11,
+                  },
+                } satisfies WorkspaceEditorHoverResult;
               }),
             references: (input) =>
               Effect.sync(() => {
@@ -1539,6 +1567,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             contents: "const value: ExampleType = createValue();\n",
             line: 0,
             column: 13,
+          }),
+        ),
+      );
+      const hoverResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorHover]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+            contents: "const value: ExampleType = createValue();\n",
+            line: 0,
+            column: 8,
           }),
         ),
       );
@@ -1607,6 +1646,29 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             endColumn: 13,
           },
         ],
+      });
+      assert.deepEqual(hoverInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+        contents: "const value: ExampleType = createValue();\n",
+        line: 0,
+        column: 8,
+      });
+      assert.deepEqual(hoverResponse, {
+        relativePath: "src/example.ts",
+        contents: [
+          {
+            kind: "markdown",
+            value: "```ts\nconst value: ExampleType\n```",
+          },
+        ],
+        location: {
+          relativePath: "src/example.ts",
+          startLine: 0,
+          startColumn: 6,
+          endLine: 0,
+          endColumn: 11,
+        },
       });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

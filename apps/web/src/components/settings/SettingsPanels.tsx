@@ -2217,32 +2217,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
 
       {isEditorPage ? (
         <>
-          <SettingsSection title="Diffs">
-            <SettingsRow
-              title="Diff line wrapping"
-              description="Set the default wrap state when the diff panel opens."
-              resetAction={
-                settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap ? (
-                  <SettingResetButton
-                    label="diff line wrapping"
-                    onClick={() =>
-                      updateSettings({
-                        diffWordWrap: DEFAULT_UNIFIED_SETTINGS.diffWordWrap,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.diffWordWrap}
-                  onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
-                  aria-label="Wrap diff lines by default"
-                />
-              }
-            />
-          </SettingsSection>
-
           <SettingsSection title="Workspace editor">
             <SettingsRow
               title="Editor suggestions"
@@ -2318,30 +2292,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     updateSettings({ editorStickyScroll: Boolean(checked) })
                   }
                   aria-label="Enable editor sticky scroll"
-                />
-              }
-            />
-
-            <SettingsRow
-              title="Editor minimap"
-              description="Show a code minimap in the workspace editor."
-              resetAction={
-                settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap ? (
-                  <SettingResetButton
-                    label="editor minimap"
-                    onClick={() =>
-                      updateSettings({
-                        editorMinimap: DEFAULT_UNIFIED_SETTINGS.editorMinimap,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.editorMinimap}
-                  onCheckedChange={(checked) => updateSettings({ editorMinimap: Boolean(checked) })}
-                  aria-label="Show editor minimap"
                 />
               }
             />

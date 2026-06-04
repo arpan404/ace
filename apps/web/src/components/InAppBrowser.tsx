@@ -42,8 +42,9 @@ import {
   type InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
 import { useThreadJumpHintVisibility } from "~/lib/sidebar";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
+import { resolveBrowserWebviewPartition } from "~/lib/browser/storage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -265,7 +266,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     activeInstance = true,
     connectionUrl,
     mode,
-    scopeId,
+    scopeId: providedScopeId,
     visible = activeInstance,
     onClose,
     onBrowserSessionChange,
@@ -280,6 +281,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     detachEnabled = true,
     onQueueDesignRequest,
   } = props;
+  const fallbackScopeIdRef = useRef<string | null>(null);
+  if (fallbackScopeIdRef.current === null) {
+    fallbackScopeIdRef.current = `unscoped:${randomUUID()}`;
+  }
+  const scopeId = providedScopeId?.trim() || fallbackScopeIdRef.current;
+  const browserPartition = useMemo(() => resolveBrowserWebviewPartition(scopeId), [scopeId]);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
@@ -1535,6 +1542,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
                 onFindResultChange={handleFindResultChange}
                 onOpenUrlInNewTab={openUrlInNewTabFromPage}
+                browserPartition={browserPartition}
                 tab={tab}
                 onHandleChange={registerWebviewHandle}
                 onSnapshotChange={handleTabSnapshotChange}

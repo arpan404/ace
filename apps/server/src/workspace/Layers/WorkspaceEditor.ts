@@ -12,6 +12,8 @@ import type {
   WorkspaceEditorDiagnostic,
   WorkspaceEditorCompletionItem,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverContent,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorLocation,
   WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferResult,
@@ -365,6 +367,67 @@ function parseLspRange(payload: unknown): Omit<WorkspaceEditorLocation, "relativ
     startColumn: Math.max(0, Math.trunc(startColumn)),
     endLine: Math.max(Math.trunc(endLine), Math.trunc(startLine)),
     endColumn: Math.max(Math.trunc(endColumn), Math.trunc(startColumn) + 1),
+  };
+}
+
+function normalizeHoverContentValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseLspHoverContent(payload: unknown): readonly WorkspaceEditorHoverContent[] {
+  if (typeof payload === "string") {
+    const value = normalizeHoverContentValue(payload);
+    return value ? [{ kind: "plaintext", value }] : [];
+  }
+  if (Array.isArray(payload)) {
+    return payload.flatMap((item) => parseLspHoverContent(item));
+  }
+  if (typeof payload !== "object" || payload === null) {
+    return [];
+  }
+
+  const language = Reflect.get(payload, "language");
+  const value = Reflect.get(payload, "value");
+  if (typeof value !== "string") {
+    return [];
+  }
+  const normalizedValue = normalizeHoverContentValue(value);
+  if (!normalizedValue) {
+    return [];
+  }
+
+  if (typeof language === "string" && language.trim().length > 0) {
+    return [
+      {
+        kind: "code",
+        language: language.trim(),
+        value: normalizedValue,
+      },
+    ];
+  }
+
+  const kind = Reflect.get(payload, "kind");
+  return [
+    {
+      kind: kind === "markdown" ? "markdown" : "plaintext",
+      value: normalizedValue,
+    },
+  ];
+}
+
+function parseLspHover(
+  payload: unknown,
+  relativePath: string,
+): Omit<WorkspaceEditorHoverResult, "relativePath"> {
+  if (typeof payload !== "object" || payload === null) {
+    return { contents: [] };
+  }
+  const contents = parseLspHoverContent(Reflect.get(payload, "contents"));
+  const range = parseLspRange(Reflect.get(payload, "range"));
+  return {
+    contents,
+    ...(range ? { location: { relativePath, ...range } } : {}),
   };
 }
 
@@ -1456,6 +1519,61 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     },
   );
 
+  const hover: WorkspaceEditorShape["hover"] = Effect.fn("WorkspaceEditor.hover")(function* (
+    input,
+  ) {
+    const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: normalizedWorkspaceRoot,
+      relativePath: input.relativePath,
+    });
+    const resolved = yield* resolveServerForWorkspacePath(
+      normalizedWorkspaceRoot,
+      target.relativePath,
+      "workspaceEditor.hover",
+    );
+    if (!resolved) {
+      return {
+        relativePath: target.relativePath,
+        contents: [],
+      } satisfies WorkspaceEditorHoverResult;
+    }
+    const { languageId, server: languageServer } = resolved;
+    const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+    const uri = pathToFileURL(target.absolutePath).toString();
+    const hoverResult = yield* session.mutex.withPermits(1)(
+      Effect.tryPromise({
+        try: async () => {
+          await syncSessionDocument(session, uri, languageId, input.contents, {
+            waitForDiagnostics: false,
+          });
+          const result = await sendLspRequest(
+            session,
+            "textDocument/hover",
+            {
+              textDocument: { uri },
+              position: { line: input.line, character: input.column },
+            },
+            LSP_REQUEST_TIMEOUT_MS,
+          );
+          return parseLspHover(result, target.relativePath);
+        },
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: normalizedWorkspaceRoot,
+            detail: `Workspace hover backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+            operation: "workspaceEditor.hover",
+            relativePath: target.relativePath,
+          }),
+      }),
+    );
+    return {
+      relativePath: target.relativePath,
+      ...hoverResult,
+    } satisfies WorkspaceEditorHoverResult;
+  });
+
   const references: WorkspaceEditorShape["references"] = Effect.fn("WorkspaceEditor.references")(
     function* (input) {
       const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
@@ -1516,6 +1634,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     closeBuffer,
     complete,
     definition,
+    hover,
     references,
     syncBuffer,
   } satisfies WorkspaceEditorShape;

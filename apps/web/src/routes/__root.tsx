@@ -350,7 +350,9 @@ function DetachedBrowserWindow(props: {
       if (returningToMainWindowRef.current) {
         return;
       }
-      clearBrowserSessionStorage(props.search.scopeId);
+      if (props.search.scopeId) {
+        clearBrowserSessionStorage(props.search.scopeId);
+      }
     };
     window.addEventListener("pagehide", clearDetachedBrowserState);
     window.addEventListener("beforeunload", clearDetachedBrowserState);
