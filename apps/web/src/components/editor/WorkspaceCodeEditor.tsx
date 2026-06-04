@@ -33,6 +33,7 @@ import {
 } from "@codemirror/commands";
 import { foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import {
+  forEachDiagnostic,
   forceLinting,
   lintGutter,
   lintKeymap,
@@ -106,6 +107,10 @@ const COMPLETION_TRIGGER_CHARACTERS = new Set([".", "/", '"', "'", ":", "<", "@"
 const COMPLETION_WORD_PATTERN = /[\w$.-]*$/u;
 const COMPLETION_VALID_FOR_PATTERN = /^[\w$.-]*$/u;
 const WORKSPACE_IDENTIFIER_CHARACTER_PATTERN = /[\p{L}\p{N}_$#]/u;
+const workspaceDiagnosticHoverMouseByView = new WeakMap<
+  EditorView,
+  { readonly x: number; readonly y: number }
+>();
 
 export interface WorkspaceCodeEditorHandle {
   readonly closeFindQuery: () => void;
@@ -390,6 +395,118 @@ function toCodeMirrorDiagnostics(
     }
     return result;
   });
+}
+
+function suppressCodeMirrorLintTooltip(): CodeMirrorDiagnostic[] {
+  return null as unknown as CodeMirrorDiagnostic[];
+}
+
+function codeMirrorDiagnosticIntersectsPosition(input: {
+  from: number;
+  position: number;
+  side: -1 | 1;
+  to: number;
+}): boolean {
+  if (input.position < input.from || input.position > input.to) {
+    return false;
+  }
+  return (
+    input.from === input.to ||
+    ((input.position > input.from || input.side > 0) &&
+      (input.position < input.to || input.side < 0))
+  );
+}
+
+function codeMirrorDiagnosticsAtPosition(
+  state: EditorState,
+  position: number,
+  side: -1 | 1,
+): CodeMirrorDiagnostic[] {
+  const diagnostics: CodeMirrorDiagnostic[] = [];
+  forEachDiagnostic(state, (diagnostic, from, to) => {
+    if (
+      codeMirrorDiagnosticIntersectsPosition({
+        from,
+        position,
+        side,
+        to,
+      })
+    ) {
+      diagnostics.push(diagnostic);
+    }
+  });
+  return diagnostics;
+}
+
+function createWorkspaceDiagnosticTooltipDom(
+  view: EditorView,
+  diagnostics: readonly CodeMirrorDiagnostic[],
+): HTMLElement {
+  const list = document.createElement("ul");
+  list.className = "cm-tooltip-lint";
+  for (const diagnostic of diagnostics) {
+    const item = document.createElement("li");
+    item.className = `cm-diagnostic cm-diagnostic-${diagnostic.severity}`;
+
+    const text = document.createElement("span");
+    text.className = "cm-diagnosticText";
+    text.append(
+      diagnostic.renderMessage
+        ? diagnostic.renderMessage(view)
+        : document.createTextNode(diagnostic.message),
+    );
+    item.append(text);
+
+    if (diagnostic.source) {
+      const source = document.createElement("div");
+      source.className = "cm-diagnosticSource";
+      source.textContent = diagnostic.source;
+      item.append(source);
+    }
+
+    list.append(item);
+  }
+  return list;
+}
+
+function createWorkspaceDiagnosticHoverExtension(): Extension {
+  return hoverTooltip(
+    (view, position, side): Tooltip | null => {
+      const diagnostics = codeMirrorDiagnosticsAtPosition(view.state, position, side);
+      if (diagnostics.length === 0) {
+        return null;
+      }
+
+      return {
+        pos: position,
+        above: false,
+        clip: false,
+        create() {
+          return {
+            dom: createWorkspaceDiagnosticTooltipDom(view, diagnostics),
+            getCoords() {
+              const mouse = workspaceDiagnosticHoverMouseByView.get(view);
+              if (mouse) {
+                return {
+                  bottom: mouse.y,
+                  left: mouse.x,
+                  right: mouse.x,
+                  top: mouse.y,
+                };
+              }
+              return view.coordsAtPos(position) ?? view.dom.getBoundingClientRect();
+            },
+            offset: { x: 12, y: 12 },
+            overlap: true,
+          };
+        },
+      };
+    },
+    {
+      hideOnChange: true,
+      hoverTime: 250,
+    },
+  );
 }
 
 function isMacLikePlatform(): boolean {
@@ -914,11 +1031,19 @@ function createEditorExtensions(input: {
     closeBrackets(),
     search({ createPanel: createHiddenSearchPanel }),
     lintGutter(),
-    linter(null, { delay: 300 }),
+    linter(null, { delay: 300, tooltipFilter: suppressCodeMirrorLintTooltip }),
+    createWorkspaceDiagnosticHoverExtension(),
     createHoverExtension(input.callbacksRef),
     EditorView.domEventHandlers({
       focus() {
         input.callbacksRef.current.onFocus();
+      },
+      mousemove(event, view) {
+        workspaceDiagnosticHoverMouseByView.set(view, {
+          x: event.clientX,
+          y: event.clientY,
+        });
+        return false;
       },
       mousedown(event, view) {
         if (isWorkspaceAddCursorClick(event)) {

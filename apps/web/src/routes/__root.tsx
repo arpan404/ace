@@ -18,7 +18,6 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { InAppBrowser, type InAppBrowserController } from "../components/InAppBrowser";
-import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
@@ -200,7 +199,6 @@ function MainRootRouteView() {
         key={`remote-bootstrap-${String(wsHostEpoch)}`}
         onSettled={handleRemoteBootstrapSettled}
       />
-      <LoadDiagnosticsConsole />
       {!remoteBootstrapSettled || startupState === "connecting" ? (
         <AppStartupScreen
           state={startupStateForDisplay}
