@@ -3,13 +3,52 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_THREAD_EDITOR_TREE_WIDTH,
+  resolveEditorInstanceStateScopeId,
   resolveEditorStateScopeId,
+  resolveEditorWindowStateInstanceId,
   selectThreadEditorState,
   useEditorStateStore,
 } from "./editorStateStore";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-2");
+const EDITOR_WINDOW_INSTANCE_STORAGE_KEY_FOR_TEST = "ace:editor-window-instance-id:v1";
+
+function installEditorWindowForTest(input?: {
+  name?: string;
+  sessionEntries?: readonly (readonly [string, string])[];
+}): {
+  getSessionItem: (key: string) => string | null;
+  getWindowName: () => string;
+  restore: () => void;
+} {
+  const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const state = new Map<string, string>(input?.sessionEntries ?? []);
+  const testWindow = {
+    name: input?.name ?? "",
+    sessionStorage: {
+      getItem: (key: string) => state.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        state.set(key, value);
+      },
+    },
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: testWindow,
+  });
+  return {
+    getSessionItem: (key) => state.get(key) ?? null,
+    getWindowName: () => testWindow.name,
+    restore: () => {
+      if (originalWindowDescriptor) {
+        Object.defineProperty(globalThis, "window", originalWindowDescriptor);
+        return;
+      }
+      Reflect.deleteProperty(globalThis, "window");
+    },
+  };
+}
 
 describe("editorStateStore actions", () => {
   beforeEach(() => {
@@ -81,7 +120,7 @@ describe("editorStateStore actions", () => {
     expect(editorStateAfterUnrelatedUpdate).toBe(editorStateBeforeUnrelatedUpdate);
   });
 
-  it("shares editor state across threads in the same project", () => {
+  it("keeps editor state isolated across threads in the same project", () => {
     const store = useEditorStateStore.getState();
     const firstProjectScope = resolveEditorStateScopeId({
       gitCwd: "/tmp/project",
@@ -100,9 +139,67 @@ describe("editorStateStore actions", () => {
       secondProjectScope,
     );
 
-    expect(editorState.panes).toEqual([
-      { activeFilePath: "src/main.ts", id: "pane-1", openFilePaths: ["src/main.ts"] },
-    ]);
+    expect(editorState.panes).toEqual([{ activeFilePath: null, id: "pane-1", openFilePaths: [] }]);
+  });
+
+  it("keeps editor state isolated across instances in the same thread and project", () => {
+    const store = useEditorStateStore.getState();
+    const firstEditorScope = resolveEditorInstanceStateScopeId({
+      gitCwd: "/tmp/project",
+      instanceId: "main",
+      threadId: THREAD_ID,
+    });
+    const secondEditorScope = resolveEditorInstanceStateScopeId({
+      gitCwd: "/tmp/project",
+      instanceId: "right",
+      threadId: THREAD_ID,
+    });
+
+    store.openFile(firstEditorScope, "src/main.ts");
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      secondEditorScope,
+    );
+
+    expect(editorState.panes).toEqual([{ activeFilePath: null, id: "pane-1", openFilePaths: [] }]);
+  });
+
+  it("keeps the editor window instance id stable in session storage", () => {
+    const testWindow = installEditorWindowForTest();
+    try {
+      const firstInstanceId = resolveEditorWindowStateInstanceId();
+      const secondInstanceId = resolveEditorWindowStateInstanceId();
+
+      expect(firstInstanceId).toMatch(/^window-/);
+      expect(secondInstanceId).toBe(firstInstanceId);
+      expect(testWindow.getSessionItem(EDITOR_WINDOW_INSTANCE_STORAGE_KEY_FOR_TEST)).toBe(
+        firstInstanceId,
+      );
+    } finally {
+      testWindow.restore();
+    }
+  });
+
+  it("does not reuse a cloned session storage editor window id", () => {
+    const testWindow = installEditorWindowForTest({
+      sessionEntries: [[EDITOR_WINDOW_INSTANCE_STORAGE_KEY_FOR_TEST, "window-cloned"]],
+    });
+    try {
+      const instanceId = resolveEditorWindowStateInstanceId();
+
+      expect(instanceId).toMatch(/^window-/);
+      expect(instanceId).not.toBe("window-cloned");
+      expect(testWindow.getSessionItem(EDITOR_WINDOW_INSTANCE_STORAGE_KEY_FOR_TEST)).toBe(
+        instanceId,
+      );
+      expect(testWindow.getWindowName()).toBe(
+        `${EDITOR_WINDOW_INSTANCE_STORAGE_KEY_FOR_TEST}:${instanceId}`,
+      );
+    } finally {
+      testWindow.restore();
+    }
   });
 
   it("keeps editor state isolated when project changes", () => {

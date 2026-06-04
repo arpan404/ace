@@ -22,8 +22,13 @@ import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "../editorStateStore";
+import {
+  resolveEditorInstanceStateScopeId,
+  resolveEditorWindowStateInstanceId,
+  useEditorStateStore,
+} from "../editorStateStore";
 import { clearBrowserSessionStorage } from "../lib/browser/session";
+import { resolveBrowserThreadIdFromScopeId } from "../lib/browser/scope";
 import type { BrowserDesignRequestSubmission } from "../lib/browser/types";
 import {
   applyTransportConnectionHealthState,
@@ -401,11 +406,8 @@ function DetachedBrowserWindow(props: {
 }
 
 function resolveThreadIdFromBrowserScope(scopeId: string | null): ThreadId | null {
-  if (!scopeId) {
-    return null;
-  }
-  const [threadId] = scopeId.split(":browser:");
-  return threadId && threadId !== scopeId ? ThreadId.makeUnsafe(threadId) : null;
+  const threadId = resolveBrowserThreadIdFromScopeId(scopeId);
+  return threadId ? ThreadId.makeUnsafe(threadId) : null;
 }
 
 function DetachedEditorWindow(props: {
@@ -504,10 +506,15 @@ function DetachedEditorWindowContent(props: {
   const availableEditors = useServerAvailableEditors();
   const clearEditorThreadState = useEditorStateStore((state) => state.clearThreadState);
   const returningToMainWindowRef = useRef(false);
-  const editorStateInstanceId =
+  const fallbackEditorStateInstanceId = useMemo(
+    () => `detached-${resolveEditorWindowStateInstanceId()}`,
+    [],
+  );
+  const inputEditorStateInstanceId =
     typeof props.editorStateInstanceId === "string"
       ? props.editorStateInstanceId.trim() || undefined
       : undefined;
+  const editorStateInstanceId = inputEditorStateInstanceId ?? fallbackEditorStateInstanceId;
   const editorStateScopeId = useMemo(() => {
     if (!threadId || !thread || !project) {
       return null;

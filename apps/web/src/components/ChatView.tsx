@@ -205,7 +205,11 @@ import {
 } from "~/lib/chat/threadRenderState";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "../editorStateStore";
+import {
+  resolveEditorInstanceStateScopeId,
+  resolveEditorWindowStateInstanceId,
+  useEditorStateStore,
+} from "../editorStateStore";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
@@ -303,6 +307,11 @@ import {
   setBrowserSession,
   useBrowserSession,
 } from "~/lib/browser/sessionStore";
+import {
+  resolveBrowserInstanceScopeId,
+  resolveBrowserThreadIdFromScopeId,
+  type BrowserPanelPlacement,
+} from "~/lib/browser/scope";
 import {
   buildHandoffTimeline,
   type HandoffLineageResult,
@@ -834,14 +843,16 @@ type BrowserPanelInstance = {
   inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
 };
 
-type BrowserPanelPlacement = "bottom" | "right";
-
-function resolveBrowserInstanceId(threadId: ThreadId, placement: BrowserPanelPlacement): string {
-  return `${threadId}:browser:${placement}`;
+function resolveBrowserInstanceId(
+  threadId: ThreadId,
+  placement: BrowserPanelPlacement,
+  windowInstanceId?: string | null,
+): string {
+  return resolveBrowserInstanceScopeId({ placement, threadId, windowInstanceId });
 }
 
 function resolveBrowserThreadIdFromInstanceId(instanceId: string): ThreadId {
-  const [threadId] = instanceId.split(":browser:");
+  const threadId = resolveBrowserThreadIdFromScopeId(instanceId);
   return ThreadId.makeUnsafe(threadId ?? instanceId);
 }
 
@@ -1378,6 +1389,19 @@ function useChatViewComponent({
   const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
   const [bottomPanelResizing, setBottomPanelResizing] = useState(false);
   const [rightSidePanelResizing, setRightSidePanelResizing] = useState(false);
+  const windowStateInstanceId = useMemo(() => resolveEditorWindowStateInstanceId(), []);
+  const workspaceEditorStateInstanceId = useMemo(
+    () => `workspace-${windowStateInstanceId}`,
+    [windowStateInstanceId],
+  );
+  const rightPanelFallbackEditorStateInstanceId = useMemo(
+    () => `right-${windowStateInstanceId}`,
+    [windowStateInstanceId],
+  );
+  const bottomPanelFallbackEditorStateInstanceId = useMemo(
+    () => `bottom-${windowStateInstanceId}`,
+    [windowStateInstanceId],
+  );
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<PanelTabOrderEntry[]>(() => [
     "summary",
     ...(rightSidePanelEditorOpen ? (["editor"] as const) : []),
@@ -1385,7 +1409,7 @@ function useChatViewComponent({
   ]);
   const [bottomPanelTabOrder, setBottomPanelTabOrder] = useState<PanelTabOrderEntry[]>([]);
   const [rightPanelEditorTabs, setRightPanelEditorTabs] = useState<PanelEditorTab[]>(() =>
-    rightSidePanelEditorOpen ? [createPanelEditorTab()] : [],
+    rightSidePanelEditorOpen ? [createPanelEditorTab(rightPanelFallbackEditorStateInstanceId)] : [],
   );
   const [activeRightPanelEditorTabId, setActiveRightPanelEditorTabId] = useState<string | null>(
     () => (rightSidePanelEditorOpen ? (rightPanelEditorTabs[0]?.id ?? null) : null),
@@ -2596,10 +2620,10 @@ function useChatViewComponent({
     }
     lastBrowserPointerClearedTurnRef.current = key;
     browserControllerByThreadRef.current
-      .get(resolveBrowserInstanceId(activeThread.id, "right"))
+      .get(resolveBrowserInstanceId(activeThread.id, "right", windowStateInstanceId))
       ?.clearAgentPointers();
     browserControllerByThreadRef.current
-      .get(resolveBrowserInstanceId(activeThread.id, "bottom"))
+      .get(resolveBrowserInstanceId(activeThread.id, "bottom", windowStateInstanceId))
       ?.clearAgentPointers();
   }, [
     activeLatestTurn?.completedAt,
@@ -2607,6 +2631,7 @@ function useChatViewComponent({
     activeForSideEffects,
     activeThread?.id,
     latestTurnSettled,
+    windowStateInstanceId,
   ]);
 
   const hasThreadStarted = threadHasStarted(activeThread);
@@ -3458,10 +3483,10 @@ function useChatViewComponent({
     : workspaceMode;
   const browserOpen = browserMode !== "closed";
   const rightBrowserInstanceId = activeThreadId
-    ? resolveBrowserInstanceId(activeThreadId, "right")
+    ? resolveBrowserInstanceId(activeThreadId, "right", windowStateInstanceId)
     : null;
   const bottomBrowserInstanceId = activeThreadId
-    ? resolveBrowserInstanceId(activeThreadId, "bottom")
+    ? resolveBrowserInstanceId(activeThreadId, "bottom", windowStateInstanceId)
     : null;
   const rightBrowserOpen = browserOpen;
   const anyBrowserOpen = rightBrowserOpen || bottomPanelBrowserOpen;
@@ -4734,7 +4759,11 @@ function useChatViewComponent({
   }, [appendRightPanelTabOrder, setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
   const ensureBrowserBridgeController = useCallback(
     async (requestThreadId: ThreadId): Promise<InAppBrowserController> => {
-      const requestBrowserInstanceId = resolveBrowserInstanceId(requestThreadId, "right");
+      const requestBrowserInstanceId = resolveBrowserInstanceId(
+        requestThreadId,
+        "right",
+        windowStateInstanceId,
+      );
       const existingController = browserControllerByThreadRef.current.get(requestBrowserInstanceId);
       if (existingController) {
         return existingController;
@@ -4760,7 +4789,7 @@ function useChatViewComponent({
 
       throw new Error("Ace browser bridge could not attach to the in-app browser.");
     },
-    [activeThreadId, ensureBrowserRightSidePanelOpenWidth, openBrowser],
+    [activeThreadId, ensureBrowserRightSidePanelOpenWidth, openBrowser, windowStateInstanceId],
   );
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
@@ -4897,7 +4926,7 @@ function useChatViewComponent({
         return;
       }
       if (rightPanelEditorTabs.length === 0) {
-        onNewRightSidePanelEditorTab();
+        onNewRightSidePanelEditorTab(rightPanelFallbackEditorStateInstanceId);
         return;
       }
       const activeEditorTabId = activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? null;
@@ -4913,6 +4942,7 @@ function useChatViewComponent({
       activeRightPanelEditorTabId,
       appendRightPanelTabOrder,
       onNewRightSidePanelEditorTab,
+      rightPanelFallbackEditorStateInstanceId,
       rightPanelEditorTabs,
       setRightPanelEditorTabs,
       setRightSidePanelEditorOpen,
@@ -5202,7 +5232,7 @@ function useChatViewComponent({
         return;
       }
       if (bottomPanelEditorTabs.length === 0) {
-        onNewBottomPanelEditorTab();
+        onNewBottomPanelEditorTab(bottomPanelFallbackEditorStateInstanceId);
         return;
       }
       const activeEditorTabId =
@@ -5216,6 +5246,7 @@ function useChatViewComponent({
     [
       activeBottomPanelEditorTabId,
       appendBottomPanelTabOrder,
+      bottomPanelFallbackEditorStateInstanceId,
       bottomPanelEditorTabs,
       onNewBottomPanelEditorTab,
       setBottomPanelEditorTabs,
@@ -9746,6 +9777,7 @@ function useChatViewComponent({
         activeThreadId: activeThread.id,
         branchToolbarProps,
         branchList: branchesQuery.data ?? null,
+        editorStateInstanceId: workspaceEditorStateInstanceId,
         gitCwd,
         gitStatus: workspaceStatusQuery.data ?? null,
         gitStatusError:
@@ -10619,6 +10651,7 @@ function useChatViewComponent({
                       keybindings={keybindings}
                       browserOpen={anyBrowserOpen}
                       workspaceMode={workspaceMode}
+                      editorStateInstanceId={workspaceEditorStateInstanceId}
                       terminalOpen={terminalState.terminalOpen}
                       threadId={activeThread.id}
                       worktreePath={activeThread.worktreePath ?? null}
@@ -10820,6 +10853,7 @@ function useChatViewComponent({
                             keybindings={keybindings}
                             browserOpen={anyBrowserOpen}
                             workspaceMode={workspaceMode}
+                            editorStateInstanceId={workspaceEditorStateInstanceId}
                             terminalOpen={terminalState.terminalOpen}
                             threadId={activeThread.id}
                             worktreePath={activeThread.worktreePath ?? null}
@@ -10967,7 +11001,10 @@ function useChatViewComponent({
                                 }
                               >
                                 <ThreadWorkspaceEditor
-                                  key={activeRightPanelEditorTabId ?? "right-panel-editor"}
+                                  key={
+                                    activeRightPanelEditorTabId ??
+                                    rightPanelFallbackEditorStateInstanceId
+                                  }
                                   availableEditors={availableEditors}
                                   branch={activeThreadBranchName}
                                   connectionUrl={activeServerConnectionUrl}
@@ -10976,7 +11013,10 @@ function useChatViewComponent({
                                   keybindings={keybindings}
                                   browserOpen={anyBrowserOpen}
                                   workspaceMode="split"
-                                  editorStateInstanceId={activeRightPanelEditorTabId ?? "right"}
+                                  editorStateInstanceId={
+                                    activeRightPanelEditorTabId ??
+                                    rightPanelFallbackEditorStateInstanceId
+                                  }
                                   terminalOpen={terminalState.terminalOpen}
                                   threadId={activeThread.id}
                                   worktreePath={activeThread.worktreePath ?? null}
@@ -11123,7 +11163,9 @@ function useChatViewComponent({
                         }
                       >
                         <ThreadWorkspaceEditor
-                          key={activeBottomPanelEditorTabId ?? "bottom-panel-editor"}
+                          key={
+                            activeBottomPanelEditorTabId ?? bottomPanelFallbackEditorStateInstanceId
+                          }
                           availableEditors={availableEditors}
                           branch={activeThreadBranchName}
                           connectionUrl={activeServerConnectionUrl}
@@ -11132,7 +11174,9 @@ function useChatViewComponent({
                           keybindings={keybindings}
                           browserOpen={anyBrowserOpen}
                           workspaceMode="split"
-                          editorStateInstanceId={activeBottomPanelEditorTabId ?? "bottom"}
+                          editorStateInstanceId={
+                            activeBottomPanelEditorTabId ?? bottomPanelFallbackEditorStateInstanceId
+                          }
                           terminalOpen={terminalState.terminalOpen}
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}

@@ -53,6 +53,7 @@ import {
 
 import {
   resolveEditorInstanceStateScopeId,
+  resolveEditorWindowStateInstanceId,
   type ThreadEditorRowState,
   MAX_THREAD_EDITOR_PANES,
   selectThreadEditorState,
@@ -91,7 +92,7 @@ import {
   projectReadFileQueryOptions,
 } from "~/lib/projectReactQuery";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
@@ -172,6 +173,11 @@ const WORKSPACE_EXPLORER_DROP_ROW_CLASS =
   "bg-[color-mix(in_srgb,var(--primary)_24%,transparent)] text-foreground";
 const WORKSPACE_EXPLORER_IDLE_ROW_CLASS =
   "text-muted-foreground/90 hover:bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] hover:text-foreground";
+
+function createFallbackEditorStateInstanceId(): string {
+  return `surface-${resolveEditorWindowStateInstanceId()}-${randomUUID()}`;
+}
+
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -1094,10 +1100,16 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   workspaceMode?: ThreadWorkspaceMode | undefined;
   onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
-  const editorStateInstanceId =
+  const fallbackEditorStateInstanceIdRef = useRef<string | null>(null);
+  if (fallbackEditorStateInstanceIdRef.current === null) {
+    fallbackEditorStateInstanceIdRef.current = createFallbackEditorStateInstanceId();
+  }
+  const inputEditorStateInstanceId =
     typeof inputProps.editorStateInstanceId === "string"
       ? inputProps.editorStateInstanceId.trim() || undefined
       : undefined;
+  const editorStateInstanceId =
+    inputEditorStateInstanceId ?? fallbackEditorStateInstanceIdRef.current;
   const editorStateScopeId = useMemo(
     () =>
       resolveEditorInstanceStateScopeId({

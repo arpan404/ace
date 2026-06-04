@@ -1134,7 +1134,24 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
           {
             capabilities: {
               textDocument: {
+                completion: {
+                  completionItem: {
+                    documentationFormat: ["markdown", "plaintext"],
+                  },
+                  dynamicRegistration: false,
+                },
+                definition: {
+                  dynamicRegistration: false,
+                  linkSupport: true,
+                },
+                hover: {
+                  contentFormat: ["markdown", "plaintext"],
+                  dynamicRegistration: false,
+                },
                 publishDiagnostics: {},
+                references: {
+                  dynamicRegistration: false,
+                },
                 synchronization: {
                   didClose: true,
                   didSave: false,
@@ -1519,60 +1536,60 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     },
   );
 
-  const hover: WorkspaceEditorShape["hover"] = Effect.fn("WorkspaceEditor.hover")(function* (
-    input,
-  ) {
-    const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
-    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
-      workspaceRoot: normalizedWorkspaceRoot,
-      relativePath: input.relativePath,
-    });
-    const resolved = yield* resolveServerForWorkspacePath(
-      normalizedWorkspaceRoot,
-      target.relativePath,
-      "workspaceEditor.hover",
-    );
-    if (!resolved) {
+  const hover: WorkspaceEditorShape["hover"] = Effect.fn("WorkspaceEditor.hover")(
+    function* (input) {
+      const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+      const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: normalizedWorkspaceRoot,
+        relativePath: input.relativePath,
+      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.hover",
+      );
+      if (!resolved) {
+        return {
+          relativePath: target.relativePath,
+          contents: [],
+        } satisfies WorkspaceEditorHoverResult;
+      }
+      const { languageId, server: languageServer } = resolved;
+      const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+      const uri = pathToFileURL(target.absolutePath).toString();
+      const hoverResult = yield* session.mutex.withPermits(1)(
+        Effect.tryPromise({
+          try: async () => {
+            await syncSessionDocument(session, uri, languageId, input.contents, {
+              waitForDiagnostics: false,
+            });
+            const result = await sendLspRequest(
+              session,
+              "textDocument/hover",
+              {
+                textDocument: { uri },
+                position: { line: input.line, character: input.column },
+              },
+              LSP_REQUEST_TIMEOUT_MS,
+            );
+            return parseLspHover(result, target.relativePath);
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: `Workspace hover backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+              operation: "workspaceEditor.hover",
+              relativePath: target.relativePath,
+            }),
+        }),
+      );
       return {
         relativePath: target.relativePath,
-        contents: [],
+        ...hoverResult,
       } satisfies WorkspaceEditorHoverResult;
-    }
-    const { languageId, server: languageServer } = resolved;
-    const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
-    const uri = pathToFileURL(target.absolutePath).toString();
-    const hoverResult = yield* session.mutex.withPermits(1)(
-      Effect.tryPromise({
-        try: async () => {
-          await syncSessionDocument(session, uri, languageId, input.contents, {
-            waitForDiagnostics: false,
-          });
-          const result = await sendLspRequest(
-            session,
-            "textDocument/hover",
-            {
-              textDocument: { uri },
-              position: { line: input.line, character: input.column },
-            },
-            LSP_REQUEST_TIMEOUT_MS,
-          );
-          return parseLspHover(result, target.relativePath);
-        },
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: `Workspace hover backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
-            operation: "workspaceEditor.hover",
-            relativePath: target.relativePath,
-          }),
-      }),
-    );
-    return {
-      relativePath: target.relativePath,
-      ...hoverResult,
-    } satisfies WorkspaceEditorHoverResult;
-  });
+    },
+  );
 
   const references: WorkspaceEditorShape["references"] = Effect.fn("WorkspaceEditor.references")(
     function* (input) {

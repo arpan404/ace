@@ -378,6 +378,10 @@ function shouldAddWorkspaceSelectionRange(event: MouseEvent): boolean {
   return isMacLikePlatform() ? event.metaKey : event.ctrlKey;
 }
 
+function isWorkspaceAddCursorClick(event: MouseEvent): boolean {
+  return event.button === 0 && event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey;
+}
+
 function isWorkspaceDefinitionClick(event: MouseEvent): boolean {
   if (event.button !== 0 || event.altKey || event.shiftKey) {
     return false;
@@ -420,10 +424,7 @@ function workspaceIdentifierRangeAt(
   }
 
   let startOffset = lineOffset;
-  while (
-    startOffset > 0 &&
-    isWorkspaceIdentifierCharacter(line.text[startOffset - 1] ?? "")
-  ) {
+  while (startOffset > 0 && isWorkspaceIdentifierCharacter(line.text[startOffset - 1] ?? "")) {
     startOffset -= 1;
   }
 
@@ -516,11 +517,32 @@ function requestDefinitionAtPosition(
   return true;
 }
 
-function appendWorkspaceHoverCodeBlock(
-  parent: HTMLElement,
-  code: string,
-  language?: string,
-): void {
+function addWorkspaceCursorAtPosition(view: EditorView, offset: number): boolean {
+  const cursorOffset = Math.max(0, Math.min(offset, view.state.doc.length));
+  if (
+    view.state.selection.ranges.some(
+      (range) => range.empty && range.from === cursorOffset && range.to === cursorOffset,
+    )
+  ) {
+    view.focus();
+    return true;
+  }
+
+  const nextCursor = EditorSelection.cursor(cursorOffset);
+  const sortedRanges = [...view.state.selection.ranges, nextCursor].toSorted(
+    (left, right) => left.from - right.from || left.to - right.to,
+  );
+  const mainIndex = sortedRanges.indexOf(nextCursor);
+  view.dispatch({
+    selection: EditorSelection.create(sortedRanges, mainIndex),
+    scrollIntoView: true,
+    userEvent: "select.pointer",
+  });
+  view.focus();
+  return true;
+}
+
+function appendWorkspaceHoverCodeBlock(parent: HTMLElement, code: string, language?: string): void {
   const wrapper = document.createElement("div");
   wrapper.className = "ace-workspace-hover-code";
   if (language) {
@@ -873,6 +895,15 @@ function createEditorExtensions(input: {
         input.callbacksRef.current.onFocus();
       },
       mousedown(event, view) {
+        if (isWorkspaceAddCursorClick(event)) {
+          const offset = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (offset === null) {
+            return false;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          return addWorkspaceCursorAtPosition(view, offset);
+        }
         if (!isWorkspaceDefinitionClick(event)) {
           return false;
         }
