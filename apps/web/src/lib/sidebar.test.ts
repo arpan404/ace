@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRenderedSidebarThreadGroups,
   createThreadJumpHintVisibilityController,
+  deriveFallbackSidebarVirtualItems,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
   getFallbackThreadIdAfterDelete,
@@ -18,6 +19,7 @@ import {
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
+  shouldUseFallbackSidebarVirtualItems,
   sortProjectsForSidebar,
   sortThreadsForSidebar,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
@@ -153,6 +155,63 @@ describe("shouldClearThreadSelectionOnMouseDown", () => {
     } as unknown as HTMLElement;
 
     expect(shouldClearThreadSelectionOnMouseDown(unrelated)).toBe(true);
+  });
+});
+
+describe("sidebar project virtualizer fallback", () => {
+  it("derives visible project rows relative to the project list scroll margin", () => {
+    const items = deriveFallbackSidebarVirtualItems({
+      rowCount: 100,
+      estimateSize: () => 32,
+      getItemKey: (index) => `project-${index}`,
+      overscan: 2,
+      scrollMargin: 200,
+      scrollTop: 1_000,
+      viewportHeight: 320,
+    });
+
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]?.index).toBeLessThanOrEqual(13);
+    expect(items.at(-1)?.index).toBeGreaterThanOrEqual(47);
+    expect(items.every((item) => item.start >= 200 && item.end > item.start)).toBe(true);
+    expect(items[0] ? items[0].start - 200 : 0).toBe((items[0]?.index ?? 0) * 32);
+  });
+
+  it("uses fallback rows when no virtual rows have mounted yet", () => {
+    expect(
+      shouldUseFallbackSidebarVirtualItems({
+        rowCount: 40,
+        scrollMargin: 160,
+        scrollTop: 800,
+        totalSize: 1_600,
+        viewportHeight: 300,
+        virtualItems: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("uses fallback rows when stale virtual rows miss the viewport", () => {
+    expect(
+      shouldUseFallbackSidebarVirtualItems({
+        rowCount: 40,
+        scrollMargin: 160,
+        scrollTop: 1_000,
+        totalSize: 1_600,
+        viewportHeight: 300,
+        virtualItems: [{ start: 160, end: 240 }],
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldUseFallbackSidebarVirtualItems({
+        rowCount: 40,
+        scrollMargin: 160,
+        scrollTop: 1_000,
+        totalSize: 1_600,
+        viewportHeight: 300,
+        virtualItems: [{ start: 960, end: 1_040 }],
+      }),
+    ).toBe(false);
   });
 });
 

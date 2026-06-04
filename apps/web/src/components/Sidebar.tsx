@@ -147,8 +147,10 @@ import {
   resolveSidebarNewThreadOptions,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
+  shouldUseFallbackSidebarVirtualItems,
   sortThreadsForSidebar,
   useThreadJumpHintVisibility,
+  deriveFallbackSidebarVirtualItems,
 } from "../lib/sidebar";
 import {
   deriveSidebarLocalProjectThreadGroup,
@@ -225,6 +227,8 @@ const SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX = 28;
 const SIDEBAR_PROJECT_THREAD_ROW_ESTIMATE_PX = 28;
 const SIDEBAR_PROJECT_AUXILIARY_ROW_ESTIMATE_PX = 24;
 const SIDEBAR_PROJECT_CHILD_ROW_GAP_PX = 2;
+const SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN = 8;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
 const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
@@ -5164,15 +5168,78 @@ function useSidebarComponent() {
     () => sidebarProjectListItems.map(getSidebarProjectListItemLayoutSignature).join("|"),
     [sidebarProjectListItems],
   );
+  const sidebarProjectListItemCount = projectsSectionExpanded ? sidebarProjectListItems.length : 0;
+  const estimateSidebarProjectListItemSizeByIndex = useCallback(
+    (index: number) => estimateSidebarProjectListItemSize(sidebarProjectListItems[index]),
+    [sidebarProjectListItems],
+  );
+  const getSidebarProjectListItemKey = useCallback(
+    (index: number): VirtualItem["key"] => sidebarProjectListItems[index]?.key ?? index,
+    [sidebarProjectListItems],
+  );
+  const estimatedSidebarProjectListTotalSize = useMemo(
+    () =>
+      sidebarProjectListItems.reduce(
+        (total, item) => total + estimateSidebarProjectListItemSize(item),
+        0,
+      ),
+    [sidebarProjectListItems],
+  );
   const sidebarProjectListVirtualizer = useVirtualizer({
-    count: projectsSectionExpanded ? sidebarProjectListItems.length : 0,
-    estimateSize: (index) => estimateSidebarProjectListItemSize(sidebarProjectListItems[index]),
-    getItemKey: (index) => sidebarProjectListItems[index]?.key ?? index,
+    count: sidebarProjectListItemCount,
+    estimateSize: estimateSidebarProjectListItemSizeByIndex,
+    getItemKey: getSidebarProjectListItemKey,
     getScrollElement: () => sidebarContentScrollRef.current,
-    overscan: 8,
+    initialRect: { width: 0, height: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX },
+    overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
     scrollMargin: sidebarProjectListScrollMargin,
+    useAnimationFrameWithResizeObserver: true,
   });
   const virtualSidebarProjectRows = sidebarProjectListVirtualizer.getVirtualItems();
+  const sidebarProjectListTotalSize = Math.max(
+    sidebarProjectListVirtualizer.getTotalSize(),
+    estimatedSidebarProjectListTotalSize,
+  );
+  const fallbackVirtualSidebarProjectRows = useMemo<VirtualItem[]>(() => {
+    const scrollElement = sidebarContentScrollRef.current;
+    const scrollTop = scrollElement?.scrollTop ?? 0;
+    const viewportHeight =
+      scrollElement?.clientHeight ?? SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX;
+    if (
+      !shouldUseFallbackSidebarVirtualItems({
+        rowCount: sidebarProjectListItemCount,
+        scrollMargin: sidebarProjectListScrollMargin,
+        scrollTop,
+        totalSize: sidebarProjectListTotalSize,
+        viewportHeight,
+        virtualItems: virtualSidebarProjectRows,
+      })
+    ) {
+      return [];
+    }
+
+    return deriveFallbackSidebarVirtualItems<VirtualItem["key"]>({
+      rowCount: sidebarProjectListItemCount,
+      estimateSize: estimateSidebarProjectListItemSizeByIndex,
+      getItemKey: getSidebarProjectListItemKey,
+      overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
+      scrollMargin: sidebarProjectListScrollMargin,
+      scrollTop,
+      viewportHeight,
+      sizeFallback: SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX,
+    });
+  }, [
+    estimateSidebarProjectListItemSizeByIndex,
+    getSidebarProjectListItemKey,
+    sidebarProjectListItemCount,
+    sidebarProjectListScrollMargin,
+    sidebarProjectListTotalSize,
+    virtualSidebarProjectRows,
+  ]);
+  const renderedVirtualSidebarProjectRows =
+    fallbackVirtualSidebarProjectRows.length > 0
+      ? fallbackVirtualSidebarProjectRows
+      : virtualSidebarProjectRows;
 
   const measureSidebarProjectListScrollMargin = useCallback(() => {
     const scrollElement = sidebarContentScrollRef.current;
@@ -7168,13 +7235,13 @@ function useSidebarComponent() {
                       <SidebarMenu
                         ref={setSidebarProjectListElement}
                         className="relative gap-0"
-                        style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
+                        style={{ height: `${sidebarProjectListTotalSize}px` }}
                       >
                         <SortableContext
                           items={filteredLocalProjectIds}
                           strategy={verticalListSortingStrategy}
                         >
-                          {virtualSidebarProjectRows.map((virtualRow) =>
+                          {renderedVirtualSidebarProjectRows.map((virtualRow) =>
                             renderVirtualProjectListItem(virtualRow),
                           )}
                         </SortableContext>
@@ -7184,9 +7251,9 @@ function useSidebarComponent() {
                     <SidebarMenu
                       ref={setSidebarProjectListElement}
                       className="relative gap-0"
-                      style={{ height: `${sidebarProjectListVirtualizer.getTotalSize()}px` }}
+                      style={{ height: `${sidebarProjectListTotalSize}px` }}
                     >
-                      {virtualSidebarProjectRows.map((virtualRow) =>
+                      {renderedVirtualSidebarProjectRows.map((virtualRow) =>
                         renderVirtualProjectListItem(virtualRow),
                       )}
                     </SidebarMenu>
