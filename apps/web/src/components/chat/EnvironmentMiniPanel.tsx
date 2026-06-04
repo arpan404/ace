@@ -100,7 +100,7 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
   subagents: false,
 };
 
-const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
+export const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   actions: Schema.Boolean,
   environment: Schema.Boolean,
   notes: Schema.Boolean,
@@ -108,6 +108,10 @@ const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   progress: Schema.Boolean,
   subagents: Schema.Boolean,
 });
+
+export function resolveEnvironmentPanelGroupStorageKey(threadId: ThreadId): string {
+  return `${ENVIRONMENT_PANEL_GROUP_STORAGE_KEY}:${threadId}`;
+}
 
 function resolveEnvironmentPanelGroupOpen(
   state: EnvironmentPanelGroupOpenState,
@@ -259,11 +263,12 @@ export const EnvironmentMiniPanel = forwardRef<
     workspaceMode: ThreadWorkspaceMode;
   }
 >(function EnvironmentMiniPanel(props, ref) {
+  const activeThreadId = String(props.activeThreadId);
   const [groupOpenState, setGroupOpenState] = useLocalStorage<
     EnvironmentPanelGroupOpenState,
     EnvironmentPanelGroupOpenState
   >(
-    ENVIRONMENT_PANEL_GROUP_STORAGE_KEY,
+    resolveEnvironmentPanelGroupStorageKey(props.activeThreadId),
     DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,
     EnvironmentPanelGroupOpenStateSchema,
   );
@@ -276,7 +281,6 @@ export const EnvironmentMiniPanel = forwardRef<
     EMPTY_PINNED_MESSAGES,
     PinnedMessagesSchema,
   );
-  const activeThreadId = String(props.activeThreadId);
   const setGroupOpen = (groupId: EnvironmentPanelGroupId, open: boolean) => {
     setGroupOpenState((current) => ({
       ...DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE,

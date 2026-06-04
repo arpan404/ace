@@ -3,8 +3,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { setLocalStorageItem } from "../../hooks/useLocalStorage";
 import type { ActivePlanState } from "../../session-logic";
-import { EnvironmentMiniPanel } from "./EnvironmentMiniPanel";
+import {
+  EnvironmentMiniPanel,
+  EnvironmentPanelGroupOpenStateSchema,
+  resolveEnvironmentPanelGroupStorageKey,
+} from "./EnvironmentMiniPanel";
 
 const activePlan: ActivePlanState = {
   createdAt: "2026-06-03T00:00:00.000Z",
@@ -18,6 +23,45 @@ const activePlan: ActivePlanState = {
 };
 
 describe("EnvironmentMiniPanel", () => {
+  const renderPanel = (props?: Partial<Parameters<typeof EnvironmentMiniPanel>[0]>) => {
+    const queryClient = new QueryClient();
+    return renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentMiniPanel
+          activeProjectScripts={undefined}
+          activePlan={null}
+          activeSubagentThreadId={null}
+          activeThreadId={"thread-1" as ThreadId}
+          branchToolbarProps={null}
+          editorStateInstanceId="test-workspace-editor"
+          gitCwd="/repo"
+          gitStatus={null}
+          gitStatusError={null}
+          branchList={null}
+          isGitRepo={true}
+          keybindings={[]}
+          layoutMode="inline"
+          onAddProjectScript={() => Promise.resolve()}
+          onDeleteProjectScript={() => Promise.resolve()}
+          onOpenDiffPanel={() => undefined}
+          onOpenEnvironmentSettings={() => undefined}
+          onJumpToMessage={() => undefined}
+          onOpenSummaryPanel={() => undefined}
+          onRunProjectScript={() => undefined}
+          onSelectSubagentThread={() => undefined}
+          onSubagentPanelOpen={() => undefined}
+          onUpdateProjectScript={() => Promise.resolve()}
+          onWorkspaceModeChange={() => undefined}
+          preferredScriptId={null}
+          subagentThreads={[]}
+          workspaceChangeStat={null}
+          workspaceMode="chat"
+          {...props}
+        />
+      </QueryClientProvider>,
+    );
+  };
+
   it("renders active todo progress with loading and completed states", () => {
     const markup = renderToStaticMarkup(
       <EnvironmentMiniPanel
@@ -112,5 +156,25 @@ describe("EnvironmentMiniPanel", () => {
 
     expect(markup).toContain(">Clean<");
     expect(markup).not.toContain("Checking changes");
+  });
+
+  it("keeps group open state isolated by thread", () => {
+    setLocalStorageItem(
+      resolveEnvironmentPanelGroupStorageKey("thread-1" as ThreadId),
+      {
+        actions: false,
+        environment: false,
+        notes: false,
+        pinnedMessages: false,
+        progress: true,
+        subagents: false,
+      },
+      EnvironmentPanelGroupOpenStateSchema,
+    );
+
+    expect(renderPanel({ activeThreadId: "thread-1" as ThreadId })).not.toContain(
+      "Checking changes",
+    );
+    expect(renderPanel({ activeThreadId: "thread-2" as ThreadId })).toContain("Checking changes");
   });
 });
