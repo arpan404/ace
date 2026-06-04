@@ -83,7 +83,8 @@ const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
   "border-border/50 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
 const SETTINGS_NEUTRAL_SWITCH_CLASS_NAME =
   "data-checked:border-border/45 data-checked:bg-foreground/55";
-const DEVICE_SUBPANEL_CLASS_NAME = "py-1 first:pt-0";
+const DEVICE_SUBPANEL_CLASS_NAME =
+  "rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-3 transition-colors duration-150 hover:bg-foreground/[0.035] sm:px-3";
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
 const DEVICE_META_TEXT_CLASS_NAME = "text-[11px] leading-relaxed text-muted-foreground/62";
 
@@ -303,9 +304,9 @@ function DeviceSection({
 }) {
   return (
     <section className="min-w-0">
-      <div className="flex min-w-0 flex-col gap-2.5 px-1 pb-2 sm:flex-row sm:items-end sm:justify-between sm:px-0">
+      <div className="flex min-w-0 flex-col gap-2.5 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between sm:px-0">
         <div className="min-w-0 space-y-1.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[17px] leading-5 font-semibold tracking-normal text-foreground">
+          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
             <span className="shrink-0 text-muted-foreground/65">{icon}</span>
             <span className="min-w-0 truncate">{title}</span>
           </h2>
@@ -317,7 +318,7 @@ function DeviceSection({
         </div>
         {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
       </div>
-      <div className="text-card-foreground">{children}</div>
+      <div className="-mx-2 space-y-1 text-card-foreground sm:-mx-3">{children}</div>
     </section>
   );
 }
@@ -337,7 +338,7 @@ function DeviceSubPanel({
 }) {
   return (
     <div className={cn(DEVICE_SUBPANEL_CLASS_NAME, className)}>
-      <div className="flex min-w-0 flex-col gap-2 px-1 py-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <h3 className="text-[13.5px] leading-snug font-semibold tracking-normal text-foreground/92">
             {title}
@@ -346,7 +347,7 @@ function DeviceSubPanel({
         </div>
         {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
       </div>
-      <div className="min-w-0 px-1 pb-4">{children}</div>
+      <div className="min-w-0 pt-3">{children}</div>
     </div>
   );
 }

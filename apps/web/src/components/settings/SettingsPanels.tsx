@@ -67,7 +67,7 @@ import {
   setDesktopCliInstallStateQueryData,
   useDesktopCliInstallState,
 } from "../../lib/desktopCliInstallReactQuery";
-import { gitBranchesQueryOptions } from "../../lib/gitReactQuery";
+import { gitBranchesQueryOptions, gitWorktreeStatsQueryOptions } from "../../lib/gitReactQuery";
 import {
   DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
   formatProjectScriptEnv,
@@ -2521,7 +2521,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         return (
                           <div
                             key={tool.id}
-                            className="grid gap-2 rounded-[var(--control-radius)] px-3 py-2.5 transition-colors hover:bg-foreground/[0.025] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                            className="grid gap-2 rounded-[var(--control-radius)] bg-foreground/[0.012] px-3 py-2.5 transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
                           >
                             <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
                               {tool.label}
@@ -2569,7 +2569,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 rounded-[var(--control-radius)] py-3 transition-colors hover:bg-foreground/[0.025] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className="grid gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-3 py-3 transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -3245,6 +3245,44 @@ type EnvironmentWorktreeEntry = {
   readonly activeThread: Thread | null;
 };
 
+function getProjectWorktreePaths({
+  branches,
+  project,
+}: {
+  readonly branches: readonly { readonly worktreePath: string | null }[];
+  readonly project: Project;
+}): string[] {
+  const projectCwd = normalizeWorktreePath(project.cwd);
+  const paths = new Set<string>();
+
+  for (const branch of branches) {
+    const worktreePath = normalizeWorktreePath(branch.worktreePath);
+    if (!worktreePath || worktreePath === projectCwd) {
+      continue;
+    }
+    paths.add(worktreePath);
+  }
+
+  return Array.from(paths).toSorted((left, right) => left.localeCompare(right));
+}
+
+function formatStorageBytes(sizeBytes: number): string {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"] as const;
+  let value = sizeBytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
 function getEnvironmentWorktreeEntries({
   branches,
   project,
@@ -3577,7 +3615,7 @@ function ProjectEnvironmentWorktrees({
     <div id={`project-environment-${project.id}`} className="min-w-0">
       <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 px-1 pb-2 sm:px-0">
         <div className="min-w-0 space-y-1.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[17px] leading-5 font-semibold tracking-normal text-foreground">
+          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
             <Button
               type="button"
               size="icon-xs"
@@ -3682,14 +3720,14 @@ function ProjectEnvironmentWorktrees({
             No worktrees match that search.
           </div>
         ) : (
-          <div className="mt-3 space-y-1">
+          <div className="mt-3 space-y-1.5">
             {filteredWorktrees.map((worktree) => {
               const relatedChatCount = worktree.relatedThreads.length;
               const isActive = worktree.activeThread !== null;
               return (
                 <div
                   key={worktree.path}
-                  className="grid gap-3 rounded-[var(--control-radius)] py-2.5 transition-colors hover:bg-foreground/[0.025] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  className="grid gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-2.5 transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                 >
                   <div className="flex min-w-0 items-start gap-2.5">
                     <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
@@ -3762,7 +3800,6 @@ function ProjectEnvironmentWorktrees({
 
 export function EnvironmentSettingsPanel() {
   const projects = useStore((store) => store.projects);
-  const navigate = useNavigate();
   const [projectSearch, setProjectSearch] = useState("");
   const activeLocalProjects = useMemo(
     () =>
@@ -3826,44 +3863,9 @@ export function EnvironmentSettingsPanel() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {filteredProjects.map((project) => {
-                  const setupScript = setupProjectScript(project.scripts);
-                  const environmentCount = Object.keys(setupScript?.env ?? {}).length;
-                  return (
-                    <button
-                      key={project.id}
-                      type="button"
-                      className="grid w-full gap-3 rounded-[var(--control-radius)] px-2 py-3 text-left transition-colors hover:bg-accent/25 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
-                      onClick={() =>
-                        void navigate({
-                          to: "/settings/project-environment/$projectId",
-                          params: { projectId: project.id },
-                        })
-                      }
-                    >
-                      <ProjectAvatar project={project} />
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className="truncate text-[13px] font-medium text-foreground/90">
-                            {project.name}
-                          </span>
-                          {setupScript ? (
-                            <span className="text-[11px] text-muted-foreground/60">setup</span>
-                          ) : null}
-                          {environmentCount > 0 ? (
-                            <span className="text-[11px] text-muted-foreground/60">
-                              {environmentCount} env
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground/55">
-                          {project.cwd}
-                        </div>
-                      </div>
-                      <ArrowRightIcon className="size-3.5 text-muted-foreground/60 sm:justify-self-end" />
-                    </button>
-                  );
+                  return <EnvironmentProjectRow key={project.id} project={project} />;
                 })}
               </div>
             )}
@@ -3871,6 +3873,67 @@ export function EnvironmentSettingsPanel() {
         )}
       </SettingsSection>
     </SettingsPageContainer>
+  );
+}
+
+function EnvironmentProjectRow({ project }: { readonly project: Project }) {
+  const navigate = useNavigate();
+  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd));
+  const worktreePaths = useMemo(
+    () =>
+      getProjectWorktreePaths({
+        branches: branchesQuery.data?.branches ?? [],
+        project,
+      }),
+    [branchesQuery.data?.branches, project],
+  );
+  const statsQuery = useQuery(gitWorktreeStatsQueryOptions({ paths: worktreePaths }));
+  const setupScript = setupProjectScript(project.scripts);
+  const environmentCount = Object.keys(setupScript?.env ?? {}).length;
+  const totalStorageBytes =
+    statsQuery.data?.worktrees.reduce((total, worktree) => total + worktree.sizeBytes, 0) ?? 0;
+  const worktreeCountLabel = branchesQuery.isLoading
+    ? "Loading worktrees"
+    : branchesQuery.isError
+      ? "Worktrees unavailable"
+      : formatCountLabel(worktreePaths.length, "worktree");
+  const storageLabel =
+    worktreePaths.length === 0
+      ? "0 B"
+      : statsQuery.isLoading
+        ? "Calculating storage"
+        : formatStorageBytes(totalStorageBytes);
+
+  return (
+    <button
+      type="button"
+      className="grid w-full gap-3 rounded-[var(--control-radius)] bg-foreground/[0.012] px-2 py-3 text-left transition-colors hover:bg-foreground/[0.035] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+      onClick={() =>
+        void navigate({
+          to: "/settings/project-environment/$projectId",
+          params: { projectId: project.id },
+        })
+      }
+    >
+      <ProjectAvatar project={project} />
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-foreground/90">
+            {project.name}
+          </span>
+          {setupScript ? <span className="text-[11px] text-muted-foreground/60">setup</span> : null}
+          {environmentCount > 0 ? (
+            <span className="text-[11px] text-muted-foreground/60">{environmentCount} env</span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground/55">{project.cwd}</div>
+        <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/62">
+          <span>{worktreeCountLabel}</span>
+          <span>{storageLabel}</span>
+        </div>
+      </div>
+      <ArrowRightIcon className="size-3.5 text-muted-foreground/60 sm:justify-self-end" />
+    </button>
   );
 }
 
@@ -4070,7 +4133,7 @@ export function ArchivedThreadsPanel() {
       ) : (
         <section className="min-w-0">
           <div className="flex min-w-0 items-center justify-between gap-3 px-0 pb-2">
-            <h2 className="min-w-0 truncate text-[17px] leading-5 font-semibold tracking-normal text-foreground">
+            <h2 className="min-w-0 truncate text-[18px] leading-6 font-semibold tracking-normal text-foreground">
               <span className="min-w-0 truncate">Archived</span>
             </h2>
             {archivedGroups.length > 1 ? (
@@ -4099,7 +4162,7 @@ export function ArchivedThreadsPanel() {
               </Tooltip>
             ) : null}
           </div>
-          <div className="min-w-0 space-y-1">
+          <div className="min-w-0 space-y-1.5">
             {archivedGroups.map((group) => {
               const project = group.project;
               const isOpen = openGroupIds[project.id] !== false;

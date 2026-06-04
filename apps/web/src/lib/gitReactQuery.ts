@@ -27,6 +27,8 @@ export const gitQueryKeys = {
   ) => ["git", "working-tree-diff", connectionUrl ?? null, cwd, relativePath ?? null] as const,
   branches: (cwd: string | null, connectionUrl?: string | null) =>
     ["git", "branches", connectionUrl ?? null, cwd] as const,
+  worktreeStats: (paths: readonly string[], connectionUrl?: string | null) =>
+    ["git", "worktree-stats", connectionUrl ?? null, paths.join("\u0000")] as const,
   githubIssues: (
     cwd: string | null,
     limit: number,
@@ -130,6 +132,29 @@ export function gitBranchesQueryOptions(cwd: string | null, connectionUrl?: stri
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+  });
+}
+
+export function gitWorktreeStatsQueryOptions(input: {
+  connectionUrl?: string | null | undefined;
+  paths: readonly string[];
+}) {
+  const paths = Array.from(new Set(input.paths)).toSorted((left, right) =>
+    left.localeCompare(right),
+  );
+  return queryOptions({
+    queryKey: gitQueryKeys.worktreeStats(paths, input.connectionUrl),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (paths.length === 0) {
+        return { worktrees: [] };
+      }
+      return api.git.getWorktreeStats(withRpcRouteConnection({ paths }, input.connectionUrl));
+    },
+    enabled: paths.length > 0,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
 

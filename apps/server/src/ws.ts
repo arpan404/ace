@@ -1,4 +1,6 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { lstat, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -100,10 +102,24 @@ const PROVIDER_AUTO_REFRESH_TICK_MS = 60_000;
 const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 2 * 60 * 60_000;
 const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
 const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 15 * 60_000;
+const WORKTREE_SIZE_CACHE_TTL_MS = 5 * 60_000;
+const WORKTREE_SIZE_CACHE_MAX_ENTRIES = 512;
 const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
 );
+
+type WorktreeSizeStats = {
+  readonly exists: boolean;
+  readonly sizeBytes: number;
+};
+
+type WorktreeSizeCacheEntry = {
+  readonly expiresAt: number;
+  readonly promise: Promise<WorktreeSizeStats>;
+};
+
+const worktreeSizeCache = new Map<string, WorktreeSizeCacheEntry>();
 
 function normalizeStreamIdentity(input: {
   readonly clientSessionId?: string | undefined;
@@ -240,6 +256,48 @@ function replaceSnapshotThread(
         ? snapshot.updatedAt
         : nextThread.updatedAt,
   };
+}
+
+async function getDirectorySizeBytes(
+  path: string,
+): Promise<{ exists: boolean; sizeBytes: number }> {
+  let entryStat;
+  try {
+    entryStat = await lstat(path);
+  } catch {
+    return { exists: false, sizeBytes: 0 };
+  }
+
+  if (!entryStat.isDirectory()) {
+    return { exists: true, sizeBytes: entryStat.size };
+  }
+
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    return { exists: true, sizeBytes: entryStat.size };
+  }
+
+  let total = entryStat.size;
+  for (const entry of entries) {
+    const entryPath = join(path, entry.name);
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      total += (await getDirectorySizeBytes(entryPath)).sizeBytes;
+      continue;
+    }
+    if (entry.isFile()) {
+      try {
+        total += (await lstat(entryPath)).size;
+      } catch {
+        // Ignore files removed while scanning.
+      }
+    }
+  }
+  return { exists: true, sizeBytes: total };
 }
 
 const WsRpcLayer = WsRpcGroup.toLayer(
@@ -918,6 +976,22 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.gitPreparePullRequestThread]: (input) =>
         gitManager.preparePullRequestThread(input),
       [WS_METHODS.gitListBranches]: (input) => git.listBranches(input),
+      [WS_METHODS.gitGetWorktreeStats]: (input) =>
+        Effect.promise(async () => {
+          const uniquePaths = Array.from(new Set(input.paths));
+          return {
+            worktrees: await Promise.all(
+              uniquePaths.map(async (path) => {
+                const stats = await getDirectorySizeBytes(path);
+                return {
+                  path,
+                  sizeBytes: stats.sizeBytes,
+                  exists: stats.exists,
+                };
+              }),
+            ),
+          };
+        }),
       [WS_METHODS.gitListGitHubIssues]: (input) => gitManager.listGitHubIssues(input),
       [WS_METHODS.gitGetGitHubIssueThread]: (input) => gitManager.getGitHubIssueThread(input),
       [WS_METHODS.gitCreateWorktree]: (input) => git.createWorktree(input),

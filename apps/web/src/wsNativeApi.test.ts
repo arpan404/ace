@@ -77,6 +77,7 @@ const rpcClientMock = {
     readWorkingTreeDiff: vi.fn(),
     runStackedAction: vi.fn(),
     listBranches: vi.fn(),
+    getWorktreeStats: vi.fn(),
     listGitHubIssues: vi.fn(),
     getGitHubIssueThread: vi.fn(),
     createWorktree: vi.fn(),
