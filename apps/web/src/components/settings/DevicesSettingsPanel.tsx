@@ -73,9 +73,8 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer } from "./SettingsPanelPrimitives";
 
-const SETTINGS_INLINE_PANEL_CLASS_NAME = "border-b border-border/25 bg-transparent shadow-none";
-const SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME =
-  "border-b border-border/25 bg-transparent shadow-none";
+const SETTINGS_INLINE_PANEL_CLASS_NAME = "bg-transparent shadow-none";
+const SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME = "bg-transparent shadow-none";
 const SETTINGS_POPOVER_TRIGGER_CLASS_NAME =
   "inline-flex h-7 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const SETTINGS_NATIVE_SELECT_CLASS_NAME =
@@ -84,7 +83,7 @@ const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
   "border-border/50 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
 const SETTINGS_NEUTRAL_SWITCH_CLASS_NAME =
   "data-checked:border-border/45 data-checked:bg-foreground/55";
-const DEVICE_SUBPANEL_CLASS_NAME = "border-t border-border/30 first:border-t-0";
+const DEVICE_SUBPANEL_CLASS_NAME = "py-1 first:pt-0";
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
 const DEVICE_META_TEXT_CLASS_NAME = "text-[11px] leading-relaxed text-muted-foreground/62";
 
@@ -304,21 +303,21 @@ function DeviceSection({
 }) {
   return (
     <section className="min-w-0">
-      <div className="flex min-w-0 flex-col gap-2 px-1 pb-2 sm:flex-row sm:items-start sm:justify-between sm:px-0">
-        <div className="min-w-0 space-y-0.5">
-          <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
+      <div className="flex min-w-0 flex-col gap-2.5 px-1 pb-2 sm:flex-row sm:items-end sm:justify-between sm:px-0">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[17px] leading-5 font-semibold tracking-normal text-foreground">
             <span className="shrink-0 text-muted-foreground/65">{icon}</span>
             <span className="min-w-0 truncate">{title}</span>
           </h2>
           {description ? (
-            <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+            <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
               {description}
             </p>
           ) : null}
         </div>
         {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
       </div>
-      <div className="border-b border-border/35 text-card-foreground">{children}</div>
+      <div className="text-card-foreground">{children}</div>
     </section>
   );
 }
@@ -339,8 +338,10 @@ function DeviceSubPanel({
   return (
     <div className={cn(DEVICE_SUBPANEL_CLASS_NAME, className)}>
       <div className="flex min-w-0 flex-col gap-2 px-1 py-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-0.5">
-          <h3 className="text-[13px] leading-snug font-medium text-foreground/88">{title}</h3>
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-[13.5px] leading-snug font-semibold tracking-normal text-foreground/92">
+            {title}
+          </h3>
           {description ? <p className={DEVICE_META_TEXT_CLASS_NAME}>{description}</p> : null}
         </div>
         {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}

@@ -917,8 +917,8 @@ function useProviderSettingsSectionComponent({
         </div>
       }
     >
-      <div className="grid min-h-[34rem] md:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <div className="border-b border-border/28 py-2 md:border-r md:border-b-0 md:pr-2">
+      <div className="grid min-h-[34rem] gap-4 md:grid-cols-[13.5rem_minmax(0,1fr)]">
+        <div className="py-2 md:pr-2">
           <Button
             size="sm"
             variant="outline"
@@ -995,7 +995,7 @@ function useProviderSettingsSectionComponent({
         </div>
 
         <div className="min-w-0">
-          <div className="border-b border-border/28 px-0 py-3 md:pl-3">
+          <div className="px-0 py-3 md:pl-3">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="flex min-w-0 gap-3">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
@@ -1084,7 +1084,7 @@ function useProviderSettingsSectionComponent({
 
           <div className="space-y-0 md:pl-3">
             {selectedInstance ? (
-              <section className="border-b border-border/28">
+              <section>
                 <div className="px-0 py-3">
                   <div className="text-xs font-semibold text-foreground/90">Identity</div>
                 </div>
@@ -1110,7 +1110,7 @@ function useProviderSettingsSectionComponent({
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
                       <div className="mb-1 text-[11px] font-medium text-foreground/75">Icon</div>
-                      <div className="flex flex-wrap items-center gap-1 border-y border-border/24 py-1">
+                      <div className="flex flex-wrap items-center gap-1 py-1">
                         {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
                           const selectedIcon =
                             normalizeProviderInstanceBadgeIcon(selectedInstance.badgeIcon) ===
@@ -1148,7 +1148,7 @@ function useProviderSettingsSectionComponent({
 
                     <div>
                       <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
-                      <div className="flex flex-wrap items-center gap-1 border-y border-border/24 py-1">
+                      <div className="flex flex-wrap items-center gap-1 py-1">
                         {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
                           const selectedColor =
                             normalizeProviderInstanceBadgeColor(selectedInstance.badgeColor) ===
@@ -1189,7 +1189,7 @@ function useProviderSettingsSectionComponent({
               </section>
             ) : null}
 
-            <section className="border-b border-border/28">
+            <section>
               <div className="px-0 py-3">
                 <div className="text-xs font-semibold text-foreground/90">Launch</div>
               </div>
@@ -1301,7 +1301,7 @@ function useProviderSettingsSectionComponent({
               </div>
 
               {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
-                <div className="border-t border-border/24 py-3">
+                <div className="py-3">
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/55">
                     Runtimes
                   </div>
@@ -1323,7 +1323,7 @@ function useProviderSettingsSectionComponent({
                       return (
                         <div
                           key={`${providerCard.provider}:${runtime.id}`}
-                          className="flex items-center justify-between gap-3 border-t border-border/24 py-2 first:border-t-0"
+                          className="flex items-center justify-between gap-3 rounded-[var(--control-radius)] py-2 transition-colors hover:bg-foreground/[0.025]"
                         >
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -1385,7 +1385,7 @@ function useProviderSettingsSectionComponent({
               ) : null}
             </section>
 
-            <section className="border-b border-border/28">
+            <section>
               <div className="flex items-center justify-between gap-3 px-0 py-3">
                 <div>
                   <div className="text-xs font-semibold text-foreground/90">Models</div>
@@ -1399,7 +1399,7 @@ function useProviderSettingsSectionComponent({
                   ref={(element) => {
                     modelListRefs.current[providerCard.provider] = element;
                   }}
-                  className="max-h-56 border-y border-border/24"
+                  className="max-h-56"
                 >
                   {displayedModels.map((model) => {
                     const caps = model.capabilities;
@@ -1414,7 +1414,7 @@ function useProviderSettingsSectionComponent({
                     return (
                       <div
                         key={`${providerCard.provider}:${model.slug}`}
-                        className="flex min-h-9 items-center gap-2 border-t border-border/25 px-3 py-1.5 first:border-t-0"
+                        className="flex min-h-9 items-center gap-2 rounded-[var(--control-radius)] px-3 py-1.5 transition-colors hover:bg-foreground/[0.025]"
                       >
                         <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
                           {model.name}
@@ -1468,7 +1468,7 @@ function useProviderSettingsSectionComponent({
                   })}
                 </ScrollArea>
 
-                <div className="border-y border-border/24 py-3">
+                <div className="py-3">
                   <div className="text-xs font-medium text-foreground/85">Add custom model</div>
                   <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground/55">
                     Custom model slugs are saved with this provider after Save.
@@ -1527,7 +1527,7 @@ function useProviderSettingsSectionComponent({
         open={addProviderOpen}
       >
         <DialogPopup className="max-w-2xl" data-provider-settings-add-provider-modal="true">
-          <DialogHeader className="gap-2 border-b border-border/45 px-4 py-3 sm:px-5 sm:py-4">
+          <DialogHeader className="gap-2 px-4 py-3 sm:px-5 sm:py-4">
             <div className="flex items-center gap-2">
               <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
                 <AddProviderLogo className="size-4" />
@@ -1550,7 +1550,7 @@ function useProviderSettingsSectionComponent({
                 </DialogDescription>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-1 border-y border-border/24 py-1">
+            <div className="grid grid-cols-3 gap-1 py-1">
               {ADD_PROVIDER_STEPS.map((step, index) => {
                 const isActive = step.id === addProviderStep;
                 const isComplete = index < addProviderCurrentStepIndex;
@@ -1641,7 +1641,7 @@ function useProviderSettingsSectionComponent({
                       placeholder="Personal"
                     />
                   </label>
-                  <div className="flex items-end justify-between gap-3 border-y border-border/24 py-2">
+                  <div className="flex items-end justify-between gap-3 py-2">
                     <span className="text-xs font-medium text-foreground/80">Enabled</span>
                     <Switch
                       id="add-provider-enabled"
@@ -1663,7 +1663,7 @@ function useProviderSettingsSectionComponent({
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-foreground/75">Badge</div>
-                    <div className="flex flex-wrap items-center gap-1 border-y border-border/24 py-1">
+                    <div className="flex flex-wrap items-center gap-1 py-1">
                       {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
                         const selectedIcon =
                           normalizeProviderInstanceBadgeIcon(addProviderDraft.badgeIcon) ===
@@ -1705,7 +1705,7 @@ function useProviderSettingsSectionComponent({
 
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
-                    <div className="flex flex-wrap items-center gap-1 border-y border-border/24 py-1">
+                    <div className="flex flex-wrap items-center gap-1 py-1">
                       {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
                         const selectedColor =
                           normalizeProviderInstanceBadgeColor(addProviderDraft.badgeColor) ===
@@ -1844,7 +1844,7 @@ function useProviderSettingsSectionComponent({
 
             {addProviderStep === "review" ? (
               <div className="space-y-3" data-provider-setup-step="review">
-                <div className="flex items-center gap-3 border-y border-border/24 py-3">
+                <div className="flex items-center gap-3 py-3">
                   <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
                     <AddProviderLogo className="size-5" />
                     <ProviderInstanceBadge
@@ -1863,14 +1863,14 @@ function useProviderSettingsSectionComponent({
                   </div>
                 </div>
 
-                <div className="grid border-y border-border/24 text-xs sm:grid-cols-2">
-                  <div className="border-b border-border/30 px-3 py-2 sm:border-r sm:border-b-0">
+                <div className="grid gap-1 text-xs sm:grid-cols-2">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Binary</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderDraft.binaryPath.trim() || addProviderCard?.binaryPlaceholder}
                     </div>
                   </div>
-                  <div className="border-b border-border/30 px-3 py-2 sm:border-b-0">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">State path</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderPathLabel
@@ -1878,7 +1878,7 @@ function useProviderSettingsSectionComponent({
                         : "Provider default"}
                     </div>
                   </div>
-                  <div className="border-b border-border/30 px-3 py-2 sm:border-r sm:border-b-0">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Env</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderLaunchEnvCount === 0
@@ -1888,7 +1888,7 @@ function useProviderSettingsSectionComponent({
                           }`}
                     </div>
                   </div>
-                  <div className="px-3 py-2">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Status</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderDraft.enabled ? "Enabled" : "Off"}
@@ -1903,7 +1903,7 @@ function useProviderSettingsSectionComponent({
             ) : null}
           </DialogPanel>
 
-          <DialogFooter className="border-t border-border/45 bg-muted/18 px-4 py-3 sm:px-5">
+          <DialogFooter className="bg-muted/18 px-4 py-3 sm:px-5">
             <Button type="button" variant="ghost" onClick={closeAddProviderDialog}>
               Cancel
             </Button>

@@ -11,7 +11,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
   "border-border/45 bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.11] active:bg-foreground/[0.15]";
 export const SETTINGS_FIELD_SURFACE_CLASS_NAME = "border-border/45 bg-background/55 shadow-none";
-export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "border-border/25 bg-transparent shadow-none";
+export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
 
 function maskEmailAddress(value: string): string {
   const [localPart, domainPart] = value.split("@");
@@ -174,14 +174,14 @@ export function SettingsSection({
 }) {
   return (
     <section className={cn("min-w-0", contentClassName)}>
-      <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 px-0 pb-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h2 className="flex min-w-0 items-center gap-2 text-[14px] leading-none font-semibold tracking-normal text-foreground">
+      <div className="flex min-w-0 flex-col gap-2.5 px-0 pb-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[17px] leading-5 font-semibold tracking-normal text-foreground">
             {icon ? <span className="shrink-0 text-muted-foreground/50">{icon}</span> : null}
             <span className="min-w-0 truncate">{title}</span>
           </h2>
           {description ? (
-            <p className="max-w-3xl text-[11.5px] leading-relaxed text-muted-foreground/58">
+            <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
               {description}
             </p>
           ) : null}
@@ -190,12 +190,7 @@ export function SettingsSection({
           <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
         ) : null}
       </div>
-      <div
-        className={cn(
-          "relative min-w-0 border-b border-border/28 text-card-foreground",
-          "bg-transparent",
-        )}
-      >
+      <div className={cn("relative min-w-0 text-card-foreground", "bg-transparent")}>
         {children}
       </div>
     </section>
@@ -224,7 +219,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-border/24 py-4 first:border-t-0 sm:py-[1.125rem]",
+        "py-3.5 sm:py-4",
         tone === "warning" && "bg-warning/[0.025]",
         tone === "danger" && "bg-destructive/[0.025]",
       )}
@@ -232,7 +227,7 @@ export function SettingsRow({
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-5">
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 min-w-0 items-center gap-1.5">
-            <h3 className="min-w-0 text-[13px] leading-snug font-medium text-foreground/94">
+            <h3 className="min-w-0 text-[13.5px] leading-snug font-semibold tracking-normal text-foreground/92">
               {title}
             </h3>
             {resetAction ? (
@@ -242,7 +237,7 @@ export function SettingsRow({
             ) : null}
           </div>
           {description ? (
-            <p className="max-w-2xl text-[11.5px] leading-relaxed text-muted-foreground/58">
+            <p className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground/58">
               {description}
             </p>
           ) : null}

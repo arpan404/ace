@@ -14,7 +14,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
 }) {
   return (
     <div className={cn("min-w-0", className)} aria-label="Theme presets">
-      <div className="grid min-w-0 grid-cols-1 border-y border-border/24 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [@media(max-height:760px)]:sm:grid-cols-3 [@media(max-height:640px)]:sm:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [@media(max-height:760px)]:sm:grid-cols-3 [@media(max-height:640px)]:sm:grid-cols-4">
         {THEME_PRESET_OPTIONS.map((option) => {
           const active = value === option.id;
           const { preview } = option;

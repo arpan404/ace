@@ -50,15 +50,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
 
   return (
     <>
-      <SidebarContent className="gap-0 overflow-x-hidden px-2.5 pt-2.5" scrollFade={false}>
+      <SidebarContent className="gap-0 overflow-x-hidden px-2.5 pt-3" scrollFade={false}>
         {SETTINGS_NAV_GROUPS.map((group) => {
           const items = SETTINGS_NAV_ITEMS.filter((item) => item.group === group.id);
           return (
-            <SidebarGroup key={group.id} className="px-0 pt-4 pb-0">
-              <SidebarGroupLabel className="mb-1 h-5 px-1 py-0 text-[10px] font-semibold tracking-[0.16em] text-sidebar-foreground/38 uppercase">
+            <SidebarGroup key={group.id} className="px-0 pt-3 pb-0 first:pt-0">
+              <SidebarGroupLabel className="mb-1.5 h-4 px-1 py-0 text-[9.5px] font-semibold tracking-[0.14em] text-sidebar-foreground/40 uppercase">
                 {group.label}
               </SidebarGroupLabel>
-              <SidebarMenu className="gap-0">
+              <SidebarMenu className="gap-0.5">
                 {items.map((item) => {
                   const isActive = isSettingsNavItemActive(pathname, item);
                   const Icon = SETTINGS_NAV_ICON_BY_PATH[item.to];
@@ -72,10 +72,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                               aria-label={`${item.label} settings`}
                               isActive={isActive}
                               className={cn(
-                                "group/settings-nav relative h-8 items-center gap-2 rounded-lg border-0 px-2 text-left transition-colors duration-150 ease-out",
+                                "group/settings-nav relative h-8 items-center gap-2 rounded-[var(--control-radius)] border border-transparent px-2 text-left transition-colors duration-150 ease-out",
                                 isActive
-                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                  : "bg-transparent text-sidebar-foreground/62 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground",
+                                  ? "border-sidebar-border/50 bg-sidebar-accent/78 text-sidebar-accent-foreground"
+                                  : "bg-transparent text-sidebar-foreground/62 hover:border-sidebar-border/40 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground active:bg-sidebar-accent/70 active:text-sidebar-accent-foreground",
                               )}
                               onClick={() => void navigate({ to: item.to })}
                             >

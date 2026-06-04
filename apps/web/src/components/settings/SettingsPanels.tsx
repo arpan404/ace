@@ -2450,7 +2450,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
             >
               <div className="mt-3 space-y-3">
-                <div className="border-y border-border/24 py-2.5">
+                <div className="py-2">
                   <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     <div className="relative min-w-0">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
@@ -2508,20 +2508,20 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   </div>
                 </div>
 
-                <div className="border-y border-border/24">
+                <div>
                   {filteredLspCatalogTools.length === 0 ? (
                     <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
                       No language servers match this filter.
                     </div>
                   ) : (
-                    <div className="divide-y divide-border/32">
+                    <div className="space-y-1">
                       {filteredLspCatalogTools.map((tool) => {
                         const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
                         const versionLabel = resolveLspToolVersionLabel(tool);
                         return (
                           <div
                             key={tool.id}
-                            className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                            className="grid gap-2 rounded-[var(--control-radius)] px-3 py-2.5 transition-colors hover:bg-foreground/[0.025] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
                           >
                             <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
                               {tool.label}
@@ -2556,8 +2556,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 </div>
 
                 {lspCustomTools.length > 0 ? (
-                  <div className="border-y border-border/24">
-                    <div className="border-b border-border/24 py-2">
+                  <div>
+                    <div className="py-2">
                       <div className="text-[12px] font-medium text-foreground/90">
                         Custom servers
                       </div>
@@ -2565,11 +2565,11 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         Saved package definitions outside the curated catalog.
                       </div>
                     </div>
-                    <div className="divide-y divide-border/32">
+                    <div className="space-y-1">
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 border-t border-border/24 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className="grid gap-3 rounded-[var(--control-radius)] py-3 transition-colors hover:bg-foreground/[0.025] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -2600,8 +2600,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   </div>
                 ) : null}
 
-                <div className="border-y border-border/24">
-                  <div className="flex flex-col gap-2 border-b border-border/24 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="text-[12px] font-medium text-foreground/90">
                         Register custom server
@@ -2627,7 +2627,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
 
                   {isLspCustomFormOpen ? (
                     <div className="space-y-3 py-3">
-                      <div className="flex max-w-full gap-1 overflow-x-auto border-y border-border/24 py-1">
+                      <div className="flex max-w-full gap-1 overflow-x-auto py-1">
                         {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
                           <Button
                             key={installer}
@@ -3420,7 +3420,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       : { label: "Not saved", variant: "outline" as const };
 
   return (
-    <div className="border-t border-border/35 py-3">
+    <div className="py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
@@ -3575,9 +3575,9 @@ function ProjectEnvironmentWorktrees({
 
   return (
     <div id={`project-environment-${project.id}`} className="min-w-0">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 px-1 pb-3 sm:px-0">
-        <div className="min-w-0">
-          <h2 className="flex min-w-0 items-center gap-2 text-[13px] leading-snug font-semibold text-foreground/90">
+      <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 px-1 pb-2 sm:px-0">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[17px] leading-5 font-semibold tracking-normal text-foreground">
             <Button
               type="button"
               size="icon-xs"
@@ -3590,7 +3590,7 @@ function ProjectEnvironmentWorktrees({
             </Button>
             <span className="min-w-0 truncate">{project.name}</span>
           </h2>
-          <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
+          <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
             Configure this project's worktree setup command, environment variables, and cleanup.
           </p>
         </div>
@@ -3607,7 +3607,7 @@ function ProjectEnvironmentWorktrees({
       </div>
       <ProjectWorktreeSetupEditor project={project} />
 
-      <div className="border-t border-border/35 py-3">
+      <div className="py-3">
         <SettingsRow
           title="SSH key passphrase"
           description="Overrides the global Git SSH key passphrase for this project and its worktrees."
@@ -3640,7 +3640,7 @@ function ProjectEnvironmentWorktrees({
         />
       </div>
 
-      <div className="border-t border-border/35 py-3">
+      <div className="py-3">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:items-start">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
@@ -3682,14 +3682,14 @@ function ProjectEnvironmentWorktrees({
             No worktrees match that search.
           </div>
         ) : (
-          <div className="mt-3 divide-y divide-border/35 border-y border-border/35">
+          <div className="mt-3 space-y-1">
             {filteredWorktrees.map((worktree) => {
               const relatedChatCount = worktree.relatedThreads.length;
               const isActive = worktree.activeThread !== null;
               return (
                 <div
                   key={worktree.path}
-                  className="grid gap-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  className="grid gap-3 rounded-[var(--control-radius)] py-2.5 transition-colors hover:bg-foreground/[0.025] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                 >
                   <div className="flex min-w-0 items-start gap-2.5">
                     <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
@@ -3804,7 +3804,7 @@ export function EnvironmentSettingsPanel() {
           </Empty>
         ) : (
           <div>
-            <div className="border-y border-border/35 py-2.5">
+            <div className="py-2.5">
               <div className="relative max-w-md">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                 <Input
@@ -3826,7 +3826,7 @@ export function EnvironmentSettingsPanel() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="divide-y divide-border/35">
+              <div className="space-y-1">
                 {filteredProjects.map((project) => {
                   const setupScript = setupProjectScript(project.scripts);
                   const environmentCount = Object.keys(setupScript?.env ?? {}).length;
@@ -3834,7 +3834,7 @@ export function EnvironmentSettingsPanel() {
                     <button
                       key={project.id}
                       type="button"
-                      className="grid w-full gap-3 py-3 text-left transition-colors hover:bg-accent/25 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+                      className="grid w-full gap-3 rounded-[var(--control-radius)] px-2 py-3 text-left transition-colors hover:bg-accent/25 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
                       onClick={() =>
                         void navigate({
                           to: "/settings/project-environment/$projectId",
@@ -4068,9 +4068,9 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <section className="min-w-0 space-y-1.5">
-          <div className="flex h-6 min-w-0 items-center justify-between gap-3 pl-2 pr-1.5">
-            <h2 className="min-w-0 truncate text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        <section className="min-w-0">
+          <div className="flex min-w-0 items-center justify-between gap-3 px-0 pb-2">
+            <h2 className="min-w-0 truncate text-[17px] leading-5 font-semibold tracking-normal text-foreground">
               <span className="min-w-0 truncate">Archived</span>
             </h2>
             {archivedGroups.length > 1 ? (
@@ -4099,7 +4099,7 @@ export function ArchivedThreadsPanel() {
               </Tooltip>
             ) : null}
           </div>
-          <div className="min-w-0 divide-y divide-border/35">
+          <div className="min-w-0 space-y-1">
             {archivedGroups.map((group) => {
               const project = group.project;
               const isOpen = openGroupIds[project.id] !== false;
