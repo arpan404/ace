@@ -10,6 +10,7 @@ import {
   isFullAccessRuntimeMode,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
+  type ProviderSlashCommand,
   RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
@@ -22,6 +23,7 @@ import {
 } from "@ace/contracts";
 import { Effect, FileSystem, Layer, PubSub, Stream } from "effect";
 import { terminateChildProcess } from "@ace/shared/processTermination";
+import { mergeProviderSlashCommands } from "@ace/shared/providerSlashCommands";
 
 import {
   ProviderAdapterProcessError,
@@ -42,6 +44,7 @@ import {
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
 import { resolveCursorCliModelId } from "./CursorProvider.ts";
+import { discoverProviderExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
 import {
   describeCursorAdapterCause,
   findKnownCursorAdapterError,
@@ -148,6 +151,7 @@ type TurnSnapshot = {
 type CursorSessionContext = {
   session: ProviderSession;
   readonly client: CursorAcpClient;
+  readonly extensionCommands: ReadonlyArray<ProviderSlashCommand>;
   metadata: CursorSessionMetadata;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
@@ -540,6 +544,11 @@ export const CursorAdapterLive = Layer.effect(
 
     const resolveSelectedModel = (modelSelection: { readonly model: string } | undefined) =>
       modelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER.cursor;
+
+    const cursorProviderSlashCommands = (
+      acpCommands: unknown,
+      extensionCommands: ReadonlyArray<ProviderSlashCommand>,
+    ) => mergeProviderSlashCommands(parseCursorAvailableCommands(acpCommands), extensionCommands);
 
     const baseEvent = (
       context: CursorSessionContext,
@@ -1313,7 +1322,10 @@ export const CursorAdapterLive = Layer.effect(
 
       if (updateKind === "available_commands_update") {
         updateMetadata(context, {
-          availableCommands: parseCursorAvailableCommands(update.availableCommands),
+          availableCommands: cursorProviderSlashCommands(
+            update.availableCommands,
+            context.extensionCommands,
+          ),
         });
         emitSessionConfigured(context, {
           rawMethod: "session/update",
@@ -1851,6 +1863,12 @@ export const CursorAdapterLive = Layer.effect(
             input.providerInstanceId,
           );
           const selectedModel = resolveSelectedModel(input.modelSelection);
+          const cwd = input.cwd ?? serverConfig.cwd;
+          const extensionCommands = discoverProviderExtensionSlashCommands({
+            provider: PROVIDER,
+            cwd,
+            settings,
+          });
 
           const client = startCursorAcpClient({
             binaryPath: cursorSettings.binaryPath,
@@ -1874,6 +1892,7 @@ export const CursorAdapterLive = Layer.effect(
           const context: CursorSessionContext = {
             session,
             client,
+            extensionCommands,
             metadata: EMPTY_CURSOR_SESSION_METADATA,
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
@@ -1975,7 +1994,7 @@ export const CursorAdapterLive = Layer.effect(
                 resumeSessionId !== undefined &&
                 context.metadata.initialize.agentCapabilities.loadSession;
               const newSessionParams = {
-                cwd: input.cwd ?? serverConfig.cwd,
+                cwd,
                 mcpServers: [],
               };
               let sessionMethod: "session/fork" | "session/load" | "session/new" = canForkSession
@@ -2060,7 +2079,7 @@ export const CursorAdapterLive = Layer.effect(
 
               updateSession(context, {
                 status: "ready",
-                ...((input.cwd ?? serverConfig.cwd) ? { cwd: input.cwd ?? serverConfig.cwd } : {}),
+                ...(cwd ? { cwd } : {}),
                 model: selectedModel,
                 resumeCursor: {
                   sessionId,
@@ -2070,6 +2089,10 @@ export const CursorAdapterLive = Layer.effect(
                 configOptions: parseCursorConfigOptions(sessionResult?.configOptions),
                 modes: parseCursorSessionModeState(sessionResult?.modes),
                 models: parseCursorSessionModelState(sessionResult?.models),
+                availableCommands: cursorProviderSlashCommands(
+                  sessionResult,
+                  context.extensionCommands,
+                ),
               });
               if (input.modelSelection?.provider === PROVIDER) {
                 await syncCursorModelSelection(context, input.modelSelection);

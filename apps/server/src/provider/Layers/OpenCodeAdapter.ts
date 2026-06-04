@@ -56,6 +56,7 @@ import {
   providerFallbackSlashCommands,
 } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import { OPENCODE_BUILT_IN_SUBAGENT_COMMANDS } from "../providerExtensionSlashCommands.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
@@ -2190,6 +2191,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           const listedCommands = await client.command.list({ directory: cwd }).catch(() => null);
           const availableCommands = mergeProviderSlashCommands(
             listedCommands?.error ? [] : normalizeOpenCodeAvailableCommands(listedCommands?.data),
+            OPENCODE_BUILT_IN_SUBAGENT_COMMANDS,
             providerFallbackSlashCommands(PROVIDER),
           );
 

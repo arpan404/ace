@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApprovalRequestId, RuntimeItemId, ThreadId, TurnId } from "@ace/contracts";
 import { Effect, Layer, Stream } from "effect";
@@ -93,6 +94,11 @@ const cursorSessionResult = (
   input?: {
     readonly mode?: string;
     readonly model?: string;
+    readonly availableCommands?: ReadonlyArray<{
+      readonly name: string;
+      readonly description?: string;
+      readonly input?: { readonly hint?: string };
+    }>;
     readonly modelOptions?: ReadonlyArray<{
       readonly value: string;
       readonly name: string;
@@ -113,6 +119,7 @@ const cursorSessionResult = (
     currentModelId: input?.model ?? "gpt-5-mini[]",
     availableModels: [{ modelId: input?.model ?? "gpt-5-mini[]", name: "GPT-5 mini" }],
   },
+  ...(input?.availableCommands ? { availableCommands: input.availableCommands } : {}),
 });
 
 function deferred<T>() {
@@ -512,6 +519,91 @@ describe("CursorAdapterLive", () => {
         await Effect.runPromise(adapter.stopAll());
       }
     });
+  });
+
+  it("merges Cursor ACP commands with project extension commands at runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-cursor-runtime-commands-"));
+    try {
+      const cwd = join(root, "repo");
+      const skillDir = join(cwd, ".cursor", "skills", "release-review");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(
+        join(skillDir, "SKILL.md"),
+        "---\nname: release-review\ndescription: Review release readiness\n---\n\n# Release review\n",
+      );
+
+      const client = makeFakeCursorClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              return cursorInitializeResult();
+            case "authenticate":
+              return {};
+            case "session/new":
+              return cursorSessionResult("cursor-session-runtime-commands", {
+                availableCommands: [
+                  {
+                    name: "review",
+                    description: "Run Cursor review",
+                    input: { hint: "<target>" },
+                  },
+                ],
+              });
+            default:
+              throw new Error(`Unexpected Cursor ACP request: ${method}`);
+          }
+        },
+      });
+      mockedStartCursorAcpClient.mockReturnValue(client);
+
+      await withAdapter(async (adapter) => {
+        try {
+          const configuredEventPromise = Effect.runPromise(
+            Stream.runHead(
+              Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+            ),
+          );
+
+          await Effect.runPromise(
+            adapter.startSession({
+              provider: "cursor",
+              threadId: asThreadId("thread-cursor-runtime-commands"),
+              cwd,
+              runtimeMode: "full-access",
+            }),
+          );
+
+          const configuredEvent = await configuredEventPromise;
+          expect(configuredEvent._tag).toBe("Some");
+          if (configuredEvent._tag !== "Some") {
+            return;
+          }
+          expect(configuredEvent.value.type).toBe("session.configured");
+          if (configuredEvent.value.type !== "session.configured") {
+            return;
+          }
+          expect(configuredEvent.value.payload.config.availableCommands).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                name: "review",
+                kind: "provider",
+                promptPrefix: "/review",
+                inputHint: "<target>",
+              }),
+              expect.objectContaining({
+                name: "release-review",
+                kind: "skill",
+                promptPrefix: "Use the release-review skill:",
+              }),
+            ]),
+          );
+        } finally {
+          await Effect.runPromise(adapter.stopAll());
+        }
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("falls back to a fresh Cursor session when the persisted resume cursor no longer exists remotely", async () => {

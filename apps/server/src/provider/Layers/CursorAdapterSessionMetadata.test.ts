@@ -152,7 +152,14 @@ describe("CursorAdapterSessionMetadata", () => {
     assert.equal(metadata.modes?.currentModeId, "plan");
     assert.equal(metadata.models?.currentModelId, "claude-4.6-opus[]");
     assert.equal(metadata.defaultModeId, "plan");
-    assert.deepEqual(metadata.availableCommands, [{ name: "search", description: "Search files" }]);
+    assert.deepEqual(metadata.availableCommands, [
+      {
+        name: "search",
+        description: "Search files",
+        kind: "provider",
+        promptPrefix: "/search",
+      },
+    ]);
   });
 
   it("creates a compact metadata snapshot that omits empty optional fields", () => {
@@ -176,7 +183,14 @@ describe("CursorAdapterSessionMetadata", () => {
       parseCursorAvailableCommands({
         availableCommands: [{ name: "review", description: "Review changes" }],
       }),
-      [{ name: "review", description: "Review changes" }],
+      [
+        {
+          name: "review",
+          description: "Review changes",
+          kind: "provider",
+          promptPrefix: "/review",
+        },
+      ],
     );
   });
 });

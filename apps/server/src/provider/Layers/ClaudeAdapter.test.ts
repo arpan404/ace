@@ -10,7 +10,13 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ApprovalRequestId, ProviderItemId, ProviderRuntimeEvent, ThreadId } from "@ace/contracts";
+import {
+  ApprovalRequestId,
+  ProviderItemId,
+  ProviderRuntimeEvent,
+  type ProviderSlashCommand,
+  ThreadId,
+} from "@ace/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Option, Random, Stream } from "effect";
 
@@ -311,6 +317,70 @@ describe("ClaudeAdapterLive", () => {
         sideConversationMode: "native-fork",
       });
     }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("publishes Claude extension commands in runtime session config", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ace-claude-runtime-commands-"));
+    const cwd = path.join(root, "repo");
+    mkdirSync(path.join(cwd, ".claude", "agents"), { recursive: true });
+    writeFileSync(
+      path.join(cwd, ".claude", "agents", "reviewer.md"),
+      "---\nname: reviewer\ndescription: Review implementation details\n---\n\n# Reviewer\n",
+    );
+    mkdirSync(path.join(cwd, ".claude", "skills", "release-review"), { recursive: true });
+    writeFileSync(
+      path.join(cwd, ".claude", "skills", "release-review", "SKILL.md"),
+      "---\nname: release-review\ndescription: Review release readiness\n---\n\n# Release review\n",
+    );
+    const harness = makeHarness({ cwd, baseDir: root });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === THREAD_ID && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        cwd,
+        runtimeMode: "full-access",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.isTrue(Option.isSome(configuredEvent));
+      if (!Option.isSome(configuredEvent) || configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      const commands = (configuredEvent.value.payload.config as { availableCommands?: unknown })
+        .availableCommands as ReadonlyArray<ProviderSlashCommand> | undefined;
+      assert.deepEqual(
+        commands?.find((command) => command.name === "reviewer"),
+        {
+          name: "reviewer",
+          description: "Review implementation details",
+          kind: "agent",
+          promptPrefix: "Use the reviewer subagent:",
+          inputHint: "<prompt>",
+        },
+      );
+      assert.deepEqual(
+        commands?.find((command) => command.name === "release-review"),
+        {
+          name: "release-review",
+          description: "Review release readiness",
+          kind: "skill",
+          promptPrefix: "Use the release-review skill:",
+          inputHint: "<prompt>",
+        },
+      );
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => rmSync(root, { recursive: true, force: true }))),
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
     );

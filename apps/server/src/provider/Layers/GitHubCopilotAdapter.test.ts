@@ -9,7 +9,7 @@ import type {
   SessionEvent,
   SessionConfig,
 } from "@github/copilot-sdk";
-import { ApprovalRequestId, ThreadId } from "@ace/contracts";
+import { ApprovalRequestId, type ProviderSlashCommand, ThreadId } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { afterEach, vi } from "vitest";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -616,21 +616,80 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
       const repo = yield* Effect.promise(() =>
         mkdtemp(path.join(tmpdir(), "ace-copilot-custom-agents-")),
       );
+      const copilotHome = path.join(repo, ".copilot");
       try {
         yield* Effect.promise(() =>
           mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
         );
         yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github", "skills", "repo-review"), {
+            recursive: true,
+          }),
+        );
+        yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github-copilot", "skills", "release-review"), {
+            recursive: true,
+          }),
+        );
+        yield* Effect.promise(() =>
+          mkdir(path.join(copilotHome, "agents"), {
+            recursive: true,
+          }),
+        );
+        yield* Effect.promise(() =>
+          mkdir(path.join(copilotHome, "skills", "personal-review"), {
+            recursive: true,
+          }),
+        );
+        yield* Effect.promise(() =>
           writeFile(
-            path.join(repo, ".github", "agents", "security-auditor.md"),
+            path.join(repo, ".github", "agents", "security-auditor.agent.md"),
             [
               "---",
               "name: Security Auditor",
               "description: Reviews code for security issues",
+              "skills:",
+              "  - release-review",
+              "tools: [read_file, grep]",
+              "infer: false",
               "---",
               "",
               "Inspect code for vulnerabilities and report concrete risks.",
             ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(copilotHome, "agents", "personal-reviewer.agent.md"),
+            [
+              "---",
+              "description: Reviews user-level tasks",
+              "---",
+              "",
+              "Review the request using the user's personal workflow.",
+            ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "skills", "repo-review", "SKILL.md"),
+            ["# Repo Review", "", "Use this skill for repository-level review context."].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github-copilot", "skills", "release-review", "SKILL.md"),
+            [
+              "# Release Review",
+              "",
+              "Use this skill to inspect release notes, migration notes, and rollout risks.",
+            ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(copilotHome, "skills", "personal-review", "SKILL.md"),
+            ["# Personal Review", "", "Use this skill for personal review preferences."].join("\n"),
           ),
         );
 
@@ -639,8 +698,23 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         });
         mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
 
+        const settingsService = yield* ServerSettingsService;
+        yield* settingsService.updateSettings({
+          providers: {
+            githubCopilot: {
+              homePath: copilotHome,
+            },
+          },
+        });
+
         const adapter = yield* GitHubCopilotAdapter;
         const threadId = asThreadId("thread-copilot-custom-agents");
+        const configuredFiber = yield* Stream.runHead(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) => event.threadId === threadId && event.type === "session.configured",
+          ),
+        ).pipe(Effect.forkChild);
         yield* adapter.startSession({
           provider: "githubCopilot",
           threadId,
@@ -654,8 +728,13 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
                 readonly name: string;
                 readonly displayName?: string | undefined;
                 readonly description?: string | undefined;
+                readonly skills?: ReadonlyArray<string> | undefined;
+                readonly tools?: ReadonlyArray<string> | null | undefined;
+                readonly infer?: boolean | undefined;
                 readonly prompt: string;
               }>;
+              readonly enableConfigDiscovery?: boolean;
+              readonly skillDirectories?: ReadonlyArray<string>;
             })
           | undefined;
         assert.deepEqual(createConfig?.customAgents, [
@@ -663,10 +742,61 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             name: "security-auditor",
             displayName: "Security Auditor",
             description: "Reviews code for security issues",
+            skills: ["release-review"],
+            tools: ["read_file", "grep"],
+            infer: false,
             prompt: "Inspect code for vulnerabilities and report concrete risks.",
           },
+          {
+            name: "personal-reviewer",
+            description: "Reviews user-level tasks",
+            prompt: "Review the request using the user's personal workflow.",
+          },
         ]);
+        assert.equal(createConfig?.configDir, copilotHome);
+        assert.equal(
+          createConfig?.skillDirectories?.includes(path.join(repo, ".github", "skills")),
+          true,
+        );
+        assert.equal(
+          createConfig?.skillDirectories?.includes(path.join(repo, ".github-copilot", "skills")),
+          true,
+        );
+        assert.equal(
+          createConfig?.skillDirectories?.includes(path.join(copilotHome, "skills")),
+          true,
+        );
+        assert.equal(createConfig?.enableConfigDiscovery, true);
         assert.equal(createConfig?.includeSubAgentStreamingEvents, true);
+        const configuredEvent = yield* Fiber.join(configuredFiber);
+        assert.equal(configuredEvent._tag, "Some");
+        if (
+          configuredEvent._tag === "Some" &&
+          configuredEvent.value.type === "session.configured"
+        ) {
+          const availableCommands = (configuredEvent.value.payload.config.availableCommands ??
+            []) as ReadonlyArray<ProviderSlashCommand>;
+          assert.deepEqual(
+            availableCommands.find((command) => command.name === "security-auditor"),
+            {
+              name: "security-auditor",
+              kind: "agent",
+              promptPrefix: "@security-auditor",
+              description: "Reviews code for security issues",
+              inputHint: "<prompt>",
+            },
+          );
+          assert.deepEqual(
+            availableCommands.find((command) => command.name === "release-review"),
+            {
+              name: "release-review",
+              kind: "skill",
+              promptPrefix: "Use the release-review skill:",
+              description: "Use release-review",
+              inputHint: "<prompt>",
+            },
+          );
+        }
 
         yield* adapter.stopSession(threadId);
       } finally {

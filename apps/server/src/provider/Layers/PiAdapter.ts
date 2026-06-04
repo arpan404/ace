@@ -34,10 +34,14 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
-import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import {
+  mergeProviderSlashCommands,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { startPiRpcClient, type PiRpcClient, type PiRpcEvent } from "../piRpcClient.ts";
 import { type PiAdapterShape, PiAdapter } from "../Services/PiAdapter.ts";
+import { discoverProviderExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
 
 const PROVIDER = "pi" as const;
 const PI_RPC_CONTROL_TIMEOUT_MS = 20_000;
@@ -141,6 +145,7 @@ type PiSessionContext = {
   readonly client: PiRpcClient;
   session: ProviderSession;
   metadata: PiSessionMetadata;
+  readonly extensionCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly turns: Array<{ readonly id: TurnId; readonly items: ReadonlyArray<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingPiUserInput>;
@@ -415,7 +420,10 @@ function buildConfigOptions(
 function configSnapshot(context: PiSessionContext): Record<string, unknown> {
   return {
     configOptions: buildConfigOptions(context.metadata),
-    availableCommands: normalizeProviderCommands(context.metadata.availableCommands),
+    availableCommands: mergeProviderSlashCommands(
+      normalizeProviderCommands(context.metadata.availableCommands),
+      context.extensionCommands,
+    ),
     capabilities: PI_PROVIDER_CAPABILITIES,
   };
 }
@@ -1693,12 +1701,14 @@ export const PiAdapterLive = Layer.effect(
     const startSessionContext = async (
       input: ProviderSessionStartInput,
     ): Promise<PiSessionContext> => {
-      const settings = await runPromise(
-        settingsService.getSettings.pipe(
-          Effect.map((state) => resolveProviderSettings(state, PROVIDER, input.providerInstanceId)),
-        ),
-      );
+      const serverSettings = await runPromise(settingsService.getSettings);
+      const settings = resolveProviderSettings(serverSettings, PROVIDER, input.providerInstanceId);
       const cwd = input.cwd ?? serverConfig.cwd;
+      const extensionCommands = discoverProviderExtensionSlashCommands({
+        provider: PROVIDER,
+        cwd,
+        settings: serverSettings,
+      });
       const args = ["--mode", "rpc", "--no-session"];
       const client = startPiRpcClient({
         binaryPath: settings.binaryPath,
@@ -1745,6 +1755,7 @@ export const PiAdapterLive = Layer.effect(
           updatedAt: createdAt,
         },
         metadata,
+        extensionCommands,
         turns: [],
         replayTurns: cloneReplayTurns(input.replayTurns),
         pendingUserInputs: new Map(),

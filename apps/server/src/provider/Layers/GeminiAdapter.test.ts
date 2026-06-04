@@ -368,13 +368,30 @@ describe("GeminiAdapterLive startup", () => {
         if (configuredEvent.type !== "session.configured") {
           return;
         }
-        expect(configuredEvent.payload.config.availableCommands).toEqual([
-          {
-            name: "review",
-            description: "Review changes",
-            input: { hint: "<target>" },
-          },
-        ]);
+        expect(configuredEvent.payload.config.availableCommands).toEqual(
+          expect.arrayContaining([
+            {
+              name: "review",
+              description: "Review changes",
+              inputHint: "<target>",
+            },
+            expect.objectContaining({
+              name: "codebase_investigator",
+              kind: "agent",
+              promptPrefix: "@codebase_investigator",
+            }),
+            expect.objectContaining({
+              name: "cli_help",
+              kind: "agent",
+              promptPrefix: "@cli_help",
+            }),
+            expect.objectContaining({
+              name: "generalist",
+              kind: "agent",
+              promptPrefix: "@generalist",
+            }),
+          ]),
+        );
         expect(configuredEvent.payload.config.capabilities).toEqual({
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",

@@ -19,7 +19,7 @@ describe("providerSlashCommands", () => {
     expect(normalizeProviderSlashCommandName("/bad name")).toBeNull();
   });
 
-  it("recognizes provider-native side-chat aliases that Ace owns behind /side", () => {
+  it("reserves provider-native side-chat aliases behind the Ace-native /side command", () => {
     expect(isProviderSideConversationAlias("/side")).toBe(true);
     expect(isProviderSideConversationAlias("btw")).toBe(true);
     expect(isProviderSideConversationAlias("/ask")).toBe(true);

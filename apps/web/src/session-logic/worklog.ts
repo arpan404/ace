@@ -60,13 +60,12 @@ export function filterVisibleWorkLogActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   visibility: ActivityVisibilitySettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  if (visibility.enableToolStreaming && visibility.enableThinkingStreaming) {
-    return activities;
-  }
-
-  return activities.filter(
-    (activity) => !shouldHideWorkLogActivityForVisibility(activity, visibility),
+  const visible = activities.filter(
+    (activity) =>
+      isRenderableWorkLogActivity(activity) &&
+      !shouldHideWorkLogActivityForVisibility(activity, visibility),
   );
+  return visible.length === activities.length ? activities : visible;
 }
 
 function ensureActivitiesOrdered(
@@ -123,16 +122,154 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
   return !isPlanBoundaryToolActivity(activity);
 }
 
+const GOAL_LIFECYCLE_LABELS = new Set([
+  "goal updated",
+  "goal update",
+  "goal set",
+  "goal created",
+  "goal paused",
+  "goal resumed",
+  "goal cleared",
+  "goal deleted",
+  "goal completed",
+  "goal blocked",
+  "get goal",
+  "create goal",
+  "update goal",
+  "clear goal",
+  "delete goal",
+]);
+
+function normalizeGoalLifecycleText(value: unknown): string | null {
+  const raw = asTrimmedString(value);
+  if (!raw) {
+    return null;
+  }
+  return raw
+    .replace(/[_/-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function hasGoalLifecycleLabel(value: unknown): boolean {
+  const normalized = normalizeGoalLifecycleText(value);
+  if (!normalized) {
+    return false;
+  }
+  if (GOAL_LIFECYCLE_LABELS.has(normalized)) {
+    return true;
+  }
+  return /^(?:goal|thread goal)\s+(?:updated?|set|created|paused|resumed|cleared|deleted|completed|blocked)\b/u.test(
+    normalized,
+  );
+}
+
+function goalLifecycleToolNameFromPayload(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const input = asRecord(data?.input);
+  const rawInput = asRecord(data?.rawInput);
+  const candidates = [
+    payload?.toolName,
+    payload?.tool_name,
+    payload?.name,
+    payload?.title,
+    data?.toolName,
+    data?.tool_name,
+    data?.name,
+    data?.kind,
+    item?.toolName,
+    item?.tool_name,
+    item?.name,
+    input?.toolName,
+    input?.tool_name,
+    input?.name,
+    rawInput?.toolName,
+    rawInput?.tool_name,
+    rawInput?.name,
+  ];
+  return candidates.find((candidate) => hasGoalLifecycleLabel(candidate)) ? "goal" : null;
+}
+
+function hasGoalLifecyclePayload(payload: Record<string, unknown> | null): boolean {
+  if (!payload) {
+    return false;
+  }
+  const data = asRecord(payload.data);
+  const item = asRecord(data?.item);
+  const input = asRecord(data?.input);
+  const rawInput = asRecord(data?.rawInput);
+  const result = asRecord(data?.result);
+  const output = asRecord(data?.output);
+  const itemResult = asRecord(item?.result);
+  const itemOutput = asRecord(item?.output);
+  const goal =
+    asRecord(payload.goal) ??
+    asRecord(data?.goal) ??
+    asRecord(item?.goal) ??
+    asRecord(input?.goal) ??
+    asRecord(rawInput?.goal) ??
+    asRecord(result?.goal) ??
+    asRecord(output?.goal) ??
+    asRecord(itemResult?.goal) ??
+    asRecord(itemOutput?.goal);
+  const status =
+    asGoalStatus(payload.status) ??
+    asGoalStatus(data?.status) ??
+    asGoalStatus(item?.status) ??
+    asGoalStatus(input?.status) ??
+    asGoalStatus(rawInput?.status) ??
+    asGoalStatus(result?.status) ??
+    asGoalStatus(output?.status) ??
+    asGoalStatus(itemResult?.status) ??
+    asGoalStatus(itemOutput?.status) ??
+    asGoalStatus(goal?.status);
+  const objective =
+    asTrimmedString(payload.objective) ??
+    asTrimmedString(data?.objective) ??
+    asTrimmedString(item?.objective) ??
+    asTrimmedString(input?.objective) ??
+    asTrimmedString(rawInput?.objective) ??
+    asTrimmedString(result?.objective) ??
+    asTrimmedString(output?.objective) ??
+    asTrimmedString(itemResult?.objective) ??
+    asTrimmedString(itemOutput?.objective) ??
+    asTrimmedString(goal?.objective);
+  if (status && objective) {
+    return true;
+  }
+  if (goal && (status || objective)) {
+    return true;
+  }
+  return false;
+}
+
 function isGoalLifecycleWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
-  const normalizedSummary = activity.summary.replace(/\s+/g, " ").trim().toLowerCase();
+  const payload = asRecord(activity.payload);
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const input = asRecord(data?.input);
+  const rawInput = asRecord(data?.rawInput);
   if (
-    normalizedSummary !== "goal updated" &&
-    normalizedSummary !== "goal paused" &&
-    normalizedSummary !== "goal resumed" &&
-    normalizedSummary !== "goal cleared" &&
-    normalizedSummary !== "goal deleted" &&
-    normalizedSummary !== "goal completed" &&
-    normalizedSummary !== "goal blocked"
+    !hasGoalLifecycleLabel(activity.summary) &&
+    !hasGoalLifecycleLabel(payload?.summary) &&
+    !hasGoalLifecycleLabel(payload?.title) &&
+    !hasGoalLifecycleLabel(payload?.detail) &&
+    !hasGoalLifecycleLabel(data?.summary) &&
+    !hasGoalLifecycleLabel(data?.title) &&
+    !hasGoalLifecycleLabel(data?.detail) &&
+    !hasGoalLifecycleLabel(item?.summary) &&
+    !hasGoalLifecycleLabel(item?.title) &&
+    !hasGoalLifecycleLabel(item?.detail) &&
+    !hasGoalLifecycleLabel(input?.summary) &&
+    !hasGoalLifecycleLabel(input?.title) &&
+    !hasGoalLifecycleLabel(input?.detail) &&
+    !hasGoalLifecycleLabel(rawInput?.summary) &&
+    !hasGoalLifecycleLabel(rawInput?.title) &&
+    !hasGoalLifecycleLabel(rawInput?.detail) &&
+    !goalLifecycleToolNameFromPayload(payload) &&
+    !hasGoalLifecyclePayload(payload)
   ) {
     return false;
   }

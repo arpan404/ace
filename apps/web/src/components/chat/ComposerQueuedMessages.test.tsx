@@ -134,49 +134,6 @@ describe("ComposerQueuedMessages", () => {
     expect(markup).not.toContain("DR-4F2C8A11");
   });
 
-  it("renders an active goal as a compact queue row with pause control", () => {
-    const markup = renderToStaticMarkup(
-      <ComposerQueuedMessages
-        activeGoal={{
-          createdAt: "2026-06-05T00:00:00.000Z",
-          objective: "Audit the codebase in /repo/apps/server",
-          status: "active",
-          threadId: "thread-1",
-          timeUsedSeconds: 125,
-          tokensUsed: 23275,
-        }}
-        messages={[]}
-        steerMessageId={null}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onClearAll={vi.fn()}
-        onReorder={vi.fn()}
-        onDeleteGoal={vi.fn()}
-        onEditGoal={vi.fn()}
-        onPauseGoal={vi.fn()}
-        onResumeGoal={vi.fn()}
-        onSteer={vi.fn()}
-      />,
-    );
-
-    expect(markup).toContain("Audit the codebase in /repo/apps/server");
-    expect(markup).toContain('aria-label="Time: 2m 5s"');
-    expect(markup).toContain("2m 5s");
-    expect(markup).toContain('aria-label="Tokens: 23.3K tokens"');
-    expect(markup).toContain("23.3K tokens");
-    expect(markup).toContain('aria-label="Pause goal"');
-    expect(markup).toContain('aria-label="Edit goal"');
-    expect(markup).toContain('aria-label="Delete goal"');
-    expect(markup).not.toContain('aria-label="Edit goal objective"');
-    expect(markup).not.toContain(">Goal</span>");
-    expect(markup).not.toContain(">Time</span>");
-    expect(markup).not.toContain(">Tokens</span>");
-    expect(markup).not.toContain("23,275 tokens");
-    expect(markup).not.toContain("ACTIVE /");
-    expect(markup).not.toContain('aria-label="Goal details"');
-    expect(markup).not.toContain('aria-label="Resume goal"');
-  });
-
   it("renders nothing when the queue is empty", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages

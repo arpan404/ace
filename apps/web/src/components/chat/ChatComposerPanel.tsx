@@ -226,10 +226,10 @@ interface ChatComposerPanelProps {
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onReorder"];
-  readonly onDeleteGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onDeleteGoal"]>;
-  readonly onEditGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onEditGoal"]>;
-  readonly onPauseGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onPauseGoal"]>;
-  readonly onResumeGoal: NonNullable<ComponentProps<typeof ComposerQueuedMessages>["onResumeGoal"]>;
+  readonly onDeleteGoal: () => void;
+  readonly onEditGoal: (objective: string) => void;
+  readonly onPauseGoal: () => void;
+  readonly onResumeGoal: () => void;
   readonly onSendQueuedComposerMessage: NonNullable<
     ComponentProps<typeof ComposerQueuedMessages>["onSend"]
   >;
@@ -439,9 +439,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
 
   const isUltrathinkFrame =
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";
-  const hasQueueContent =
-    (props.showQueue ?? true) &&
-    (props.activeGoal !== null || props.queuedComposerMessages.length > 0);
+  const hasQueueContent = (props.showQueue ?? true) && props.queuedComposerMessages.length > 0;
   const queueFusesWithComposer = hasQueueContent && props.pendingUserInputs.length === 0;
 
   return (
@@ -466,7 +464,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               onClearAll={props.onClearPendingComposerComments}
             />
             <ComposerQueuedMessages
-              activeGoal={props.activeGoal}
               messages={props.queuedComposerMessages}
               className={cn(
                 "mx-4 mb-1.5 sm:mx-8",
@@ -479,10 +476,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               onDelete={props.onDeleteQueuedComposerMessage}
               onClearAll={props.onClearQueuedComposerMessages}
               onReorder={props.onReorderQueuedComposerMessages}
-              onDeleteGoal={props.onDeleteGoal}
-              onEditGoal={props.onEditGoal}
-              onPauseGoal={props.onPauseGoal}
-              onResumeGoal={props.onResumeGoal}
               canSendNow={props.canSendQueuedMessages}
               onSend={props.onSendQueuedComposerMessage}
               onSteer={props.onSteerQueuedComposerMessage}

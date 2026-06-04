@@ -28,6 +28,7 @@ import {
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
   type ProviderSession,
+  type ProviderSlashCommand,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   type RuntimeContentStreamKind,
@@ -84,6 +85,7 @@ import {
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../providerSdkRuntime.ts";
+import { discoverProviderExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
 
 const PROVIDER = "claudeAgent" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
@@ -163,6 +165,7 @@ interface ToolInFlight {
 
 interface ClaudeSessionContext {
   session: ProviderSession;
+  readonly extensionCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
   readonly query: ClaudeQueryRuntime;
   streamFiber: Fiber.Fiber<void, Error> | undefined;
@@ -2068,7 +2071,13 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ...base,
           type: "session.configured",
           payload: {
-            config: message as Record<string, unknown>,
+            config: {
+              ...(message as Record<string, unknown>),
+              ...(context.extensionCommands.length > 0
+                ? { availableCommands: context.extensionCommands }
+                : {}),
+              capabilities: CLAUDE_PROVIDER_CAPABILITIES,
+            },
           },
         });
         return;
@@ -2812,10 +2821,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const canUseTool: CanUseTool = (toolName, toolInput, callbackOptions) =>
         runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
 
-      const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) =>
-          resolveProviderSettings(settings, "claudeAgent", input.providerInstanceId),
-        ),
+      const serverSettings = yield* serverSettingsService.getSettings.pipe(
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -2826,7 +2832,17 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             }),
         ),
       );
+      const claudeSettings = resolveProviderSettings(
+        serverSettings,
+        "claudeAgent",
+        input.providerInstanceId,
+      );
       const claudeBinaryPath = claudeSettings.binaryPath;
+      const extensionCommands = discoverProviderExtensionSlashCommands({
+        provider: PROVIDER,
+        cwd: input.cwd ?? serverConfig.cwd,
+        settings: serverSettings,
+      });
       const modelSelection =
         input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
       const caps = getClaudeModelCapabilities(modelSelection?.model);
@@ -2915,6 +2931,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const context: ClaudeSessionContext = {
         session,
+        extensionCommands,
         promptQueue,
         query: queryRuntime,
         streamFiber: undefined,
@@ -2965,6 +2982,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(effectiveEffort ? { effort: effectiveEffort } : {}),
             ...(permissionMode ? { permissionMode } : {}),
             ...(fastMode ? { fastMode: true } : {}),
+            ...(extensionCommands.length > 0 ? { availableCommands: extensionCommands } : {}),
             capabilities: CLAUDE_PROVIDER_CAPABILITIES,
           },
         },

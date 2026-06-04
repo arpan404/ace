@@ -13,6 +13,7 @@ import {
   type ProviderSendTurnInput,
   type ProviderSession,
   type ProviderSessionStartInput,
+  type ProviderSlashCommand,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
   RuntimeItemId,
@@ -21,6 +22,7 @@ import {
   TurnId,
 } from "@ace/contracts";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
+import { mergeProviderSlashCommands } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -55,6 +57,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type GeminiAdapterShape, GeminiAdapter } from "../Services/GeminiAdapter.ts";
+import { GEMINI_BUILT_IN_SUBAGENT_COMMANDS } from "../providerExtensionSlashCommands.ts";
 
 const PROVIDER = "gemini" as const;
 const ACP_CONTROL_TIMEOUT_MS = 20_000;
@@ -248,6 +251,19 @@ type GeminiAvailableCommand = {
     readonly hint?: string;
   };
 };
+
+function geminiProviderSlashCommands(
+  commands: ReadonlyArray<GeminiAvailableCommand>,
+): ReadonlyArray<ProviderSlashCommand> {
+  return mergeProviderSlashCommands(
+    commands.map((command) => ({
+      name: command.name,
+      ...(command.description ? { description: command.description } : {}),
+      ...(command.input?.hint ? { inputHint: command.input.hint } : {}),
+    })),
+    GEMINI_BUILT_IN_SUBAGENT_COMMANDS,
+  );
+}
 
 type GeminiToolItemState = {
   readonly itemId: RuntimeItemId;
@@ -2302,7 +2318,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
             ...(notificationCreatedAt ? { createdAt: notificationCreatedAt } : {}),
             payload: {
               config: {
-                availableCommands: context.metadata.availableCommands,
+                availableCommands: geminiProviderSlashCommands(context.metadata.availableCommands),
                 capabilities: geminiProviderCapabilities(context.metadata),
               },
             },
@@ -2766,7 +2782,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           type: "session.configured",
           payload: {
             config: {
-              availableCommands: context.metadata.availableCommands,
+              availableCommands: geminiProviderSlashCommands(context.metadata.availableCommands),
               capabilities: geminiProviderCapabilities(context.metadata),
             },
           },

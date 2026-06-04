@@ -3,6 +3,7 @@ import {
   asReadonlyArray as asArray,
   asTrimmedNonEmptyString as asString,
 } from "../unknown.ts";
+import type { ProviderSlashCommand } from "@ace/contracts";
 
 export type CursorPromptCapabilities = {
   readonly image: boolean;
@@ -74,13 +75,7 @@ export type CursorSessionConfigOption = {
   readonly options: ReadonlyArray<CursorSessionConfigOptionValue>;
 };
 
-export type CursorAvailableCommand = {
-  readonly name: string;
-  readonly description?: string;
-  readonly input?: {
-    readonly hint?: string;
-  };
-};
+export type CursorAvailableCommand = ProviderSlashCommand;
 
 export type CursorSessionMetadata = {
   readonly initialize: CursorInitializeState;
@@ -351,8 +346,16 @@ export function parseCursorAvailableCommands(
     if (!name) {
       continue;
     }
-    const normalized: { name: string; description?: string; input?: { hint?: string } } = {
+    const normalized: {
+      name: string;
+      description?: string;
+      inputHint?: string;
+      kind?: "provider";
+      promptPrefix?: string;
+    } = {
       name,
+      kind: "provider",
+      promptPrefix: `/${name}`,
     };
     const description = asString(entry.description);
     if (description) {
@@ -361,7 +364,7 @@ export function parseCursorAvailableCommands(
     const input = asObject(entry.input);
     const inputHint = asString(input?.hint);
     if (inputHint) {
-      normalized.input = { hint: inputHint };
+      normalized.inputHint = inputHint;
     }
     parsed.push(normalized);
   }

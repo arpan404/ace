@@ -870,6 +870,85 @@ describe("deriveWorkLogEntries", () => {
     expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
   });
 
+  it("does not render normalized goal tool results in the work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-tool-name-completed",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Tool call complete",
+        tone: "tool",
+        payload: {
+          title: "update_goal",
+          detail: "Implement provider feature parity",
+          data: {
+            name: "update_goal",
+            result: {
+              objective: "Implement provider feature parity",
+              status: "active",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-tool-payload-completed",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Tool call complete",
+        tone: "tool",
+        payload: {
+          detail: "Implement provider feature parity",
+          objective: "Implement provider feature parity",
+          status: "paused",
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
+  it("does not render nested goal lifecycle tool items in the work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-nested-item",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              title: "Goal updated",
+              input: {
+                objective: "Implement provider feature parity",
+                status: "active",
+              },
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-nested-result",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              output: {
+                objective: "Implement provider feature parity",
+                status: "paused",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -2981,9 +3060,24 @@ describe("filterVisibleWorkLogActivities", () => {
     expect(visible.map((activity) => activity.id)).toEqual(["runtime-warning"]);
   });
 
-  it("returns the original array when both visibility toggles are enabled", () => {
+  it("still removes goal lifecycle activities when both visibility toggles are enabled", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({ id: "tool-complete", kind: "tool.completed", tone: "tool" }),
+      makeActivity({
+        id: "goal-tool",
+        kind: "tool.completed",
+        summary: "Tool call complete",
+        tone: "tool",
+        payload: {
+          title: "update_goal",
+          data: {
+            result: {
+              objective: "Implement provider feature parity",
+              status: "active",
+            },
+          },
+        },
+      }),
     ];
 
     const visible = filterVisibleWorkLogActivities(activities, {
@@ -2991,7 +3085,7 @@ describe("filterVisibleWorkLogActivities", () => {
       enableThinkingStreaming: true,
     });
 
-    expect(visible).toBe(activities);
+    expect(visible.map((activity) => activity.id)).toEqual(["tool-complete"]);
   });
 });
 

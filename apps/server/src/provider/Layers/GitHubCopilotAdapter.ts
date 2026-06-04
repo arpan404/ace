@@ -48,9 +48,17 @@ import {
   normalizeGitHubCopilotModelOptionsForModel,
   stopGitHubCopilotClient,
 } from "../githubCopilotSdk";
-import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
+import {
+  mergeProviderSlashCommands,
+  providerAgentSlashCommand,
+  providerFallbackSlashCommands,
+} from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
-import { discoverGitHubCopilotCustomAgents } from "../providerExtensionSlashCommands.ts";
+import {
+  discoverGitHubCopilotCustomAgents,
+  discoverGitHubCopilotSkillDirectories,
+  discoverProviderExtensionSlashCommands,
+} from "../providerExtensionSlashCommands.ts";
 import { loadGitHubCopilotSdkModule, type GitHubCopilotSdkLoader } from "../providerSdkRuntime";
 import {
   ProviderAdapterProcessError,
@@ -2627,12 +2635,11 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         });
       }
 
-      const settings = await runPromise(
-        serverSettingsService.getSettings.pipe(
-          Effect.map((value) =>
-            resolveProviderSettings(value, "githubCopilot", input.providerInstanceId),
-          ),
-        ),
+      const serverSettings = await runPromise(serverSettingsService.getSettings);
+      const settings = resolveProviderSettings(
+        serverSettings,
+        "githubCopilot",
+        input.providerInstanceId,
       );
       const existing = sessions.get(input.threadId);
       if (existing) {
@@ -2781,8 +2788,32 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           input.modelSelection?.options,
         );
         const customAgents: CustomAgentConfig[] = [
-          ...discoverGitHubCopilotCustomAgents({ cwd: input.cwd }),
+          ...discoverGitHubCopilotCustomAgents({
+            cwd: input.cwd,
+            home: settings.homePath,
+          }),
         ];
+        const skillDirectories = discoverGitHubCopilotSkillDirectories({
+          cwd: input.cwd ?? serverConfig.cwd,
+          home: settings.homePath,
+        });
+        const extensionCommands = discoverProviderExtensionSlashCommands({
+          provider: PROVIDER,
+          cwd: input.cwd ?? serverConfig.cwd,
+          settings: serverSettings,
+        });
+        const availableCommands = mergeProviderSlashCommands(
+          customAgents.map((agent) =>
+            providerAgentSlashCommand({
+              name: agent.name,
+              ...(agent.description ? { description: agent.description } : {}),
+              promptPrefix: `@${agent.name}`,
+              inputHint: "<prompt>",
+            }),
+          ),
+          extensionCommands,
+          providerFallbackSlashCommands(PROVIDER),
+        );
         const sessionConfig = {
           onPermissionRequest: permissionHandler,
           onUserInputRequest: userInputHandler,
@@ -2791,7 +2822,10 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
             : {}),
           ...(input.cwd ? { workingDirectory: input.cwd } : {}),
+          ...(settings.homePath ? { configDir: settings.homePath } : {}),
+          enableConfigDiscovery: true,
           ...(customAgents.length > 0 ? { customAgents } : {}),
+          ...(skillDirectories.length > 0 ? { skillDirectories: [...skillDirectories] } : {}),
           streaming: true,
           includeSubAgentStreamingEvents: true,
         } satisfies SessionConfig;
@@ -2898,14 +2932,14 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             type: "session.configured",
             payload: {
               config: {
-                availableCommands: providerFallbackSlashCommands(PROVIDER),
+                availableCommands,
                 capabilities: gitHubCopilotProviderCapabilities(sdkClient),
               },
             },
             rawMethod: "session.configured",
             rawSource: "github-copilot.sdk.event",
             rawPayload: {
-              availableCommands: providerFallbackSlashCommands(PROVIDER),
+              availableCommands,
               capabilities: gitHubCopilotProviderCapabilities(sdkClient),
             },
           }),

@@ -235,6 +235,29 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         sideConversationMode: "replay-fork",
         providerThreadTargetingMode: "native",
       });
+      assert.deepStrictEqual(configuredEvent.value.payload.config.availableCommands, [
+        {
+          name: "general",
+          description: "Run a general-purpose OpenCode subagent for complex multi-step work.",
+          inputHint: "<prompt>",
+          kind: "agent",
+          promptPrefix: "@general",
+        },
+        {
+          name: "explore",
+          description: "Run a read-only OpenCode subagent for fast codebase exploration.",
+          inputHint: "<prompt>",
+          kind: "agent",
+          promptPrefix: "@explore",
+        },
+        {
+          name: "scout",
+          description: "Run an OpenCode subagent for external docs and dependency research.",
+          inputHint: "<prompt>",
+          kind: "agent",
+          promptPrefix: "@scout",
+        },
+      ]);
 
       yield* adapter.stopSession(threadId);
       assert.equal(serverClose.mock.calls.length, 1);

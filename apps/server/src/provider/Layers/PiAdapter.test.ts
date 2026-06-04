@@ -1,4 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ApprovalRequestId, ThreadId, type ProviderRuntimeEvent } from "@ace/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -216,13 +219,15 @@ describe("PiAdapterLive", () => {
         if (latestConfiguredEvent?.type !== "session.configured") {
           return;
         }
-        expect(latestConfiguredEvent.payload.config.availableCommands).toEqual([
-          {
-            name: "review",
-            description: "Review the workspace",
-            kind: "provider",
-          },
-        ]);
+        expect(latestConfiguredEvent.payload.config.availableCommands).toEqual(
+          expect.arrayContaining([
+            {
+              name: "review",
+              description: "Review the workspace",
+              kind: "provider",
+            },
+          ]),
+        );
         expect(latestConfiguredEvent.payload.config.capabilities).toEqual({
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",
@@ -257,6 +262,84 @@ describe("PiAdapterLive", () => {
         await Effect.runPromise(adapter.stopAll());
       }
     });
+  });
+
+  it("merges Pi RPC commands with project extension commands at runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-pi-runtime-commands-"));
+    try {
+      const cwd = join(root, "repo");
+      const skillDir = join(cwd, ".pi", "skills", "release-review");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(
+        join(skillDir, "SKILL.md"),
+        "---\nname: release-review\ndescription: Review release readiness\n---\n\n# Release review\n",
+      );
+      const client = makeFakePiClient({
+        requestImpl: async (command) => {
+          switch (command) {
+            case "get_state":
+              return {
+                sessionId: "pi-session-runtime-commands",
+                model: { id: "gpt-5.4", provider: "openai", name: "GPT-5.4" },
+              };
+            case "get_available_models":
+              return {
+                models: [{ id: "gpt-5.4", provider: "openai", name: "GPT-5.4" }],
+              };
+            case "get_commands":
+              return {
+                commands: [{ name: "review", description: "Review the workspace" }],
+              };
+            default:
+              throw new Error(`Unexpected Pi RPC command: ${command}`);
+          }
+        },
+      });
+      mockedStartPiRpcClient.mockReturnValue(client);
+
+      await withAdapter(async (adapter) => {
+        try {
+          const configuredEventsPromise = collectEvents(
+            adapter,
+            1,
+            (event) => event.type === "session.configured",
+          );
+
+          await Effect.runPromise(
+            adapter.startSession({
+              provider: "pi",
+              threadId: asThreadId("thread-pi-runtime-commands"),
+              cwd,
+              runtimeMode: "full-access",
+            }),
+          );
+
+          const [configuredEvent] = await configuredEventsPromise;
+          expect(configuredEvent?.type).toBe("session.configured");
+          if (configuredEvent?.type !== "session.configured") {
+            return;
+          }
+          expect(configuredEvent.payload.config.availableCommands).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                name: "review",
+                kind: "provider",
+                description: "Review the workspace",
+              }),
+              expect.objectContaining({
+                name: "release-review",
+                kind: "skill",
+                promptPrefix: "Use the release-review skill:",
+              }),
+            ]),
+          );
+        } finally {
+          await Effect.runPromise(adapter.stopAll());
+        }
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("accepts generic reasoning effort and forwards it to Pi thinking-level RPC", async () => {
@@ -906,7 +989,9 @@ describe("PiAdapterLive", () => {
         if (configuredEvent?.type !== "session.configured") {
           return;
         }
-        expect(configuredEvent.payload.config.availableCommands).toEqual([]);
+        expect(configuredEvent.payload.config.availableCommands).toEqual(
+          expect.not.arrayContaining([expect.objectContaining({ kind: "provider" })]),
+        );
         expect(configuredEvent.payload.config.capabilities).toEqual({
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",
