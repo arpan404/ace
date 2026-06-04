@@ -1,10 +1,8 @@
-import { RotateCcwIcon, Settings2Icon } from "lucide-react";
+import { Undo2Icon } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { AppPageTopBar } from "../AppPageTopBar";
-import { TopBarCluster } from "../thread/TopBarCluster";
-import { HEADER_PILL_CONTROL_CLASS_NAME } from "../thread/topBarClusterStyles";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
 import { getSettingsNavItem } from "./settingsNavigation";
@@ -40,33 +38,28 @@ export function SettingsRouteLayout() {
         <AppPageTopBar className="border-border/35 bg-sidebar/96">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-              <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/45 text-muted-foreground/72">
-                <Settings2Icon className="size-3.5" strokeWidth={2.2} />
-              </span>
               <h1 className="min-w-0 shrink truncate text-[13px] leading-none font-semibold tracking-tight text-foreground">
                 Settings
               </h1>
-              <span className="h-3.5 w-px shrink-0 bg-border/70" aria-hidden="true" />
+              <span className="shrink-0 text-[12px] leading-none font-medium text-muted-foreground/52">
+                &gt;
+              </span>
               <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground/72">
                 <span className="min-w-0 truncate text-[12px] leading-none font-medium">
                   {currentItem.label}
                 </span>
               </div>
             </div>
-            <TopBarCluster className="shrink-0">
-              <Button
-                size="default"
-                variant="ghost"
-                disabled={changedSettingLabels.length === 0}
-                onClick={() => void restoreDefaults()}
-                className={HEADER_PILL_CONTROL_CLASS_NAME}
-              >
-                <RotateCcwIcon className="size-3.5" />
-                {changedSettingLabels.length > 0
-                  ? `Restore ${changedSettingLabels.length}`
-                  : "Restore defaults"}
-              </Button>
-            </TopBarCluster>
+            <Button
+              size="default"
+              variant="ghost"
+              disabled={changedSettingLabels.length === 0}
+              onClick={() => void restoreDefaults()}
+              className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px]/none font-medium text-muted-foreground/78 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08] disabled:text-muted-foreground/35 disabled:hover:bg-transparent"
+            >
+              <Undo2Icon className="size-3.5" />
+              Reset
+            </Button>
           </div>
         </AppPageTopBar>
 

@@ -1,13 +1,17 @@
 import { Undo2Icon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { ServerProvider } from "@ace/contracts";
-import { useLocation } from "@tanstack/react-router";
 
 import { formatRelativeTime } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { getSettingsNavItem } from "./settingsNavigation";
+
+export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
+  "border-border/45 bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.11] active:bg-foreground/[0.15]";
+export const SETTINGS_FIELD_SURFACE_CLASS_NAME = "border-border/45 bg-background/55 shadow-none";
+export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "border-border/25 bg-transparent shadow-none";
 
 function maskEmailAddress(value: string): string {
   const [localPart, domainPart] = value.split("@");
@@ -170,18 +174,14 @@ export function SettingsSection({
 }) {
   return (
     <section className={cn("min-w-0", contentClassName)}>
-      <div className="flex min-w-0 flex-col gap-2 px-0.5 pb-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-1">
-        <div className="min-w-0 space-y-0.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[13px] leading-snug font-semibold text-foreground/94">
-            {icon ? (
-              <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-muted/40 text-muted-foreground/78">
-                {icon}
-              </span>
-            ) : null}
+      <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 px-0 pb-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <h2 className="flex min-w-0 items-center gap-2 text-[14px] leading-none font-semibold tracking-normal text-foreground">
+            {icon ? <span className="shrink-0 text-muted-foreground/50">{icon}</span> : null}
             <span className="min-w-0 truncate">{title}</span>
           </h2>
           {description ? (
-            <p className="max-w-3xl text-[11.5px] leading-relaxed text-muted-foreground/62">
+            <p className="max-w-3xl text-[11.5px] leading-relaxed text-muted-foreground/58">
               {description}
             </p>
           ) : null}
@@ -192,8 +192,8 @@ export function SettingsSection({
       </div>
       <div
         className={cn(
-          "relative min-w-0 overflow-hidden rounded-lg border border-border/55 text-card-foreground shadow-[0_1px_0_color-mix(in_srgb,var(--foreground)_5%,transparent)]",
-          "bg-card/78 supports-[backdrop-filter]:bg-card/66 supports-[backdrop-filter]:backdrop-blur-sm",
+          "relative min-w-0 border-b border-border/28 text-card-foreground",
+          "bg-transparent",
         )}
       >
         {children}
@@ -224,14 +224,13 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-border/38 px-3 py-3 first:border-t-0 sm:px-4",
-        "transition-colors duration-150 hover:bg-muted/[0.22]",
-        tone === "warning" && "bg-warning/[0.055] hover:bg-warning/[0.075]",
-        tone === "danger" && "bg-destructive/[0.055] hover:bg-destructive/[0.075]",
+        "border-t border-border/24 py-4 first:border-t-0 sm:py-[1.125rem]",
+        tone === "warning" && "bg-warning/[0.025]",
+        tone === "danger" && "bg-destructive/[0.025]",
       )}
     >
-      <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
-        <div className="min-w-0 flex-1 space-y-0.5">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-5">
+        <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 min-w-0 items-center gap-1.5">
             <h3 className="min-w-0 text-[13px] leading-snug font-medium text-foreground/94">
               {title}
@@ -243,16 +242,18 @@ export function SettingsRow({
             ) : null}
           </div>
           {description ? (
-            <p className="text-[11.5px] leading-relaxed text-muted-foreground/62">{description}</p>
+            <p className="max-w-2xl text-[11.5px] leading-relaxed text-muted-foreground/58">
+              {description}
+            </p>
           ) : null}
           {status ? (
-            <div className="pt-1 text-[11px] text-muted-foreground/64">{status}</div>
+            <div className="pt-0.5 text-[11px] text-muted-foreground/60">{status}</div>
           ) : null}
         </div>
         {control ? (
           <div
             className={cn(
-              "flex w-full min-w-0 shrink-0 items-center gap-2 rounded-md md:w-auto md:justify-end",
+              "flex w-full min-w-0 shrink-0 items-center gap-2 md:w-auto md:justify-end",
               controlClassName,
             )}
           >
@@ -262,6 +263,68 @@ export function SettingsRow({
       </div>
       {children}
     </div>
+  );
+}
+
+export function SettingsChoiceGroup<TValue extends string>({
+  label,
+  options,
+  value,
+  onValueChange,
+  className,
+}: {
+  label: string;
+  options: readonly {
+    value: TValue;
+    label: ReactNode;
+    description?: ReactNode;
+  }[];
+  value: TValue;
+  onValueChange: (value: TValue) => void;
+  className?: string;
+}) {
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(nextValue) => {
+        if (nextValue !== null) {
+          onValueChange(nextValue as TValue);
+        }
+      }}
+    >
+      <SelectTrigger
+        size="sm"
+        className={cn("mt-3 w-full max-w-sm text-foreground/90", className)}
+        aria-label={label}
+      >
+        <SelectValue>
+          <span className="min-w-0">
+            <span className="block truncate">{selectedOption?.label}</span>
+            {selectedOption?.description ? (
+              <span className="mt-0.5 block truncate text-[11px] font-normal text-muted-foreground/58">
+                {selectedOption.description}
+              </span>
+            ) : null}
+          </span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="start" alignItemWithTrigger={false}>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            <span className="min-w-0">
+              <span className="block truncate">{option.label}</span>
+              {option.description ? (
+                <span className="mt-0.5 block max-w-80 truncate text-[11px] font-normal text-muted-foreground/62">
+                  {option.description}
+                </span>
+              ) : null}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
   );
 }
 
@@ -290,35 +353,11 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
 }
 
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
-  const pathname = useLocation({ select: (location) => location.pathname });
-  const currentItem = getSettingsNavItem(pathname);
-
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,color-mix(in_srgb,var(--muted)_20%,transparent),transparent_11rem)] px-2.5 py-3 sm:px-4 sm:py-4 lg:px-5">
-      <div className="mx-auto flex w-full max-w-[61rem] flex-col gap-5 pb-8 sm:gap-6">
-        <div className="grid min-w-0 gap-3 rounded-lg border border-border/55 bg-card/62 px-4 py-3.5 shadow-[0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end sm:px-5">
-          <div className="min-w-0 space-y-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/80 shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary)_13%,transparent)]" />
-              <span className="truncate text-[11px] font-semibold tracking-[0.18em] text-muted-foreground/70 uppercase">
-                Settings
-              </span>
-            </div>
-            <h2 className="truncate text-[20px] leading-tight font-semibold text-foreground sm:text-[22px]">
-              {currentItem.label}
-            </h2>
-            <p className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground/66">
-              {currentItem.description}
-            </p>
-          </div>
-          <div className="hidden min-w-0 grid-cols-3 gap-1.5 sm:grid">
-            <span className="h-1.5 w-8 rounded-full bg-primary/70" />
-            <span className="h-1.5 w-8 rounded-full bg-info/55" />
-            <span className="h-1.5 w-8 rounded-full bg-foreground/18" />
-          </div>
-        </div>
-        <div className="flex flex-col gap-5 sm:gap-6 [&_[data-slot=input-control]]:border-border/60 [&_[data-slot=input-control]]:bg-background/80 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/60 [&_[data-slot=select-button]]:bg-background/80 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
-        {children}
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[64rem] flex-col gap-6 pb-10 sm:gap-7">
+        <div className="flex flex-col gap-6 sm:gap-7 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+          {children}
         </div>
       </div>
     </div>

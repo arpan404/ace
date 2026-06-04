@@ -50,30 +50,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
 
   return (
     <>
-      <SidebarContent className="gap-0 overflow-x-hidden px-2 pt-2" scrollFade={false}>
-        <div className="mx-0.5 mb-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/38 px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar text-sidebar-foreground/78">
-              <Settings2Icon className="size-4" strokeWidth={2.1} />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[12.5px] leading-snug font-semibold text-sidebar-foreground">
-                Control center
-              </p>
-              <p className="truncate text-[11px] leading-snug text-sidebar-foreground/50">
-                {SETTINGS_NAV_ITEMS.length} settings areas
-              </p>
-            </div>
-          </div>
-        </div>
+      <SidebarContent className="gap-0 overflow-x-hidden px-2.5 pt-2.5" scrollFade={false}>
         {SETTINGS_NAV_GROUPS.map((group) => {
           const items = SETTINGS_NAV_ITEMS.filter((item) => item.group === group.id);
           return (
-            <SidebarGroup key={group.id} className="px-0 pt-3 pb-1">
-              <SidebarGroupLabel className="mb-1.5 h-5 px-2 py-0 text-[10.5px] font-semibold tracking-[0.16em] text-sidebar-foreground/42 uppercase">
+            <SidebarGroup key={group.id} className="px-0 pt-4 pb-0">
+              <SidebarGroupLabel className="mb-1 h-5 px-1 py-0 text-[10px] font-semibold tracking-[0.16em] text-sidebar-foreground/38 uppercase">
                 {group.label}
               </SidebarGroupLabel>
-              <SidebarMenu className="gap-1">
+              <SidebarMenu className="gap-0">
                 {items.map((item) => {
                   const isActive = isSettingsNavItemActive(pathname, item);
                   const Icon = SETTINGS_NAV_ICON_BY_PATH[item.to];
@@ -87,37 +72,26 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                               aria-label={`${item.label} settings`}
                               isActive={isActive}
                               className={cn(
-                                "group/settings-nav relative h-auto min-h-10 items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-[background-color,border-color,color,box-shadow] duration-150 ease-out",
+                                "group/settings-nav relative h-8 items-center gap-2 rounded-lg border-0 px-2 text-left transition-colors duration-150 ease-out",
                                 isActive
-                                  ? "border-sidebar-border/80 bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_0_1px_0_color-mix(in_srgb,currentColor_7%,transparent)]"
-                                  : "border-transparent text-sidebar-foreground/68 hover:border-sidebar-border/55 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "bg-transparent text-sidebar-foreground/62 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground",
                               )}
                               onClick={() => void navigate({ to: item.to })}
                             >
                               <span
                                 className={cn(
-                                  "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors duration-150",
+                                  "inline-flex size-5 shrink-0 items-center justify-center transition-colors duration-150",
                                   isActive
-                                    ? "border-primary/25 bg-primary/12 text-primary"
-                                    : "border-sidebar-border/60 bg-sidebar/55 text-sidebar-foreground/56 group-hover/settings-nav:text-sidebar-foreground/82",
+                                    ? "text-sidebar-accent-foreground"
+                                    : "text-sidebar-foreground/46 group-hover/settings-nav:text-sidebar-foreground/74",
                                 )}
                               >
-                                <Icon className="size-3.5 shrink-0" strokeWidth={2.15} />
+                                <Icon className="size-3.5 shrink-0" strokeWidth={2.05} />
                               </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[12.5px] leading-snug font-semibold">
-                                  {item.label}
-                                </span>
-                                <span className="mt-0.5 block truncate text-[10.5px] leading-snug font-medium text-sidebar-foreground/45 group-hover/settings-nav:text-sidebar-foreground/58">
-                                  {item.description}
-                                </span>
+                              <span className="min-w-0 flex-1 truncate text-[12.5px] leading-none font-medium">
+                                {item.label}
                               </span>
-                              {isActive ? (
-                                <span
-                                  className="absolute top-2.5 right-2 h-2 w-2 rounded-full bg-primary/80"
-                                  aria-hidden="true"
-                                />
-                              ) : null}
                             </SidebarMenuButton>
                           }
                         />
@@ -139,7 +113,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="h-9 gap-2 rounded-lg border border-sidebar-border/55 bg-sidebar-accent/28 px-2.5 text-[12.5px] font-semibold text-sidebar-foreground/76 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
+              className="h-8 gap-2 rounded-lg bg-transparent px-2 text-[12.5px] font-medium text-sidebar-foreground/64 transition-colors duration-150 ease-out hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
               onClick={() => void navigate({ to: "/", replace: true })}
             >
               <ArrowLeftIcon className="size-4" strokeWidth={2.15} />

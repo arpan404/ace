@@ -53,7 +53,7 @@ import {
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
-import { resetThemePresetToDefault, useAppearancePrefs } from "../../appearancePrefs";
+import { useAppearancePrefs } from "../../appearancePrefs";
 import { DEFAULT_THEME_PRESET } from "../../themePresets";
 import { ThemePresetPicker } from "./ThemePresetPicker";
 import { useTheme } from "../../hooks/useTheme";
@@ -119,6 +119,7 @@ import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSe
 import { PROVIDER_SETTINGS } from "./settingsProviderConfig";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
+  SettingsChoiceGroup,
   SettingsPageContainer,
   SettingsRow,
   SettingsSection,
@@ -2449,7 +2450,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
             >
               <div className="mt-3 space-y-3">
-                <div className="rounded-[var(--control-radius)] border border-border/45 bg-background/35 p-2.5">
+                <div className="border-y border-border/24 py-2.5">
                   <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     <div className="relative min-w-0">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
@@ -2507,7 +2508,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                <div className="border-y border-border/24">
                   {filteredLspCatalogTools.length === 0 ? (
                     <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
                       No language servers match this filter.
@@ -2555,8 +2556,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 </div>
 
                 {lspCustomTools.length > 0 ? (
-                  <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
-                    <div className="border-b border-border/35 px-3 py-2">
+                  <div className="border-y border-border/24">
+                    <div className="border-b border-border/24 py-2">
                       <div className="text-[12px] font-medium text-foreground/90">
                         Custom servers
                       </div>
@@ -2568,7 +2569,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className="grid gap-3 border-t border-border/24 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -2599,8 +2600,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   </div>
                 ) : null}
 
-                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
-                  <div className="flex flex-col gap-2 border-b border-border/35 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="border-y border-border/24">
+                  <div className="flex flex-col gap-2 border-b border-border/24 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="text-[12px] font-medium text-foreground/90">
                         Register custom server
@@ -2625,8 +2626,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   </div>
 
                   {isLspCustomFormOpen ? (
-                    <div className="space-y-3 p-3">
-                      <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
+                    <div className="space-y-3 py-3">
+                      <div className="flex max-w-full gap-1 overflow-x-auto border-y border-border/24 py-1">
                         {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
                           <Button
                             key={installer}
@@ -2812,18 +2813,13 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               ) : null
             }
           >
-            <div className="mt-3 flex flex-wrap gap-2">
-              {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
-                <Button
-                  key={engine.value}
-                  size="sm"
-                  variant={settings.browserSearchEngine === engine.value ? "default" : "outline"}
-                  onClick={() => updateSettings({ browserSearchEngine: engine.value })}
-                >
-                  {engine.label}
-                </Button>
-              ))}
-            </div>
+            <SettingsChoiceGroup
+              label="Search engine"
+              className="max-w-xs"
+              options={BROWSER_SEARCH_ENGINE_OPTIONS}
+              value={settings.browserSearchEngine}
+              onValueChange={(browserSearchEngine) => updateSettings({ browserSearchEngine })}
+            />
           </SettingsRow>
           <SettingsRow
             title="Max mounted browsers"
@@ -2911,7 +2907,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     opencode: settings.providers.opencode.instances,
                   }}
                   triggerVariant="outline"
-                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  triggerClassName="h-8 min-w-0 max-w-none shrink-0 px-3 text-[13px] text-foreground/90 hover:text-foreground"
                   onProviderModelChange={(provider, model, providerInstanceId) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
@@ -2942,7 +2938,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   modelOptions={textGenModelOptions}
                   allowPromptInjectedEffort={false}
                   triggerVariant="outline"
-                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  triggerClassName="h-8 min-w-0 max-w-none shrink-0 px-3 text-[13px] text-foreground/90 hover:text-foreground"
                   onModelOptionsChange={(nextOptions) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
@@ -2982,34 +2978,15 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               ) : null
             }
           >
-            <div className="mt-3 flex flex-wrap gap-2">
-              {WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => (
-                <Tooltip key={option.value}>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        size="sm"
-                        variant={
-                          settings.workspaceSummaryGenerationMode === option.value
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() =>
-                          updateSettings({
-                            workspaceSummaryGenerationMode: option.value,
-                          })
-                        }
-                      >
-                        {option.label}
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
-                    {option.description}
-                  </TooltipPopup>
-                </Tooltip>
-              ))}
-            </div>
+            <SettingsChoiceGroup
+              label="Summary generation"
+              className="max-w-sm"
+              options={WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS}
+              value={settings.workspaceSummaryGenerationMode}
+              onValueChange={(workspaceSummaryGenerationMode) =>
+                updateSettings({ workspaceSummaryGenerationMode })
+              }
+            />
           </SettingsRow>
         </SettingsSection>
       ) : null}
@@ -3809,17 +3786,10 @@ export function EnvironmentSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <div className="min-w-0">
-        <div className="px-1 pb-3 sm:px-0">
-          <h2 className="flex min-w-0 items-center gap-2 text-[13px] leading-snug font-semibold text-foreground/90">
-            <GitForkIcon className="size-3.5 shrink-0 text-muted-foreground/65" />
-            <span className="min-w-0 truncate">Environment</span>
-          </h2>
-          <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
-            Choose a project to configure worktree setup commands, environment variables, and
-            cleanup.
-          </p>
-        </div>
+      <SettingsSection
+        title="Environment"
+        description="Choose a project to configure worktree setup commands, environment variables, and cleanup."
+      >
         {activeLocalProjects.length === 0 ? (
           <Empty className="py-10">
             <EmptyHeader>
@@ -3899,7 +3869,7 @@ export function EnvironmentSettingsPanel() {
             )}
           </div>
         )}
-      </div>
+      </SettingsSection>
     </SettingsPageContainer>
   );
 }
