@@ -26,12 +26,35 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("opencode").sessionForkMode).toBe("native");
   });
 
+  it("declares side conversation support for every provider", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").sideConversationMode).toBe(
+      "native-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationMode).toBe(
+      "native-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").sideConversationMode).toBe(
+      "native-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("cursor").sideConversationMode).toBe(
+      "native-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("opencode").sideConversationMode).toBe(
+      "native-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("gemini").sideConversationMode).toBe(
+      "replay-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("pi").sideConversationMode).toBe("replay-fork");
+  });
+
   it("preserves Pi defaults when adapter capabilities do not override them", () => {
     expect(
       resolveProviderIntegrationCapabilities("pi", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
       approvalRequestsMode: "none",
       turnSteeringMode: "native",
+      sideConversationMode: "replay-fork",
     });
   });
 });

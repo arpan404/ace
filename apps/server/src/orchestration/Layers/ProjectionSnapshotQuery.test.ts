@@ -388,6 +388,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               historyAuthority: "provider-session",
               sessionResumeMode: "native",
               sessionForkMode: "native",
+              sideConversationMode: "native-fork",
             },
             runtimeMode: "approval-required",
             activeTurnId: asTurnId("turn-1"),

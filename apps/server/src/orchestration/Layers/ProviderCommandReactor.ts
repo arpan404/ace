@@ -1613,6 +1613,21 @@ const make = Effect.gen(function* () {
       });
       const threadTitle = toNonEmptyProviderInput(`${thread.title} side chat`);
       const desiredModelSelection = event.payload.modelSelection ?? thread.modelSelection;
+      const capabilities = yield* resolveSessionCapabilities(provider);
+
+      if (capabilities?.sideConversationMode === "unsupported") {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Side chat failed",
+          detail: `Provider '${provider}' does not support Ace side chats.`,
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+
+      const replayTurns = sourceMessagesToReplayTurns(thread.messages);
 
       yield* providerService.startSession(sideThreadId, {
         threadId: sideThreadId,
@@ -1623,6 +1638,7 @@ const make = Effect.gen(function* () {
         forkSource: {
           threadId: event.payload.forkSourceThreadId,
         },
+        replayTurns,
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,
       });

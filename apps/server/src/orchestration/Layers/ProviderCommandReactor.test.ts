@@ -1546,6 +1546,27 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-parent-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-parent-1"),
+          role: "user",
+          text: "We are reviewing the provider architecture.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
         type: "thread.subagent.turn.start",
         commandId: CommandId.makeUnsafe("cmd-side-turn"),
         threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1570,6 +1591,7 @@ describe("ProviderCommandReactor", () => {
       | {
           provider?: string;
           forkSource?: { threadId: ThreadId };
+          replayTurns?: Array<{ prompt: string; assistantResponse?: string }>;
           threadId?: ThreadId;
         }
       | undefined;
@@ -1577,6 +1599,12 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.threadId).toBe("side:thread-1:question-1");
     expect(startInput?.provider).toBe("claudeAgent");
     expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.replayTurns).toEqual([
+      {
+        prompt: "We are reviewing the provider architecture.",
+        attachmentNames: [],
+      },
+    ]);
 
     const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
       | {

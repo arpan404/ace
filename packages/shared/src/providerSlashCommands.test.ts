@@ -30,7 +30,7 @@ describe("providerSlashCommands", () => {
     });
   });
 
-  it("merges dynamic commands before fallback commands", () => {
+  it("merges dynamic commands without static provider CLI fallbacks", () => {
     const merged = mergeProviderSlashCommands(
       [
         providerSkillSlashCommand({
@@ -93,16 +93,13 @@ describe("providerSlashCommands", () => {
     ).toEqual([{ name: "presentations", kind: "plugin", promptPrefix: "@presentations" }]);
   });
 
-  it("returns provider fallback commands for providers that define them", () => {
-    expect(
-      providerFallbackSlashCommands("githubCopilot").some((command) => command.name === "model"),
-    ).toBe(true);
-    expect(
-      providerFallbackSlashCommands("cursor").some((command) => command.name === "model"),
-    ).toBe(true);
-  });
-
-  it("does not expose Codex CLI fallback commands", () => {
+  it("does not expose static provider CLI fallback commands", () => {
     expect(providerFallbackSlashCommands("codex")).toEqual([]);
+    expect(providerFallbackSlashCommands("claudeAgent")).toEqual([]);
+    expect(providerFallbackSlashCommands("githubCopilot")).toEqual([]);
+    expect(providerFallbackSlashCommands("cursor")).toEqual([]);
+    expect(providerFallbackSlashCommands("pi")).toEqual([]);
+    expect(providerFallbackSlashCommands("gemini")).toEqual([]);
+    expect(providerFallbackSlashCommands("opencode")).toEqual([]);
   });
 });

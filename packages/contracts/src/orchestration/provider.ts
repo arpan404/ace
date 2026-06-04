@@ -111,6 +111,13 @@ export type ProviderSessionResumeMode = typeof ProviderSessionResumeMode.Type;
 export const ProviderSessionForkMode = Schema.Literals(["native", "local-replay"]);
 export type ProviderSessionForkMode = typeof ProviderSessionForkMode.Type;
 
+export const ProviderSideConversationMode = Schema.Literals([
+  "native-fork",
+  "replay-fork",
+  "unsupported",
+]);
+export type ProviderSideConversationMode = typeof ProviderSideConversationMode.Type;
+
 export const ProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
@@ -137,6 +144,9 @@ export const ProviderIntegrationCapabilities = Schema.Struct({
   sessionResumeMode: ProviderSessionResumeMode,
   sessionForkMode: ProviderSessionForkMode.pipe(
     Schema.withDecodingDefault(() => "local-replay" as const),
+  ),
+  sideConversationMode: ProviderSideConversationMode.pipe(
+    Schema.withDecodingDefault(() => "replay-fork" as const),
   ),
 });
 export type ProviderIntegrationCapabilities = typeof ProviderIntegrationCapabilities.Type;

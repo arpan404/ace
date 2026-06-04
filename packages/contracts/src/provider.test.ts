@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
+import { ProviderIntegrationCapabilities } from "./orchestration";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
+const decodeProviderIntegrationCapabilities = Schema.decodeUnknownSync(
+  ProviderIntegrationCapabilities,
+);
 
 describe("ProviderSessionStartInput", () => {
   it("accepts codex-compatible payloads", () => {
@@ -179,6 +183,23 @@ describe("ProviderSessionStartInput", () => {
       throw new Error("Expected pi modelSelection");
     }
     expect(parsed.modelSelection.options?.reasoningEffort).toBe("high");
+  });
+});
+
+describe("ProviderIntegrationCapabilities", () => {
+  it("defaults side conversation mode for older persisted capability payloads", () => {
+    const parsed = decodeProviderIntegrationCapabilities({
+      sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "in-session",
+      liveTurnDiffMode: "workspace",
+      reviewChangesMode: "git",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "local",
+      sessionResumeMode: "local-replay",
+    });
+
+    expect(parsed.sideConversationMode).toBe("replay-fork");
   });
 });
 
