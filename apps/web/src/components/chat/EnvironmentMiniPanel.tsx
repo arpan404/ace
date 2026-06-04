@@ -211,7 +211,8 @@ export function EnvironmentSubagentIcon({
     >
       <svg
         aria-hidden="true"
-        className="relative size-3 [image-rendering:pixelated]"
+        className="subagent-pixel-icon relative size-3 [image-rendering:pixelated]"
+        data-running={isRunning ? "true" : "false"}
         viewBox="0 0 5 5"
       >
         {cells.map((cell) => {
@@ -225,6 +226,7 @@ export function EnvironmentSubagentIcon({
               width="1"
               height="1"
               fill={shouldUseShadowFill ? shadowFill : fill}
+              style={{ animationDelay: `${((Number(x) + Number(y) * 2 + seed) % 9) * 120}ms` }}
             />
           );
         })}

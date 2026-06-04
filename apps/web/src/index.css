@@ -1290,6 +1290,59 @@ label:has(> select#reasoning-effort) select {
   background: var(--card);
 }
 
+@keyframes subagent-pixel-chroma {
+  0%,
+  100% {
+    filter: hue-rotate(0deg) saturate(1) brightness(1);
+  }
+  38% {
+    filter: hue-rotate(22deg) saturate(1.22) brightness(1.08);
+  }
+  72% {
+    filter: hue-rotate(-16deg) saturate(1.14) brightness(0.96);
+  }
+}
+
+@keyframes subagent-pixel-twinkle {
+  0%,
+  100% {
+    opacity: 0.84;
+  }
+  42% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 0.66;
+  }
+}
+
+@keyframes subagent-pixel-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .subagent-pixel-icon {
+    transform-origin: center;
+    animation: subagent-pixel-chroma 5.5s ease-in-out infinite;
+  }
+
+  .subagent-pixel-icon[data-running="true"] {
+    animation:
+      subagent-pixel-chroma 3.8s ease-in-out infinite,
+      subagent-pixel-bob 1.6s ease-in-out infinite;
+  }
+
+  .subagent-pixel-icon rect {
+    animation: subagent-pixel-twinkle 3.4s ease-in-out infinite;
+  }
+}
+
 @keyframes ultrathink-rainbow {
   0% {
     background-position: 0% 50%;
