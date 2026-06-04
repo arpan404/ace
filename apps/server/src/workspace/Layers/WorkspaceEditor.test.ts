@@ -96,6 +96,33 @@ function handleMessage(message) {
     }
     return;
   }
+  if (message.method === "textDocument/completion") {
+    const document = message.params && message.params.textDocument;
+    if (document && typeof document.uri === "string") {
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          isIncomplete: false,
+          items: [
+            {
+              label: "createValue",
+              kind: 3,
+              detail: "function createValue(): ExampleType",
+              documentation: {
+                kind: "markdown",
+                value: "Create an example value."
+              },
+              insertText: "createValue()",
+              sortText: "0001",
+              filterText: "createValue"
+            }
+          ]
+        }
+      });
+    }
+    return;
+  }
   if (message.method === "textDocument/definition") {
     const document = message.params && message.params.textDocument;
     if (document && typeof document.uri === "string") {
@@ -365,6 +392,13 @@ describe("WorkspaceEditorLive", () => {
             line: 1,
             column: 13,
           });
+          const complete = yield* workspaceEditor.complete({
+            cwd: workspaceDir,
+            relativePath: "src/example.ts",
+            contents: 'import { ExampleType } from "../types/example";\nconst value = crea\n',
+            line: 1,
+            column: 18,
+          });
           const references = yield* workspaceEditor.references({
             cwd: workspaceDir,
             relativePath: "src/example.ts",
@@ -385,7 +419,7 @@ describe("WorkspaceEditorLive", () => {
             cwd: workspaceDir,
             relativePath: "src/example.ts",
           });
-          return { clean, broken, definition, references, hover, closed };
+          return { clean, broken, definition, complete, references, hover, closed };
         }),
       );
 
@@ -417,6 +451,20 @@ describe("WorkspaceEditorLive", () => {
             startColumn: 6,
             endLine: 2,
             endColumn: 17,
+          },
+        ],
+      });
+      expect(result.complete).toEqual({
+        relativePath: "src/example.ts",
+        items: [
+          {
+            label: "createValue",
+            kind: "3",
+            detail: "function createValue(): ExampleType",
+            documentation: "Create an example value.",
+            insertText: "createValue()",
+            sortText: "0001",
+            filterText: "createValue",
           },
         ],
       });

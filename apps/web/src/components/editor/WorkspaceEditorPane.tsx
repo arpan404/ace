@@ -1880,30 +1880,51 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <div className="py-1">
                 {sortedProblems.map((problem) => {
                   const severity = workspaceSeverityFromValue(problem.severity);
+                  const problemCode =
+                    problem.code === undefined ? null : String(problem.code).trim() || null;
+                  const sourceLabel = problem.source ?? "lsp";
                   return (
                     <Button
                       key={`${problem.owner}:${problem.startLineNumber}:${problem.startColumn}:${problem.message}`}
                       type="button"
                       variant="ghost"
-                      className="mx-1 flex h-auto w-[calc(100%-0.5rem)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-normal"
+                      className={cn(
+                        "group mx-1 flex h-auto w-[calc(100%-0.5rem)] items-start gap-2 rounded-md border-l-2 border-transparent px-2 py-1.5 text-left text-[11px] font-normal hover:bg-accent/70",
+                        severity === "error" && "hover:border-destructive/80",
+                        severity === "warning" && "hover:border-amber-500/80",
+                        severity === "info" && "hover:border-sky-500/80",
+                        severity === "hint" && "hover:border-muted-foreground/60",
+                      )}
                       onClick={() => handleProblemClick(problem)}
+                      aria-label={`${severity}: ${problem.message}. ${sourceLabel}, line ${problem.startLineNumber}, column ${problem.startColumn}`}
                     >
                       <span
                         className={cn(
-                          "mt-0.5 inline-flex min-w-[3.6rem] rounded px-1 py-px text-[9px] font-semibold uppercase",
-                          severity === "error" && "bg-destructive/15 text-destructive",
-                          severity === "warning" && "bg-amber-500/15 text-amber-600",
-                          severity === "info" && "bg-sky-500/15 text-sky-600",
-                          severity === "hint" && "bg-foreground/10 text-muted-foreground",
+                          "mt-[0.4rem] size-2 shrink-0 rounded-full shadow-[0_0_0_2px_rgba(255,255,255,0.06)]",
+                          severity === "error" && "bg-destructive",
+                          severity === "warning" && "bg-amber-500",
+                          severity === "info" && "bg-sky-500",
+                          severity === "hint" && "bg-muted-foreground/65",
                         )}
-                      >
-                        {severity}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-foreground">{problem.message}</span>
-                        <span className="block truncate text-muted-foreground/80">
-                          {problem.source ?? problem.owner} · Ln {problem.startLineNumber}, Col{" "}
-                          {problem.startColumn}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1 space-y-0.5">
+                        <span className="flex min-w-0 items-baseline gap-2">
+                          <span className="block min-w-0 truncate text-foreground/90">
+                            {problem.message}
+                          </span>
+                          {problemCode ? (
+                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/62">
+                              {problemCode}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/72">
+                          <span className="truncate">{sourceLabel}</span>
+                          <span className="size-0.5 shrink-0 rounded-full bg-muted-foreground/45" />
+                          <span className="shrink-0 font-mono">
+                            Ln {problem.startLineNumber}, Col {problem.startColumn}
+                          </span>
                         </span>
                       </span>
                     </Button>

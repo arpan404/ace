@@ -1434,6 +1434,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       let syncInput: WorkspaceEditorSyncBufferInput | null = null;
       let closeInput: WorkspaceEditorCloseBufferInput | null = null;
+      let completeInput: WorkspaceEditorCompleteInput | null = null;
       let definitionInput: WorkspaceEditorDefinitionInput | null = null;
       let hoverInput: WorkspaceEditorHoverInput | null = null;
       let referencesInput: WorkspaceEditorReferencesInput | null = null;
@@ -1469,9 +1470,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
             complete: (input) =>
               Effect.sync(() => {
+                completeInput = input;
                 return {
                   relativePath: input.relativePath,
-                  items: [],
+                  items: [
+                    {
+                      label: "createValue",
+                      kind: "3",
+                      detail: "function createValue(): ExampleType",
+                      insertText: "createValue()",
+                    },
+                  ],
                 } satisfies WorkspaceEditorCompleteResult;
               }),
             definition: (input) =>
@@ -1548,6 +1557,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+      const completeResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorComplete]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+            contents: "const value = crea;\n",
+            line: 0,
+            column: 18,
+          }),
+        ),
+      );
       const definitionResponse = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.workspaceEditorDefinition]({
@@ -1608,6 +1628,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       });
       assert.deepEqual(closeResponse, {
         relativePath: "src/example.ts",
+      });
+      assert.deepEqual(completeInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+        contents: "const value = crea;\n",
+        line: 0,
+        column: 18,
+      });
+      assert.deepEqual(completeResponse, {
+        relativePath: "src/example.ts",
+        items: [
+          {
+            label: "createValue",
+            kind: "3",
+            detail: "function createValue(): ExampleType",
+            insertText: "createValue()",
+          },
+        ],
       });
       assert.deepEqual(definitionInput, {
         cwd: "/tmp/project",

@@ -287,11 +287,7 @@ function createCompletionSource(
 ): (context: CompletionContext) => Promise<CompletionResult | null> {
   return async (context) => {
     const callbacks = callbacksRef.current;
-    if (
-      !callbacks.completionProvider ||
-      !callbacks.languageId ||
-      !shouldRequestCompletion(context)
-    ) {
+    if (!callbacks.completionProvider || !shouldRequestCompletion(context)) {
       return null;
     }
 
@@ -335,6 +331,37 @@ function createWhitespaceExtension(options: WorkspaceCodeEditorOptions): Extensi
   return options.renderWhitespace ? highlightWhitespace() : [];
 }
 
+function diagnosticCodeLabel(code: WorkspaceEditorDiagnostic["code"]): string | null {
+  if (code === undefined) {
+    return null;
+  }
+  const label = String(code).trim();
+  return label.length > 0 ? label : null;
+}
+
+function renderWorkspaceDiagnosticMessage(diagnostic: WorkspaceEditorDiagnostic): () => Node {
+  const message = diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic";
+  const code = diagnosticCodeLabel(diagnostic.code);
+  return () => {
+    const wrapper = document.createElement("span");
+    wrapper.className = `ace-workspace-diagnostic-message ace-workspace-diagnostic-message-${diagnostic.severity}`;
+
+    const messageText = document.createElement("span");
+    messageText.className = "ace-workspace-diagnostic-message-text";
+    messageText.textContent = message;
+    wrapper.append(messageText);
+
+    if (code) {
+      const codeText = document.createElement("span");
+      codeText.className = "ace-workspace-diagnostic-message-code";
+      codeText.textContent = code;
+      wrapper.append(codeText);
+    }
+
+    return wrapper;
+  };
+}
+
 function toCodeMirrorDiagnostics(
   state: EditorState,
   diagnostics: readonly WorkspaceEditorDiagnostic[],
@@ -354,6 +381,7 @@ function toCodeMirrorDiagnostics(
     const result: CodeMirrorDiagnostic = {
       from,
       message: diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic",
+      renderMessage: renderWorkspaceDiagnosticMessage(diagnostic),
       severity: diagnostic.severity,
       to: Math.min(to, state.doc.length),
     };
@@ -645,9 +673,6 @@ function createHoverExtension(
   return hoverTooltip(
     async (view, offset): Promise<Tooltip | null> => {
       const callbacks = callbacksRef.current;
-      if (!callbacks.languageId) {
-        return null;
-      }
       const identifierRange = workspaceIdentifierRangeAt(view.state, offset);
       if (!identifierRange) {
         return null;
@@ -870,6 +895,7 @@ function createEditorExtensions(input: {
     input.indentUnitCompartment.of(indentUnit.of(" ".repeat(input.options.tabSize))),
     input.whitespaceCompartment.of(createWhitespaceExtension(input.options)),
     input.completionCompartment.of(createCompletionExtension(input.callbacksRef, input.options)),
+    EditorState.allowMultipleSelections.of(true),
     workspaceShikiHighlightSupport(),
     history(),
     foldGutter(),
