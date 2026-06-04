@@ -2219,32 +2219,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
         <>
           <SettingsSection title="Workspace editor">
             <SettingsRow
-              title="Editor suggestions"
-              description="Keep workspace completion helpers off by default to reduce noisy or unwanted code insertions."
-              resetAction={
-                settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions ? (
-                  <SettingResetButton
-                    label="editor suggestions"
-                    onClick={() =>
-                      updateSettings({
-                        editorSuggestions: DEFAULT_UNIFIED_SETTINGS.editorSuggestions,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.editorSuggestions}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ editorSuggestions: Boolean(checked) })
-                  }
-                  aria-label="Enable workspace editor suggestions"
-                />
-              }
-            />
-
-            <SettingsRow
               title="Editor line wrapping"
               description="Wrap long lines in the workspace editor."
               resetAction={

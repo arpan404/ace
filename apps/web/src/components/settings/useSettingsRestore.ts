@@ -64,9 +64,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll
         ? ["Editor sticky scroll"]
         : []),
-      ...(settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions
-        ? ["Editor suggestions"]
-        : []),
       ...(settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap
         ? ["Editor line wrapping"]
         : []),
@@ -138,7 +135,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.editorLineNumbers,
       settings.editorRenderWhitespace,
       settings.editorStickyScroll,
-      settings.editorSuggestions,
       settings.editorWordWrap,
       settings.enableAssistantStreaming,
       settings.notifyOnAgentCompletion,

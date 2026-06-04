@@ -10,7 +10,7 @@ export function normalizeAttachmentRelativePath(rawRelativePath: string): string
   return normalized.replace(/\\/g, "/");
 }
 
-export function resolveAttachentRelativePath(input: {
+export function resolveAttachmentRelativePath(input: {
   readonly attachmentsDir: string;
   readonly relativePath: string;
 }): string | null {

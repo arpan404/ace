@@ -607,6 +607,17 @@ function pathForDialogInput(parentPath: string | null, value: string): string {
   return parentPath ? `${parentPath}/${trimmed}` : trimmed;
 }
 
+function pathForInlineEntryIcon(state: ExplorerInlineEntryState): string {
+  if (state.kind === "rename") {
+    return state.entry.path;
+  }
+  const value = state.value.trim();
+  if (value.length > 0) {
+    return pathForDialogInput(state.parentPath, value);
+  }
+  return state.parentPath ? `${state.parentPath}/` : "";
+}
+
 function isAncestorPath(pathValue: string, maybeAncestor: string): boolean {
   return pathValue === maybeAncestor || pathValue.startsWith(`${maybeAncestor}/`);
 }
@@ -1041,13 +1052,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
     >
       <span className="size-3.5 shrink-0" />
       <VscodeEntryIcon
-        pathValue={
-          props.state.kind === "rename"
-            ? props.state.entry.path
-            : props.state.kind === "create-folder"
-              ? `${props.state.parentPath ?? "folder"}/folder`
-              : `${props.state.parentPath ?? "file"}/file.ts`
-        }
+        pathValue={pathForInlineEntryIcon(props.state)}
         kind={props.state.kind === "create-folder" ? "directory" : "file"}
         theme={props.resolvedTheme}
         className="size-[15px]"
@@ -1171,23 +1176,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const editorLineNumbers = useSetting("editorLineNumbers");
   const editorRenderWhitespace = useSetting("editorRenderWhitespace");
   const editorStickyScroll = useSetting("editorStickyScroll");
-  const editorSuggestions = useSetting("editorSuggestions");
   const editorWordWrap = useSetting("editorWordWrap");
   const editorSettings = useMemo(
     () => ({
       lineNumbers: editorLineNumbers,
       renderWhitespace: editorRenderWhitespace,
       stickyScroll: editorStickyScroll,
-      suggestions: editorSuggestions,
       wordWrap: editorWordWrap,
     }),
-    [
-      editorLineNumbers,
-      editorRenderWhitespace,
-      editorStickyScroll,
-      editorSuggestions,
-      editorWordWrap,
-    ],
+    [editorLineNumbers, editorRenderWhitespace, editorStickyScroll, editorWordWrap],
   );
   const queryClient = useQueryClient();
   const api = readNativeApi();
@@ -1368,6 +1365,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
   const editorGridRef = useRef<HTMLDivElement | null>(null);
   const rowGroupRefs = useRef(new Map<string, HTMLDivElement | null>());
+  const [pendingExplorerRevealPath, setPendingExplorerRevealPath] = useState<string | null>(null);
   const closeFile = useEditorStateStore((state) => state.closeFile);
   const closeFilesToRight = useEditorStateStore((state) => state.closeFilesToRight);
   const closeOtherFiles = useEditorStateStore((state) => state.closeOtherFiles);
@@ -1929,11 +1927,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [props.threadId, syncTree, treeEntries]);
 
   useEffect(() => {
+    if (pendingExplorerRevealPath) {
+      return;
+    }
     if (selectedEntryPath && entryByPath.has(selectedEntryPath)) {
       return;
     }
     setSelectedEntryPath(activePane?.activeFilePath ?? null);
-  }, [activePane?.activeFilePath, entryByPath, selectedEntryPath]);
+  }, [activePane?.activeFilePath, entryByPath, pendingExplorerRevealPath, selectedEntryPath]);
 
   useEffect(() => {
     if (!inlineEntryFocusKey) {
@@ -3199,13 +3200,58 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [inputProps.connectionUrl, props.gitCwd, queryClient],
   );
 
-  const focusExplorerEntry = useCallback((path: string) => {
+  const focusMountedExplorerEntry = useCallback((path: string): boolean => {
     const target = treeScrollRef.current?.querySelector<HTMLElement>(
       `[data-explorer-path="${CSS.escape(path)}"]`,
     );
-    target?.focus();
-    target?.scrollIntoView({ block: "nearest" });
+    if (!target) {
+      return false;
+    }
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest" });
+    return true;
   }, []);
+
+  const focusExplorerEntry = useCallback(
+    (path: string, options?: { readonly align?: "auto" | "center" }) => {
+      const rowIndex = explorerRows.findIndex(
+        (row) => row.kind === "entry" && row.row.entry.path === path,
+      );
+      if (rowIndex >= 0) {
+        rowVirtualizer.scrollToIndex(rowIndex, { align: options?.align ?? "auto" });
+      }
+      window.requestAnimationFrame(() => {
+        if (focusMountedExplorerEntry(path)) {
+          return;
+        }
+        window.requestAnimationFrame(() => {
+          focusMountedExplorerEntry(path);
+        });
+      });
+    },
+    [explorerRows, focusMountedExplorerEntry, rowVirtualizer],
+  );
+
+  useEffect(() => {
+    if (!pendingExplorerRevealPath || explorerPending) {
+      return;
+    }
+    const visible = explorerRows.some(
+      (row) => row.kind === "entry" && row.row.entry.path === pendingExplorerRevealPath,
+    );
+    if (!visible) {
+      return;
+    }
+    setSelectedEntryPath(pendingExplorerRevealPath);
+    focusExplorerEntry(pendingExplorerRevealPath, { align: "center" });
+    setPendingExplorerRevealPath(null);
+  }, [
+    explorerPending,
+    explorerRows,
+    focusExplorerEntry,
+    pendingExplorerRevealPath,
+    setSelectedEntryPath,
+  ]);
 
   const startInlineEntry = useCallback(
     (state: ExplorerInlineEntryState) => {
@@ -3279,6 +3325,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ...(result.kind === "directory" ? [result.relativePath] : []),
       ]);
       setSelectedEntryPath(result.relativePath);
+      setPendingExplorerRevealPath(result.relativePath);
+      setTreeSearch("");
       if (result.kind === "file") {
         markFileSaved(props.threadId, result.relativePath, "");
         openFile(props.threadId, result.relativePath, activePane?.id);
@@ -3331,6 +3379,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ...(variables.kind === "directory" ? [result.relativePath] : []),
       ]);
       setSelectedEntryPath(result.relativePath);
+      setPendingExplorerRevealPath(result.relativePath);
+      setTreeSearch("");
       clearReadFileCache(result.previousRelativePath);
       void queryClient.invalidateQueries({
         queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),

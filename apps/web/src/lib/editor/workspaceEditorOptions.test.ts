@@ -8,7 +8,6 @@ describe("createWorkspaceEditorOptions", () => {
       lineNumbers: "on",
       renderWhitespace: false,
       stickyScroll: true,
-      suggestions: true,
       wordWrap: false,
     });
 
@@ -23,18 +22,17 @@ describe("createWorkspaceEditorOptions", () => {
     });
   });
 
-  it("preserves user-facing editor toggles for CodeMirror extensions", () => {
+  it("keeps autocomplete enabled for editable workspace panes", () => {
     const options = createWorkspaceEditorOptions({
       lineNumbers: "relative",
       renderWhitespace: true,
       stickyScroll: false,
-      suggestions: false,
       wordWrap: true,
     });
 
     expect(options.lineNumbers).toBe("relative");
     expect(options.renderWhitespace).toBe(true);
-    expect(options.suggestions).toBe(false);
+    expect(options.suggestions).toBe(true);
     expect(options.wordWrap).toBe(true);
   });
 });
