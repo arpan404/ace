@@ -48,6 +48,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from "react";
 
 import {
@@ -84,7 +85,11 @@ import {
 } from "~/lib/editor/workspaceDesigner";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
-import { projectListTreeQueryOptions, projectQueryKeys } from "~/lib/projectReactQuery";
+import {
+  projectListTreeQueryOptions,
+  projectQueryKeys,
+  projectReadFileQueryOptions,
+} from "~/lib/projectReactQuery";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -107,7 +112,11 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
-import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
+import {
+  detectWorkspacePreviewKind,
+  joinWorkspaceAbsolutePath,
+  revealInFileManagerLabel,
+} from "./workspaceFileUtils";
 import WorkspaceEditorPane, {
   type WorkspaceEditorPaneProblem,
   type WorkspaceEditorPaneSymbol,
@@ -131,6 +140,7 @@ const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 36;
 const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
 const WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT = 24;
 const WORKSPACE_CODE_SEARCH_DEBOUNCE_MS = 250;
+const WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE = 4;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 const WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY = "ace:workspace-code-search-recents:v1";
 const WORKSPACE_CODE_SEARCH_RECENT_LIMIT = 6;
@@ -142,6 +152,15 @@ const WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES = [
 const WorkspaceCodeSearchRecentsSchema = Schema.Array(Schema.String);
 const WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS =
   "h-8 rounded-md border-border/45 bg-background/62 text-[12px] shadow-none placeholder:text-muted-foreground/48 focus-within:border-primary/40 focus-within:bg-background/88 [&_[data-slot=input]]:h-full [&_[data-slot=input]]:pr-2 [&_[data-slot=input]]:pl-9 [&_[data-slot=input]]:leading-8";
+const WORKSPACE_SIDEBAR_PRIMARY_MODE_BUTTON_CLASS =
+  "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45";
+const WORKSPACE_SIDEBAR_PRIMARY_MODE_ICON_CLASS = "size-[19px] shrink-0 transition-colors";
+const WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS =
+  "size-7 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground";
+const WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS = "size-[15px] shrink-0";
+const WORKSPACE_EDITOR_CHROME_PRIMARY_BUTTON_CLASS =
+  "size-[30px] rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground";
+const WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS = "size-[17px]";
 interface SaveConflictState {
   readonly currentContents: string;
   readonly currentVersion?: string;
@@ -825,6 +844,11 @@ function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     target.isContentEditable
   );
+}
+
+function shouldPrefetchWorkspaceEditorFile(filePath: string): boolean {
+  const previewKind = detectWorkspacePreviewKind(filePath);
+  return previewKind !== "image" && previewKind !== "video";
 }
 
 const FileTreeRow = memo(function FileTreeRow(props: {
@@ -1582,6 +1606,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
+  const [fileEventsConnected, setFileEventsConnected] = useState(false);
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -2080,9 +2105,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
 
   useEffect(() => {
     if (!api || !props.gitCwd) {
+      setFileEventsConnected(false);
       return;
     }
-    return api.projects.onFileEvents(
+    const unsubscribe = api.projects.onFileEvents(
       withRpcRouteConnection({ cwd: props.gitCwd }, inputProps.connectionUrl),
       (event) => {
         void queryClient.invalidateQueries({
@@ -2118,7 +2144,62 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         }
       },
     );
+    setFileEventsConnected(true);
+    return () => {
+      setFileEventsConnected(false);
+      unsubscribe();
+    };
   }, [api, inputProps.connectionUrl, props.gitCwd, queryClient]);
+
+  useEffect(() => {
+    if (!api || !props.gitCwd || openWorkspaceFilePaths.length === 0) {
+      return;
+    }
+
+    const prefetchFilePaths = openWorkspaceFilePaths.filter(
+      (filePath) =>
+        shouldPrefetchWorkspaceEditorFile(filePath) && !activeDirtyPathsRef.current.has(filePath),
+    );
+    if (prefetchFilePaths.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const prefetchOpenFiles = async () => {
+      for (
+        let startIndex = 0;
+        startIndex < prefetchFilePaths.length;
+        startIndex += WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE
+      ) {
+        if (cancelled) {
+          return;
+        }
+        const batch = prefetchFilePaths.slice(
+          startIndex,
+          startIndex + WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE,
+        );
+        await Promise.all(
+          batch.map((relativePath) =>
+            queryClient
+              .prefetchQuery(
+                projectReadFileQueryOptions({
+                  connectionUrl: inputProps.connectionUrl,
+                  cwd: props.gitCwd,
+                  relativePath,
+                  refetchInterval: false,
+                }),
+              )
+              .catch(() => undefined),
+          ),
+        );
+      }
+    };
+
+    void prefetchOpenFiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, inputProps.connectionUrl, openWorkspaceFilePaths, props.gitCwd, queryClient]);
 
   const gitStatusByPath = useMemo(() => {
     const files = gitStatusQuery.data?.workingTree.files ?? [];
@@ -2948,8 +3029,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const clearReadFileCache = useCallback(
     (relativePath: string) => {
       queryClient.removeQueries({
-        queryKey: projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
-        exact: true,
+        predicate: (query) => {
+          const queryKey = query.queryKey;
+          const cachedRelativePath = queryKey[4];
+          return (
+            queryKey[0] === "projects" &&
+            queryKey[1] === "read-file" &&
+            queryKey[2] === (inputProps.connectionUrl ?? null) &&
+            queryKey[3] === props.gitCwd &&
+            typeof cachedRelativePath === "string" &&
+            isAncestorPath(cachedRelativePath, relativePath)
+          );
+        },
       });
     },
     [inputProps.connectionUrl, props.gitCwd, queryClient],
@@ -3758,7 +3849,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             sidebarMode === "problems" ||
                             sidebarMode === "notes"));
                       const iconClassName = cn(
-                        "size-4 transition-colors",
+                        WORKSPACE_SIDEBAR_PRIMARY_MODE_ICON_CLASS,
                         active ? "text-foreground" : "text-muted-foreground/58",
                       );
                       const icon =
@@ -3777,7 +3868,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <button
                                 type="button"
                                 className={cn(
-                                  "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45",
+                                  WORKSPACE_SIDEBAR_PRIMARY_MODE_BUTTON_CLASS,
                                   active
                                     ? "text-foreground"
                                     : "text-muted-foreground/58 hover:text-foreground",
@@ -3802,8 +3893,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-transparent text-muted-foreground/58 transition-colors hover:text-foreground">
-                                <GitForkIcon className="size-4" />
+                              <span
+                                className={cn(
+                                  "inline-flex items-center justify-center transition-colors",
+                                  WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS,
+                                )}
+                              >
+                                <GitForkIcon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                               </span>
                             }
                           />
@@ -3819,11 +3915,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                                className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                                 onClick={() => void detachEditor()}
                                 aria-label="Detach editor"
                               >
-                                <SquareArrowOutUpRightIcon className="size-4" strokeWidth={1.9} />
+                                <SquareArrowOutUpRightIcon
+                                  className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS}
+                                  strokeWidth={1.9}
+                                />
                               </Button>
                             }
                           />
@@ -3837,11 +3936,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                                className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                                 onClick={onReturnToMainWindow}
                                 aria-label="Move editor back to Ace"
                               >
-                                <IconArrowsDiagonalMinimize2 className="size-4" stroke={1.8} />
+                                <IconArrowsDiagonalMinimize2
+                                  className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS}
+                                  stroke={1.8}
+                                />
                               </Button>
                             }
                           />
@@ -3854,7 +3956,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                              className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                               onClick={() =>
                                 startInlineEntry({
                                   kind: "create-file",
@@ -3869,7 +3971,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FilePlus2Icon className="size-4" />
+                          <FilePlus2Icon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New file</TooltipPopup>
                       </Tooltip>
@@ -3879,7 +3981,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-8 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground"
+                              className={WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS}
                               onClick={() =>
                                 startInlineEntry({
                                   kind: "create-folder",
@@ -3894,7 +3996,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FolderPlusIcon className="size-4" />
+                          <FolderPlusIcon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New folder</TooltipPopup>
                       </Tooltip>
@@ -4875,7 +4977,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                             type="button"
                                             variant="ghost"
                                             size="icon-xs"
-                                            className="size-7 rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground"
+                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_BUTTON_CLASS}
                                             onClick={() =>
                                               setExplorerOpen(props.threadId, !explorerOpen)
                                             }
@@ -4888,9 +4990,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                         }
                                       >
                                         {explorerOpen ? (
-                                          <IconLayoutSidebarFilled className="size-3.5" />
+                                          <IconLayoutSidebarFilled
+                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                          />
                                         ) : (
-                                          <IconLayoutSidebar className="size-3.5" />
+                                          <IconLayoutSidebar
+                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                          />
                                         )}
                                       </TooltipTrigger>
                                       <TooltipPopup side="bottom">
@@ -4908,6 +5014,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               dirtyFilePaths={activeDirtyPaths}
                               draftsByFilePath={draftsByFilePath}
                               editorOptions={editorOptions}
+                              fileEventsConnected={fileEventsConnected}
                               gitCwd={props.gitCwd}
                               onAddCodeComment={handleAddCodeComment}
                               onAddCodeCommentAndSend={handleAddAndSendCodeComment}

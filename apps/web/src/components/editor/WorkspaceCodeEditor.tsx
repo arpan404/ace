@@ -170,6 +170,14 @@ interface WorkspaceCodeEditorCallbacks {
   readonly onToggleProblems: WorkspaceCodeEditorProps["onToggleProblems"];
 }
 
+interface WorkspaceCodeEditorCreateSnapshot {
+  readonly languageId: string | null | undefined;
+  readonly options: WorkspaceCodeEditorOptions;
+  readonly readOnly: boolean;
+  readonly resolvedTheme: WorkspaceCodeEditorProps["resolvedTheme"];
+  readonly value: string;
+}
+
 interface WorkspaceCodeEditorTransientRefs {
   readonly syncingFromPropsRef: MutableRefObject<boolean>;
   readonly valueRef: MutableRefObject<string>;
@@ -296,6 +304,24 @@ function createCompletionSource(
       return null;
     }
   };
+}
+
+function createCompletionExtension(
+  callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>,
+  options: WorkspaceCodeEditorOptions,
+): Extension {
+  if (!options.suggestions) {
+    return [];
+  }
+  return autocompletion({
+    activateOnTyping: true,
+    defaultKeymap: false,
+    override: [createCompletionSource(callbacksRef)],
+  });
+}
+
+function createWhitespaceExtension(options: WorkspaceCodeEditorOptions): Extension {
+  return options.renderWhitespace ? highlightWhitespace() : [];
 }
 
 function toCodeMirrorDiagnostics(
@@ -527,17 +553,22 @@ function createKeymap(
 function createEditorExtensions(input: {
   callbacksRef: MutableRefObject<WorkspaceCodeEditorCallbacks>;
   transientRefs: WorkspaceCodeEditorTransientRefs;
+  completionCompartment: Compartment;
+  indentUnitCompartment: Compartment;
   languageCompartment: Compartment;
+  lineNumbersCompartment: Compartment;
   options: WorkspaceCodeEditorOptions;
   readOnly: boolean;
+  readOnlyCompartment: Compartment;
   resolvedTheme: "light" | "dark";
   shikiHighlightCompartment: Compartment;
+  tabSizeCompartment: Compartment;
   themeCompartment: Compartment;
+  whitespaceCompartment: Compartment;
   wrappingCompartment: Compartment;
   languageId: string | null | undefined;
   activeFilePath: string;
 }): Extension[] {
-  const completionSource = createCompletionSource(input.callbacksRef);
   return [
     input.themeCompartment.of(
       createWorkspaceCodeMirrorTheme({
@@ -559,11 +590,13 @@ function createEditorExtensions(input: {
       }),
     ),
     input.wrappingCompartment.of(input.options.wordWrap ? EditorView.lineWrapping : []),
+    input.readOnlyCompartment.of(setWorkspaceEditorReadOnly(input.readOnly)),
+    input.lineNumbersCompartment.of(createWorkspaceLineNumberExtension(input.options.lineNumbers)),
+    input.tabSizeCompartment.of(EditorState.tabSize.of(input.options.tabSize)),
+    input.indentUnitCompartment.of(indentUnit.of(" ".repeat(input.options.tabSize))),
+    input.whitespaceCompartment.of(createWhitespaceExtension(input.options)),
+    input.completionCompartment.of(createCompletionExtension(input.callbacksRef, input.options)),
     workspaceShikiHighlightSupport(),
-    ...setWorkspaceEditorReadOnly(input.readOnly),
-    ...createWorkspaceLineNumberExtension(input.options.lineNumbers),
-    EditorState.tabSize.of(input.options.tabSize),
-    indentUnit.of(" ".repeat(input.options.tabSize)),
     history(),
     foldGutter(),
     drawSelection(),
@@ -580,14 +613,6 @@ function createEditorExtensions(input: {
     search({ createPanel: createHiddenSearchPanel }),
     lintGutter(),
     linter(null, { delay: 300 }),
-    input.options.renderWhitespace ? highlightWhitespace() : [],
-    input.options.suggestions
-      ? autocompletion({
-          activateOnTyping: true,
-          defaultKeymap: false,
-          override: [completionSource],
-        })
-      : [],
     EditorView.domEventHandlers({
       focus() {
         input.callbacksRef.current.onFocus();
@@ -652,9 +677,15 @@ const WorkspaceCodeEditor = memo(
       const viewRef = useRef<EditorView | null>(null);
       const valueRef = useRef(props.value);
       const syncingFromPropsRef = useRef(false);
+      const completionCompartment = useMemo(() => new Compartment(), []);
+      const indentUnitCompartment = useMemo(() => new Compartment(), []);
       const languageCompartment = useMemo(() => new Compartment(), []);
+      const lineNumbersCompartment = useMemo(() => new Compartment(), []);
+      const readOnlyCompartment = useMemo(() => new Compartment(), []);
       const shikiHighlightCompartment = useMemo(() => new Compartment(), []);
+      const tabSizeCompartment = useMemo(() => new Compartment(), []);
       const themeCompartment = useMemo(() => new Compartment(), []);
+      const whitespaceCompartment = useMemo(() => new Compartment(), []);
       const wrappingCompartment = useMemo(() => new Compartment(), []);
       const callbacksRef = useRef<WorkspaceCodeEditorCallbacks>({
         activeFilePath: props.activeFilePath,
@@ -671,6 +702,20 @@ const WorkspaceCodeEditor = memo(
         onToggleProblems: props.onToggleProblems,
       });
       updateCallbacksRef(callbacksRef, props);
+      const createSnapshotRef = useRef<WorkspaceCodeEditorCreateSnapshot>({
+        languageId: props.languageId,
+        options: props.options,
+        readOnly: props.readOnly ?? false,
+        resolvedTheme: props.resolvedTheme,
+        value: props.value,
+      });
+      createSnapshotRef.current = {
+        languageId: props.languageId,
+        options: props.options,
+        readOnly: props.readOnly ?? false,
+        resolvedTheme: props.resolvedTheme,
+        value: props.value,
+      };
 
       useImperativeHandle(
         forwardedRef,
@@ -796,21 +841,28 @@ const WorkspaceCodeEditor = memo(
         if (!parent) {
           return;
         }
-        valueRef.current = props.value;
+        const createSnapshot = createSnapshotRef.current;
+        valueRef.current = createSnapshot.value;
 
         const view = new EditorView({
-          doc: props.value,
+          doc: createSnapshot.value,
           extensions: createEditorExtensions({
             activeFilePath: props.activeFilePath,
             callbacksRef,
+            completionCompartment,
+            indentUnitCompartment,
             languageCompartment,
-            languageId: props.languageId,
-            options: props.options,
-            readOnly: props.readOnly ?? false,
-            resolvedTheme: props.resolvedTheme,
+            languageId: createSnapshot.languageId,
+            lineNumbersCompartment,
+            options: createSnapshot.options,
+            readOnly: createSnapshot.readOnly,
+            readOnlyCompartment,
+            resolvedTheme: createSnapshot.resolvedTheme,
             shikiHighlightCompartment,
+            tabSizeCompartment,
             themeCompartment,
             transientRefs: { syncingFromPropsRef, valueRef },
+            whitespaceCompartment,
             wrappingCompartment,
           }),
           parent,
@@ -828,14 +880,16 @@ const WorkspaceCodeEditor = memo(
         };
       }, [
         callbacksRef,
+        completionCompartment,
+        indentUnitCompartment,
         languageCompartment,
         props.activeFilePath,
-        props.languageId,
-        props.options,
-        props.readOnly,
-        props.resolvedTheme,
+        lineNumbersCompartment,
+        readOnlyCompartment,
         shikiHighlightCompartment,
+        tabSizeCompartment,
         themeCompartment,
+        whitespaceCompartment,
         wrappingCompartment,
       ]);
 
@@ -888,16 +942,34 @@ const WorkspaceCodeEditor = memo(
               }),
             ),
             wrappingCompartment.reconfigure(props.options.wordWrap ? EditorView.lineWrapping : []),
+            readOnlyCompartment.reconfigure(setWorkspaceEditorReadOnly(props.readOnly ?? false)),
+            lineNumbersCompartment.reconfigure(
+              createWorkspaceLineNumberExtension(props.options.lineNumbers),
+            ),
+            tabSizeCompartment.reconfigure(EditorState.tabSize.of(props.options.tabSize)),
+            indentUnitCompartment.reconfigure(indentUnit.of(" ".repeat(props.options.tabSize))),
+            whitespaceCompartment.reconfigure(createWhitespaceExtension(props.options)),
+            completionCompartment.reconfigure(
+              createCompletionExtension(callbacksRef, props.options),
+            ),
           ],
         });
       }, [
+        callbacksRef,
+        completionCompartment,
+        indentUnitCompartment,
         languageCompartment,
+        lineNumbersCompartment,
         props.activeFilePath,
         props.languageId,
         props.options,
+        props.readOnly,
         props.resolvedTheme,
+        readOnlyCompartment,
         shikiHighlightCompartment,
+        tabSizeCompartment,
         themeCompartment,
+        whitespaceCompartment,
         wrappingCompartment,
       ]);
 

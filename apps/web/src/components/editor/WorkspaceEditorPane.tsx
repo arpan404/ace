@@ -90,6 +90,7 @@ interface WorkspaceEditorPaneProps {
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
   editorOptions: WorkspaceCodeEditorOptions;
+  fileEventsConnected: boolean;
   gitCwd: string | null;
   codeComments: readonly WorkspaceCodeComment[];
   onAddCodeComment: (comment: WorkspaceCodeComment) => void;
@@ -310,7 +311,7 @@ function workspaceEditorSelectionStateReducer(
 
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
 const DIAGNOSTIC_UNAVAILABLE_RETRY_MS = 3_000;
-const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 5_000;
+const WORKSPACE_FILE_REFETCH_FALLBACK_INTERVAL_MS = 30_000;
 
 function formatFileSize(sizeBytes: number): string {
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
@@ -687,7 +688,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         pane.activeFilePath !== null &&
         props.gitCwd !== null &&
         (!isPreviewMode || isTextPreviewMode),
-      refetchInterval: hasUnsavedBufferEdits ? false : WORKSPACE_FILE_REFETCH_INTERVAL_MS,
+      refetchInterval:
+        hasUnsavedBufferEdits || props.fileEventsConnected
+          ? false
+          : WORKSPACE_FILE_REFETCH_FALLBACK_INTERVAL_MS,
     }),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
