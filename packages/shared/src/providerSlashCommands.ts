@@ -251,7 +251,6 @@ const GITHUB_COPILOT_SLASH_COMMANDS = [
   providerCommand("clear", "Abandon this session and start fresh"),
   providerCommand("instructions", "View and toggle instruction files"),
   providerCommand("streamer-mode", "Toggle streamer mode"),
-  providerCommand("ask", "Ask a side question without changing history", "<prompt>"),
   providerCommand("env", "Show loaded environment details"),
   providerCommand("exit", "Exit the CLI"),
   providerCommand("keep-alive", "Manage keep-alive mode"),

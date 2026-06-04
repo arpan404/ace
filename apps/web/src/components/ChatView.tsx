@@ -3017,7 +3017,7 @@ function useChatViewComponent({
         name: "New side chat",
         pingClassName: "bg-sky-400",
       },
-      roleLabel: "Codex side conversation",
+      roleLabel: "Side conversation",
       status: "completed",
       entries: [],
     }),
@@ -8446,10 +8446,6 @@ function useChatViewComponent({
       onAdvanceActivePendingUserInput();
       return;
     }
-    if (liveTurnInProgress || isSendBusy || isConnecting) {
-      await queueCurrentComposerMessage();
-      return;
-    }
     if (sendInFlightRef.current) return;
     const promptForSend = promptRef.current;
     const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
@@ -8491,6 +8487,10 @@ function useChatViewComponent({
       promptRef.current = "";
       clearComposerDraftContent(activeThread.id);
       composerPanelsRef.current?.resetUi("");
+      return;
+    }
+    if (liveTurnInProgress || isSendBusy || isConnecting) {
+      await queueCurrentComposerMessage();
       return;
     }
     const providerSlashCommandPayload =
@@ -10332,33 +10332,34 @@ function useChatViewComponent({
         threadRuntimeMode: activeThread.runtimeMode,
         threadInteractionMode: activeThread.interactionMode,
       });
+      const targetProvider = activeThread.modelSelection.provider;
       const { selectedModel, modelOptions } = deriveEffectiveComposerModelState({
         draft,
         providers: providerStatuses,
-        selectedProvider: "codex",
+        selectedProvider: targetProvider,
         threadModelSelection: activeThread.modelSelection,
         projectModelSelection: activeProject?.defaultModelSelection,
         settings: modelSettings,
       });
       const sideProviderInstanceId =
-        draft.modelSelectionByProvider.codex?.providerInstanceId ??
-        (activeThread.modelSelection.provider === "codex"
+        draft.modelSelectionByProvider[targetProvider]?.providerInstanceId ??
+        (activeThread.modelSelection.provider === targetProvider
           ? activeThread.modelSelection.providerInstanceId
           : undefined);
       const sideProviderModels = getProviderModels(
         providerStatuses,
-        "codex",
+        targetProvider,
         sideProviderInstanceId,
       );
       const sideProviderState = getComposerProviderState({
-        provider: "codex",
+        provider: targetProvider,
         model: selectedModel,
         models: sideProviderModels,
         prompt: promptForSendWithoutInlineMarkers,
         modelOptions,
       });
       const modelSelection = buildProviderModelSelection(
-        "codex",
+        targetProvider,
         selectedModel,
         sideProviderState.modelOptionsForDispatch,
         sideProviderInstanceId,
@@ -10368,7 +10369,7 @@ function useChatViewComponent({
         sendableTerminalContexts,
       );
       const outgoingMessageText = formatOutgoingPrompt({
-        provider: "codex",
+        provider: targetProvider,
         model: selectedModel,
         models: sideProviderModels,
         effort: sideProviderState.promptEffort,
@@ -10414,23 +10415,21 @@ function useChatViewComponent({
       }
       const createdAt = new Date().toISOString();
       if (subagent.id === NEW_SIDE_CHAT_THREAD_ID) {
-        if (liveTurnInProgress || isSendBusy || isConnecting || sendInFlightRef.current) {
-          toastManager.add({
-            type: "error",
-            title: "Wait for the current turn to finish.",
-          });
-          return;
-        }
+        const sideConversationId = TrimmedNonEmptyString.makeUnsafe(
+          `side:${activeThread.id}:${crypto.randomUUID()}`,
+        );
         try {
           setThreadError(draftThreadId, null);
           await api.orchestration.dispatchCommand({
-            type: "thread.turn.start",
+            type: "thread.subagent.turn.start",
             commandId: newCommandId(),
             threadId: activeThread.id,
+            subagentThreadId: sideConversationId,
+            forkSourceThreadId: activeThread.id,
             message: {
               messageId: newMessageId(),
               role: "user",
-              text: `/side ${outgoingMessageText}`,
+              text: outgoingMessageText,
               attachments,
             },
             modelSelection,
@@ -10438,6 +10437,9 @@ function useChatViewComponent({
             interactionMode,
             createdAt,
           });
+          setActiveSubagentThreadId(sideConversationId);
+          appendRightPanelTabOrder(`subagent:${sideConversationId}`);
+          appendBottomPanelTabOrder(`subagent:${sideConversationId}`);
           clearComposerDraftContent(draftThreadId);
           subagentComposerPanelsRef.current?.resetUi("");
         } catch (error) {
@@ -10478,6 +10480,8 @@ function useChatViewComponent({
     [
       activeProject?.defaultModelSelection,
       activeThread,
+      appendBottomPanelTabOrder,
+      appendRightPanelTabOrder,
       clearComposerDraftContent,
       isConnecting,
       isSendBusy,
@@ -10495,20 +10499,25 @@ function useChatViewComponent({
       }
       const draftThreadId = subagentComposerThreadId(subagent);
       const draft = getComposerThreadDraft(draftThreadId);
+      const targetProvider = activeThread.modelSelection.provider;
       const { selectedModel } = deriveEffectiveComposerModelState({
         draft,
         providers: providerStatuses,
-        selectedProvider: "codex",
+        selectedProvider: targetProvider,
         threadModelSelection: activeThread.modelSelection,
         projectModelSelection: activeProject?.defaultModelSelection,
         settings: modelSettings,
       });
       const providerInstanceId =
-        draft.modelSelectionByProvider.codex?.providerInstanceId ??
-        (activeThread.modelSelection.provider === "codex"
+        draft.modelSelectionByProvider[targetProvider]?.providerInstanceId ??
+        (activeThread.modelSelection.provider === targetProvider
           ? activeThread.modelSelection.providerInstanceId
           : undefined);
-      const codexModels = getProviderModels(providerStatuses, "codex", providerInstanceId);
+      const selectedProviderModels = getProviderModels(
+        providerStatuses,
+        targetProvider,
+        providerInstanceId,
+      );
       return (
         <ConnectedChatComposerPanels
           ref={subagentComposerPanelsRef}
@@ -10522,15 +10531,15 @@ function useChatViewComponent({
           threadRuntimeMode={activeThread.runtimeMode}
           threadInteractionMode={activeThread.interactionMode}
           composerModelOptions={composerModelOptions}
-          selectedProvider="codex"
+          selectedProvider={targetProvider}
           selectedProviderInstanceId={providerInstanceId}
           selectedModel={selectedModel}
-          selectedProviderModels={codexModels}
-          selectedProviderModelOptions={composerModelOptions?.codex}
+          selectedProviderModels={selectedProviderModels}
+          selectedProviderModelOptions={composerModelOptions?.[targetProvider]}
           sessionConfigOptions={activeThread.session?.configOptions}
           providerCommands={composerProviderCommands}
           selectedModelForPickerWithCustomFallback={selectedModel}
-          lockedProvider="codex"
+          lockedProvider={targetProvider}
           modelOptionsByProvider={modelOptionsByProvider}
           modelSelectionByProvider={draft.modelSelectionByProvider}
           providerInstancesByProvider={providerInstancesByProvider}

@@ -115,6 +115,10 @@ function normalizeSlashCommandName(name: string): string {
     .toLowerCase();
 }
 
+function isProviderSideConversationAlias(name: string): boolean {
+  return ["side", "btw", "ask"].includes(normalizeSlashCommandName(name));
+}
+
 type ComposerProviderCommandKind = "provider" | ProviderExtensionCommandKind;
 
 function composerProviderCommandKind(command: ProviderSlashCommand): ComposerProviderCommandKind {
@@ -655,6 +659,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         description: string;
       }> = [];
       for (const command of props.providerCommands) {
+        if (isProviderSideConversationAlias(command.name)) {
+          continue;
+        }
         if (!commandMatchesComposerQuery(command, query)) {
           continue;
         }
@@ -669,7 +676,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         });
       }
       const providerCommandNames = new Set(
-        props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
+        props.providerCommands
+          .filter((command) => !isProviderSideConversationAlias(command.name))
+          .map((command) => normalizeSlashCommandName(command.name)),
       );
       const slashTriggerAtPromptStart =
         prompt.slice(0, composerTrigger.rangeStart).trim().length === 0;

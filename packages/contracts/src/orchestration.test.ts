@@ -119,6 +119,7 @@ it.effect("decodes subagent turn start command", () =>
       commandId: " cmd-subagent ",
       threadId: " thread-parent ",
       subagentThreadId: " provider-child ",
+      forkSourceThreadId: " thread-parent ",
       message: {
         messageId: " message-1 ",
         role: "user",
@@ -130,6 +131,7 @@ it.effect("decodes subagent turn start command", () =>
     assert.strictEqual(parsed.commandId, "cmd-subagent");
     assert.strictEqual(parsed.threadId, "thread-parent");
     assert.strictEqual(parsed.subagentThreadId, "provider-child");
+    assert.strictEqual(parsed.forkSourceThreadId, "thread-parent");
     assert.strictEqual(parsed.message.messageId, "message-1");
   }),
 );
@@ -139,12 +141,14 @@ it.effect("decodes subagent turn start requested payload", () =>
     const parsed = yield* decodeThreadSubagentTurnStartRequestedPayload({
       threadId: "thread-parent",
       subagentThreadId: "provider-child",
+      forkSourceThreadId: "thread-parent",
       messageId: "message-1",
       text: "continue the audit",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
 
     assert.strictEqual(parsed.subagentThreadId, "provider-child");
+    assert.strictEqual(parsed.forkSourceThreadId, "thread-parent");
     assert.strictEqual(parsed.text, "continue the audit");
   }),
 );

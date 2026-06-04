@@ -1535,6 +1535,59 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("starts native side conversations from the parent provider context", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-5",
+      },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.subagent.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        subagentThreadId: "side:thread-1:question-1",
+        forkSourceThreadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-1"),
+          role: "user",
+          text: "explain the current architecture",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const startThreadId = harness.startSession.mock.calls[0]?.[0];
+    const startInput = harness.startSession.mock.calls[0]?.[1] as
+      | {
+          provider?: string;
+          forkSource?: { threadId: ThreadId };
+          threadId?: ThreadId;
+        }
+      | undefined;
+    expect(startThreadId).toBe("side:thread-1:question-1");
+    expect(startInput?.threadId).toBe("side:thread-1:question-1");
+    expect(startInput?.provider).toBe("claudeAgent");
+    expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+
+    const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          threadId?: ThreadId;
+          input?: string;
+        }
+      | undefined;
+    expect(sendInput?.threadId).toBe("side:thread-1:question-1");
+    expect(sendInput?.input).toBe("explain the current architecture");
+  });
+
   it("replays upstream handoff context when forking a handoff thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

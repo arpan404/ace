@@ -1340,7 +1340,10 @@ function sideConversationPayloadFromActivity(
 function findSideConversationRuntimeRoute(
   readModel: OrchestrationReadModel,
   runtimeThreadId: ThreadId,
-): { thread: OrchestrationThread; subagent: { id: string; type?: string; name?: string } } | null {
+): {
+  thread: OrchestrationThread;
+  subagent: { id: string; type?: string | undefined; name?: string | undefined };
+} | null {
   for (const thread of readModel.threads) {
     for (const activity of thread.activities) {
       const subagent = sideConversationPayloadFromActivity(activity);
@@ -1366,7 +1369,7 @@ function withSideConversationRuntimePayload(
     payload: {
       ...payload,
       data: {
-        ...(data ?? {}),
+        ...data,
         childProviderThreadId: subagent.id,
         subagent: {
           id: subagent.id,
@@ -3073,13 +3076,23 @@ const make = Effect.fn("make")(function* () {
   });
 
   const processRuntimeEvent = Effect.fn("processRuntimeEvent")(function* (
-    event: ProviderRuntimeEvent,
+    rawEvent: ProviderRuntimeEvent,
   ) {
     return yield* Effect.gen(function* () {
       yield* maybeTrimTransientRuntimeBuffers();
       const readModel = yield* orchestrationEngine.getReadModel();
-      const thread = readModel.threads.find((entry) => entry.id === event.threadId);
+      const directThread = readModel.threads.find((entry) => entry.id === rawEvent.threadId);
+      const sideRuntimeRoute =
+        directThread === undefined
+          ? findSideConversationRuntimeRoute(readModel, rawEvent.threadId)
+          : null;
+      const thread = directThread ?? sideRuntimeRoute?.thread;
       if (!thread) return;
+      const event =
+        sideRuntimeRoute !== null
+          ? withSideConversationRuntimePayload(rawEvent, sideRuntimeRoute.subagent)
+          : rawEvent;
+      const isSideRuntimeEvent = sideRuntimeRoute !== null;
 
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
@@ -3231,7 +3244,7 @@ const make = Effect.fn("make")(function* () {
                 ? null
                 : (thread.session?.lastError ?? null);
 
-        if (shouldApplyThreadLifecycle) {
+        if (shouldApplyThreadLifecycle && !isSideRuntimeEvent) {
           if (
             (event.type === "session.started" || event.type === "session.state.changed") &&
             eventProcessPid !== undefined
@@ -3285,7 +3298,7 @@ const make = Effect.fn("make")(function* () {
 
       const providerCommands = providerSlashCommandsFromSessionConfigured(event);
       const providerConfigOptions = providerConfigOptionsFromSessionConfigured(event);
-      if (providerConfigOptions !== null || providerCommands !== null) {
+      if (!isSideRuntimeEvent && (providerConfigOptions !== null || providerCommands !== null)) {
         yield* orchestrationEngine.dispatch({
           type: "thread.session.set",
           commandId: providerCommandId(event, "thread-session-configured-set"),
