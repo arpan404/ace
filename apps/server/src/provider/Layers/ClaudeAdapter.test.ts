@@ -335,6 +335,11 @@ describe("ClaudeAdapterLive", () => {
       path.join(cwd, ".claude", "skills", "release-review", "SKILL.md"),
       "---\nname: release-review\ndescription: Review release readiness\n---\n\n# Release review\n",
     );
+    mkdirSync(path.join(cwd, ".claude", "commands"), { recursive: true });
+    writeFileSync(
+      path.join(cwd, ".claude", "commands", "release.md"),
+      "---\ndescription: Draft release notes\nargument-hint: <version>\n---\n\n# Release command\n",
+    );
     const harness = makeHarness({ cwd, baseDir: root });
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -377,6 +382,16 @@ describe("ClaudeAdapterLive", () => {
           kind: "skill",
           promptPrefix: "Use the release-review skill:",
           inputHint: "<prompt>",
+        },
+      );
+      assert.deepEqual(
+        commands?.find((command) => command.name === "release"),
+        {
+          name: "release",
+          description: "Draft release notes",
+          kind: "provider",
+          promptPrefix: "/release",
+          inputHint: "<version>",
         },
       );
     }).pipe(

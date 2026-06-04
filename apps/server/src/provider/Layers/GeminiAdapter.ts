@@ -28,6 +28,7 @@ import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { hasAcpSessionForkCapability } from "../acpCapabilities.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
 import { logWarningEffect, runLoggedEffect } from "../fireAndForget.ts";
 import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
@@ -830,7 +831,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   return {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
-    forkSession: asObject(asObject(agentCapabilities?.sessionCapabilities)?.fork) !== undefined,
+    forkSession: hasAcpSessionForkCapability(value),
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
     availableModels: [],
@@ -2667,7 +2668,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
   ): Promise<GeminiSessionContext> => {
     const settings = await runPromise(serverSettingsService.getSettings);
     const geminiSettings = resolveProviderSettings(settings, PROVIDER, input.providerInstanceId);
-    const instanceEnv = { ...process.env, ...geminiSettings.launchEnv };
+    const instanceEnv = {
+      ...process.env,
+      ...geminiSettings.launchEnv,
+      ...(geminiSettings.configDir ? { GEMINI_CLI_HOME: geminiSettings.configDir } : {}),
+    };
     const cwd = input.cwd ?? serverConfig.cwd;
     const launchApprovalMode = geminiLaunchApprovalModeForSession(
       input.runtimeMode,

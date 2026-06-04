@@ -44,6 +44,21 @@ describe("CursorAdapterSessionMetadata", () => {
     });
   });
 
+  it("recognizes alternate ACP session fork capability shapes", () => {
+    for (const initializeResult of [
+      { agentCapabilities: { forkSession: true } },
+      { agentCapabilities: { sessionCapabilities: { fork: true } } },
+      { agentCapabilities: { sessions: { fork: "supported" } } },
+      { sessionCapabilities: { forkSession: true } },
+      { capabilities: { sessionFork: "enabled" } },
+    ]) {
+      assert.equal(
+        parseCursorInitializeState(initializeResult).agentCapabilities.forkSession,
+        true,
+      );
+    }
+  });
+
   it("parses mode and model state only when meaningful values exist", () => {
     assert.equal(parseCursorSessionModeState(undefined), undefined);
     assert.equal(parseCursorSessionModelState(undefined), undefined);

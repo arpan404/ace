@@ -4,6 +4,7 @@ import {
   asTrimmedNonEmptyString as asString,
 } from "../unknown.ts";
 import type { ProviderSlashCommand } from "@ace/contracts";
+import { hasAcpSessionForkCapability } from "../acpCapabilities.ts";
 
 export type CursorPromptCapabilities = {
   readonly image: boolean;
@@ -174,7 +175,7 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       : {}),
     agentCapabilities: {
       loadSession: agentCapabilities?.loadSession === true,
-      forkSession: asObject(asObject(agentCapabilities?.sessionCapabilities)?.fork) !== undefined,
+      forkSession: hasAcpSessionForkCapability(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
     authMethods: parseCursorAuthMethods(record?.authMethods),

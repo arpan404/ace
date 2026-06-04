@@ -91,6 +91,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             binaryPath: "/usr/local/bin/claude",
             customModels: ["claude-custom"],
           },
+          gemini: {
+            configDir: "/Users/julius/.gemini-work",
+          },
         },
         textGenerationModelSelection: {
           provider: "codex",
@@ -138,6 +141,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         binaryPath: "copilot",
         homePath: "",
         cliUrl: "",
+        launchEnv: {},
+        customModels: [],
+        instances: [],
+      });
+      assert.deepEqual(next.providers.gemini, {
+        enabled: true,
+        binaryPath: "gemini",
+        configDir: "/Users/julius/.gemini-work",
         launchEnv: {},
         customModels: [],
         instances: [],
@@ -209,6 +220,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           claudeAgent: {
             binaryPath: "  /opt/homebrew/bin/claude  ",
           },
+          gemini: {
+            configDir: "  /Users/julius/.gemini-work  ",
+          },
         },
       });
 
@@ -233,6 +247,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         binaryPath: "copilot",
         homePath: "",
         cliUrl: "",
+        launchEnv: {},
+        customModels: [],
+        instances: [],
+      });
+      assert.deepEqual(next.providers.gemini, {
+        enabled: true,
+        binaryPath: "gemini",
+        configDir: "/Users/julius/.gemini-work",
         launchEnv: {},
         customModels: [],
         instances: [],

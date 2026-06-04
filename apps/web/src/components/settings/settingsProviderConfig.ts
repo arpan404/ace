@@ -55,6 +55,8 @@ export const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     title: "Gemini",
     binaryPlaceholder: "Gemini binary path",
     binaryDescription: "Path to the Gemini CLI binary",
+    homePlaceholder: "GEMINI_CLI_HOME",
+    homeDescription: "Optional custom Gemini CLI user config directory.",
   },
   {
     provider: "opencode",

@@ -94,6 +94,7 @@ const runGeminiCommand = Effect.fn("runGeminiCommand")(function* (args: Readonly
     env: {
       ...process.env,
       ...geminiSettings.launchEnv,
+      ...(geminiSettings.configDir ? { GEMINI_CLI_HOME: geminiSettings.configDir } : {}),
     },
   });
   return yield* spawnAndCollect(geminiSettings.binaryPath, command);

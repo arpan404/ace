@@ -275,12 +275,14 @@ export type PiSettings = typeof PiSettings.Type;
 export const GeminiSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("gemini"),
+  configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   launchEnv: ProviderLaunchEnv.pipe(Schema.withDecodingDefault(() => ({}))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
   instances: Schema.Array(
     Schema.Struct({
       ...ProviderInstanceBaseSettings.fields,
       binaryPath: makeBinaryPathSetting("gemini"),
+      configDir: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
       customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
     }),
   ).pipe(Schema.withDecodingDefault(() => [])),
@@ -562,6 +564,7 @@ const PiSettingsPatch = Schema.Struct({
 const GeminiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  configDir: Schema.optionalKey(Schema.String),
   launchEnv: Schema.optionalKey(ProviderLaunchEnvPatch),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
   instances: Schema.optionalKey(
@@ -569,6 +572,7 @@ const GeminiSettingsPatch = Schema.Struct({
       Schema.Struct({
         ...ProviderInstanceBaseSettingsPatch.fields,
         binaryPath: Schema.optionalKey(Schema.String),
+        configDir: Schema.optionalKey(Schema.String),
         customModels: Schema.optionalKey(Schema.Array(Schema.String)),
       }),
     ),

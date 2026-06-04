@@ -322,6 +322,7 @@ function getProviderPathPatch(
       return { homePath: value };
     case "claudeAgent":
     case "cursor":
+    case "gemini":
     case "opencode":
       return { configDir: value };
     case "pi":
@@ -530,7 +531,10 @@ function useProviderSettingsSectionComponent({
         ? { ...base, homePath: pathValue }
         : provider === "githubCopilot"
           ? { ...base, homePath: pathPatch?.homePath ?? "", cliUrl }
-          : provider === "claudeAgent" || provider === "cursor" || provider === "opencode"
+          : provider === "claudeAgent" ||
+              provider === "cursor" ||
+              provider === "gemini" ||
+              provider === "opencode"
             ? { ...base, configDir: pathPatch?.configDir ?? "" }
             : provider === "pi"
               ? { ...base, agentDir: pathPatch?.agentDir ?? "" }

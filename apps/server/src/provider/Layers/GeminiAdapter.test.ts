@@ -26,20 +26,28 @@ import {
   readLatestGeminiPlanMarkdown,
 } from "./GeminiAdapter.ts";
 import { type ServerConfigShape, ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { type ServerSettingsShape, ServerSettingsService } from "../../serverSettings.ts";
 import { type AcpClient, startAcpClient } from "../acpClient.ts";
 import { type GeminiAdapterShape, GeminiAdapter } from "../Services/GeminiAdapter.ts";
 
 const mockedStartAcpClient = vi.mocked(startAcpClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 
-function geminiInitializeResult(input?: { readonly forkSession?: boolean }) {
+function geminiInitializeResult(input?: {
+  readonly forkSession?: boolean;
+  readonly forkSessionShape?: "nested-object" | "boolean" | "root-capability";
+}) {
+  const forkSessionShape = input?.forkSessionShape ?? "nested-object";
   return {
     protocolVersion: 1,
     authMethods: [],
+    ...(forkSessionShape === "root-capability" && input?.forkSession
+      ? { capabilities: { sessionFork: "enabled" } }
+      : {}),
     agentCapabilities: {
       loadSession: true,
-      ...(input?.forkSession
+      ...(input?.forkSession && forkSessionShape === "boolean" ? { forkSession: true } : {}),
+      ...(input?.forkSession && forkSessionShape === "nested-object"
         ? {
             sessionCapabilities: {
               fork: {},
@@ -143,14 +151,19 @@ const adapterLayer = GeminiAdapterLive.pipe(
 );
 
 async function withAdapter<T>(
-  run: (adapter: GeminiAdapterShape, config: ServerConfigShape) => Promise<T>,
+  run: (
+    adapter: GeminiAdapterShape,
+    config: ServerConfigShape,
+    settingsService: ServerSettingsShape,
+  ) => Promise<T>,
 ): Promise<T> {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const adapter = yield* GeminiAdapter;
         const config = yield* ServerConfig;
-        return yield* Effect.promise(() => run(adapter, config));
+        const settingsService = yield* ServerSettingsService;
+        return yield* Effect.promise(() => run(adapter, config, settingsService));
       }),
     ).pipe(Effect.provide(adapterLayer)),
   );
@@ -314,6 +327,52 @@ describe("Gemini ACP launch args", () => {
 });
 
 describe("GeminiAdapterLive startup", () => {
+  it("passes configured GEMINI_CLI_HOME to ACP sessions", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-config-home");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter, _config, settingsService) => {
+      await Effect.runPromise(
+        settingsService.updateSettings({
+          providers: {
+            gemini: {
+              configDir: "/tmp/ace-gemini-home",
+            },
+          },
+        }),
+      );
+
+      await Effect.runPromise(
+        adapter.startSession({
+          provider: "gemini",
+          threadId: asThreadId("thread-gemini-config-home"),
+          cwd: "/repo/gemini-config-home",
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+        }),
+      );
+
+      expect(mockedStartAcpClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          env: expect.objectContaining({
+            GEMINI_CLI_HOME: "/tmp/ace-gemini-home",
+          }),
+        }),
+      );
+    });
+  });
+
   it("emits available commands from wrapped ACP session metadata", async () => {
     const client = makeFakeGeminiClient({
       requestImpl: async (method) => {
@@ -454,6 +513,62 @@ describe("GeminiAdapterLive startup", () => {
       }
     });
   });
+
+  it.each(["boolean", "root-capability"] as const)(
+    "emits native fork capabilities for alternate Gemini ACP %s fork metadata",
+    async (forkSessionShape) => {
+      const client = makeFakeGeminiClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              return geminiInitializeResult({ forkSession: true, forkSessionShape });
+            case "session/new":
+              return geminiSessionResult(`gemini-session-native-fork-${forkSessionShape}`);
+            default:
+              throw new Error(`Unexpected Gemini ACP request: ${method}`);
+          }
+        },
+      });
+      mockedStartAcpClient.mockReturnValue(client);
+
+      await withAdapter(async (adapter) => {
+        try {
+          const configuredPromise = Effect.runPromise(
+            Stream.runHead(
+              Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+            ),
+          );
+
+          await Effect.runPromise(
+            adapter.startSession({
+              provider: "gemini",
+              threadId: asThreadId(`thread-gemini-native-fork-${forkSessionShape}`),
+              cwd: `/repo/gemini-native-fork-${forkSessionShape}`,
+              runtimeMode: "approval-required",
+              interactionMode: "default",
+            }),
+          );
+
+          const configuredEventOption = await configuredPromise;
+          expect(Option.isSome(configuredEventOption)).toBe(true);
+          if (!Option.isSome(configuredEventOption)) {
+            return;
+          }
+          const configuredEvent = configuredEventOption.value;
+          expect(configuredEvent.type).toBe("session.configured");
+          if (configuredEvent.type !== "session.configured") {
+            return;
+          }
+          expect(configuredEvent.payload.config.capabilities).toEqual({
+            sessionForkMode: "native",
+            sideConversationMode: "native-fork",
+          });
+        } finally {
+          await Effect.runPromise(adapter.stopAll());
+        }
+      });
+    },
+  );
 
   it("does not fail plan startup when launch approval mode is plan but ACP omits a plan mode", async () => {
     const client = makeFakeGeminiClient({

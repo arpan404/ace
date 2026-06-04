@@ -672,6 +672,22 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         );
         yield* Effect.promise(() =>
           writeFile(
+            path.join(repo, ".github", "agents", "programmatic-researcher.agent.md"),
+            [
+              "---",
+              "description: Researches implementation context programmatically",
+              "tools: []",
+              "disable-model-invocation: true",
+              "user-invocable: false",
+              'mcp-servers: {"local-docs":{"type":"stdio","command":"docs-mcp","args":["--stdio"],"tools":["search"]}}',
+              "---",
+              "",
+              "Research implementation details without direct user invocation.",
+            ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
             path.join(repo, ".github", "skills", "repo-review", "SKILL.md"),
             ["# Repo Review", "", "Use this skill for repository-level review context."].join("\n"),
           ),
@@ -731,6 +747,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
                 readonly skills?: ReadonlyArray<string> | undefined;
                 readonly tools?: ReadonlyArray<string> | null | undefined;
                 readonly infer?: boolean | undefined;
+                readonly mcpServers?: Record<string, unknown> | undefined;
                 readonly prompt: string;
               }>;
               readonly enableConfigDiscovery?: boolean;
@@ -738,6 +755,21 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             })
           | undefined;
         assert.deepEqual(createConfig?.customAgents, [
+          {
+            name: "programmatic-researcher",
+            description: "Researches implementation context programmatically",
+            tools: [],
+            infer: false,
+            mcpServers: {
+              "local-docs": {
+                type: "stdio",
+                command: "docs-mcp",
+                args: ["--stdio"],
+                tools: ["search"],
+              },
+            },
+            prompt: "Research implementation details without direct user invocation.",
+          },
           {
             name: "security-auditor",
             displayName: "Security Auditor",
@@ -785,6 +817,10 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               description: "Reviews code for security issues",
               inputHint: "<prompt>",
             },
+          );
+          assert.equal(
+            availableCommands.some((command) => command.name === "programmatic-researcher"),
+            false,
           );
           assert.deepEqual(
             availableCommands.find((command) => command.name === "release-review"),

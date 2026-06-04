@@ -105,6 +105,7 @@ const makeGeminiTextGeneration = Effect.gen(function* () {
           env: {
             ...process.env,
             ...geminiSettings?.launchEnv,
+            ...(geminiSettings?.configDir ? { GEMINI_CLI_HOME: geminiSettings.configDir } : {}),
           },
           cwd,
           shell: process.platform === "win32",

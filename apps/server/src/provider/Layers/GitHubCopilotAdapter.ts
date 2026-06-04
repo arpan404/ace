@@ -2787,12 +2787,15 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           availableModels.find((model) => model.id === input.modelSelection?.model),
           input.modelSelection?.options,
         );
-        const customAgents: CustomAgentConfig[] = [
+        const discoveredCustomAgents = [
           ...discoverGitHubCopilotCustomAgents({
             cwd: input.cwd,
             home: settings.homePath,
           }),
         ];
+        const customAgents: CustomAgentConfig[] = discoveredCustomAgents.map(
+          ({ userInvocable: _userInvocable, ...agent }) => agent,
+        );
         const skillDirectories = discoverGitHubCopilotSkillDirectories({
           cwd: input.cwd ?? serverConfig.cwd,
           home: settings.homePath,
@@ -2803,14 +2806,16 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           settings: serverSettings,
         });
         const availableCommands = mergeProviderSlashCommands(
-          customAgents.map((agent) =>
-            providerAgentSlashCommand({
-              name: agent.name,
-              ...(agent.description ? { description: agent.description } : {}),
-              promptPrefix: `@${agent.name}`,
-              inputHint: "<prompt>",
-            }),
-          ),
+          discoveredCustomAgents
+            .filter((agent) => agent.userInvocable !== false)
+            .map((agent) =>
+              providerAgentSlashCommand({
+                name: agent.name,
+                ...(agent.description ? { description: agent.description } : {}),
+                promptPrefix: `@${agent.name}`,
+                inputHint: "<prompt>",
+              }),
+            ),
           extensionCommands,
           providerFallbackSlashCommands(PROVIDER),
         );
@@ -2892,7 +2897,11 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           toolRequestMetadata: new Map(),
           turns: [],
           replayTurns,
-          customAgentNames: new Set(customAgents.map((agent) => agent.name.toLowerCase())),
+          customAgentNames: new Set(
+            discoveredCustomAgents
+              .filter((agent) => agent.userInvocable !== false)
+              .map((agent) => agent.name.toLowerCase()),
+          ),
           unsubscribers: [],
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,

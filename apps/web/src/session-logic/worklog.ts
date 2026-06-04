@@ -245,6 +245,56 @@ function hasGoalLifecyclePayload(payload: Record<string, unknown> | null): boole
   return false;
 }
 
+function nestedGoalLifecycleSignalFromValue(value: unknown, depth: number): boolean {
+  if (depth > 6) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => nestedGoalLifecycleSignalFromValue(item, depth + 1));
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return hasGoalLifecycleLabel(value);
+  }
+  if (
+    hasGoalLifecyclePayload(record) ||
+    hasGoalLifecycleLabel(record.summary) ||
+    hasGoalLifecycleLabel(record.title) ||
+    hasGoalLifecycleLabel(record.detail) ||
+    hasGoalLifecycleLabel(record.name) ||
+    hasGoalLifecycleLabel(record.toolName) ||
+    hasGoalLifecycleLabel(record.tool_name)
+  ) {
+    return true;
+  }
+  for (const nestedKey of [
+    "data",
+    "item",
+    "items",
+    "input",
+    "rawInput",
+    "arguments",
+    "args",
+    "result",
+    "results",
+    "output",
+    "outputs",
+    "content",
+    "message",
+    "tool",
+    "toolCall",
+    "tool_call",
+  ] as const) {
+    if (!(nestedKey in record)) {
+      continue;
+    }
+    if (nestedGoalLifecycleSignalFromValue(record[nestedKey], depth + 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isGoalLifecycleWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
   const payload = asRecord(activity.payload);
   const data = asRecord(payload?.data);
@@ -269,7 +319,8 @@ function isGoalLifecycleWorkLogActivity(activity: OrchestrationThreadActivity): 
     !hasGoalLifecycleLabel(rawInput?.title) &&
     !hasGoalLifecycleLabel(rawInput?.detail) &&
     !goalLifecycleToolNameFromPayload(payload) &&
-    !hasGoalLifecyclePayload(payload)
+    !hasGoalLifecyclePayload(payload) &&
+    !nestedGoalLifecycleSignalFromValue(payload, 0)
   ) {
     return false;
   }

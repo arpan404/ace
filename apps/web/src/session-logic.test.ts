@@ -949,6 +949,54 @@ describe("deriveWorkLogEntries", () => {
     expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
   });
 
+  it("does not render deeply nested goal lifecycle items inside thinking payloads", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-nested-array-item",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            items: [
+              {
+                type: "tool_result",
+                title: "Goal updated",
+                result: {
+                  goal: {
+                    objective: "Implement provider feature parity",
+                    status: "active",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-nested-tool-call",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            toolCall: {
+              name: "update_goal",
+              output: {
+                objective: "Implement provider feature parity",
+                status: "paused",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

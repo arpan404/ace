@@ -73,6 +73,7 @@ type SkillReadOptions = {
   readonly prefix?: string | undefined;
   readonly promptPrefix?: (commandName: string, skillName: string) => string;
   readonly commandName?: (skillName: string) => string;
+  readonly nameFromFrontmatter?: boolean | undefined;
   readonly requireDescription?: boolean | undefined;
 };
 
@@ -91,6 +92,26 @@ export type GitHubCopilotCustomAgent = {
   readonly description?: string;
   readonly tools?: string[] | null;
   readonly infer?: boolean;
+  readonly userInvocable?: boolean;
+  readonly mcpServers?: Record<
+    string,
+    | {
+        readonly type?: "local" | "stdio";
+        readonly command: string;
+        readonly args: string[];
+        readonly tools: string[];
+        readonly env?: Record<string, string>;
+        readonly cwd?: string;
+        readonly timeout?: number;
+      }
+    | {
+        readonly type: "http" | "sse";
+        readonly url: string;
+        readonly tools: string[];
+        readonly headers?: Record<string, string>;
+        readonly timeout?: number;
+      }
+  >;
   readonly skills?: string[];
 };
 
@@ -171,6 +192,16 @@ function stripMarkdownAgentSuffix(fileName: string): string {
   return fileName.endsWith(".agent") ? fileName.slice(0, -".agent".length) : fileName;
 }
 
+function stripGitHubCopilotAgentSuffix(fileName: string): string {
+  if (fileName.endsWith(".agent")) {
+    return fileName.slice(0, -".agent".length);
+  }
+  if (fileName.endsWith(".chatmode")) {
+    return fileName.slice(0, -".chatmode".length);
+  }
+  return fileName;
+}
+
 function uniquePaths(paths: ReadonlyArray<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -219,12 +250,29 @@ function githubCopilotAgentRoots(input: {
   readonly home?: string | undefined;
 }): string[] {
   const homeRoots = githubCopilotHomeRoots(input.home);
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   return uniquePaths([
-    input.cwd ? path.join(input.cwd, ".github", "agents") : null,
+    ...projectRoots.flatMap((root) => [
+      path.join(root, ".github", "agents"),
+      path.join(root, ".github", "chatmodes"),
+    ]),
     ...homeRoots.flatMap((homeRoot) => [
       path.join(homeRoot, "agents"),
+      path.join(homeRoot, "chatmodes"),
       path.join(homeRoot, ".github-private", "agents"),
     ]),
+  ]);
+}
+
+function githubCopilotPromptRoots(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): string[] {
+  const homeRoots = githubCopilotHomeRoots(input.home);
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  return uniquePaths([
+    ...projectRoots.map((root) => path.join(root, ".github", "prompts")),
+    ...homeRoots.map((homeRoot) => path.join(homeRoot, "prompts")),
   ]);
 }
 
@@ -275,6 +323,9 @@ function frontmatterStringListField(markdown: string, field: string): string[] |
   const inline = new RegExp(`^${field}:[ \\t]*(?<value>.+)$`, "mu").exec(frontmatter)?.groups
     ?.value;
   if (inline) {
+    if (/^\[\s*\]$/u.test(inline.trim())) {
+      return [];
+    }
     const values = splitFrontmatterListValue(inline);
     return values.length > 0 ? values : undefined;
   }
@@ -301,6 +352,24 @@ function frontmatterStringListField(markdown: string, field: string): string[] |
   return values.length > 0 ? values : undefined;
 }
 
+function frontmatterJsonObjectField(
+  markdown: string,
+  field: string,
+): Record<string, unknown> | undefined {
+  const raw = frontmatterField(markdown, field);
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function markdownBodyWithoutFrontmatter(markdown: string): string {
   const match = /^---\n[\s\S]*?\n---\n?(?<body>[\s\S]*)$/u.exec(markdown);
   return (match?.groups?.body ?? markdown).trim();
@@ -315,7 +384,9 @@ function readSkillCommand(
   if (!markdown) {
     return null;
   }
-  const rawName = frontmatterField(markdown, "name") ?? path.basename(skillDir);
+  const rawName =
+    (options.nameFromFrontmatter === false ? undefined : frontmatterField(markdown, "name")) ??
+    path.basename(skillDir);
   const skillName = normalizeCommandName(rawName);
   if (!skillName) {
     return null;
@@ -383,7 +454,7 @@ function readSkillRoot(
     const command = readSkillCommand(entryPath, options);
     if (command) {
       commands.push(command);
-    } else if (depth === 0 && isDirectory(entryPath)) {
+    } else if (depth < 4 && isDirectory(entryPath)) {
       commands.push(...readSkillRoot(entryPath, options, depth + 1));
     }
   }
@@ -526,6 +597,120 @@ function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
   }
 }
 
+function readOpenCodeJsonConfigCommands(file: string): ProviderSlashCommand[] {
+  const raw = safeReadFile(file);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as { readonly command?: unknown };
+    const commands =
+      parsed.command && typeof parsed.command === "object"
+        ? (parsed.command as Record<string, unknown>)
+        : {};
+    return Object.entries(commands).flatMap(([rawName, rawCommand]) => {
+      const commandName = normalizeCommandName(rawName);
+      if (!commandName || !rawCommand || typeof rawCommand !== "object") {
+        return [];
+      }
+      const command = rawCommand as {
+        readonly description?: unknown;
+        readonly template?: unknown;
+      };
+      if (typeof command.template !== "string" || command.template.trim().length === 0) {
+        return [];
+      }
+      return [
+        {
+          name: commandName,
+          kind: "provider",
+          promptPrefix: `/${commandName}`,
+          inputHint: "<prompt>",
+          ...(typeof command.description === "string" && command.description.trim().length > 0
+            ? { description: command.description.trim() }
+            : {}),
+        } satisfies ProviderSlashCommand,
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function readOpenCodeMarkdownCommand(file: string): ProviderSlashCommand | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  const commandName = normalizeCommandName(path.basename(file, ".md"));
+  if (!commandName) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  if (!body) {
+    return null;
+  }
+  const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  return {
+    name: commandName,
+    kind: "provider",
+    promptPrefix: `/${commandName}`,
+    inputHint: "<prompt>",
+    ...(description ? { description } : {}),
+  };
+}
+
+function readOpenCodeMarkdownCommandRoot(root: string): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  return safeReadDir(root)
+    .map((entry) => readOpenCodeMarkdownCommand(path.join(root, entry)))
+    .filter((command): command is ProviderSlashCommand => command !== null);
+}
+
+function gitHubCopilotPromptCommandName(file: string): string | null {
+  if (!file.endsWith(".prompt.md")) {
+    return null;
+  }
+  return normalizeCommandName(path.basename(file, ".prompt.md"));
+}
+
+function readGitHubCopilotPromptCommand(file: string): ProviderSlashCommand | null {
+  const commandName = gitHubCopilotPromptCommandName(file);
+  if (!commandName) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  if (!body) {
+    return null;
+  }
+  const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  return {
+    name: commandName,
+    kind: "provider",
+    promptPrefix: `/${commandName}`,
+    inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
+    ...(description ? { description } : {}),
+  };
+}
+
+function readGitHubCopilotPromptRoot(root: string): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  return safeReadDir(root)
+    .map((entry) => readGitHubCopilotPromptCommand(path.join(root, entry)))
+    .filter((command): command is ProviderSlashCommand => command !== null);
+}
+
 function safeParsePluginManifest(file: string): PluginManifest | null {
   const raw = safeReadFile(file);
   if (!raw) {
@@ -625,6 +810,67 @@ function readPluginMarkdownCommandRoot(input: {
     .filter((command): command is ProviderSlashCommand => command !== null);
 }
 
+function claudeMarkdownCommandName(input: {
+  readonly root: string;
+  readonly file: string;
+}): string | null {
+  if (!input.file.endsWith(".md")) {
+    return null;
+  }
+  const relative = path.relative(input.root, input.file);
+  if (relative.startsWith("..")) {
+    return null;
+  }
+  const withoutExtension = relative.slice(0, -".md".length);
+  if (withoutExtension.split(path.sep).some((part) => part.length === 0 || part.startsWith("_"))) {
+    return null;
+  }
+  return normalizeCommandName(withoutExtension.split(path.sep).join(":"));
+}
+
+function readClaudeMarkdownCommand(input: {
+  readonly root: string;
+  readonly file: string;
+}): ProviderSlashCommand | null {
+  const commandName = claudeMarkdownCommandName(input);
+  if (!commandName) {
+    return null;
+  }
+  const markdown = safeReadFile(input.file);
+  if (!markdown) {
+    return null;
+  }
+  const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  return {
+    name: commandName,
+    kind: "provider",
+    promptPrefix: `/${commandName}`,
+    inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
+    ...(description ? { description } : {}),
+  };
+}
+
+function readClaudeMarkdownCommandRoot(
+  commandRoot: string,
+  currentRoot = commandRoot,
+  depth = 0,
+): ProviderSlashCommand[] {
+  if (!isDirectory(currentRoot) || depth > 4) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(currentRoot)) {
+    const entryPath = path.join(currentRoot, entry);
+    const command = readClaudeMarkdownCommand({ root: commandRoot, file: entryPath });
+    if (command) {
+      commands.push(command);
+    } else if (isDirectory(entryPath)) {
+      commands.push(...readClaudeMarkdownCommandRoot(commandRoot, entryPath, depth + 1));
+    }
+  }
+  return commands;
+}
+
 function readCursorMarkdownCommand(file: string): ProviderSlashCommand | null {
   if (!file.endsWith(".md")) {
     return null;
@@ -683,6 +929,7 @@ function frontmatterTomlStringField(toml: string, field: string): string | undef
 function readGeminiExtensionTomlCommand(input: {
   readonly root: string;
   readonly file: string;
+  readonly kind?: ProviderSlashCommand["kind"] | undefined;
 }): ProviderSlashCommand | null {
   const commandName = geminiCommandNameFromTomlPath(input.root, input.file);
   if (!commandName) {
@@ -692,18 +939,21 @@ function readGeminiExtensionTomlCommand(input: {
   if (!toml) {
     return null;
   }
-  return providerPluginSlashCommand({
+  const command = {
     name: commandName,
+    kind: input.kind ?? "plugin",
     description: frontmatterTomlStringField(toml, "description"),
     promptPrefix: `/${commandName}`,
     inputHint: "<prompt>",
-  });
+  } satisfies ProviderSlashCommand;
+  return command.kind === "plugin" ? providerPluginSlashCommand(command) : command;
 }
 
 function readGeminiExtensionTomlCommandRoot(
   commandRoot: string,
   currentRoot = commandRoot,
   depth = 0,
+  kind?: ProviderSlashCommand["kind"] | undefined,
 ): ProviderSlashCommand[] {
   if (!isDirectory(currentRoot) || depth > 4) {
     return [];
@@ -711,11 +961,11 @@ function readGeminiExtensionTomlCommandRoot(
   const commands: ProviderSlashCommand[] = [];
   for (const entry of safeReadDir(currentRoot)) {
     const entryPath = path.join(currentRoot, entry);
-    const command = readGeminiExtensionTomlCommand({ root: commandRoot, file: entryPath });
+    const command = readGeminiExtensionTomlCommand({ root: commandRoot, file: entryPath, kind });
     if (command) {
       commands.push(command);
     } else if (isDirectory(entryPath)) {
-      commands.push(...readGeminiExtensionTomlCommandRoot(commandRoot, entryPath, depth + 1));
+      commands.push(...readGeminiExtensionTomlCommandRoot(commandRoot, entryPath, depth + 1, kind));
     }
   }
   return commands;
@@ -846,15 +1096,18 @@ export function discoverCodexExtensionSlashCommands(
 function discoverSkillRootSlashCommands(input: {
   readonly roots: ReadonlyArray<string | null | undefined>;
   readonly skillPromptPrefix?: (commandName: string, skillName: string) => string;
+  readonly nameFromFrontmatter?: boolean | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
   return mergeProviderSlashCommands(
     input.roots
       .filter((root): root is string => Boolean(root))
       .flatMap((root) =>
-        readSkillRoot(
-          root,
-          input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {},
-        ),
+        readSkillRoot(root, {
+          ...(input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {}),
+          ...(input.nameFromFrontmatter !== undefined
+            ? { nameFromFrontmatter: input.nameFromFrontmatter }
+            : {}),
+        }),
       ),
   );
 }
@@ -893,6 +1146,31 @@ export function discoverGeminiExtensionSlashCommands(
   return mergeProviderSlashCommands(
     safeReadDir(extensionsRoot).flatMap((entry) =>
       readGeminiExtensionCommands(path.join(extensionsRoot, entry)),
+    ),
+  );
+}
+
+export function discoverGeminiCustomSlashCommands(
+  input: {
+    readonly cwd?: string | undefined;
+    readonly home?: string | undefined;
+  } = {},
+): ReadonlyArray<ProviderSlashCommand> {
+  const geminiHome = input.home?.trim() || path.join(homedir(), ".gemini");
+  return mergeProviderSlashCommands(
+    input.cwd
+      ? readGeminiExtensionTomlCommandRoot(
+          path.join(input.cwd, ".gemini", "commands"),
+          undefined,
+          undefined,
+          "provider",
+        )
+      : [],
+    readGeminiExtensionTomlCommandRoot(
+      path.join(geminiHome, "commands"),
+      undefined,
+      undefined,
+      "provider",
     ),
   );
 }
@@ -936,9 +1214,8 @@ function readClaudeInstalledPluginCommands(
     pluginName,
     includeMarkdownCommands: true,
     pluginPromptPrefix: naturalPluginPromptPrefix,
-    skillPromptPrefix: naturalSkillPromptPrefix,
-    agentPromptPrefix: (pluginName, agentName) =>
-      `Use the ${agentName} subagent from ${pluginName}:`,
+    skillPromptPrefix: (commandName) => `/${commandName}`,
+    agentPromptPrefix: (_pluginName, agentName) => `/${agentName}`,
   });
 }
 
@@ -947,30 +1224,41 @@ export function discoverClaudeExtensionSlashCommands(
 ): ReadonlyArray<ProviderSlashCommand> {
   const claudeHome = input.home?.trim() || path.join(homedir(), ".claude");
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   const agentCommands = mergeProviderSlashCommands(
-    [input.cwd ? path.join(input.cwd, ".claude", "agents") : null, path.join(claudeHome, "agents")]
-      .filter((root): root is string => Boolean(root))
-      .flatMap((root) =>
-        readAgentMarkdownRoot(root, {
-          nameFromFrontmatter: true,
-          promptPrefix: (agentName) => `Use the ${agentName} subagent:`,
-        }),
-      ),
+    [
+      ...projectRoots.map((root) => path.join(root, ".claude", "agents")),
+      path.join(claudeHome, "agents"),
+    ].flatMap((root) =>
+      readAgentMarkdownRoot(root, {
+        nameFromFrontmatter: true,
+        promptPrefix: (agentName) => `/${agentName}`,
+      }),
+    ),
   );
   const skillCommands = discoverSkillRootSlashCommands({
     roots: [
-      input.cwd ? path.join(input.cwd, ".claude", "skills") : null,
-      input.cwd ? path.join(input.cwd, ".agents", "skills") : null,
+      ...projectRoots.map((root) => path.join(root, ".claude", "skills")),
+      ...projectRoots.map((root) => path.join(root, ".agents", "skills")),
       path.join(claudeHome, "skills"),
       path.join(userAgentsHome, "skills"),
     ],
-    skillPromptPrefix: naturalSkillPromptPrefix,
+    skillPromptPrefix: (commandName) => `/${commandName}`,
+    nameFromFrontmatter: false,
   });
+  const nativeCommands = mergeProviderSlashCommands(
+    [
+      input.cwd ? path.join(input.cwd, ".claude", "commands") : null,
+      path.join(claudeHome, "commands"),
+    ]
+      .filter((root): root is string => Boolean(root))
+      .flatMap((root) => readClaudeMarkdownCommandRoot(root)),
+  );
   const pluginCommands = readClaudeInstalledPluginEntries(claudeHome).flatMap(
     readClaudeInstalledPluginCommands,
   );
 
-  return mergeProviderSlashCommands(agentCommands, skillCommands, pluginCommands);
+  return mergeProviderSlashCommands(agentCommands, skillCommands, nativeCommands, pluginCommands);
 }
 
 function discoverProviderAgentSlashCommands(input: {
@@ -1054,19 +1342,62 @@ export function discoverGenericProviderExtensionSlashCommands(input: {
 export function discoverCursorExtensionSlashCommands(input: {
   readonly cwd?: string | undefined;
   readonly configDir?: string | undefined;
+  readonly claudeHome?: string | undefined;
+  readonly codexHome?: string | undefined;
   readonly agentsHome?: string | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
   const cursorHome = input.configDir?.trim() || path.join(homedir(), ".cursor");
+  const claudeHome = input.claudeHome?.trim() || path.join(homedir(), ".claude");
+  const codexHome = input.codexHome?.trim() || path.join(homedir(), ".codex");
+  const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  const agentCommands = mergeProviderSlashCommands(
+    [
+      ...projectRoots.map((root) => path.join(root, ".cursor", "agents")),
+      ...projectRoots.map((root) => path.join(root, ".claude", "agents")),
+      ...projectRoots.map((root) => path.join(root, ".codex", "agents")),
+      path.join(cursorHome, "agents"),
+      path.join(claudeHome, "agents"),
+      path.join(codexHome, "agents"),
+    ].flatMap((root) =>
+      readAgentMarkdownRoot(root, {
+        nameFromFrontmatter: true,
+        promptPrefix: (agentName) => `/${agentName}`,
+      }),
+    ),
+  );
+  const skillCommands = discoverSkillRootSlashCommands({
+    roots: [
+      ...projectRoots.map((root) => path.join(root, ".cursor", "skills")),
+      ...projectRoots.map((root) => path.join(root, ".agents", "skills")),
+      ...projectRoots.map((root) => path.join(root, ".claude", "skills")),
+      ...projectRoots.map((root) => path.join(root, ".codex", "skills")),
+      path.join(cursorHome, "skills"),
+      path.join(userAgentsHome, "skills"),
+      path.join(claudeHome, "skills"),
+      path.join(codexHome, "skills"),
+    ],
+    skillPromptPrefix: (commandName) => `/${commandName}`,
+  });
+  const pluginCommands = pluginManifestFiles(
+    path.join(cursorHome, "plugins"),
+    ".cursor-plugin",
+  ).flatMap((pluginJsonPath) =>
+    readPluginCommands({
+      pluginJsonPath,
+      manifestDirName: ".cursor-plugin",
+      includeMarkdownCommands: true,
+      pluginPromptPrefix: naturalPluginPromptPrefix,
+      skillPromptPrefix: (commandName) => `/${commandName}`,
+      agentPromptPrefix: (_pluginName, agentName) => `/${agentName}`,
+    }),
+  );
   return mergeProviderSlashCommands(
     readCursorMarkdownCommandRoot(input.cwd ? path.join(input.cwd, ".cursor", "commands") : ""),
     readCursorMarkdownCommandRoot(path.join(cursorHome, "commands")),
-    discoverGenericProviderExtensionSlashCommands({
-      cwd: input.cwd,
-      home: cursorHome,
-      agentsHome: input.agentsHome,
-      providerHomeDirName: ".cursor",
-      pluginManifestDirName: ".cursor-plugin",
-    }),
+    agentCommands,
+    skillCommands,
+    pluginCommands,
   );
 }
 
@@ -1074,16 +1405,93 @@ export function discoverGitHubCopilotAgentSlashCommands(input: {
   readonly cwd?: string | undefined;
   readonly home?: string | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
-  const roots = githubCopilotAgentRoots(input);
-
   return mergeProviderSlashCommands(
-    roots.flatMap((root) =>
-      readAgentMarkdownRoot(root, {
-        nameFromFrontmatter: true,
-        normalizeFileName: stripMarkdownAgentSuffix,
-      }),
-    ),
+    discoverGitHubCopilotCustomAgents(input)
+      .filter((agent) => agent.userInvocable !== false)
+      .map((agent) =>
+        providerAgentSlashCommand({
+          name: agent.name,
+          ...(agent.description ? { description: agent.description } : {}),
+          promptPrefix: `@${agent.name}`,
+          inputHint: "<prompt>",
+        }),
+      ),
   );
+}
+
+function isGitHubCopilotTarget(markdown: string): boolean {
+  const target = frontmatterField(markdown, "target");
+  if (!target) {
+    return true;
+  }
+  return splitFrontmatterListValue(target)
+    .map((entry) => entry.toLowerCase())
+    .some((entry) => entry === "github-copilot");
+}
+
+function normalizeGitHubCopilotMcpServers(
+  value: Record<string, unknown> | undefined,
+): GitHubCopilotCustomAgent["mcpServers"] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const servers: NonNullable<GitHubCopilotCustomAgent["mcpServers"]> = {};
+  for (const [serverName, rawServer] of Object.entries(value)) {
+    if (!rawServer || typeof rawServer !== "object" || Array.isArray(rawServer)) {
+      continue;
+    }
+    const server = rawServer as Record<string, unknown>;
+    const type = typeof server.type === "string" ? server.type : undefined;
+    const tools =
+      Array.isArray(server.tools) && server.tools.every((tool) => typeof tool === "string")
+        ? [...server.tools]
+        : ["*"];
+    const timeout = typeof server.timeout === "number" ? server.timeout : undefined;
+    if (type === "http" || type === "sse") {
+      if (typeof server.url !== "string" || server.url.trim().length === 0) {
+        continue;
+      }
+      servers[serverName] = {
+        type,
+        url: server.url,
+        tools,
+        ...(timeout !== undefined ? { timeout } : {}),
+        ...(server.headers && typeof server.headers === "object" && !Array.isArray(server.headers)
+          ? { headers: server.headers as Record<string, string> }
+          : {}),
+      };
+      continue;
+    }
+    if (typeof server.command !== "string" || server.command.trim().length === 0) {
+      continue;
+    }
+    servers[serverName] = {
+      ...(type === "local" || type === "stdio" ? { type } : {}),
+      command: server.command,
+      args:
+        Array.isArray(server.args) && server.args.every((arg) => typeof arg === "string")
+          ? [...server.args]
+          : [],
+      tools,
+      ...(timeout !== undefined ? { timeout } : {}),
+      ...(typeof server.cwd === "string" ? { cwd: server.cwd } : {}),
+      ...(server.env && typeof server.env === "object" && !Array.isArray(server.env)
+        ? { env: server.env as Record<string, string> }
+        : {}),
+    };
+  }
+  return Object.keys(servers).length > 0 ? servers : undefined;
+}
+
+function gitHubCopilotCustomAgentInfer(markdown: string): boolean | undefined {
+  if (frontmatterBooleanField(markdown, "disable-model-invocation") === true) {
+    return false;
+  }
+  return frontmatterBooleanField(markdown, "infer");
+}
+
+function gitHubCopilotCustomAgentUserInvocable(markdown: string): boolean | undefined {
+  return frontmatterBooleanField(markdown, "user-invocable");
 }
 
 function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | null {
@@ -1094,7 +1502,10 @@ function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | 
   if (!markdown) {
     return null;
   }
-  const name = normalizeCommandName(stripMarkdownAgentSuffix(path.basename(file, ".md")));
+  if (!isGitHubCopilotTarget(markdown)) {
+    return null;
+  }
+  const name = normalizeCommandName(stripGitHubCopilotAgentSuffix(path.basename(file, ".md")));
   const prompt = markdownBodyWithoutFrontmatter(markdown);
   if (!name || !prompt) {
     return null;
@@ -1102,7 +1513,11 @@ function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | 
   const displayName = frontmatterField(markdown, "name");
   const description = frontmatterField(markdown, "description");
   const tools = frontmatterStringListField(markdown, "tools");
-  const infer = frontmatterBooleanField(markdown, "infer");
+  const infer = gitHubCopilotCustomAgentInfer(markdown);
+  const userInvocable = gitHubCopilotCustomAgentUserInvocable(markdown);
+  const mcpServers = normalizeGitHubCopilotMcpServers(
+    frontmatterJsonObjectField(markdown, "mcp-servers"),
+  );
   const skills = frontmatterStringListField(markdown, "skills");
   return {
     name,
@@ -1111,6 +1526,8 @@ function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | 
     ...(description ? { description } : {}),
     ...(tools ? { tools } : {}),
     ...(infer !== undefined ? { infer } : {}),
+    ...(userInvocable !== undefined ? { userInvocable } : {}),
+    ...(mcpServers ? { mcpServers } : {}),
     ...(skills ? { skills } : {}),
   };
 }
@@ -1168,25 +1585,46 @@ export function discoverGitHubCopilotSkillDirectories(input: {
   ]).filter((root) => isDirectory(root));
 }
 
+export function discoverGitHubCopilotPromptSlashCommands(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): ReadonlyArray<ProviderSlashCommand> {
+  return mergeProviderSlashCommands(githubCopilotPromptRoots(input).flatMap(readGitHubCopilotPromptRoot));
+}
+
 export function discoverOpenCodeAgentSlashCommands(input: {
   readonly cwd?: string | undefined;
   readonly home?: string | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
   const providerHome = input.home?.trim() || path.join(homedir(), ".config", "opencode");
-  return mergeProviderSlashCommands(
-    discoverProviderAgentSlashCommands({
-      cwd: input.cwd,
-      providerHome,
-      providerHomeDirName: ".opencode",
-      includeMode: new Set(["subagent", "all"]),
-      includeMissingMode: true,
-    }),
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  const configFiles = [
+    ...projectRoots.map((root) => path.join(root, "opencode.json")),
+    path.join(providerHome, "opencode.json"),
+  ];
+  const markdownAgentCommands = mergeProviderSlashCommands(
     [
-      input.cwd ? path.join(input.cwd, "opencode.json") : null,
-      path.join(providerHome, "opencode.json"),
-    ]
-      .filter((file): file is string => Boolean(file))
-      .flatMap(readOpenCodeJsonAgentCommands),
+      ...projectRoots.flatMap((root) => [
+        path.join(root, ".opencode", "agents"),
+        path.join(root, ".opencode", "agent"),
+      ]),
+      path.join(providerHome, "agents"),
+      path.join(providerHome, "agent"),
+    ].flatMap((root) =>
+      readAgentMarkdownRoot(root, {
+        includeMode: new Set(["subagent", "all"]),
+        includeMissingMode: true,
+      }),
+    ),
+  );
+  return mergeProviderSlashCommands(
+    [
+      ...projectRoots.map((root) => path.join(root, ".opencode", "commands")),
+      path.join(providerHome, "commands"),
+    ].flatMap((root) => readOpenCodeMarkdownCommandRoot(root)),
+    configFiles.flatMap(readOpenCodeJsonConfigCommands),
+    markdownAgentCommands,
+    configFiles.flatMap(readOpenCodeJsonAgentCommands),
   );
 }
 
@@ -1244,19 +1682,29 @@ export function discoverProviderExtensionSlashCommands(
     case "claudeAgent":
       return discoverClaudeExtensionSlashCommands({
         cwd: input.cwd,
+        home: input.settings.providers.claudeAgent.configDir,
       });
     case "cursor":
       return discoverCursorExtensionSlashCommands({
         cwd: input.cwd,
         configDir: input.settings.providers.cursor.configDir,
+        claudeHome: input.settings.providers.claudeAgent.configDir,
+        codexHome: input.settings.providers.codex.homePath,
       });
     case "gemini":
       return mergeProviderSlashCommands(
         discoverGenericProviderExtensionSlashCommands({
           cwd: input.cwd,
+          home: input.settings.providers.gemini.configDir,
           providerHomeDirName: ".gemini",
         }),
-        discoverGeminiExtensionSlashCommands(),
+        discoverGeminiCustomSlashCommands({
+          cwd: input.cwd,
+          home: input.settings.providers.gemini.configDir,
+        }),
+        discoverGeminiExtensionSlashCommands({
+          home: input.settings.providers.gemini.configDir,
+        }),
         GEMINI_BUILT_IN_SUBAGENT_COMMANDS,
       );
     case "pi":
@@ -1267,6 +1715,10 @@ export function discoverProviderExtensionSlashCommands(
     case "githubCopilot":
       return mergeProviderSlashCommands(
         discoverGitHubCopilotAgentSlashCommands({
+          cwd: input.cwd,
+          home: input.settings.providers.githubCopilot.homePath,
+        }),
+        discoverGitHubCopilotPromptSlashCommands({
           cwd: input.cwd,
           home: input.settings.providers.githubCopilot.homePath,
         }),
@@ -1287,10 +1739,12 @@ export function discoverProviderExtensionSlashCommands(
       return mergeProviderSlashCommands(
         discoverOpenCodeAgentSlashCommands({
           cwd: input.cwd,
+          home: input.settings.providers.opencode.configDir,
         }),
         OPENCODE_BUILT_IN_SUBAGENT_COMMANDS,
         discoverGenericProviderExtensionSlashCommands({
           cwd: input.cwd,
+          home: input.settings.providers.opencode.configDir,
           providerHomeDirName: ".opencode",
           configHomePath: path.join(homedir(), ".config", "opencode"),
           pluginManifestDirName: ".opencode-plugin",
