@@ -8,6 +8,7 @@ export interface MobileNotification {
 
 export interface MobileNotificationThreadRoute {
   readonly hostId: string;
+  readonly panel: "actions";
   readonly threadId: string;
 }
 
@@ -77,6 +78,7 @@ export function notificationThreadRouteFromData(
     return null;
   }
   return {
+    panel: "actions",
     threadId: normalizedThreadId,
     hostId: normalizedHostId,
   };

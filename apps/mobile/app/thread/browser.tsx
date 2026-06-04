@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -18,12 +19,14 @@ import {
   ExternalLink,
   Globe,
   House,
+  Paperclip,
   Plus,
   RotateCw,
   Search,
   X,
 } from "lucide-react-native";
 import { WebView, type WebViewNavigation } from "react-native-webview";
+import type { QueuedComposerTerminalContext } from "@ace/contracts";
 import { buildBrowserSuggestions, type BrowserSuggestion } from "@ace/shared/browserHistory";
 import { normalizeBrowserInput, resolveBrowserHomeUrl } from "@ace/shared/browserUrl";
 import { useTheme } from "../../src/design/ThemeContext";
@@ -31,6 +34,7 @@ import { Radius, withAlpha } from "../../src/design/system";
 import { useMobileBrowserHistoryStore } from "../../src/store/MobileBrowserHistoryStore";
 import { useMobileBrowserSessionStore } from "../../src/store/MobileBrowserSessionStore";
 import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStore";
+import { useMobileTerminalContextStore } from "../../src/store/MobileTerminalContextStore";
 
 interface BrowserTab {
   readonly id: string;
@@ -63,12 +67,13 @@ function titleForUrl(url: string, title?: string): string {
 }
 
 export default function BrowserScreen() {
-  const { url: initialUrl } = useLocalSearchParams<{ url?: string }>();
+  const { url: initialUrl, threadId } = useLocalSearchParams<{ url?: string; threadId?: string }>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const searchEngine = useMobilePreferencesStore((state) => state.browserSearchEngine);
   const browserHistory = useMobileBrowserHistoryStore((state) => state.history);
   const recordVisit = useMobileBrowserHistoryStore((state) => state.recordVisit);
+  const addThreadContext = useMobileTerminalContextStore((state) => state.addThreadContext);
   const persistedTabs = useMobileBrowserSessionStore((state) => state.tabs);
   const persistedActiveTabId = useMobileBrowserSessionStore((state) => state.activeTabId);
   const persistBrowserSession = useMobileBrowserSessionStore((state) => state.setSession);
@@ -380,6 +385,29 @@ export default function BrowserScreen() {
     void Linking.openURL(activeTab.url);
   };
 
+  const attachActivePageToThread = () => {
+    if (!threadId) {
+      Alert.alert("No thread selected", "Open the browser from a thread to attach page context.");
+      return;
+    }
+    const lines = [`Title: ${activeTab.title}`, `URL: ${activeTab.url}`];
+    const createdAt = new Date().toISOString();
+    const context: QueuedComposerTerminalContext = {
+      id: `mobile-browser-context-${createdAt}` as QueuedComposerTerminalContext["id"],
+      createdAt: createdAt as QueuedComposerTerminalContext["createdAt"],
+      terminalId: "mobile-browser",
+      terminalLabel: "Mobile browser",
+      lineStart: 1,
+      lineEnd: lines.length,
+      text: lines.join("\n"),
+    };
+    addThreadContext(threadId, context);
+    Alert.alert(
+      "Page attached",
+      "The current browser page will be included with your next message.",
+    );
+  };
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -461,6 +489,14 @@ export default function BrowserScreen() {
             ) : (
               <RotateCw size={16} color={colors.foreground} strokeWidth={2.2} />
             )}
+          </Pressable>
+          <Pressable
+            onPress={attachActivePageToThread}
+            style={[styles.iconButton, { backgroundColor: colors.surfaceSecondary }]}
+            accessibilityRole="button"
+            accessibilityLabel="Attach page to thread"
+          >
+            <Paperclip size={16} color={colors.foreground} strokeWidth={2.2} />
           </Pressable>
           <Pressable
             onPress={openNewTab}

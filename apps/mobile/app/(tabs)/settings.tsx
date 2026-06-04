@@ -259,6 +259,12 @@ export default function SettingsScreen() {
           <SectionTitle>Provider & Diagnostics</SectionTitle>
           <InsetGroup>
             <InsetRow
+              title="Attention inbox"
+              meta="Review approvals, agent questions, errors, and diff-ready turns."
+              icon={Bell}
+              onPress={() => router.push("/notifications")}
+            />
+            <InsetRow
               title="Advanced settings"
               meta="Provider binaries, diagnostics, archived items, and developer preferences."
               icon={Wrench}

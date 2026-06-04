@@ -94,6 +94,8 @@ export default function SearchScreen() {
     if (item.kind === "action") {
       if (item.target === "pairing") {
         router.push("/pairing");
+      } else if (item.target === "attention") {
+        router.push("/notifications");
       } else if (item.target === "projects") {
         router.push("/projects");
       } else {

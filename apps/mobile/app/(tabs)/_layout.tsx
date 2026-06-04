@@ -1,7 +1,7 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { Platform, StyleSheet } from "react-native";
-import { LayoutGrid, MessageSquare, SlidersHorizontal } from "lucide-react-native";
+import { Bell, LayoutGrid, MessageSquare, SlidersHorizontal } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Typography } from "../../src/design/tokens";
 
@@ -46,7 +46,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="notifications"
         options={{
-          href: null,
+          title: "Attention",
+          tabBarIcon: ({ color }) => <Bell size={21} color={color} strokeWidth={2.4} />,
         }}
       />
       <Tabs.Screen

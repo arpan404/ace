@@ -103,11 +103,12 @@ describe("buildMobileQuickSearchItems", () => {
       "action",
       "action",
       "action",
+      "action",
       "host",
       "project",
       "thread",
     ]);
-    expect(items[3]).toMatchObject({ title: "Local host", subtitle: "Connected host" });
+    expect(items[4]).toMatchObject({ title: "Local host", subtitle: "Connected host" });
   });
 
   it("searches titles, paths, host names, and thread previews", () => {

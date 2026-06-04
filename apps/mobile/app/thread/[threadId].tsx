@@ -107,12 +107,12 @@ import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStor
 import { useMobileTerminalContextStore } from "../../src/store/MobileTerminalContextStore";
 import { sortedCopy } from "../../src/sortedCopy";
 
-type ThreadPanel = "chat" | "diff" | "todo";
+type ThreadPanel = "chat" | "review" | "actions";
 
 const PANEL_OPTIONS: ReadonlyArray<{ key: ThreadPanel; label: string }> = [
   { key: "chat", label: "Chat" },
-  { key: "diff", label: "Diff" },
-  { key: "todo", label: "Todo" },
+  { key: "review", label: "Review" },
+  { key: "actions", label: "Actions" },
 ];
 const HANDOFF_MODES: ReadonlyArray<{
   value: ThreadHandoffMode;
@@ -161,6 +161,42 @@ function formatUrlLabel(url: string): string {
   }
 }
 
+function summarizeCheckpointFiles(files: OrchestrationCheckpointSummary["files"]): {
+  additions: number;
+  deletions: number;
+} {
+  return files.reduce(
+    (summary, file) => ({
+      additions: summary.additions + file.additions,
+      deletions: summary.deletions + file.deletions,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function checkpointSourceLabel(source: OrchestrationCheckpointSummary["source"]): string {
+  if (source === "provider-native") {
+    return "Provider diff";
+  }
+  if (source === "provider-reconstructed") {
+    return "Reconstructed";
+  }
+  return "Git checkpoint";
+}
+
+function resolveThreadPanelParam(panel: string | undefined): ThreadPanel | null {
+  if (panel === "chat" || panel === "review" || panel === "actions") {
+    return panel;
+  }
+  if (panel === "diff") {
+    return "review";
+  }
+  if (panel === "todo") {
+    return "actions";
+  }
+  return null;
+}
+
 function resolveHandoffModelSelection(
   provider: ProviderKind,
   availableProviders: ReadonlyArray<ServerProvider>,
@@ -192,9 +228,10 @@ function resolveThreadErrorMessage(thread: OrchestrationThread | null): string |
 }
 
 export default function ThreadChatScreen() {
-  const { threadId, hostId } = useLocalSearchParams<{
+  const { threadId, hostId, panel } = useLocalSearchParams<{
     threadId: string;
     hostId: string;
+    panel?: string;
   }>();
   const router = useRouter();
   const { colors } = useTheme();
@@ -225,6 +262,8 @@ export default function ThreadChatScreen() {
   const [modeUpdating, setModeUpdating] = useState<
     "runtime" | "interaction" | "model" | "traits" | null
   >(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
   const confirmThreadArchive = useMobilePreferencesStore((state) => state.confirmThreadArchive);
@@ -247,6 +286,16 @@ export default function ThreadChatScreen() {
     (state) => state.setThreadContexts,
   );
   const scrollRef = useRef<ScrollView>(null);
+  const latestLoadRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (threadId && (hostId || panel)) {
+      const requestedPanel = resolveThreadPanelParam(panel);
+      if (requestedPanel) {
+        setActivePanel(requestedPanel);
+      }
+    }
+  }, [hostId, panel, threadId]);
 
   useEffect(() => {
     const connected = connectionManager
@@ -276,13 +325,26 @@ export default function ThreadChatScreen() {
       return;
     }
 
+    const requestId = latestLoadRequestRef.current + 1;
+    latestLoadRequestRef.current = requestId;
     setLoading(true);
+    setSyncError(null);
     try {
       const nextThread = await connection.client.orchestration.getThread(threadId as never);
+      if (latestLoadRequestRef.current !== requestId) {
+        return;
+      }
       setThread(nextThread);
       setMessages(nextThread.messages);
+      setLastSyncedAt(new Date().toISOString());
+    } catch (cause) {
+      if (latestLoadRequestRef.current === requestId) {
+        setSyncError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      setLoading(false);
+      if (latestLoadRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [connection, threadId]);
 
@@ -304,6 +366,8 @@ export default function ThreadChatScreen() {
         const nextThread = await client.orchestration.getThread(threadId as ThreadId);
         setThread(nextThread);
         setMessages(nextThread.messages);
+        setLastSyncedAt(new Date().toISOString());
+        setSyncError(null);
       }
     } catch (cause) {
       setReconnectError(cause instanceof Error ? cause.message : String(cause));
@@ -933,6 +997,21 @@ export default function ThreadChatScreen() {
     connection?.status.kind === "connected" &&
     !sending &&
     (input.trim().length > 0 || composerImages.length > 0 || composerTerminalContexts.length > 0);
+  const syncIssue = hostOffline || Boolean(syncError) || Boolean(reconnectError);
+  const syncLabel = hostOffline
+    ? "Offline"
+    : loading
+      ? "Syncing"
+      : syncError
+        ? "Sync failed"
+        : "Synced";
+  const syncDetail = hostOffline
+    ? (connectionError ?? reconnectError ?? `Reconnect ${activeHost?.name ?? "this host"}.`)
+    : syncError
+      ? syncError
+      : lastSyncedAt
+        ? `Last sync ${formatTimeAgo(lastSyncedAt)}`
+        : "Waiting for first sync";
 
   useEffect(() => {
     if (
@@ -1211,6 +1290,59 @@ export default function ThreadChatScreen() {
                 {messages.length} messages
               </Text>
             </View>
+            <View
+              style={[
+                styles.syncStrip,
+                {
+                  backgroundColor: withAlpha(
+                    syncIssue ? colors.orange : colors.green,
+                    syncIssue ? 0.1 : 0.08,
+                  ),
+                  borderColor: withAlpha(syncIssue ? colors.orange : colors.green, 0.2),
+                },
+              ]}
+            >
+              <View style={styles.syncCopy}>
+                <Text
+                  style={[styles.syncTitle, { color: syncIssue ? colors.orange : colors.green }]}
+                >
+                  {syncLabel}
+                </Text>
+                <Text
+                  style={[styles.syncDetail, { color: colors.secondaryLabel }]}
+                  numberOfLines={2}
+                >
+                  {syncDetail}
+                </Text>
+              </View>
+              <Pressable
+                disabled={loading || reconnecting}
+                onPress={() => {
+                  if (hostOffline) {
+                    void reconnectHost();
+                    return;
+                  }
+                  void loadThread();
+                }}
+                style={[
+                  styles.syncButton,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.elevatedBorder,
+                  },
+                  (loading || reconnecting) && styles.disabledButton,
+                ]}
+              >
+                {loading || reconnecting ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <RefreshCw size={15} color={colors.primary} strokeWidth={2.3} />
+                )}
+                <Text style={[styles.syncButtonLabel, { color: colors.primary }]}>
+                  {hostOffline ? "Reconnect" : "Refresh"}
+                </Text>
+              </Pressable>
+            </View>
             {visibleThreadError && thread && threadErrorDismissalKey ? (
               <View
                 style={[
@@ -1245,7 +1377,7 @@ export default function ThreadChatScreen() {
               selectedKey={activePanel}
               onSelect={(key) => setActivePanel(key as ThreadPanel)}
             />
-            {thread ? (
+            {activePanel === "actions" && thread ? (
               <View style={styles.threadModeGrid}>
                 <View style={styles.threadModeGroup}>
                   <Text style={[styles.threadModeLabel, { color: colors.tertiaryLabel }]}>
@@ -1287,7 +1419,7 @@ export default function ThreadChatScreen() {
                 </View>
               </View>
             ) : null}
-            {thread && currentProviderModels.length > 0 ? (
+            {activePanel === "actions" && thread && currentProviderModels.length > 0 ? (
               <View style={styles.threadModelGroup}>
                 <Text style={[styles.threadModeLabel, { color: colors.tertiaryLabel }]}>Model</Text>
                 <ScrollView
@@ -1326,7 +1458,10 @@ export default function ThreadChatScreen() {
                 </ScrollView>
               </View>
             ) : null}
-            {thread && modelTraitState && hasVisibleMobileModelTraits(modelTraitState) ? (
+            {activePanel === "actions" &&
+            thread &&
+            modelTraitState &&
+            hasVisibleMobileModelTraits(modelTraitState) ? (
               <View style={styles.threadModelGroup}>
                 <Text style={[styles.threadModeLabel, { color: colors.tertiaryLabel }]}>
                   Traits
@@ -1545,7 +1680,7 @@ export default function ThreadChatScreen() {
             />
           ) : null}
 
-          {activePanel === "diff" ? (
+          {activePanel === "review" ? (
             <DiffPanel
               checkpoints={diffCheckpoints}
               connection={connection}
@@ -1557,8 +1692,8 @@ export default function ThreadChatScreen() {
             />
           ) : null}
 
-          {activePanel === "todo" ? (
-            <TodoPanel
+          {activePanel === "actions" ? (
+            <ActionsPanel
               activities={todoActivities}
               proposedPlan={activeProposedPlan}
               canImplementPlan={!hostOffline && !isRunning}
@@ -2039,6 +2174,7 @@ function DiffPanel({
   const latestReadyCheckpoint = readyCheckpoints.at(-1) ?? null;
   const [selectedTurnCount, setSelectedTurnCount] = useState<number | null>(null);
   const [patch, setPatch] = useState<string | null>(null);
+  const [showPatch, setShowPatch] = useState(false);
   const [loadingPatch, setLoadingPatch] = useState(false);
   const [patchError, setPatchError] = useState<string | null>(null);
   const [revertingCheckpoint, setRevertingCheckpoint] = useState(false);
@@ -2061,6 +2197,7 @@ function DiffPanel({
 
   useEffect(() => {
     setPatch(null);
+    setShowPatch(false);
     setPatchError(null);
     setRevertError(null);
   }, [checkpoint?.checkpointTurnCount, threadId]);
@@ -2082,6 +2219,7 @@ function DiffPanel({
         toTurnCount: checkpoint.checkpointTurnCount,
       });
       setPatch(result.diff);
+      setShowPatch(true);
     } catch (cause) {
       setPatchError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -2149,12 +2287,68 @@ function DiffPanel({
     );
   }
 
+  const fileStats = summarizeCheckpointFiles(checkpoint.files);
+  const hasStats = fileStats.additions > 0 || fileStats.deletions > 0;
+
   return (
     <Panel>
-      <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>Checkpoint diff</Text>
-      <Text style={[styles.placeholderMeta, { color: colors.secondaryLabel }]}>
-        {checkpoint.files.length} files · {formatTimeAgo(checkpoint.completedAt)}
-      </Text>
+      <View style={styles.reviewHeader}>
+        <View style={styles.reviewHeaderCopy}>
+          <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>
+            Review changes
+          </Text>
+          <Text style={[styles.placeholderMeta, { color: colors.secondaryLabel }]}>
+            Turn {checkpoint.checkpointTurnCount} · {checkpointSourceLabel(checkpoint.source)} ·{" "}
+            {formatTimeAgo(checkpoint.completedAt)}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.reviewStatPill,
+            {
+              backgroundColor: withAlpha(colors.primary, 0.1),
+              borderColor: withAlpha(colors.primary, 0.2),
+            },
+          ]}
+        >
+          <Text style={[styles.reviewStatValue, { color: colors.primary }]}>
+            {checkpoint.files.length}
+          </Text>
+          <Text style={[styles.reviewStatLabel, { color: colors.primary }]}>Files</Text>
+        </View>
+      </View>
+      {hasStats ? (
+        <View style={styles.diffStatRow}>
+          <View
+            style={[
+              styles.diffStatTile,
+              {
+                backgroundColor: withAlpha(colors.green, 0.1),
+                borderColor: withAlpha(colors.green, 0.2),
+              },
+            ]}
+          >
+            <Text style={[styles.diffStatValue, { color: colors.green }]}>
+              +{fileStats.additions}
+            </Text>
+            <Text style={[styles.diffStatLabel, { color: colors.green }]}>Added</Text>
+          </View>
+          <View
+            style={[
+              styles.diffStatTile,
+              {
+                backgroundColor: withAlpha(colors.red, 0.1),
+                borderColor: withAlpha(colors.red, 0.2),
+              },
+            ]}
+          >
+            <Text style={[styles.diffStatValue, { color: colors.red }]}>
+              -{fileStats.deletions}
+            </Text>
+            <Text style={[styles.diffStatLabel, { color: colors.red }]}>Removed</Text>
+          </View>
+        </View>
+      ) : null}
       {readyCheckpoints.length > 1 ? (
         <ScrollView
           horizontal
@@ -2193,6 +2387,35 @@ function DiffPanel({
           })}
         </ScrollView>
       ) : null}
+      <View style={styles.fileList}>
+        {checkpoint.files.map((file) => (
+          <View
+            key={`${checkpoint.turnId}-${file.path}`}
+            style={[
+              styles.reviewFileRow,
+              {
+                borderColor: colors.elevatedBorder,
+                backgroundColor: colors.surfaceSecondary,
+              },
+            ]}
+          >
+            <View style={styles.reviewFileCopy}>
+              <Text style={[styles.filePath, { color: colors.foreground }]} numberOfLines={2}>
+                {file.path}
+              </Text>
+              <Text style={[styles.fileMeta, { color: colors.secondaryLabel }]}>
+                {file.additions + file.deletions === 0
+                  ? "No line stats"
+                  : `${file.additions} added · ${file.deletions} removed`}
+              </Text>
+            </View>
+            <View style={styles.reviewFileStats}>
+              <Text style={[styles.fileAdded, { color: colors.green }]}>+{file.additions}</Text>
+              <Text style={[styles.fileRemoved, { color: colors.red }]}>-{file.deletions}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
       <View style={styles.diffActions}>
         <Pressable
           disabled={loadingPatch}
@@ -2206,9 +2429,26 @@ function DiffPanel({
           ]}
         >
           <Text style={[styles.approvalButtonLabel, { color: colors.primaryForeground }]}>
-            {patch ? "Reload patch" : loadingPatch ? "Loading patch..." : "Load patch"}
+            {patch ? "Reload raw patch" : loadingPatch ? "Loading patch..." : "Load raw patch"}
           </Text>
         </Pressable>
+        {patch ? (
+          <Pressable
+            onPress={() => setShowPatch((current) => !current)}
+            style={[
+              styles.approvalButton,
+              {
+                backgroundColor: colors.surfaceSecondary,
+                borderColor: colors.elevatedBorder,
+                borderWidth: 1,
+              },
+            ]}
+          >
+            <Text style={[styles.approvalButtonLabel, { color: colors.foreground }]}>
+              {showPatch ? "Hide patch" : "Show patch"}
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
           disabled={revertingCheckpoint}
           onPress={requestRevert}
@@ -2239,28 +2479,7 @@ function DiffPanel({
       {revertError ? (
         <Text style={[styles.approvalError, { color: colors.red }]}>{revertError}</Text>
       ) : null}
-      <View style={styles.fileList}>
-        {checkpoint.files.map((file) => (
-          <View
-            key={`${checkpoint.turnId}-${file.path}`}
-            style={[
-              styles.fileRow,
-              {
-                borderColor: colors.elevatedBorder,
-                backgroundColor: colors.surfaceSecondary,
-              },
-            ]}
-          >
-            <Text style={[styles.filePath, { color: colors.foreground }]} numberOfLines={1}>
-              {file.path}
-            </Text>
-            <Text style={[styles.fileMeta, { color: colors.secondaryLabel }]}>
-              +{file.additions} / -{file.deletions}
-            </Text>
-          </View>
-        ))}
-      </View>
-      {patch ? (
+      {patch && showPatch ? (
         <View
           style={[
             styles.patchBox,
@@ -2304,7 +2523,7 @@ function hasUserInputAnswer(value: unknown): boolean {
   return value !== undefined && value !== null;
 }
 
-function TodoPanel({
+function ActionsPanel({
   activities,
   proposedPlan,
   canImplementPlan,
@@ -2382,11 +2601,11 @@ function TodoPanel({
 
   return (
     <Panel>
-      <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>Thread focus</Text>
+      <Text style={[styles.placeholderTitle, { color: colors.foreground }]}>Actions</Text>
       <Text style={[styles.placeholderText, { color: colors.secondaryLabel }]}>
         {proposedPlan
-          ? "Review or implement the proposed plan from mobile."
-          : "Approvals, errors, and tool activity appear here as the run evolves."}
+          ? "Review the proposed plan, then implement it here or in a new thread."
+          : "Approvals, questions, handoff, and thread controls live here."}
       </Text>
 
       {proposedPlan && planTitle && planPreview ? (
@@ -2796,6 +3015,7 @@ function TodoPanel({
       </View>
 
       <View style={styles.fileList}>
+        <SectionTitle>Recent activity</SectionTitle>
         {activities.length === 0 ? (
           <Text style={[styles.placeholderText, { color: colors.muted }]}>No active items.</Text>
         ) : (
@@ -2927,6 +3147,49 @@ const styles = StyleSheet.create({
   summaryMeta: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  syncStrip: {
+    marginTop: 12,
+    minHeight: 58,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  syncCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  syncTitle: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  syncDetail: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  syncButton: {
+    minHeight: 38,
+    minWidth: 104,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  syncButtonLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   threadErrorBanner: {
     marginTop: 12,
@@ -3485,20 +3748,100 @@ const styles = StyleSheet.create({
     marginTop: 16,
     gap: 10,
   },
-  fileRow: {
+  reviewHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  reviewHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reviewStatPill: {
+    minWidth: 74,
+    minHeight: 58,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewStatValue: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+  reviewStatLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  diffStatRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    gap: 10,
+  },
+  diffStatTile: {
+    flex: 1,
+    minHeight: 52,
+    borderWidth: 1,
+    borderRadius: Radius.input,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  diffStatValue: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  diffStatLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reviewFileRow: {
+    minHeight: 70,
     borderWidth: 1,
     borderRadius: Radius.input,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  reviewFileCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reviewFileStats: {
+    minWidth: 58,
+    alignItems: "flex-end",
+    gap: 3,
   },
   filePath: {
     fontSize: 14,
+    lineHeight: 19,
     fontWeight: "700",
   },
   fileMeta: {
     marginTop: 5,
     fontSize: 12,
     fontWeight: "600",
+  },
+  fileAdded: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+  },
+  fileRemoved: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
   },
   checkpointStrip: {
     paddingTop: 14,
@@ -3527,6 +3870,7 @@ const styles = StyleSheet.create({
   diffActions: {
     marginTop: 14,
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   patchBox: {

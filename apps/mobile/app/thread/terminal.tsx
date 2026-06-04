@@ -14,6 +14,8 @@ import {
 import { useLocalSearchParams, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  ChevronDown,
+  ChevronUp,
   CornerDownLeft,
   Eraser,
   Paperclip,
@@ -57,6 +59,8 @@ export default function TerminalScreen() {
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
   const [terminalAction, setTerminalAction] = useState<"clear" | "restart" | null>(null);
+  const [commandHistory, setCommandHistory] = useState<readonly string[]>([]);
+  const [, setHistoryIndex] = useState<number | null>(null);
   const addThreadContext = useMobileTerminalContextStore((state) => state.addThreadContext);
   const terminalThreadId = threadId ?? "mobile-terminal";
   const scrollRef = useRef<ScrollView>(null);
@@ -186,6 +190,11 @@ export default function TerminalScreen() {
 
     const text = input;
     setInput("");
+    setHistoryIndex(null);
+    setCommandHistory((current) => {
+      const trimmed = text.trim();
+      return [...current.filter((command) => command !== trimmed), trimmed].slice(-30);
+    });
     setOutput((prev) => [...prev, `$ ${text}`]);
 
     try {
@@ -198,6 +207,46 @@ export default function TerminalScreen() {
       setOutput((prev) => [...prev, `Error: ${formatErrorMessage(err)}`]);
     }
   }, [conn, input, sessionId, terminalStatus, terminalThreadId]);
+
+  const browseCommandHistory = useCallback(
+    (direction: "previous" | "next") => {
+      if (commandHistory.length === 0) {
+        return;
+      }
+      setHistoryIndex((current) => {
+        const nextIndex =
+          direction === "previous"
+            ? current === null
+              ? commandHistory.length - 1
+              : Math.max(0, current - 1)
+            : current === null
+              ? commandHistory.length - 1
+              : Math.min(commandHistory.length - 1, current + 1);
+        setInput(commandHistory[nextIndex] ?? "");
+        return nextIndex;
+      });
+    },
+    [commandHistory],
+  );
+
+  const sendControlSequence = useCallback(
+    async (data: string, label: string) => {
+      if (!conn || conn.status.kind !== "connected" || !sessionId || terminalStatus !== "open") {
+        return;
+      }
+      setOutput((prev) => [...prev, label]);
+      try {
+        await conn.client.terminal.write({
+          threadId: terminalThreadId,
+          terminalId: sessionId,
+          data,
+        });
+      } catch (err) {
+        setOutput((prev) => [...prev, `Error: ${formatErrorMessage(err)}`]);
+      }
+    },
+    [conn, sessionId, terminalStatus, terminalThreadId],
+  );
 
   const retryOpen = useCallback(() => {
     setSessionId(null);
@@ -289,6 +338,7 @@ export default function TerminalScreen() {
   const inputDisabled = terminalStatus !== "open" || !input.trim();
   const attachDisabled = !threadId || !hasMobileTerminalContextOutput(output);
   const terminalControlsDisabled = terminalStatus !== "open" || terminalAction !== null;
+  const historyDisabled = commandHistory.length === 0 || terminalStatus !== "open";
 
   return (
     <View style={[styles.root, { backgroundColor: termBg }]}>
@@ -444,6 +494,93 @@ export default function TerminalScreen() {
           </View>
         ) : null}
 
+        {terminalStatus === "open" ? (
+          <View
+            style={[styles.controlStrip, { backgroundColor: termBarBg, borderTopColor: "#333" }]}
+          >
+            <Pressable
+              onPress={() => browseCommandHistory("previous")}
+              disabled={historyDisabled}
+              accessibilityRole="button"
+              accessibilityLabel="Previous command"
+              style={[
+                styles.controlChip,
+                {
+                  backgroundColor: historyDisabled
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(255,255,255,0.12)",
+                },
+              ]}
+            >
+              <ChevronUp size={14} color={historyDisabled ? "#555" : termFg} strokeWidth={2.2} />
+              <Text style={[styles.controlChipLabel, { color: historyDisabled ? "#666" : termFg }]}>
+                Prev
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => browseCommandHistory("next")}
+              disabled={historyDisabled}
+              accessibilityRole="button"
+              accessibilityLabel="Next command"
+              style={[
+                styles.controlChip,
+                {
+                  backgroundColor: historyDisabled
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(255,255,255,0.12)",
+                },
+              ]}
+            >
+              <ChevronDown size={14} color={historyDisabled ? "#555" : termFg} strokeWidth={2.2} />
+              <Text style={[styles.controlChipLabel, { color: historyDisabled ? "#666" : termFg }]}>
+                Next
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void sendControlSequence("\u0003", "^C")}
+              disabled={terminalControlsDisabled}
+              style={[
+                styles.controlChip,
+                {
+                  backgroundColor: terminalControlsDisabled
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(255,255,255,0.12)",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.controlChipLabel,
+                  { color: terminalControlsDisabled ? "#666" : termFg },
+                ]}
+              >
+                Ctrl-C
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void sendControlSequence("\t", "Tab")}
+              disabled={terminalControlsDisabled}
+              style={[
+                styles.controlChip,
+                {
+                  backgroundColor: terminalControlsDisabled
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(255,255,255,0.12)",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.controlChipLabel,
+                  { color: terminalControlsDisabled ? "#666" : termFg },
+                ]}
+              >
+                Tab
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <View
           style={[
             styles.inputBar,
@@ -474,7 +611,10 @@ export default function TerminalScreen() {
           <TextInput
             style={[styles.textInput, { color: termFg }]}
             value={input}
-            onChangeText={setInput}
+            onChangeText={(value) => {
+              setInput(value);
+              setHistoryIndex(null);
+            }}
             placeholder="Enter command…"
             placeholderTextColor="#555"
             autoCapitalize="none"
@@ -574,6 +714,29 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   actionLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  controlStrip: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  controlChip: {
+    minHeight: 34,
+    borderRadius: 9,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  controlChipLabel: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "800",

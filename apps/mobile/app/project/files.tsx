@@ -28,6 +28,7 @@ import {
   ListChecks,
   Pencil,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Sparkles,
@@ -429,6 +430,15 @@ export default function ProjectFilesScreen() {
     },
     [draft, selectedFile],
   );
+
+  const discardDraft = useCallback(() => {
+    if (!selectedFile) {
+      return;
+    }
+    setDraft(selectedFile.contents);
+    setSaveConflict(null);
+    setCodeInsight(null);
+  }, [selectedFile]);
 
   const openEntry = useCallback(
     (entry: ProjectEntry) => {
@@ -1051,11 +1061,32 @@ export default function ProjectFilesScreen() {
                     {selectedFile.relativePath}
                   </Text>
                 </View>
-                {isDirty ? (
-                  <Text style={[styles.dirtyLabel, { color: colors.orange }]}>Unsaved</Text>
-                ) : (
-                  <Text style={[styles.dirtyLabel, { color: colors.green }]}>Saved</Text>
-                )}
+                <View style={styles.editorStateActions}>
+                  {isDirty ? (
+                    <Text style={[styles.dirtyLabel, { color: colors.orange }]}>Unsaved</Text>
+                  ) : (
+                    <Text style={[styles.dirtyLabel, { color: colors.green }]}>Saved</Text>
+                  )}
+                  {isDirty ? (
+                    <Pressable
+                      onPress={() => confirmDiscardingDraft(discardDraft)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Discard unsaved edits"
+                      style={[
+                        styles.discardDraftButton,
+                        {
+                          backgroundColor: colors.surfaceSecondary,
+                          borderColor: colors.elevatedBorder,
+                        },
+                      ]}
+                    >
+                      <RotateCcw size={13} color={colors.secondaryLabel} strokeWidth={2.2} />
+                      <Text style={[styles.discardDraftLabel, { color: colors.secondaryLabel }]}>
+                        Discard
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
               {canPreviewMarkdown ? (
                 <View
@@ -1997,10 +2028,29 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.35,
   },
+  editorStateActions: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
   dirtyLabel: {
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.18,
+  },
+  discardDraftButton: {
+    minHeight: 32,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  discardDraftLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
   },
   editorInputFrame: {
     marginTop: 14,

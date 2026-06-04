@@ -153,6 +153,7 @@ function MobileNotificationBridge() {
         params: {
           threadId: route.threadId,
           hostId: route.hostId,
+          panel: route.panel,
         },
       });
     };

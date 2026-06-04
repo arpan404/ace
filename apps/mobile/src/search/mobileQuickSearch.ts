@@ -8,7 +8,7 @@ export type MobileQuickSearchItem =
       readonly id: string;
       readonly title: string;
       readonly subtitle: string;
-      readonly target: "pairing" | "projects" | "settings";
+      readonly target: "attention" | "pairing" | "projects" | "settings";
     }
   | {
       readonly kind: "host";
@@ -53,6 +53,13 @@ const MOBILE_QUICK_ACTIONS: ReadonlyArray<
     title: "Pair host",
     subtitle: "Connect a desktop ace host",
     target: "pairing",
+  },
+  {
+    kind: "action",
+    id: "action:attention",
+    title: "Open attention inbox",
+    subtitle: "Review approvals, questions, errors, and diffs",
+    target: "attention",
   },
   {
     kind: "action",

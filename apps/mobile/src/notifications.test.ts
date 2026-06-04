@@ -31,6 +31,7 @@ describe("notificationThreadRouteFromData", () => {
       }),
     ).toEqual({
       hostId: "host-1",
+      panel: "actions",
       threadId: "thread-1",
     });
   });
@@ -50,6 +51,7 @@ describe("notificationThreadRouteFromData", () => {
       }),
     ).toEqual({
       hostId: "host-1",
+      panel: "actions",
       threadId: "thread-1",
     });
   });
