@@ -187,7 +187,13 @@ function buildSubagentIconCells(seed: number): string[] {
   return cells;
 }
 
-function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
+export function EnvironmentSubagentIcon({
+  className,
+  thread,
+}: {
+  className?: string;
+  thread: SubagentThread;
+}) {
   const isRunning = thread.status === "running";
   const seed = hashSubagentIconSeed(thread.id || thread.label);
   const hue = seed % 360;
@@ -199,6 +205,7 @@ function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
       className={cn(
         "relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground",
         isRunning && "text-foreground",
+        className,
       )}
       aria-label={`${thread.label} subagent icon`}
     >
