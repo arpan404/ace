@@ -68,6 +68,10 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 
 const PROVIDER = "codex" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const CODEX_PROVIDER_CAPABILITIES = {
+  sessionForkMode: "native" as const,
+  sideConversationMode: "native-fork" as const,
+};
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
@@ -923,6 +927,7 @@ function mapToRuntimeEvents(
               payload: {
                 config: {
                   availableCommands,
+                  capabilities: CODEX_PROVIDER_CAPABILITIES,
                 },
               },
             },
@@ -962,7 +967,10 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         type: "session.configured",
         payload: {
-          config: mergedCommands ? { availableCommands: mergedCommands } : {},
+          config: {
+            capabilities: CODEX_PROVIDER_CAPABILITIES,
+            ...(mergedCommands ? { availableCommands: mergedCommands } : {}),
+          },
         },
       },
     ];
@@ -981,6 +989,7 @@ function mapToRuntimeEvents(
         payload: {
           config: {
             ...configPayload,
+            capabilities: CODEX_PROVIDER_CAPABILITIES,
             ...(mergedCommands ? { availableCommands: mergedCommands } : {}),
           },
         },
@@ -2198,6 +2207,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       transcriptAuthority: "provider",
       historyAuthority: "provider-session",
       sessionResumeMode: "native",
+      ...CODEX_PROVIDER_CAPABILITIES,
     },
     startSession,
     sendTurn,

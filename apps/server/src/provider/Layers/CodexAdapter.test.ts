@@ -417,6 +417,10 @@ goalFeatureLayer("CodexAdapterLive goal feature discovery", (it) => {
       }
       const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
         .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+      assert.deepEqual((events[1].payload.config as { capabilities?: unknown }).capabilities, {
+        sessionForkMode: "native",
+        sideConversationMode: "native-fork",
+      });
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),
         true,
@@ -751,6 +755,8 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     () =>
       Effect.gen(function* () {
         const adapter = yield* CodexAdapter;
+        assert.equal(adapter.capabilities.sessionForkMode, "native");
+        assert.equal(adapter.capabilities.sideConversationMode, "native-fork");
         const threadId = asThreadId("thread-session-configured");
         yield* adapter.startSession({
           provider: "codex",
@@ -788,6 +794,13 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         const availableCommands = ((
           firstEvent.value.payload.config as { availableCommands?: unknown }
         ).availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+        assert.deepEqual(
+          (firstEvent.value.payload.config as { capabilities?: unknown }).capabilities,
+          {
+            sessionForkMode: "native",
+            sideConversationMode: "native-fork",
+          },
+        );
         assert.equal(
           availableCommands.some((command) => command.name === "goal"),
           true,
@@ -828,6 +841,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
         .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
+      assert.deepEqual((events[1].payload.config as { capabilities?: unknown }).capabilities, {
+        sessionForkMode: "native",
+        sideConversationMode: "native-fork",
+      });
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),
         true,

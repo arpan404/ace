@@ -12,7 +12,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { ApprovalRequestId, ProviderItemId, ProviderRuntimeEvent, ThreadId } from "@ace/contracts";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Random, Stream } from "effect";
+import { Effect, Fiber, Layer, Option, Random, Stream } from "effect";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -275,6 +275,41 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(createInput?.options.settingSources, ["user", "project", "local"]);
       assert.equal(createInput?.options.permissionMode, "bypassPermissions");
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, true);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits native fork capabilities for side conversations", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      assert.equal(adapter.capabilities.sessionForkMode, "native");
+      assert.equal(adapter.capabilities.sideConversationMode, "native-fork");
+
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === THREAD_ID && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.isTrue(Option.isSome(configuredEvent));
+      if (!Option.isSome(configuredEvent) || configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionForkMode: "native",
+        sideConversationMode: "native-fork",
+      });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
